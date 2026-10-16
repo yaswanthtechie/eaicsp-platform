@@ -23,8 +23,8 @@ from tests.conftest import (
 # =========================================================
 
 def create_payload(
-    sku="SKU100",
-    warehouse="WH001",
+    sku="SKU-000100",
+    warehouse="WH-BLR-01",
     quantity=40,
 ):
     return {
@@ -79,8 +79,8 @@ def seed_cost_layers(
 
     items:
         [
-            ("SKU001", "WH001", 100),
-            ("SKU002", "WH001", 100),
+            ("SKU-000001", "WH-BLR-01", 100),
+            ("SKU-000002", "WH-BLR-01", 100),
         ]
     """
 
@@ -116,22 +116,22 @@ def seed_cost_layers(
 def test_create_inventory(client):
 
     seed_sales_history(
-        "SKU101",
-        "WH001",
+        "SKU-000101",
+        "WH-BLR-01",
         daily_quantity=5,
     )
 
     response = client.post(
         "/api/v1/inventory/",
-        json=create_payload("SKU101"),
+        json=create_payload("SKU-000101"),
     )
 
     assert response.status_code == 201
 
     data = response.json()
 
-    assert data["sku_id"] == "SKU101"
-    assert data["warehouse_id"] == "WH001"
+    assert data["sku_id"] == "SKU-000101"
+    assert data["warehouse_id"] == "WH-BLR-01"
     assert data["avg_daily_demand"] == 5
     assert data["reorder_point"] >= 30
 
@@ -144,7 +144,7 @@ def test_manual_avg_daily_demand_rejected(client):
 
     payload = create_payload(
         "MANUAL1",
-        "WH001",
+        "WH-BLR-01",
         40,
     )
 
@@ -165,8 +165,8 @@ def test_manual_avg_daily_demand_rejected(client):
 def test_get_inventory(client):
 
     seed_sales_history(
-        "SKU100",
-        "WH001",
+        "SKU-000100",
+        "WH-BLR-01",
         daily_quantity=5,
     )
 
@@ -178,15 +178,15 @@ def test_get_inventory(client):
     assert response.status_code == 201
 
     response = client.get(
-        "/api/v1/inventory/SKU100/WH001"
+        "/api/v1/inventory/SKU-000100/WH-BLR-01"
     )
 
     assert response.status_code == 200
 
     data = response.json()
 
-    assert data["sku_id"] == "SKU100"
-    assert data["warehouse_id"] == "WH001"
+    assert data["sku_id"] == "SKU-000100"
+    assert data["warehouse_id"] == "WH-BLR-01"
     assert data["avg_daily_demand"] == 5
 
 
@@ -198,7 +198,7 @@ def test_dynamic_reorder_point(client):
 
     seed_sales_history(
         "ROP1",
-        "WH001",
+        "WH-BLR-01",
         daily_quantity=5,
     )
 
@@ -231,7 +231,7 @@ def test_reorder_required(client):
 
     seed_sales_history(
         "LOW1",
-        "WH001",
+        "WH-BLR-01",
         daily_quantity=5,
     )
 
@@ -246,7 +246,7 @@ def test_reorder_required(client):
     assert response.status_code == 201
 
     response = client.get(
-        "/api/v1/inventory/LOW1/WH001/reorder-check"
+        "/api/v1/inventory/LOW1/WH-BLR-01/reorder-check"
     )
 
     assert response.status_code == 200
@@ -266,14 +266,14 @@ def test_reorder_exactly_at_threshold(client):
 
     seed_sales_history(
         "SKU-THRESHOLD",
-        "WH001",
+        "WH-BLR-01",
         daily_quantity=10,
     )
 
     payload = {
         "sku_id": "SKU-THRESHOLD",
         "product_name": "Threshold Product",
-        "warehouse_id": "WH001",
+        "warehouse_id": "WH-BLR-01",
         "quantity_on_hand": 100,
         "lead_time_days": 4,
         "safety_stock": 10,
@@ -297,14 +297,14 @@ def test_reorder_exactly_at_threshold(client):
     # corresponding cost layer.
     seed_cost_layer(
         sku_id="SKU-THRESHOLD",
-        warehouse_id="WH001",
+        warehouse_id="WH-BLR-01",
         quantity=100,
         unit_cost=50.0,
     )
 
     response = client.put(
         "/api/v1/inventory/"
-        "SKU-THRESHOLD/WH001",
+        "SKU-THRESHOLD/WH-BLR-01",
         json={
             "quantity_on_hand": reorder_point,
             "version": 1,
@@ -315,7 +315,7 @@ def test_reorder_exactly_at_threshold(client):
 
     check = client.get(
         "/api/v1/inventory/"
-        "SKU-THRESHOLD/WH001/reorder-check"
+        "SKU-THRESHOLD/WH-BLR-01/reorder-check"
     )
 
     assert check.status_code == 200
@@ -337,7 +337,7 @@ def test_reorder_exactly_at_threshold(client):
         item
         for item in plan_response.json()
         if item["sku_id"] == "SKU-THRESHOLD"
-        and item["warehouse_id"] == "WH001"
+        and item["warehouse_id"] == "WH-BLR-01"
     ]
 
     assert matching == []
@@ -351,14 +351,14 @@ def test_reorder_one_unit_below_threshold(client):
 
     seed_sales_history(
         "SKU-BELOW",
-        "WH001",
+        "WH-BLR-01",
         daily_quantity=10,
     )
 
     payload = {
         "sku_id": "SKU-BELOW",
         "product_name": "Below Threshold Product",
-        "warehouse_id": "WH001",
+        "warehouse_id": "WH-BLR-01",
         "quantity_on_hand": 100,
         "lead_time_days": 4,
         "safety_stock": 10,
@@ -386,14 +386,14 @@ def test_reorder_one_unit_below_threshold(client):
     # FIFO inventory cost to support that decrease.
     seed_cost_layer(
         sku_id="SKU-BELOW",
-        warehouse_id="WH001",
+        warehouse_id="WH-BLR-01",
         quantity=100,
         unit_cost=50.0,
     )
 
     response = client.put(
         "/api/v1/inventory/"
-        "SKU-BELOW/WH001",
+        "SKU-BELOW/WH-BLR-01",
         json={
             "quantity_on_hand": quantity_below,
             "version": 1,
@@ -404,7 +404,7 @@ def test_reorder_one_unit_below_threshold(client):
 
     check = client.get(
         "/api/v1/inventory/"
-        "SKU-BELOW/WH001/reorder-check"
+        "SKU-BELOW/WH-BLR-01/reorder-check"
     )
 
     assert check.status_code == 200
@@ -426,7 +426,7 @@ def test_reorder_one_unit_below_threshold(client):
         item
         for item in plan_response.json()
         if item["sku_id"] == "SKU-BELOW"
-        and item["warehouse_id"] == "WH001"
+        and item["warehouse_id"] == "WH-BLR-01"
     ]
 
     assert len(matching) == 1
@@ -440,13 +440,13 @@ def test_same_sku_multiple_warehouses(client):
 
     seed_sales_history(
         "MULTI1",
-        "WH001",
+        "WH-BLR-01",
         daily_quantity=5,
     )
 
     seed_sales_history(
         "MULTI1",
-        "WH002",
+        "WH-DEL-01",
         daily_quantity=3,
     )
 
@@ -454,7 +454,7 @@ def test_same_sku_multiple_warehouses(client):
         "/api/v1/inventory/",
         json=create_payload(
             "MULTI1",
-            "WH001",
+            "WH-BLR-01",
             100,
         ),
     )
@@ -463,7 +463,7 @@ def test_same_sku_multiple_warehouses(client):
         "/api/v1/inventory/",
         json=create_payload(
             "MULTI1",
-            "WH002",
+            "WH-DEL-01",
             20,
         ),
     )
@@ -480,7 +480,7 @@ def test_reorder_plan(client):
 
     seed_sales_history(
         "PLAN1",
-        "WH001",
+        "WH-BLR-01",
         daily_quantity=5,
     )
 
@@ -524,7 +524,7 @@ def test_low_stock(client):
 
     seed_sales_history(
         "LOW2",
-        "WH001",
+        "WH-BLR-01",
         daily_quantity=5,
     )
 
@@ -554,7 +554,7 @@ def test_simulate(client):
 
     seed_sales_history(
         "SIM1",
-        "WH001",
+        "WH-BLR-01",
         daily_quantity=5,
     )
 
@@ -567,7 +567,7 @@ def test_simulate(client):
 
     response = client.post(
         "/api/v1/inventory/"
-        "SIM1/WH001/simulate",
+        "SIM1/WH-BLR-01/simulate",
         json={
             "demand_spike_percent": 50,
         },
@@ -591,7 +591,7 @@ def test_what_if(client_ceo):
 
     seed_sales_history(
         "WHAT1",
-        "WH001",
+        "WH-BLR-01",
         daily_quantity=5,
     )
 
@@ -631,7 +631,7 @@ def test_delete_inventory(client):
 
     seed_sales_history(
         "DEL1",
-        "WH001",
+        "WH-BLR-01",
         daily_quantity=5,
     )
 
@@ -643,13 +643,13 @@ def test_delete_inventory(client):
     assert response.status_code == 201
 
     response = client.delete(
-        "/api/v1/inventory/DEL1/WH001"
+        "/api/v1/inventory/DEL1/WH-BLR-01"
     )
 
     assert response.status_code == 200
 
     response = client.get(
-        "/api/v1/inventory/DEL1/WH001"
+        "/api/v1/inventory/DEL1/WH-BLR-01"
     )
 
     assert response.status_code == 404
@@ -805,7 +805,7 @@ def test_negative_demand_is_rejected(client):
         db.add(
             SalesHistory(
                 sku_id="NEG-DEMAND-001",
-                warehouse_id="WH001",
+                warehouse_id="WH-BLR-01",
                 sale_date=date.today(),
                 quantity_sold=-10,
             )
@@ -819,7 +819,7 @@ def test_negative_demand_is_rejected(client):
         json={
             "sku_id": "NEG-DEMAND-001",
             "product_name": "Negative Demand Test",
-            "warehouse_id": "WH001",
+            "warehouse_id": "WH-BLR-01",
             "quantity_on_hand": 50,
             "lead_time_days": 4,
             "safety_stock": 10,
@@ -831,7 +831,7 @@ def test_negative_demand_is_rejected(client):
 
     follow_up = client.get(
         "/api/v1/inventory/"
-        "NEG-DEMAND-001/WH001"
+        "NEG-DEMAND-001/WH-BLR-01"
     )
 
     assert follow_up.status_code == 404
@@ -848,7 +848,7 @@ def test_abc_exactly_at_20th_percentile(db_session):
         db_session.add(
             SalesHistory(
                 sku_id=f"ABC-RANK-{rank:02d}",
-                warehouse_id="WH001",
+                warehouse_id="WH-BLR-01",
                 sale_date=date(2026, 8, 1),
                 quantity_sold=(11 - rank) * 100,
             )
@@ -859,32 +859,32 @@ def test_abc_exactly_at_20th_percentile(db_session):
     result = classify_skus(db_session)
 
     assert (
-        result[("ABC-RANK-01", "WH001")]["abc_tier"]
+        result[("ABC-RANK-01", "WH-BLR-01")]["abc_tier"]
         == "A"
     )
 
     assert (
-        result[("ABC-RANK-02", "WH001")]["rank_percentile"]
+        result[("ABC-RANK-02", "WH-BLR-01")]["rank_percentile"]
         == 20.0
     )
 
     assert (
-        result[("ABC-RANK-02", "WH001")]["abc_tier"]
+        result[("ABC-RANK-02", "WH-BLR-01")]["abc_tier"]
         == "A"
     )
 
     assert (
-        result[("ABC-RANK-03", "WH001")]["rank_percentile"]
+        result[("ABC-RANK-03", "WH-BLR-01")]["rank_percentile"]
         == 30.0
     )
 
     assert (
-        result[("ABC-RANK-03", "WH001")]["abc_tier"]
+        result[("ABC-RANK-03", "WH-BLR-01")]["abc_tier"]
         == "B"
     )
 
     assert (
-        result[("ABC-RANK-10", "WH001")]["abc_tier"]
+        result[("ABC-RANK-10", "WH-BLR-01")]["abc_tier"]
         == "C"
     )
 
@@ -1058,7 +1058,7 @@ def test_simulate_30_percent_growth(client):
 
     seed_sales_history(
         "SIM-GROWTH",
-        "WH001",
+        "WH-BLR-01",
         daily_quantity=10,
     )
 
@@ -1066,7 +1066,7 @@ def test_simulate_30_percent_growth(client):
         "/api/v1/inventory/",
         json=create_payload(
             "SIM-GROWTH",
-            "WH001",
+            "WH-BLR-01",
             50,
         ),
     )
@@ -1112,7 +1112,7 @@ def test_simulation_does_not_modify_inventory(
 
     seed_sales_history(
         "SIM-NOMODIFY",
-        "WH001",
+        "WH-BLR-01",
         daily_quantity=10,
     )
 
@@ -1120,7 +1120,7 @@ def test_simulation_does_not_modify_inventory(
         "/api/v1/inventory/",
         json=create_payload(
             "SIM-NOMODIFY",
-            "WH001",
+            "WH-BLR-01",
             50,
         ),
     )
@@ -1180,7 +1180,7 @@ def test_simulate_zero_growth(client):
 
     seed_sales_history(
         "SIM-ZERO",
-        "WH001",
+        "WH-BLR-01",
         daily_quantity=10,
     )
 
@@ -1188,7 +1188,7 @@ def test_simulate_zero_growth(client):
         "/api/v1/inventory/",
         json=create_payload(
             "SIM-ZERO",
-            "WH001",
+            "WH-BLR-01",
             50,
         ),
     )
@@ -1265,7 +1265,7 @@ def test_concurrent_decrement_does_not_lose_updates(
 
     seed_sales_history(
         "CONC1",
-        "WH001",
+        "WH-BLR-01",
         daily_quantity=5,
     )
 
@@ -1273,7 +1273,7 @@ def test_concurrent_decrement_does_not_lose_updates(
         "/api/v1/inventory/",
         json=create_payload(
             "CONC1",
-            "WH001",
+            "WH-BLR-01",
             100,
         ),
     )
@@ -1285,7 +1285,7 @@ def test_concurrent_decrement_does_not_lose_updates(
     # ten concurrent decrements.
     seed_cost_layer(
         sku_id="CONC1",
-        warehouse_id="WH001",
+        warehouse_id="WH-BLR-01",
         quantity=100,
         unit_cost=50.0,
     )
@@ -1298,7 +1298,7 @@ def test_concurrent_decrement_does_not_lose_updates(
         response = client.post(
             "/api/v1/inventory/decrement"
             "?sku_id=CONC1"
-            "&warehouse_id=WH001"
+            "&warehouse_id=WH-BLR-01"
             "&quantity=1"
         )
 
@@ -1324,7 +1324,7 @@ def test_concurrent_decrement_does_not_lose_updates(
 
     final = client.get(
         "/api/v1/inventory/"
-        "CONC1/WH001"
+        "CONC1/WH-BLR-01"
     )
 
     assert final.status_code == 200
@@ -1342,7 +1342,7 @@ def test_csv_rejects_missing_columns(client):
 
     csv_content = (
         "sku_id,product_name,warehouse_id\n"
-        "CSV-001,Laptop,WH001\n"
+        "CSV-001,Laptop,WH-BLR-01\n"
     )
 
     response = client.post(
@@ -1368,7 +1368,7 @@ def test_csv_rejects_negative_quantity(client):
     csv_content = (
         "sku_id,product_name,warehouse_id,"
         "quantity_on_hand,lead_time_days,safety_stock\n"
-        "CSV-NEG,Laptop,WH001,-500,4,10\n"
+        "CSV-NEG,Laptop,WH-BLR-01,-500,4,10\n"
     )
 
     response = client.post(
@@ -1548,7 +1548,7 @@ def test_update_inventory_increments_version(client):
         json={
             "sku_id": "M4-VERSION-001",
             "product_name": "M4 Version Product",
-            "warehouse_id": "WH001",
+            "warehouse_id": "WH-BLR-01",
             "quantity_on_hand": 100,
             "lead_time_days": 5,
             "safety_stock": 10,
@@ -1563,14 +1563,14 @@ def test_update_inventory_increments_version(client):
 
     seed_cost_layer(
         sku_id="M4-VERSION-001",
-        warehouse_id="WH001",
+        warehouse_id="WH-BLR-01",
         quantity=100,
         unit_cost=50.0,
     )
 
     update_response = client.put(
         "/api/v1/inventory/"
-        "M4-VERSION-001/WH001",
+        "M4-VERSION-001/WH-BLR-01",
         json={
             "quantity_on_hand": 90,
             "version": 1,
@@ -1596,7 +1596,7 @@ def test_update_inventory_stale_version_returns_409(client):
         json={
             "sku_id": "M4-STALE-001",
             "product_name": "M4 Stale Version Product",
-            "warehouse_id": "WH001",
+            "warehouse_id": "WH-BLR-01",
             "quantity_on_hand": 100,
             "lead_time_days": 5,
             "safety_stock": 10,
@@ -1611,14 +1611,14 @@ def test_update_inventory_stale_version_returns_409(client):
 
     seed_cost_layer(
         sku_id="M4-STALE-001",
-        warehouse_id="WH001",
+        warehouse_id="WH-BLR-01",
         quantity=100,
         unit_cost=50.0,
     )
 
     first_update = client.put(
         "/api/v1/inventory/"
-        "M4-STALE-001/WH001",
+        "M4-STALE-001/WH-BLR-01",
         json={
             "quantity_on_hand": 90,
             "version": 1,
@@ -1630,7 +1630,7 @@ def test_update_inventory_stale_version_returns_409(client):
 
     stale_update = client.put(
         "/api/v1/inventory/"
-        "M4-STALE-001/WH001",
+        "M4-STALE-001/WH-BLR-01",
         json={
             "quantity_on_hand": 80,
             "version": 1,
@@ -1657,7 +1657,7 @@ def test_stale_update_does_not_increment_version(client):
         json={
             "sku_id": "M4-NO-INCREMENT-001",
             "product_name": "M4 Version Safety Product",
-            "warehouse_id": "WH001",
+            "warehouse_id": "WH-BLR-01",
             "quantity_on_hand": 100,
             "lead_time_days": 5,
             "safety_stock": 10,
@@ -1668,14 +1668,14 @@ def test_stale_update_does_not_increment_version(client):
 
     seed_cost_layer(
         sku_id="M4-NO-INCREMENT-001",
-        warehouse_id="WH001",
+        warehouse_id="WH-BLR-01",
         quantity=100,
         unit_cost=50.0,
     )
 
     first_update = client.put(
         "/api/v1/inventory/"
-        "M4-NO-INCREMENT-001/WH001",
+        "M4-NO-INCREMENT-001/WH-BLR-01",
         json={
             "quantity_on_hand": 90,
             "version": 1,
@@ -1687,7 +1687,7 @@ def test_stale_update_does_not_increment_version(client):
 
     stale_update = client.put(
         "/api/v1/inventory/"
-        "M4-NO-INCREMENT-001/WH001",
+        "M4-NO-INCREMENT-001/WH-BLR-01",
         json={
             "quantity_on_hand": 80,
             "version": 1,
@@ -1698,7 +1698,7 @@ def test_stale_update_does_not_increment_version(client):
 
     current = client.get(
         "/api/v1/inventory/"
-        "M4-NO-INCREMENT-001/WH001"
+        "M4-NO-INCREMENT-001/WH-BLR-01"
     )
 
     assert current.status_code == 200

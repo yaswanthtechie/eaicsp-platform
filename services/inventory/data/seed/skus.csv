@@ -1,0 +1,51 @@
+sku_id,name,category,pack_size,unit_price,unit_cost,abc_class,supplier_id
+SKU-000001,Laptop,Electronics,1 pc,1200.0,800.0,A,SUP-00001
+SKU-000002,Monitor,Electronics,1 pc,1200.0,800.0,A,SUP-00002
+SKU-000003,Keyboard,Electronics,1 pc,1200.0,800.0,A,SUP-00003
+SKU-000004,Mouse,Electronics,1 pc,1200.0,800.0,A,SUP-00004
+SKU-000005,Headphones,Electronics,1 pc,1200.0,800.0,A,SUP-00005
+SKU-000006,Webcam,Electronics,1 pc,1200.0,800.0,A,SUP-00006
+SKU-000007,Printer,Office Supplies,1 pc,250.0,150.0,C,SUP-00007
+SKU-000008,Desk Chair,Furniture,1 pc,600.0,380.0,B,SUP-00008
+SKU-000009,Desk,Furniture,1 pc,600.0,380.0,B,SUP-00009
+SKU-000010,USB Cable,Accessories,1 pc,250.0,150.0,C,SUP-00010
+SKU-000011,Tablet,Electronics,1 pc,1200.0,800.0,A,SUP-00011
+SKU-000012,Mobile Phone,Electronics,1 pc,1200.0,800.0,A,SUP-00012
+SKU-000013,Power Bank,Accessories,1 pc,250.0,150.0,C,SUP-00013
+SKU-000014,Router,Networking,1 pc,250.0,150.0,C,SUP-00014
+SKU-000015,Switch,Networking,1 pc,250.0,150.0,C,SUP-00015
+SKU-000016,SSD,Computer Parts,1 pc,600.0,380.0,B,SUP-00016
+SKU-000017,Hard Drive,Computer Parts,1 pc,600.0,380.0,B,SUP-00017
+SKU-000018,RAM,Computer Parts,1 pc,600.0,380.0,B,SUP-00018
+SKU-000019,Graphics Card,Computer Parts,1 pc,600.0,380.0,B,SUP-00019
+SKU-000020,Power Supply,Computer Parts,1 pc,600.0,380.0,B,SUP-00020
+SKU-000021,Motherboard,Computer Parts,1 pc,600.0,380.0,B,SUP-00021
+SKU-000022,CPU,Computer Parts,1 pc,600.0,380.0,B,SUP-00022
+SKU-000023,Computer Case,Computer Parts,1 pc,600.0,380.0,B,SUP-00023
+SKU-000024,Microphone,Electronics,1 pc,1200.0,800.0,A,SUP-00024
+SKU-000025,Speaker,Electronics,1 pc,1200.0,800.0,A,SUP-00025
+SKU-000026,Projector,Electronics,1 pc,1200.0,800.0,A,SUP-00026
+SKU-000027,Projector Screen,Office Supplies,1 pc,250.0,150.0,C,SUP-00027
+SKU-000028,Whiteboard,Office Supplies,1 pc,250.0,150.0,C,SUP-00028
+SKU-000029,Notebook,Office Supplies,1 pc,250.0,150.0,C,SUP-00029
+SKU-000030,Pen Pack,Office Supplies,1 pc,250.0,150.0,C,SUP-00030
+SKU-000031,Office Lamp,Furniture,1 pc,600.0,380.0,B,SUP-00031
+SKU-000032,Bookshelf,Furniture,1 pc,600.0,380.0,B,SUP-00032
+SKU-000033,Filing Cabinet,Furniture,1 pc,600.0,380.0,B,SUP-00033
+SKU-000034,Keyboard Stand,Accessories,1 pc,250.0,150.0,C,SUP-00034
+SKU-000035,Laptop Stand,Accessories,1 pc,250.0,150.0,C,SUP-00035
+SKU-000036,HDMI Cable,Accessories,1 pc,250.0,150.0,C,SUP-00036
+SKU-000037,Ethernet Cable,Networking,1 pc,250.0,150.0,C,SUP-00037
+SKU-000038,WiFi Adapter,Networking,1 pc,250.0,150.0,C,SUP-00038
+SKU-000039,UPS,Electronics,1 pc,1200.0,800.0,A,SUP-00039
+SKU-000040,Surge Protector,Electronics,1 pc,1200.0,800.0,A,SUP-00040
+SKU-000041,Barcode Scanner,Office Equipment,1 pc,600.0,380.0,B,SUP-00041
+SKU-000042,Label Printer,Office Equipment,1 pc,600.0,380.0,B,SUP-00042
+SKU-000043,Receipt Printer,Office Equipment,1 pc,600.0,380.0,B,SUP-00043
+SKU-000044,POS Terminal,Electronics,1 pc,1200.0,800.0,A,SUP-00044
+SKU-000045,Card Reader,Electronics,1 pc,1200.0,800.0,A,SUP-00045
+SKU-000046,External Webcam,Electronics,1 pc,1200.0,800.0,A,SUP-00046
+SKU-000047,Wireless Mouse,Accessories,1 pc,250.0,150.0,C,SUP-00047
+SKU-000048,Wireless Keyboard,Accessories,1 pc,250.0,150.0,C,SUP-00048
+SKU-000049,Bluetooth Speaker,Electronics,1 pc,1200.0,800.0,A,SUP-00049
+SKU-000050,Smartphone Charger,Accessories,1 pc,250.0,150.0,C,SUP-00050

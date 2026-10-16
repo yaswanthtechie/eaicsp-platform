@@ -1,0 +1,51 @@
+supplier_id,name,country,city,state,lat,lng,sanctions_flag,sanctions_list,lead_time_days,payment_terms_days,reliability_score
+SUP-00001,Laptop Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,5,30,0.85
+SUP-00002,Monitor Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,7,30,0.85
+SUP-00003,Keyboard Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,4,30,0.85
+SUP-00004,Mouse Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,3,30,0.85
+SUP-00005,Headphones Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,6,30,0.85
+SUP-00006,Webcam Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,5,30,0.85
+SUP-00007,Printer Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,8,30,0.85
+SUP-00008,Desk Chair Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,10,30,0.85
+SUP-00009,Desk Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,12,30,0.85
+SUP-00010,USB Cable Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,3,30,0.85
+SUP-00011,Tablet Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,6,30,0.85
+SUP-00012,Mobile Phone Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,5,30,0.85
+SUP-00013,Power Bank Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,4,30,0.85
+SUP-00014,Router Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,7,30,0.85
+SUP-00015,Switch Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,8,30,0.85
+SUP-00016,SSD Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,6,30,0.85
+SUP-00017,Hard Drive Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,7,30,0.85
+SUP-00018,RAM Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,5,30,0.85
+SUP-00019,Graphics Card Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,9,30,0.85
+SUP-00020,Power Supply Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,8,30,0.85
+SUP-00021,Motherboard Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,10,30,0.85
+SUP-00022,CPU Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,9,30,0.85
+SUP-00023,Computer Case Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,8,30,0.85
+SUP-00024,Microphone Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,6,30,0.85
+SUP-00025,Speaker Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,5,30,0.85
+SUP-00026,Projector Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,12,30,0.85
+SUP-00027,Projector Screen Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,10,30,0.85
+SUP-00028,Whiteboard Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,7,30,0.85
+SUP-00029,Notebook Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,3,30,0.85
+SUP-00030,Pen Pack Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,2,30,0.85
+SUP-00031,Office Lamp Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,6,30,0.85
+SUP-00032,Bookshelf Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,11,30,0.85
+SUP-00033,Filing Cabinet Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,10,30,0.85
+SUP-00034,Keyboard Stand Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,4,30,0.85
+SUP-00035,Laptop Stand Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,5,30,0.85
+SUP-00036,HDMI Cable Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,3,30,0.85
+SUP-00037,Ethernet Cable Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,4,30,0.85
+SUP-00038,WiFi Adapter Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,5,30,0.85
+SUP-00039,UPS Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,9,30,0.85
+SUP-00040,Surge Protector Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,5,30,0.85
+SUP-00041,Barcode Scanner Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,7,30,0.85
+SUP-00042,Label Printer Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,8,30,0.85
+SUP-00043,Receipt Printer Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,8,30,0.85
+SUP-00044,POS Terminal Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,10,30,0.85
+SUP-00045,Card Reader Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,6,30,0.85
+SUP-00046,External Webcam Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,5,30,0.85
+SUP-00047,Wireless Mouse Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,4,30,0.85
+SUP-00048,Wireless Keyboard Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,5,30,0.85
+SUP-00049,Bluetooth Speaker Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,6,30,0.85
+SUP-00050,Smartphone Charger Supply Co,India,Bengaluru,Karnataka,12.97,77.59,False,,3,30,0.85
