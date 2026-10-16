@@ -234,3 +234,7 @@ myenv/
 # Local platform database
 services/platform/platform.db
 data/*.db
+
+# Generated seed dataset output
+data-platform/seed/out/
+data-platform/out/
