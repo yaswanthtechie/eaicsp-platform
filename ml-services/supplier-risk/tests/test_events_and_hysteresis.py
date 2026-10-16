@@ -880,3 +880,63 @@ def test_history_is_bounded():
     for _ in range(HISTORY_MAXLEN + 50):
         tracker.process_update(supplier="Noisy", risk_score=80.0, supporting_articles=_articles(80.0))
     assert len(tracker.get_state("Noisy").history) == HISTORY_MAXLEN
+
+
+def test_event_carries_canonical_supplier_id():
+    """Verify supplierrisk.score.changed events carry canonical SUP-XXXXX ID."""
+    from src.events import build_score_changed_event
+    from src.supplier_mapping import is_canonical_supplier_id
+
+    publisher = InMemoryEventPublisher()
+    tracker = SupplierHysteresisTracker(config=HysteresisConfig(min_evidence=1), publisher=publisher)
+    tracker.set_state("TEST UN ENTITY 01", tier="low", score=40.0)
+
+    event = tracker.process_update(
+        supplier="TEST UN ENTITY 01",
+        risk_score=85.0,
+        supporting_articles=_articles(85.0),
+        supplier_id="SUP-00045",
+    )
+
+    assert event is not None
+    payload = event["payload"]
+    assert "supplier_id" in payload
+    assert payload["supplier_id"] == "SUP-00045"
+    assert is_canonical_supplier_id(payload["supplier_id"])
+    assert payload["supplier"] == "TEST UN ENTITY 01"
+
+    # Publisher key must be keyed by canonical supplier_id
+    published = publisher.get_events()
+    assert len(published) == 1
+    assert published[0]["payload"]["supplier_id"] == "SUP-00045"
+
+
+def test_event_resolves_canonical_id_from_seed_supplier_name():
+    """When supplier_id is not passed, resolve canonical ID deterministically from name."""
+    publisher = InMemoryEventPublisher()
+    tracker = SupplierHysteresisTracker(config=HysteresisConfig(min_evidence=1), publisher=publisher)
+    tracker.set_state("ALPHA SANCTIONS CORP", tier="low", score=30.0)
+
+    event = tracker.process_update(
+        supplier="ALPHA SANCTIONS CORP",
+        risk_score=80.0,
+        supporting_articles=_articles(80.0),
+    )
+
+    assert event is not None
+    assert event["payload"]["supplier_id"] == "SUP-00007"
+
+
+def test_invalid_legacy_supplier_id_in_event_raises_value_error():
+    """Passing legacy ID (SUP001) instead of canonical format raises ValueError."""
+    from src.events import build_score_changed_event
+
+    with pytest.raises(ValueError, match=r"(not canonical|Invalid canonical supplier ID)"):
+        build_score_changed_event(
+            supplier="Legacy Supplier",
+            previous_tier="low",
+            new_tier="high",
+            risk_score=80.0,
+            supporting_articles=_articles(80.0),
+            supplier_id="SUP001",
+        )
