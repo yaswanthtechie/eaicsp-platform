@@ -14,7 +14,7 @@ from src.relationships import (
     discover_relationships as discover_relationships_between,
 )
 from src.executive_summary import generate_executive_summary
-
+from src.postgres_profiler import PostgresPushdownProfiler
 
 def make_json_serializable(obj):
     if isinstance(obj, dict):
@@ -146,3 +146,14 @@ class Profiler:
             end_time=end_time,
         )
         return make_json_serializable(results)
+
+    def profile_table(
+            self,
+            connection_or_url,
+            table_name: str,
+            schema: str = "public",
+    ):
+        engine_profiler = PostgresPushdownProfiler(connection_or_url)
+        report = engine_profiler.profile_table(table_name=table_name, schema=schema)
+        report = make_json_serializable(report)
+        return ProfileReport(report)
