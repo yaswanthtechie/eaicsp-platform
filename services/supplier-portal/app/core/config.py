@@ -59,7 +59,12 @@ class Settings(BaseSettings):
 
     # Durable Compliance State
     COMPLIANCE_DB_PATH: str = "data/compliance_state.db"
-
+    
+    # PostgreSQL — Supplier Portal seed data
+    DATABASE_URL: str = (
+        "postgresql+psycopg://postgres:postgres@localhost:5432/eaicsp"
+    )
+    SUPPLIER_DB_SCHEMA: str = "supplier_portal"
 
     model_config = SettingsConfigDict(
         env_file=".env",
