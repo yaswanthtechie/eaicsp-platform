@@ -34,6 +34,8 @@ def test_sales_and_opening_stock_row_counts():
 
     assert len(frames["sales_daily"]) == 500 * 6 * 3
     assert len(frames["opening_stock"]) == 500 * 6
+    assert len(frames["current_stock"]) == 500 * 6
+    assert set(frames["current_stock"]["snapshot_date"]) == {"2026-10-14"}
 
 
 def test_sanctions_and_location_requirements():
@@ -80,6 +82,7 @@ def test_same_seed_produces_identical_csv_files(tmp_path):
         "skus.csv",
         "sales_daily.csv",
         "opening_stock.csv",
+        "current_stock.csv",
     ):
         hash1 = hashlib.sha256((out1 / name).read_bytes()).hexdigest()
         hash2 = hashlib.sha256((out2 / name).read_bytes()).hexdigest()
@@ -91,7 +94,7 @@ def test_samples_have_ten_rows_per_dataset():
     samples = make_samples(frames, seed=42)
 
     assert set(samples) == {
-        "warehouses", "suppliers", "skus", "sales_daily", "opening_stock"
+        "warehouses", "suppliers", "skus", "sales_daily", "opening_stock", "current_stock"
     }
 
     for name, sample in samples.items():
@@ -111,13 +114,14 @@ def test_parquet_generation_when_pyarrow_is_installed(tmp_path):
         frames, tmp_path, ["parquet"], {"seed": 42, "days": 3}
     )
 
-    assert len(manifest["files"]) == 5
+    assert len(manifest["files"]) == 6
     for name in (
         "warehouses.parquet",
         "suppliers.parquet",
         "skus.parquet",
         "sales_daily.parquet",
         "opening_stock.parquet",
+        "current_stock.parquet",
     ):
         assert (tmp_path / name).is_file()
 
@@ -154,7 +158,7 @@ def test_same_seed_produces_identical_parquet_files(tmp_path):
         {"seed": 42, "days": 3},
     )
 
-    assert len(metadata1["files"]) == 5
+    assert len(metadata1["files"]) == 6
 
     for name, info in metadata1["files"].items():
         assert info["sha256"] == metadata2["files"][name]["sha256"], (

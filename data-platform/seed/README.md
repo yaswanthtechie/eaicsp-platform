@@ -30,6 +30,7 @@ The default output includes CSV and Parquet files for:
 - SKUs
 - Daily sales
 - Opening stock
+- Current stock snapshot (as of 2026-10-14)
 
 Generated files include a manifest containing row counts, file sizes, SHA-256 hashes, and library versions. Keep generated output in a gitignored directory.
 
@@ -75,3 +76,5 @@ python -m pytest tests/test_seed_generator.py -q
 
 The committed CSV samples contain 10 data rows per file, except
 `warehouses.csv`, which contains all 6 warehouses (the full dataset only has six).
+
+`current_stock.csv` contains the latest on-hand inventory snapshot, dated `2026-10-14`, with `snapshot_date`, `sku_id`, `warehouse_id`, and `quantity_on_hand` columns. Current stock is generated deterministically using approximately 10-45 days of cover, with approximately 2% of SKU-warehouse pairs stocked out.
