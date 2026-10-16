@@ -14,12 +14,12 @@ N_SUPPLIERS = 60
 
 # (city_code, name, city, state, lat, lng, capacity_units, demand_weight)
 _WAREHOUSES = [
+    ("BOM", "Mumbai DC", "Bhiwandi", "Maharashtra", 19.3002, 73.0581, 130_000, 1.20),
     ("BLR", "Bengaluru DC", "Bengaluru", "Karnataka", 12.9716, 77.5946, 120_000, 1.25),
     ("CCU", "Kolkata DC", "Kolkata", "West Bengal", 22.5726, 88.3639, 80_000, 0.80),
     ("DEL", "Delhi NCR DC", "Gurugram", "Haryana", 28.4595, 77.0266, 140_000, 1.30),
     ("HYD", "Hyderabad DC", "Hyderabad", "Telangana", 17.3850, 78.4867, 100_000, 1.00),
     ("MAA", "Chennai DC", "Chennai", "Tamil Nadu", 13.0827, 80.2707, 90_000, 0.85),
-    ("MUM", "Mumbai DC", "Bhiwandi", "Maharashtra", 19.3002, 73.0581, 130_000, 1.20),
 ]
 
 
@@ -91,7 +91,7 @@ def warehouses() -> pd.DataFrame:
          "lat": lat, "lng": lng, "capacity_units": cap, "demand_weight": w}
         for code, name, city, state, lat, lng, cap, w in _WAREHOUSES
     ]
-    return pd.DataFrame(rows).sort_values("warehouse_id").reset_index(drop=True)
+    return pd.DataFrame(rows).reset_index(drop=True)
 
 
 def suppliers(rng: np.random.Generator) -> pd.DataFrame:
