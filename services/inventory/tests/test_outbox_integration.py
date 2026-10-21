@@ -70,7 +70,7 @@ def test_outbox_table_persists_envelope_structure(db_session):
     parsed_envelope = json.loads(saved.payload)
     assert parsed_envelope["event_type"] == "inventory.stock.low"
     assert parsed_envelope["producer"] == "inventory-service"
-    assert parsed_envelope["event_version"] == "1.0"
+    assert parsed_envelope["event_version"] == 1
     assert parsed_envelope["trace_id"] == "trace-test-123"
     assert parsed_envelope["payload"] == test_payload
     assert "event_id" in parsed_envelope

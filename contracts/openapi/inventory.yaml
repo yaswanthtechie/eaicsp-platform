@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
   title: EAICSP Inventory Service API
-  version: 1.0.0
   description: API specification for EAICSP Inventory Service, including Round 15
     Flow A and Flow B endpoints.
+  version: 1.0.0
 paths:
   /health:
     get:
@@ -117,9 +117,9 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
-          description: Filter by purchase order ID (e.g. PO-7F78FAE0)
+          description: Filter by purchase order ID (e.g. PO-2026-000123)
           title: Po Id
-        description: Filter by purchase order ID (e.g. PO-7F78FAE0)
+        description: Filter by purchase order ID (e.g. PO-2026-000123)
       - name: supplier_id
         in: query
         required: false
@@ -242,6 +242,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OptimizationRecommendationsResponse'
+        '401':
+          description: Missing or invalid token
+        '403':
+          description: Insufficient permissions
+        '501':
+          description: Not implemented yet (Round 15 stub)
       security:
       - HTTPBearer: []
   /api/v1/inventory/goods-receipts:
@@ -266,6 +272,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GoodsReceiptResponse'
+        '401':
+          description: Missing or invalid token
+        '403':
+          description: Insufficient permissions
+        '501':
+          description: Not implemented yet (Round 15 stub)
         '422':
           description: Validation Error
           content:
@@ -817,16 +829,14 @@ components:
       properties:
         po_id:
           type: string
+          pattern: ^PO-\d{4}-\d{6}$
           title: Po Id
           description: Associated canonical Purchase Order ID (e.g. PO-2026-000123)
         warehouse_id:
           type: string
+          pattern: ^WH-[A-Z]{3}-\d{2}$
           title: Warehouse Id
           description: Canonical Destination Warehouse ID (e.g. WH-BLR-01)
-        received_by:
-          type: string
-          title: Received By
-          description: Username or email of warehouse receiving manager
         items:
           items:
             $ref: '#/components/schemas/GoodsReceiptItemCreate'
@@ -844,13 +854,13 @@ components:
       required:
       - po_id
       - warehouse_id
-      - received_by
       - items
       title: GoodsReceiptCreate
     GoodsReceiptItemCreate:
       properties:
         sku_id:
           type: string
+          pattern: ^SKU-\d{6}$
           title: Sku Id
           description: Canonical Product / SKU ID (e.g. SKU-000123)
         quantity_received:

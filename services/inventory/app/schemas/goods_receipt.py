@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class GoodsReceiptItemCreate(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    sku_id: str = Field(description="Canonical Product / SKU ID (e.g. SKU-000123)")
+    sku_id: str = Field(pattern=r"^SKU-\d{6}$", description="Canonical Product / SKU ID (e.g. SKU-000123)")
     quantity_received: int = Field(gt=0, description="Quantity physically received into warehouse")
     unit_cost: Optional[float] = Field(default=None, ge=0, description="Unit cost at receipt")
 
@@ -14,9 +14,8 @@ class GoodsReceiptItemCreate(BaseModel):
 class GoodsReceiptCreate(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    po_id: str = Field(description="Associated canonical Purchase Order ID (e.g. PO-2026-000123)")
-    warehouse_id: str = Field(description="Canonical Destination Warehouse ID (e.g. WH-BLR-01)")
-    received_by: str = Field(description="Username or email of warehouse receiving manager")
+    po_id: str = Field(pattern=r"^PO-\d{4}-\d{6}$", description="Associated canonical Purchase Order ID (e.g. PO-2026-000123)")
+    warehouse_id: str = Field(pattern=r"^WH-[A-Z]{3}-\d{2}$", description="Canonical Destination Warehouse ID (e.g. WH-BLR-01)")
     items: List[GoodsReceiptItemCreate] = Field(min_length=1, description="List of received SKU items")
     notes: Optional[str] = Field(default=None, description="Optional delivery or inspection notes")
 

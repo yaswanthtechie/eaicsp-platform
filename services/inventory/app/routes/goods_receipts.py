@@ -22,6 +22,11 @@ router = APIRouter(
         "Increments on-hand stock in inventory_ledger, marks goods receipt, "
         "and emits event inventory.goods.received to Kafka for 3-way match in Supplier Portal."
     ),
+    responses={
+        401: {"description": "Missing or invalid token"},
+        403: {"description": "Insufficient permissions"},
+        501: {"description": "Not implemented yet (Round 15 stub)"},
+    },
     dependencies=[
         Depends(require_permission("inventory:write")),
     ],

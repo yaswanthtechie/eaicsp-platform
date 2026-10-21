@@ -1,5 +1,5 @@
-from datetime import UTC, datetime
-from typing import Any, Optional
+from datetime import UTC, date, datetime
+from typing import Any, Literal, Optional
 import uuid
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -12,7 +12,7 @@ class EventEnvelope(BaseModel):
     event_type: str
     producer: str = "inventory-service"
     occurred_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
-    event_version: str = "1.0"
+    event_version: int = 1
     payload: dict[str, Any]
     trace_id: Optional[str] = None
 
@@ -96,24 +96,23 @@ class POApprovedPayload(BaseModel):
     po_number: Optional[str] = None
     supplier_id: str = Field(pattern=r"^SUP-\d{5}$")
     warehouse_id: str = Field(pattern=r"^WH-[A-Z]{3}-\d{2}$")
-    status: str = Field(pattern=r"^approved$")
-    approval_status: str = Field(pattern=r"^approved$")
+    approval_status: Literal["approved"]
     approved_by: str
-    approved_at: str
+    approved_at: datetime
     total_amount: float = Field(ge=0)
     currency: str = "INR"
-    expected_delivery_date: Optional[str] = None
+    expected_delivery_date: Optional[date] = None
     lines: list[POApprovedLineItem] = Field(min_length=1)
 
 
 class InventoryPOApprovedEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    event_id: str
-    event_type: str = "inventory.po.approved"
-    event_version: int = 1
-    occurred_at: str
-    producer: str = "inventory-service"
+    event_id: uuid.UUID
+    event_type: Literal["inventory.po.approved"] = "inventory.po.approved"
+    event_version: Literal[1] = 1
+    occurred_at: datetime
+    producer: Literal["inventory-service"] = "inventory-service"
     trace_id: Optional[str] = None
     payload: POApprovedPayload
 
@@ -135,8 +134,8 @@ class GoodsReceivedPayload(BaseModel):
     supplier_id: str = Field(pattern=r"^SUP-\d{5}$")
     warehouse_id: str = Field(pattern=r"^WH-[A-Z]{3}-\d{2}$")
     received_by: str
-    received_at: str
-    status: str = "received"
+    received_at: datetime
+    status: Literal["received"] = "received"
     notes: Optional[str] = None
     items: list[GoodsReceivedLineItem] = Field(min_length=1)
 
@@ -144,11 +143,10 @@ class GoodsReceivedPayload(BaseModel):
 class InventoryGoodsReceivedEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    event_id: str
-    event_type: str = "inventory.goods.received"
-    event_version: int = 1
-    occurred_at: str
-    producer: str = "inventory-service"
+    event_id: uuid.UUID
+    event_type: Literal["inventory.goods.received"] = "inventory.goods.received"
+    event_version: Literal[1] = 1
+    occurred_at: datetime
+    producer: Literal["inventory-service"] = "inventory-service"
     trace_id: Optional[str] = None
     payload: GoodsReceivedPayload
-

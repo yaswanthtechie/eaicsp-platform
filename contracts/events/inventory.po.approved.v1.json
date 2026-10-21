@@ -39,7 +39,10 @@
       "description": "Originating service."
     },
     "trace_id": {
-      "type": "string",
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "Distributed tracing correlation identifier."
     },
     "payload": {
@@ -48,7 +51,6 @@
         "po_id",
         "supplier_id",
         "warehouse_id",
-        "status",
         "approval_status",
         "approved_by",
         "approved_at",
@@ -75,19 +77,16 @@
           "pattern": "^WH-[A-Z]{3}-\\d{2}$",
           "description": "Canonical Destination Warehouse ID (e.g. WH-BLR-01)."
         },
-        "status": {
-          "type": "string",
-          "enum": ["approved"],
-          "description": "Current status of the Purchase Order."
-        },
         "approval_status": {
           "type": "string",
-          "enum": ["approved"],
+          "enum": [
+            "approved"
+          ],
           "description": "Approval workflow state."
         },
         "approved_by": {
           "type": "string",
-          "description": "User or role that authorized the approval."
+          "description": "User ID of the approver extracted from the authentication token."
         },
         "approved_at": {
           "type": "string",

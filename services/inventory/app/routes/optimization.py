@@ -22,6 +22,11 @@ router = APIRouter(
         "(GET /api/v1/demand/forecast/{sku_id}?horizon=30) and current inventory levels. "
         "Falls back to 28-day moving average if forecast is unavailable."
     ),
+    responses={
+        401: {"description": "Missing or invalid token"},
+        403: {"description": "Insufficient permissions"},
+        501: {"description": "Not implemented yet (Round 15 stub)"},
+    },
     dependencies=[
         Depends(require_permission("inventory:read")),
     ],

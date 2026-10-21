@@ -39,7 +39,10 @@
       "description": "Originating service."
     },
     "trace_id": {
-      "type": "string",
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "Distributed tracing correlation identifier."
     },
     "payload": {
@@ -90,7 +93,9 @@
         },
         "status": {
           "type": "string",
-          "enum": ["received"],
+          "enum": [
+            "received"
+          ],
           "description": "Goods receipt processing status."
         },
         "notes": {

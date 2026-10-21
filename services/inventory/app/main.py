@@ -60,8 +60,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Inventory Service",
+    title="EAICSP Inventory Service API",
     version="1.0.0",
+    description="API specification for EAICSP Inventory Service, including Round 15 Flow A and Flow B endpoints.",
     lifespan=lifespan,
 )
 

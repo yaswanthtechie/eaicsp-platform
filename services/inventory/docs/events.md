@@ -98,7 +98,7 @@ Published whenever inventory on hand drops below the calculated Reorder Point (R
   "event_type": "inventory.stock.low",
   "producer": "inventory-service",
   "occurred_at": "2026-09-30T12:00:00.000000Z",
-  "event_version": "1.0",
+  "event_version": 1,
   "trace_id": "trace-8891-xyz",
   "payload": {
     "sku_id": "SKU-LOW-1",
@@ -142,7 +142,7 @@ Published whenever an automatic draft Purchase Order is generated in response to
   "event_type": "inventory.po.drafted",
   "producer": "inventory-service",
   "occurred_at": "2026-09-30T12:05:00.000000Z",
-  "event_version": "1.0",
+  "event_version": 1,
   "trace_id": null,
   "payload": {
     "po_id": "PO-20260930-001",
