@@ -24,6 +24,7 @@ The default output includes CSV and Parquet files for:
 - SKUs
 - Daily sales
 - Opening stock
+- Current stock snapshot (as of 2026-10-14)
 
 Generated files include a manifest containing row counts, file sizes, SHA-256 hashes, and library versions. Keep generated output in a gitignored directory.
 

@@ -24,7 +24,7 @@ DEFAULT_DAYS = 730               # two years of daily history
 SAMPLE_ROWS = 10
 SAMPLES_DIR = Path(__file__).resolve().parent / "samples"
 
-FILES = ["warehouses", "suppliers", "skus", "sales_daily", "opening_stock"]
+FILES = ["warehouses", "suppliers", "skus", "sales_daily", "opening_stock", "current_stock"]
 
 _PARQUET_SCHEMAS = {  # built lazily so CSV-only runs don't need pyarrow
     "warehouses": [("warehouse_id", "string"), ("name", "string"), ("city", "string"), ("state", "string"),
@@ -40,14 +40,17 @@ _PARQUET_SCHEMAS = {  # built lazily so CSV-only runs don't need pyarrow
                     ("quantity_sold", "int32"), ("unit_price", "float64")],
     "opening_stock": [("snapshot_date", "date32"), ("sku_id", "string"), ("warehouse_id", "string"),
                       ("quantity_on_hand", "int32")],
+    "current_stock": [("snapshot_date", "date32"), ("sku_id", "string"), ("warehouse_id", "string"),
+                      ("quantity_on_hand", "int32")],
 }
 
 
 def build_frames(seed: int = DEFAULT_SEED, days: int = DEFAULT_DAYS,
                  end_date: str = DEFAULT_END_DATE) -> dict[str, pd.DataFrame]:
     # Independent streams per concern: changing one model never shifts another's numbers.
-    cat_rng, base_rng, sales_rng, stock_rng = (
-        np.random.default_rng(s) for s in np.random.SeedSequence(seed).spawn(4))
+    rng_seeds = np.random.SeedSequence(seed).spawn(6)
+    cat_rng, base_rng, sales_rng, stock_rng, current_stock_rng = (
+        np.random.default_rng(rng_seeds[i]) for i in (0, 1, 2, 3, 5))
 
     wh = catalog.warehouses()
     sup = catalog.suppliers(cat_rng)
@@ -61,6 +64,7 @@ def build_frames(seed: int = DEFAULT_SEED, days: int = DEFAULT_DAYS,
         "skus": sku,
         "sales_daily": demand.sales(sku, wh, base, dates, sales_rng),
         "opening_stock": demand.opening_stock(sku, wh, base, dates[0], stock_rng),
+        "current_stock": demand.current_stock(sku, wh, base, dates[-1], current_stock_rng),
     }
     validate(frames)
     return frames

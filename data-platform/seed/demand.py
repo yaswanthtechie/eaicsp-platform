@@ -73,3 +73,20 @@ def opening_stock(skus: pd.DataFrame, wh: pd.DataFrame, base: np.ndarray,
         "warehouse_id": np.tile(wh["warehouse_id"].to_numpy(), S),
         "quantity_on_hand": qty.reshape(-1),
     })
+
+def current_stock(skus: pd.DataFrame, wh: pd.DataFrame, base: np.ndarray,
+                  snapshot_date: pd.Timestamp,
+                  rng: np.random.Generator) -> pd.DataFrame:
+    """Current on-hand stock at the end of the sales window:
+    10-45 days of cover, with approximately 2% of SKU-warehouse pairs stocked out.
+    """
+    S, W = len(skus), len(wh)
+    cover_days = rng.uniform(10, 45, size=(S, W))
+    qty = np.ceil(base * cover_days).astype("int32")
+    qty[rng.random((S, W)) < 0.02] = 0
+    return pd.DataFrame({
+        "snapshot_date": snapshot_date.strftime("%Y-%m-%d"),
+        "sku_id": np.repeat(skus["sku_id"].to_numpy(), W),
+        "warehouse_id": np.tile(wh["warehouse_id"].to_numpy(), S),
+        "quantity_on_hand": qty.reshape(-1),
+    })
