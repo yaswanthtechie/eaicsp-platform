@@ -234,3 +234,6 @@ myenv/
 # Local platform database
 services/platform/platform.db
 data/*.db
+
+# Round 15 shared infrastructure and generated seed data
+data-platform/out/
