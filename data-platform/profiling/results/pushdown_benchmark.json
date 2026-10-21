@@ -1,14 +1,19 @@
 {
   "rows": 1000000,
   "pandas_in_memory": {
-    "time_seconds": 42.15,
+    "time_seconds": 32.45,
     "peak_python_mb": 362.7
   },
   "sql_pushdown": {
-    "time_seconds": 5.96,
+    "time_seconds": 3.96,
     "peak_python_mb": 0.2
   },
-  "parity_mismatches": [],
+  "parity_mismatches": [
+    "quantity_sold: no SQL statistics",
+    "unit_price: no SQL statistics",
+    "quantity_sold.outlier_count: pandas=10000 sql=None",
+    "unit_price.outlier_count: pandas=0 sql=None"
+  ],
   "environment": {
     "python": "3.11.17",
     "pandas": "3.0.6",

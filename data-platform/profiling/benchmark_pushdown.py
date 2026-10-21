@@ -18,7 +18,6 @@ def pandas_mode(engine, table_name):
     df = pd.read_sql_table(table_name, engine)     # the load is part of pandas mode
     return profile(df)
 
-DB_URL = "postgresql+psycopg2://postgres:password@localhost:5433/profiling_db"
 ROW_COUNT = 1_000_000
 TABLE_NAME = "benchmark_1m_sales"
 

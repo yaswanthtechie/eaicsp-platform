@@ -1,6 +1,6 @@
 import pytest
 
-pytest.importorskip("airflow")   # Airflow lives in the container, not the main venv
+pytest.importorskip("airflow.models.dagbag")   # Airflow lives in the container, not the main venv
 
 
 def test_profiling_dag_loads():

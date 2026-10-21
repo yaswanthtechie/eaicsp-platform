@@ -162,11 +162,11 @@ class PostgresPushdownProfiler:
                     # Quantiles via percentile_cont
                     quantile_sql = text(f"""
                         SELECT 
-                            percentile_cont(0.25) WITHIN GROUP (ORDER BY "{c_name}") AS q25,
-                            percentile_cont(0.50) WITHIN GROUP (ORDER BY "{c_name}") AS q50,
-                            percentile_cont(0.75) WITHIN GROUP (ORDER BY "{c_name}") AS q75
+                            percentile_cont(0.25) WITHIN GROUP (ORDER BY {qc}) AS q25,
+                            percentile_cont(0.50) WITHIN GROUP (ORDER BY {qc}) AS q50,
+                            percentile_cont(0.75) WITHIN GROUP (ORDER BY {qc}) AS q75
                         FROM {tbl}
-                        WHERE "{c_name}" IS NOT NULL
+                        WHERE {qc} IS NOT NULL
                     """)
                     q_res = conn.execute(quantile_sql).mappings().one()
                     q25 = q_res["q25"] if q_res["q25"] is not None else 0.0
@@ -193,7 +193,7 @@ class PostgresPushdownProfiler:
                     outlier_sql = text(f"""
                         SELECT COUNT(*) AS out_count
                         FROM {tbl}
-                        WHERE "{c_name}" < :lower_limit OR "{c_name}" > :upper_limit
+                        WHERE {qc} < :lower_limit OR {qc} > :upper_limit
                     """)
                     out_count = conn.execute(
                         outlier_sql, {"lower_limit": lower_limit, "upper_limit": upper_limit}
@@ -216,9 +216,9 @@ class PostgresPushdownProfiler:
                     reason = "PII-like column name"
                 else:
                     sample_sql = text(f"""
-                        SELECT "{c_name}"::text AS val
+                        SELECT {qc}::text AS val
                         FROM {tbl}
-                        WHERE "{c_name}" IS NOT NULL
+                        WHERE {qc} IS NOT NULL
                         LIMIT :limit
                     """)
                     sample_vals = [

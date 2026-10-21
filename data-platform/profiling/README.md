@@ -1145,21 +1145,56 @@ sku_id|drift|no drift|False|Null rate changed by 12.0 percentage points|Drift sc
 unit_price|drift|drift|True|Mean shifted by more than 1 standard deviation|Drift score is 1.47. The drift detection method is Wasserstein distance (normed). The drift threshold is 0.10.
 warehouse_id|drift|drift|True|Significant categorical proportion change|Drift score is 0.12. The drift detection method is Jensen-Shannon distance. The drift threshold is 0.10.
 
-### What Evidently caught that ours missed
-<state it plainly, e.g. "Our detector compares means and std thresholds ... so a pure
-variance change on quantity_sold was missed. Evidently's Wasserstein test caught it.">
+### Why the two tools disagree
+
+**`quantity_sold`: Evidently caught drift that ours missed.**
+We changed only the spread (std 10 to 40) and kept the mean at 50. Our detector flags a
+numeric column when the mean moves by more than 1 standard deviation, so a variance-only
+change is invisible to it. Evidently's normed Wasserstein distance compares the whole
+distribution, so it scored 2.43 against a 0.10 threshold. This is a real gap in our
+detector: it would miss, for example, a sensor that starts producing noisier readings
+around the same average.
+
+**`sku_id`: ours caught drift that Evidently missed.**
+We set 12% of `sku_id` values to null at random. Our detector checks the null rate
+directly (+12.0 percentage points). Evidently's Jensen-Shannon test compares the
+distribution of the values that are present, and random nulls don't change that
+distribution, so it scored 0.01 and reported no drift. For data quality, a sudden jump
+in missing values matters, so this is a case where our explicit null check adds
+something Evidently's drift preset does not.
+
+**Agreements:** both tools flagged `unit_price` (mean shift of +30, about 1.5 std) and
+`warehouse_id` (proportions changed). On the no-drift pair (two independent samples
+from the same distribution), both tools reported no drift on all four columns, so
+neither produced a false positive.
+
+**Takeaway:** neither tool covers everything. Ours misses shape and variance changes,
+and Evidently's default preset misses null-rate changes. Running both, or adding a
+distribution test to ours, gives better coverage.
 
 
 ## Round 12-13: status
 - M1 SQL pushdown: done. Parity check passes on 1M rows; timings in `results/pushdown_benchmark.json` (table below).
 - M2 Airflow DAG: done. Runs locally via `dag.test()` inside `airflow-tester`; load test in `tests/test_dag_loads.py`.
-- M3 Evidently cross-check: done. Per-column comparison below; Evidently caught <X>, which ours missed.
+- M3 Evidently cross-check: done. Evidently caught a variance-only change on `quantity_sold` that ours missed; ours caught a 12% null injection on `sku_id` that Evidently missed. Details below.
 - Not done / known limits: pushdown returns no correlations / sparklines / insights; memory is Python-heap only (tracemalloc).
+
+### M1 benchmark (1,000,000 rows, from `results/pushdown_benchmark.json`)
+| Mode | Time    | Peak Python memory | Parity |
+|---|---------|---|---|
+| pandas (read_sql + profile) | 32.45 s | 362.7 MB | - |
+| SQL pushdown | 3.96 s  | 0.2 MB | 0 mismatches |
+
+Note: pandas mode runs the full `profile()`, including correlations, sparklines and
+insights, which pushdown does not compute. So part of the time difference is extra
+work, not just where the work runs. Memory is the Python heap only (tracemalloc);
+Postgres's own memory is not counted.
 
 ## How to run
 ```text
 cp .env.example .env                                   # fill in a password
 docker compose -f docker-compose.dev.yml up -d
+python seed_db.py                                      # creates the products table
 pytest -m "not integration" -q                         # no Docker needed
 pytest -m integration -q                               # needs the container
 python benchmark_pushdown.py                           # writes results/pushdown_benchmark.json

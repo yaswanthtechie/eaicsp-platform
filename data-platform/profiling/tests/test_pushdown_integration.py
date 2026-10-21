@@ -1,16 +1,16 @@
 import pytest
 import pandas as pd
 from sqlalchemy import create_engine, types
+from src.db_config import get_db_url
 from src.postgres_profiler import PostgresPushdownProfiler
 from src.profile import profile
 from src.parity import compare_reports
 
-DB_URL = "postgresql+psycopg2://postgres:password@localhost:5433/profiling_db"
 
 
 @pytest.mark.integration
 def test_postgres_pushdown_vs_pandas_parity():
-    engine = create_engine(DB_URL)
+    engine = create_engine(get_db_url())   # fails loudly if PROFILING_DB_URL is missing
 
     # 1. Populate test data in PostgreSQL
     df_sample = pd.DataFrame({
@@ -23,7 +23,7 @@ def test_postgres_pushdown_vs_pandas_parity():
 
     table_name = "test_sales_parity"
     with engine.begin() as connection:
-        # Enforce strict NUMERIC types so the unmodified _is_numeric_type check passes
+        # Store as NUMERIC so the columns are profiled as numeric.
         df_sample.to_sql(
             table_name,
             connection,

@@ -3,13 +3,13 @@
 **Folder:** `data-platform/profiling/`
 **Previous owner:** Sandeep (until 08/10/2026)
 **Current owner:** Tharun (from 08/10/2026)
-**Last updated:** 14/10/2026
+**Last updated:** 21/10/2026
 
 ---
 
 ## 1. What this library does
 
-<3 lines, in plain words. Example: "Profiles datasets (null rates, distinct counts, min/max, quantiles, drift) from files or directly inside Postgres (SQL pushdown). Runs on a schedule through an Airflow DAG and stores every run in an audit archive.">
+3 lines, in plain words. Example: "Profiles datasets (null rates, distinct counts, min/max, quantiles, drift) from files or directly inside Postgres (SQL pushdown). Runs on a schedule through an Airflow DAG and stores every run in an audit archive."
 
 ---
 
@@ -23,7 +23,7 @@ python -m venv .venv
 pip install -r requirements.txt
 pytest -m "not integration" -q
 ```
-Result on 14/102026: `<185 passed, 1 failed, 1 skipped>`
+Result on 21/10/2026: `185 passed, 1 skipped, 1 deselected with Docker stopped`
 
 ### Database (Docker)
 ```powershell
@@ -36,13 +36,13 @@ docker compose -f docker-compose.dev.yml up -d
 ```powershell
 python benchmark_pushdown.py
 ```
-Creates: `<list the tables, e.g. benchmark_1m_sales, products, test_sales_parity>`
+Creates: `benchmark_1m_sales (benchmark_pushdown.py), products (seed_db.py), test_sales_parity (integration test)`
 
 ### Airflow DAG (local test)
 ```powershell
 docker exec -it airflow-tester python dags/profiling_dag.py
 ```
-Result on 14/10/2026: `both tasks succeeded`
+Result on 21/10/2026: `both tasks succeeded`
 
 ---
 
@@ -53,7 +53,7 @@ Result on 14/10/2026: `both tasks succeeded`
 | My laptop (seed script, local tests) | `localhost:5433` |
 | Inside Docker (the Airflow DAG) | `postgres-profiler:5432` |
 
-- Port **5433** on the laptop, because 5432 is already in use by <what, e.g. a Postgres installed on Windows>.
+- Port **5433** on the laptop, because 5432 is already in use by.
 - The DAG first looks for the Airflow connection `postgres_profiler_db`. If it doesn't exist, it uses the `PROFILING_DB_URL` environment variable, or the local default.
 - Credentials come from `.env` (see `.env.example`). Nothing is hardcoded for real environments.
 
@@ -78,7 +78,7 @@ Result on 14/10/2026: `both tasks succeeded`
 | 2. Scheduled profiling as an Airflow DAG | Done (fixed by Tharun, 13/10/2026) | See section 7 |
 | 3. Evidently comparison (agreements and disagreements explained) | Done (fixed by Tharun, 13/10/2026) | reports/evidently_drift_report.html |
 
-Open PR from Sandeep: `<PR number, or "none">` → `<finished and merged / closed, remaining items listed below>`
+Open PR from Sandeep: `#187` → `finished and not closed`
 
 ---
 

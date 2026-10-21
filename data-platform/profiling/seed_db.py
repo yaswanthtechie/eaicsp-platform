@@ -1,20 +1,30 @@
+"""Creates the tables the profiling DAG expects. Safe to re-run (replaces the tables)."""
+import numpy as np
 import pandas as pd
 from sqlalchemy import create_engine
-from pathlib import Path
+
+from src.db_config import get_db_url
+
+PRODUCT_ROWS = 500
+
+
+def make_products(rng) -> pd.DataFrame:
+    return pd.DataFrame({
+        "product_id": np.arange(1, PRODUCT_ROWS + 1),
+        "sku_id": [f"SKU{i:03d}" for i in range(1, PRODUCT_ROWS + 1)],
+        "category": rng.choice(["Electronics", "Grocery", "Apparel", "Hardware"], size=PRODUCT_ROWS),
+        "unit_cost": rng.uniform(5.0, 400.0, size=PRODUCT_ROWS).round(2),
+        "created_at": pd.Timestamp("2026-01-01") + pd.to_timedelta(rng.integers(0, 270, size=PRODUCT_ROWS), unit="D"),
+    })
+
 
 def main():
-    # Connect using the internal Docker network URL
-    engine = create_engine("postgresql://postgres:password@postgres-profiler:5432/profiling_db")
-    data_dir = Path("data")
+    engine = create_engine(get_db_url())
+    products = make_products(np.random.default_rng(42))
+    products.to_sql("products", engine, if_exists="replace", index=False)
+    print(f"Loaded 'products' with {len(products)} rows.")
+    print("For 'benchmark_1m_sales', run: python benchmark_pushdown.py")
 
-    for table in ["sales", "products"]:
-        csv_path = data_dir / f"{table}_data.csv"
-        if csv_path.exists():
-            df = pd.read_csv(csv_path)
-            df.to_sql(table, engine, if_exists="replace", index=False)
-            print(f"Successfully loaded '{table}' table with {len(df)} rows.")
-        else:
-            print(f"WARNING: {csv_path} not found. The DAG will fail on this table.")
 
 if __name__ == "__main__":
     main()

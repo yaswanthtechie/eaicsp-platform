@@ -47,7 +47,7 @@ def resolve_db_url() -> str:
 
 
 # Tables profiled on every run. Each one must exist in schema 'public'.
-#   benchmark_1m_sales : 1M-row sales table (Sandeep's pushdown benchmark data)
+#   benchmark_1m_sales : 1M-row sales table (created by benchmark_pushdown.py)
 #   products           : product master data
 TABLES_TO_PROFILE = [
     "benchmark_1m_sales",
@@ -97,8 +97,7 @@ def profiling_dag():
     @task
     def profile_table(table_name: str):
         # 1. Resolve connection.
-        # Tries Airflow's connection store first, falls back to the local Docker Compose
-        # database for seamless dag.test() execution.
+        # Airflow connection first; otherwise PROFILING_DB_URL. Fails if neither is set.
         db_url = resolve_db_url()
 
         # 2. Fail fast with a clear message if the table does not exist

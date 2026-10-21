@@ -20,41 +20,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def create_datasets():
-    """Generate a baseline dataset, an identical one, and a drifted one."""
-    rng = np.random.default_rng(42)
-    rows = 10_000
-
-    baseline = pd.DataFrame({
-        "sku_id": rng.choice([f"SKU{i:03d}" for i in range(1, 10)], size=rows),
-        "warehouse_id": rng.choice(["WH1", "WH2", "WH3"], size=rows, p=[0.5, 0.3, 0.2]),
-        "quantity_sold": rng.normal(loc=50, scale=10, size=rows),
-        "unit_price": rng.normal(loc=100, scale=20, size=rows),
-    })
-
-    # No Drift: Exact identical copy
-    no_drift = baseline.copy()
-
-    # Drifted: Inject specific shifts
-    drifted = baseline.copy()
-
-    # 1. Mean shift > 1 std (Custom catches this, Evidently catches this)
-    drifted["unit_price"] = rng.normal(loc=130, scale=20, size=rows)
-
-    # 2. Distribution shape change without mean shift (Custom misses this, Evidently catches this)
-    # Baseline mean is ~50. New mean is ~50, but variance is drastically wider.
-    drifted["quantity_sold"] = rng.normal(loc=50, scale=40, size=rows)
-
-    # 3. Minor proportion shift (Custom triggers at 10% absolute diff)
-    drifted["warehouse_id"] = rng.choice(["WH1", "WH2", "WH3"], size=rows, p=[0.35, 0.45, 0.2])
-
-    # 4. Null injection (Custom explicitly checks this)
-    null_idx = rng.choice(rows, size=int(rows * 0.12), replace=False)
-    drifted.loc[null_idx, "sku_id"] = np.nan
-
-    return baseline, no_drift, drifted
-
-
 def run_custom_drift(old_df, new_df):
     profiler = Profiler()
     return profiler.compare(old_df, new_df)
