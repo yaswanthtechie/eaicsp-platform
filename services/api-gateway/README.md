@@ -722,9 +722,9 @@ slows the dashboard by up to 3s. Caching health results is a planned improvement
 |---|---|---|
 | **M1 Structured JSON Logging** | **Complete** | Every gateway access log is emitted as a single valid JSON line via `app/middleware/logging.py`, containing `@timestamp`, `level`, `service.name`, `http.method`, `route`, `http.status_code`, `latency_ms`, `request_id`, and `trace_id`. |
 | **M2 Security & Redaction Tests** | **Complete** | Automated suite (`tests/test_structured_logging.py`, 14/14 passed) validates JSON validity, required field typing, token/header redaction, cookie protection, error responses, and W3C trace correlation. |
-| **M3 Local ELK Stack** | **Verified** | Dedicated `docker-compose.elk.yml` and `filebeat.yml` with pinned images (`8.15.1`), persistent volumes, localhost-only bindings, zero-secret dev profile, and health checks. |
-| **M4 Kibana Saved Objects** | **Export prepared — import verification pending** | Prepared export at `kibana/exports/saved_objects.ndjson` including Data View (`gateway-logs-*`), Saved Search by `request_id`, error rate visualizations, and slow routes ranking. |
-| **M5 Observability Correlation** | **Pending verification** | Correlation flow across Grafana metrics, Jaeger traces, and Kibana logs using `request_id` and OpenTelemetry `trace_id` is pending runtime verification. |
+| M3 Local ELK Stack | Done | docker-compose.elk.yml + filebeat.yml; a gateway log line found in Elasticsearch by request ID: [elk_correlation.json](docs/evidence/round14/elk_correlation.json) |
+| M4 Kibana Saved Objects | Done | Exported from Kibana: kibana/exports/saved_objects.ndjson; import result: [kibana_import.json](docs/evidence/round14/kibana_import.json); dashboard: [kibana_dashboard.png](docs/evidence/round14/kibana_dashboard.png) |
+| M5 Observability Correlation | Done | One 503 followed by request ID / trace ID: [Grafana](docs/evidence/round14/loop_1_grafana_error.png) → [Jaeger](docs/evidence/round14/loop_2_jaeger_trace.png) → [Kibana](docs/evidence/round14/loop_3_kibana_logs.png) |
 
 ### ELK Architecture and Log Flow
 
@@ -752,7 +752,7 @@ slows the dashboard by up to 3s. Caching health results is a planned improvement
                                                                      +-------------------+
                                                                      |   Elasticsearch   |
                                                                      |     (v8.15.1)     |
-                                                                     | (:9200 localhost) |
+                                                                     | (:19200 localhost) |
                                                                      +-------------------+
                                                                                |
                                                                                | (Data View gateway-logs-*)
@@ -760,7 +760,7 @@ slows the dashboard by up to 3s. Caching health results is a planned improvement
                                                                      +-------------------+
                                                                      |      Kibana       |
                                                                      |     (v8.15.1)     |
-                                                                     | (:5601 localhost) |
+                                                                     | (:15601 localhost) |
                                                                      +-------------------+
 ```
 
@@ -778,8 +778,7 @@ Every request emits a JSON line with the following fields:
   "http.status_code": 200,
   "latency_ms": 14.52,
   "request_id": "c1f7a83d-926e-4402-9908-7264a7c5dfa2",
-  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
-  "client_ip": "127.0.0.1"
+  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736"
 }
 ```
 
@@ -792,7 +791,6 @@ Every request emits a JSON line with the following fields:
 - `latency_ms`: Execution duration in milliseconds rounded to 2 decimal places.
 - `request_id`: Preserved from incoming `X-Request-ID` or generated UUID.
 - `trace_id`: 32-character lowercase hex string from active OpenTelemetry span, or `null` if tracing is inactive.
-- `client_ip`: Resolved client IP via `get_real_ip()`.
 
 ### Security and Redaction Guarantees
 
@@ -828,6 +826,7 @@ docker compose -f docker-compose.elk.yml down -v
 
 In accordance with local development requirements:
 - `xpack.security.enabled=false`: Disables Elasticsearch authentication and self-signed TLS certificates for zero-secret local operation. No credentials, tokens, or `.env` secrets need to be committed.
+  This is for local development only; ports are bound to 127.0.0.1. Never use this compose file outside a laptop.
 - In production deployments, Elasticsearch security and TLS must be re-enabled with proper certificates and role-based credentials.
 - Container resources are constrained with `mem_limit` to prevent runaway memory consumption on developer laptops.
 
@@ -859,6 +858,21 @@ The exported objects include:
 7. **Unified Dashboard (`gateway-centralized-logging-dashboard`)**: Complete observability cockpit.
 
 ### How to Search Logs in Kibana
+
+#### Find every log line for one request
+
+In Kibana → Discover → Gateway Logs by Request ID, set the query to:
+```kuery
+request_id : "<your-request-id>"
+```
+Or search by trace:
+```kuery
+trace_id : "<32-hex-trace-id>"
+```
+Direct link template:
+http://127.0.0.1:15601/app/discover#/view/gateway-logs-by-request-id?_a=(query:(language:kuery,query:'request_id:"<id>"'))
+
+python scripts/verify_elk_correlation.py --path <route> prints the Kibana link and the Jaeger link for a fresh request.
 
 #### Search by Request ID
 In Kibana Discover or using the saved search:

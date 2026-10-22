@@ -259,6 +259,70 @@ def test_check_token_absent_es_down():
         assert "Token check search failed" in err
 
 
+def test_check_token_absent_query_structure():
+    """Verify query includes fields: ['*'] and lenient: True."""
+    captured_queries = []
+
+    def mock_search(es_base, query, index_pattern=None, timeout=None):
+        captured_queries.append(query)
+        return True, [], None
+
+    with patch("scripts.verify_elk_correlation.es_search", side_effect=mock_search):
+        ok, leaked, err = check_token_absent("http://127.0.0.1:9200", "bearer-test-token")
+        assert ok is True
+        assert leaked is False
+        assert err is None
+        assert len(captured_queries) == 1
+        qs = captured_queries[0]["query"]["query_string"]
+        assert qs["fields"] == ["*"]
+        assert qs["lenient"] is True
+        assert qs["query"] == '"bearer-test-token"'
+
+
+def test_check_token_absent_escaping_backslash_and_quotes():
+    """Verify tokens with backslashes and double quotes are escaped correctly (backslash first)."""
+    captured_queries = []
+
+    def mock_search(es_base, query, index_pattern=None, timeout=None):
+        captured_queries.append(query)
+        return True, [], None
+
+    with patch("scripts.verify_elk_correlation.es_search", side_effect=mock_search):
+        test_token = 'token\\with\\backslashes"and"quotes'
+        ok, leaked, err = check_token_absent("http://127.0.0.1:9200", test_token)
+        assert ok is True
+        assert len(captured_queries) == 1
+        expected_query = '"token\\\\with\\\\backslashes\\"and\\"quotes"'
+        assert captured_queries[0]["query"]["query_string"]["query"] == expected_query
+
+
+def test_check_token_absent_detects_leak_in_custom_fields():
+    """Verify token in fields like request_id, route, or any custom field is detected as a leak."""
+    leak_in_request_id = [{"_source": {"request_id": "r14-leak-token-1234"}}]
+    with patch("scripts.verify_elk_correlation.es_search", return_value=(True, leak_in_request_id, None)):
+        ok, leaked, err = check_token_absent("http://127.0.0.1:9200", "leak-token")
+        assert ok is True
+        assert leaked is True
+        assert err is None
+
+    leak_in_route = [{"_source": {"route": "/api/v1/inventory?token=secret123"}}]
+    with patch("scripts.verify_elk_correlation.es_search", return_value=(True, leak_in_route, None)):
+        ok, leaked, err = check_token_absent("http://127.0.0.1:9200", "secret123")
+        assert ok is True
+        assert leaked is True
+        assert err is None
+
+
+def test_check_token_absent_es_error_does_not_produce_false_success():
+    """Verify ES connection or query errors produce ok=False and do not report token as absent."""
+    with patch("scripts.verify_elk_correlation.es_search", return_value=(False, [], "Elasticsearch 500 Internal Server Error")):
+        ok, leaked, err = check_token_absent("http://127.0.0.1:9200", "some-token")
+        assert ok is False
+        assert leaked is False
+        assert err is not None
+        assert "Token check search failed" in err
+
+
 def test_verify_correlation_all_pass_writes_evidence(tmp_path):
     mock_log = {
         "@timestamp": "2026-10-13T12:00:00.000Z",

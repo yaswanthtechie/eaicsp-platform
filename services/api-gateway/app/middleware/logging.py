@@ -32,6 +32,9 @@ from app.services.metrics import normalize_route
 
 # Access logger emitting structured JSON events
 logger = logging.getLogger("api_gateway.access")
+# INFO must be set here: nothing else configures this logger,
+# and the root default (WARNING) would silently drop every 2xx/3xx access line.
+logger.setLevel(logging.INFO)
 
 _FILE_HANDLER_ATTACHED = False
 
@@ -142,12 +145,8 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         finally:
             process_time_ms = (time.perf_counter() - start_time) * 1000.0
 
-            # Preserve or extract request ID
-            request_id = getattr(getattr(request, "state", None), "request_id", None)
-            if not request_id:
-                request_id = request.headers.get("x-request-id")
-            if not request_id:
-                request_id = str(uuid.uuid4())
+            # RequestIDMiddleware (outer) has already sanitised and set this.
+            request_id = getattr(request.state, "request_id", None) or str(uuid.uuid4())
 
             # Correlate response header if response was constructed
             if response is not None:

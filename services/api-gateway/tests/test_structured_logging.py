@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 
 import pytest
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Request, Response
 from fastapi.testclient import TestClient
 
 from app.core.config import settings
@@ -149,12 +149,17 @@ def test_trace_id_included_when_active_span_exists(client, caplog):
     assert len(records) >= 1
     log_entry = records[-1]
 
-    # If traceparent was returned in response, verify trace_id in log matches
+    # Tracing is enabled in tests, so a trace ID MUST be present.
+    # A missing traceparent or null trace_id means tracing broke.
     traceparent = response.headers.get("traceparent")
-    if traceparent:
-        # traceparent format: 00-{trace_id}-{parent_id}-{trace_flags}
-        expected_trace_id = traceparent.split("-")[1]
-        assert log_entry["trace_id"] == expected_trace_id
+    assert traceparent, "TracingMiddleware did not return a traceparent header"
+
+    # traceparent format: 00-{trace_id}-{parent_id}-{trace_flags}
+    expected_trace_id = traceparent.split("-")[1]
+    assert log_entry["trace_id"] == expected_trace_id
+    assert len(log_entry["trace_id"]) == 32
+    assert log_entry["trace_id"] != "0" * 32
+
 
 
 def test_trace_id_is_null_when_unavailable():
@@ -428,8 +433,143 @@ def test_filebeat_parses_ndjson_into_gateway_index():
     import yaml
     from pathlib import Path
 
-    cfg = yaml.safe_load((Path(__file__).resolve().parent.parent / "filebeat.yml").read_text())
+    cfg = yaml.safe_load(
+        (Path(__file__).resolve().parent.parent / "filebeat.yml")
+        .read_text(encoding="utf-8")
+    )
     parser = cfg["filebeat.inputs"][0]["parsers"][0]["ndjson"]
     assert parser["keys_under_root"] is True
     assert parser["expand_keys"] is True
     assert cfg["output.elasticsearch"]["index"].startswith("gateway-logs-")
+
+def test_successful_request_reaches_access_log_file(client):
+    """A 200 must be written to the real access-log file without any caplog level tweaks."""
+    import os
+    from pathlib import Path
+
+    req_id = f"info-level-{uuid.uuid4()}"
+    assert client.get("/", headers={"X-Request-ID": req_id}).status_code == 200
+
+    access_logger = logging.getLogger("api_gateway.access")
+    for handler in access_logger.handlers:
+        handler.flush()
+
+    log_file = Path(os.environ["GATEWAY_ACCESS_LOG_PATH"])
+    lines = log_file.read_text(encoding="utf-8").splitlines()
+    matching = [json.loads(line) for line in lines if req_id in line]
+
+    assert len(matching) == 1
+    assert matching[0]["level"] == "INFO"
+    assert matching[0]["http.status_code"] == 200
+
+
+def test_logging_uses_sanitized_request_state_id(caplog):
+    """Verify LoggingMiddleware uses request.state.request_id set by RequestIDMiddleware."""
+    caplog.set_level(logging.INFO, logger="api_gateway.access")
+    caplog.clear()
+
+    test_app = FastAPI()
+    test_app.add_middleware(LoggingMiddleware)
+
+    @test_app.middleware("http")
+    async def inject_state_id(request: Request, call_next):
+        request.state.request_id = "sanitized-state-req-id-12345"
+        return await call_next(request)
+
+    @test_app.get("/test-state-id")
+    def endpoint():
+        return {"status": "ok"}
+
+    c = TestClient(test_app)
+    resp = c.get("/test-state-id")
+    assert resp.status_code == 200
+    assert resp.headers.get("x-request-id") == "sanitized-state-req-id-12345"
+
+    records = get_access_log_records(caplog)
+    assert len(records) >= 1
+    assert records[-1]["request_id"] == "sanitized-state-req-id-12345"
+
+
+def test_logging_missing_request_state_id_uses_uuid_fallback(caplog):
+    """Verify LoggingMiddleware generates a UUID fallback when request.state.request_id is absent."""
+    caplog.set_level(logging.INFO, logger="api_gateway.access")
+    caplog.clear()
+
+    test_app = FastAPI()
+    test_app.add_middleware(LoggingMiddleware)
+
+    @test_app.get("/test-missing-id")
+    def endpoint():
+        return {"status": "ok"}
+
+    c = TestClient(test_app)
+    resp = c.get("/test-missing-id")
+    assert resp.status_code == 200
+
+    resp_id = resp.headers.get("x-request-id")
+    assert resp_id is not None
+    parsed = uuid.UUID(resp_id, version=4)
+    assert str(parsed) == resp_id
+
+    records = get_access_log_records(caplog)
+    assert len(records) >= 1
+    assert records[-1]["request_id"] == resp_id
+
+
+def test_logging_middleware_does_not_reread_raw_header_on_missing_state(caplog):
+    """Verify LoggingMiddleware does not independently re-read raw headers (CR/LF or oversized) if state is missing."""
+    caplog.set_level(logging.INFO, logger="api_gateway.access")
+    caplog.clear()
+
+    # App with ONLY LoggingMiddleware (no RequestIDMiddleware outer layer)
+    test_app = FastAPI()
+    test_app.add_middleware(LoggingMiddleware)
+
+    @test_app.get("/test-raw-header")
+    def endpoint():
+        return {"status": "ok"}
+
+    c = TestClient(test_app)
+
+    # 1. Raw header with CR/LF injection
+    raw_crlf_id = "malicious-id\r\nX-Injected-Header: bad\r\n"
+    resp1 = c.get("/test-raw-header", headers={"X-Request-ID": raw_crlf_id})
+    assert resp1.status_code == 200
+
+    records = get_access_log_records(caplog)
+    assert len(records) >= 1
+    logged_id_1 = records[-1]["request_id"]
+    # Must NOT have read the raw header containing CR/LF
+    assert "malicious" not in logged_id_1
+    assert "\r" not in logged_id_1
+    assert "\n" not in logged_id_1
+    # Must be a valid generated UUID4
+    assert str(uuid.UUID(logged_id_1, version=4)) == logged_id_1
+
+    # 2. Oversized header (e.g. 5000 characters)
+    caplog.clear()
+    oversized_id = "X" * 5000
+    resp2 = c.get("/test-raw-header", headers={"X-Request-ID": oversized_id})
+    assert resp2.status_code == 200
+
+    records2 = get_access_log_records(caplog)
+    assert len(records2) >= 1
+    logged_id_2 = records2[-1]["request_id"]
+    # Must NOT be the 5000-char string
+    assert logged_id_2 != oversized_id
+    assert len(logged_id_2) == 36
+    assert str(uuid.UUID(logged_id_2, version=4)) == logged_id_2
+
+
+def test_crlf_in_request_id_is_sanitized_before_logging(client, caplog):
+    """Verify CR/LF in client header is sanitized by RequestIDMiddleware before logging."""
+    caplog.set_level(logging.INFO, logger="api_gateway.access")
+    caplog.clear()
+
+    resp = client.get("/", headers={"X-Request-ID": "hello\r\nworld\r\n"})
+    assert resp.status_code == 200
+    record = get_access_log_records(caplog)[-1]
+    assert record["request_id"] == "helloworld"
+    assert "\r" not in record["request_id"]
+    assert "\n" not in record["request_id"]
+    assert resp.headers.get("x-request-id") == "helloworld"

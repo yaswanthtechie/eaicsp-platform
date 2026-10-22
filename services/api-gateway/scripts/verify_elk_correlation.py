@@ -206,8 +206,16 @@ def check_token_absent(
     Returns (check_successful, token_found, error_message).
     IMPORTANT: Never prints or logs the token value.
     """
-    safe_query_token = token.replace('"', '\\"')
-    query = {"query": {"query_string": {"query": f'"{safe_query_token}"'}}}
+    safe_query_token = token.replace("\\", "\\\\").replace('"', '\\"')
+    query = {
+        "query": {
+            "query_string": {
+                "query": f'"{safe_query_token}"',
+                "fields": ["*"],
+                "lenient": True,
+            }
+        }
+    }
     ok, hits, err = es_search(es_base, query, index_pattern=index_pattern, timeout=timeout)
     if not ok:
         return False, False, f"Token check search failed: {err}"
@@ -231,8 +239,8 @@ def write_evidence(
 def verify_correlation(
     gateway_base: str = "http://localhost:8000",
     path: str = "/api/v1/inventory/items",
-    es_base: str = "http://127.0.0.1:9200",
-    kibana_base: str = "http://127.0.0.1:5601",
+    es_base: str = "http://127.0.0.1:19200",
+    kibana_base: str = "http://127.0.0.1:15601",
     jaeger_base: str = "http://localhost:16686",
     token: str | None = None,
     wait_seconds: float = 90.0,
@@ -318,8 +326,8 @@ def main() -> int:
     p = argparse.ArgumentParser(description="Verify gateway ELK log flow and trace correlation.")
     p.add_argument("--gateway", default="http://localhost:8000", help="Gateway URL")
     p.add_argument("--path", default="/api/v1/inventory/items", help="Gateway route to call")
-    p.add_argument("--es", default="http://127.0.0.1:9200", help="Elasticsearch URL")
-    p.add_argument("--kibana", default="http://127.0.0.1:5601", help="Kibana URL")
+    p.add_argument("--es", default="http://127.0.0.1:19200", help="Elasticsearch URL")
+    p.add_argument("--kibana", default="http://127.0.0.1:15601", help="Kibana URL")
     p.add_argument("--jaeger", default="http://localhost:16686", help="Jaeger URL")
     p.add_argument("--token", help="Optional bearer token (verified absent from ES; never printed/stored)")
     p.add_argument("--wait", type=float, default=90.0, help="Seconds to wait for Filebeat harvesting")
