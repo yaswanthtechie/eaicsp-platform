@@ -2,7 +2,7 @@ import json
 import joblib
 import mlflow
 import numpy as np
-
+from pathlib import Path
 from src.data import load_dataset
 from src.route_insights import (
     build_route_insights,
@@ -21,14 +21,16 @@ from src.preprocess import (
 )
 from src.split import chronological_split
 from src.train import (
-    train_model,
     train_comparison_model,
     check_production_calibration,
-    CALIBRATION_MODEL_PATH,
 )
-from src.evaluate import evaluate_model
+from src.evaluate import compare_models, evaluate_model
 from src.shap_explainer import explain_predictions
-from src.paths import ensure_directories
+from src.paths import (
+    ensure_directories,
+    R14_MODEL_PATH,
+    R14_CALIBRATION_MODEL_PATH,
+)
 
 from src.mlflow_tracking import (
     setup_mlflow,
@@ -133,16 +135,20 @@ def main():
     ].copy()
 
     # ---------------------------------------------------------
-    # 10. Train Round 14 model
+    # 10. Train Round 14 model as a candidate
     #
-    # train_model() also creates the prediction
-    # interval calibration artifact.
+    # train_comparison_model() keeps the candidate model
+    # in memory and does not write production artifacts.
     # ---------------------------------------------------------
-    model = train_model(
+    model, calibration = train_comparison_model(
         X_train,
         y_train,
-        enforce_production_gate=True,
         use_eta_history_features=True,
+    )
+
+    # Safety check before any promotion
+    check_production_calibration(
+        calibration
     )
 
     # ---------------------------------------------------------
@@ -168,55 +174,12 @@ def main():
         inherited_X_test
     )
 
-    inherited_actual = split.test[
-        TARGET_COLUMN
-    ].to_numpy()
-
-    inherited_mae = float(
-        np.mean(
-            np.abs(
-                inherited_actual
-                - inherited_predictions
-            )
-        )
-    )
-
-    inherited_interval_lower = (
-        inherited_predictions
-        + inherited_calibration["residual_lower"]
-    )
-
-    inherited_interval_upper = (
-        inherited_predictions
-        + inherited_calibration["residual_upper"]
-    )
-
-    inherited_interval_coverage = float(
-        np.mean(
-            (inherited_actual >= inherited_interval_lower)
-            & (
-                inherited_actual
-                <= inherited_interval_upper
-            )
-        )
-    )
-
-    print("\nInherited model comparison:")
-    print(
-        f"MAE: {inherited_mae:.4f}"
-    )
-    print(
-        "Interval coverage: "
-        f"{inherited_interval_coverage:.4f}"
-    )
-
     # ---------------------------------------------------------
     # 12. Log inherited model as a separate MLflow run
     # ---------------------------------------------------------
     with start_run(
         run_name="ETA - Inherited Model"
     ):
-
         mlflow.set_tag(
             "model_variant",
             "inherited_round_9_11",
@@ -231,14 +194,6 @@ def main():
             split.train,
             split.test,
             use_eta_history_features=False,
-        )
-
-        inherited_results[
-            "interval_coverage"
-        ] = inherited_interval_coverage
-
-        log_metrics(
-            inherited_results
         )
 
         log_dataset_metadata(
@@ -262,21 +217,7 @@ def main():
         )
 
     # ---------------------------------------------------------
-    # 13. Load Round 14 calibration metadata
-    # ---------------------------------------------------------
-    if not CALIBRATION_MODEL_PATH.exists():
-        raise FileNotFoundError(
-            "Prediction interval calibration artifact "
-            "was not created: "
-            f"{CALIBRATION_MODEL_PATH}"
-        )
-
-    calibration = joblib.load(
-        CALIBRATION_MODEL_PATH
-    )
-
-    # ---------------------------------------------------------
-    # 14. Production calibration safety gate
+    # 13. Production calibration safety gate
     #
     # Refuse to continue if the prediction interval was
     # calibrated on too few rows, which could indicate
@@ -287,7 +228,7 @@ def main():
     )
 
     # ---------------------------------------------------------
-    # 15. Evaluate Round 14 model against naive baseline
+    # 14. Evaluate Round 14 model against naive baseline
     # ---------------------------------------------------------
     results = evaluate_model(
         model,
@@ -297,15 +238,16 @@ def main():
     )
 
     # ---------------------------------------------------------
-    # 16. Calculate Round 14 interval coverage
+    # 15. Generate Round 14 predictions
     # ---------------------------------------------------------
     r14_predictions = model.predict(
         split.test[
             TRAINING_MODEL_FEATURES
         ]
     )
-        # ---------------------------------------------------------
-    # 16b. Generate SHAP explanations for Round 14 predictions
+
+    # ---------------------------------------------------------
+    # 15b. Generate SHAP explanations for Round 14 predictions
     # ---------------------------------------------------------
     r14_test_features = split.test[
         TRAINING_MODEL_FEATURES
@@ -316,86 +258,147 @@ def main():
         features=r14_test_features,
         predictions=r14_predictions,
         top_n=5,
+        sample_size=1000,
+        order_ids=split.test["order_id"],
     )
 
     print("\nSHAP explanations generated:")
-    print(f"  Predictions explained: {len(shap_explanations)}")
+    print(
+        f"  Predictions explained: "
+        f"{len(shap_explanations)}"
+    )
 
     if shap_explanations:
-        print("  Top contributing features for first prediction:")
+        print(
+            "  Top contributing features for first prediction:"
+        )
+
         for contribution in shap_explanations[0]["top_features"]:
             print(
                 f"    {contribution['feature']}: "
                 f"{contribution['shap_value']:+.4f}"
             )
+
     actual = split.test[
         TARGET_COLUMN
     ].to_numpy()
 
-    r14_interval_lower = (
-        r14_predictions
-        + calibration["residual_lower"]
+    # ---------------------------------------------------------
+    # 15c. Compare inherited and Round 14 models
+    #      using the shared comparison helper.
+    # ---------------------------------------------------------
+    comparison = compare_models(
+        y_true=actual,
+        inherited_predictions=inherited_predictions,
+        inherited_calibration=inherited_calibration,
+        r14_predictions=r14_predictions,
+        r14_calibration=calibration,
     )
 
-    r14_interval_upper = (
-        r14_predictions
-        + calibration["residual_upper"]
-    )
+    inherited_mae = comparison[
+        "inherited"
+    ]["mae"]
 
-    r14_interval_coverage = float(
-        np.mean(
-            (actual >= r14_interval_lower)
-            & (actual <= r14_interval_upper)
-        )
-    )
+    inherited_interval_coverage = comparison[
+        "inherited"
+    ]["actual_coverage"]
+
+    inherited_interval_width = comparison[
+        "inherited"
+    ]["mean_interval_width"]
+
+    r14_interval_coverage = comparison[
+        "r14"
+    ]["actual_coverage"]
+
+    r14_interval_width = comparison[
+        "r14"
+    ]["mean_interval_width"]
 
     results[
         "interval_coverage"
     ] = r14_interval_coverage
 
+    # ---------------------------------------------------------
+    # 15d. Add inherited comparison coverage to MLflow results
+    # ---------------------------------------------------------
+    # The inherited MLflow run has already been logged above.
+    # The comparison metrics are retained here for the final
+    # side-by-side reporting.
+    # ---------------------------------------------------------
+
     print("\nRound 14 Model")
     print("==============")
+
     print(
         f"MAE: {results['mae']:.4f} days"
     )
+
     print(
         "Interval coverage: "
         f"{r14_interval_coverage * 100:.2f}%"
     )
 
     # ---------------------------------------------------------
-    # 17. Model comparison
+    # 16. Model comparison
     # ---------------------------------------------------------
     print("\nModel Comparison")
     print("================")
 
     print(
-        f"Inherited model MAE: "
-        f"{inherited_mae:.4f} days"
+        f"{'Metric':<25}"
+        f"{'Inherited':>15}"
+        f"{'Round 14':>15}"
     )
 
     print(
-        f"Round 14 model MAE: "
-        f"{results['mae']:.4f} days"
+        f"{'MAE (days)':<25}"
+        f"{inherited_mae:>15.4f}"
+        f"{results['mae']:>15.4f}"
     )
 
     print(
-        f"Inherited interval coverage: "
-        f"{inherited_interval_coverage * 100:.2f}%"
+        f"{'Nominal coverage':<25}"
+        f"{comparison['inherited']['nominal_coverage'] * 100:>14.2f}%"
+        f"{comparison['r14']['nominal_coverage'] * 100:>14.2f}%"
     )
 
     print(
-        f"Round 14 interval coverage: "
-        f"{r14_interval_coverage * 100:.2f}%"
+        f"{'Actual coverage':<25}"
+        f"{inherited_interval_coverage * 100:>14.2f}%"
+        f"{r14_interval_coverage * 100:>14.2f}%"
     )
 
+    print(
+        f"{'Mean interval width':<25}"
+        f"{inherited_interval_width:>15.4f}"
+        f"{r14_interval_width:>15.4f}"
+    )
+        # Save the Round 14 comparison metrics as a committed artifact.
+    metrics_path = Path("results/round14_metrics.json")
+    metrics_path.parent.mkdir(parents=True, exist_ok=True)
+
+    round14_metrics = {
+        "evaluation": {
+            "type": "chronological_test_period",
+            "nominal_coverage": comparison["r14"]["nominal_coverage"],
+        },
+        "inherited": comparison["inherited"],
+        "round14": comparison["r14"],
+    }
+
+    metrics_path.write_text(
+        json.dumps(round14_metrics, indent=2),
+        encoding="utf-8",
+    )
+
+    print(f"\nComparison metrics saved to: {metrics_path}")
     # ---------------------------------------------------------
-    # 18. Log Round 14 model as a separate MLflow run
+    # 17. Log Round 14 model as a separate MLflow run
     # ---------------------------------------------------------
     with start_run(
         run_name="ETA - Round 14 Feature-lib Model"
     ):
-
         mlflow.set_tag(
             "model_variant",
             "round_14_feature_lib",
@@ -423,6 +426,7 @@ def main():
         model_info = log_model(
             model
         )
+
         mlflow.log_text(
             json.dumps(
                 shap_explanations,
@@ -430,10 +434,37 @@ def main():
             ),
             "r14_shap_explanations.json",
         )
+
         print("\nRound 14 MLflow model logged:")
         print(
             f"  {model_info.model_uri}"
         )
+
+    # ---------------------------------------------------------
+    # 18. Promote Round 14 candidate artifacts
+    #
+    # Only save the candidate artifacts after:
+    # - validation
+    # - comparison
+    # - SHAP generation
+    # - MLflow logging
+    # have completed successfully.
+    # ---------------------------------------------------------
+    joblib.dump(
+        model,
+        R14_MODEL_PATH,
+    )
+
+    joblib.dump(
+        calibration,
+        R14_CALIBRATION_MODEL_PATH,
+    )
+
+    print("\nRound 14 candidate artifacts promoted:")
+    print(f"  Model: {R14_MODEL_PATH}")
+    print(
+        f"  Calibration: {R14_CALIBRATION_MODEL_PATH}"
+    )
 
     # ---------------------------------------------------------
     # 19. Report prediction interval calibration
@@ -490,6 +521,7 @@ def main():
     )
 
     print("\nTraining period:")
+
     print(
         f"  {split.train['order_purchase_timestamp'].min()}"
         f" → "
@@ -497,6 +529,7 @@ def main():
     )
 
     print("\nTest period:")
+
     print(
         f"  {split.test['order_purchase_timestamp'].min()}"
         f" → "
@@ -504,6 +537,7 @@ def main():
     )
 
     print("\nSplit timestamp:")
+
     print(
         f"  {split.split_timestamp}"
     )

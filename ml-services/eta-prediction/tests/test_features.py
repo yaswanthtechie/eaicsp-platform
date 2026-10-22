@@ -301,34 +301,41 @@ def test_target_is_not_used_as_input_feature(
         not in model_feature_columns
     )
 
-def test_eta_history_features_exclude_future_outcomes():
-    """Historical ETA features must only use outcomes before departure."""
+def test_eta_history_features_exclude_future_and_equal_timestamp_outcomes():
+    """Historical ETA features must only use outcomes strictly before departure."""
 
     from feature_lib import add_eta_features
 
     features = pd.DataFrame(
         {
-            "order_id": ["early", "future"],
+            "order_id": [
+                "prior",
+                "in_flight",
+                "same_timestamp",
+            ],
             "scheduled_pickup_date": pd.to_datetime(
                 [
+                    "2024-01-01 10:00:00",
                     "2024-01-10 10:00:00",
                     "2024-01-20 10:00:00",
                 ]
             ),
             "actual_delivery_date": pd.to_datetime(
                 [
+                    "2024-01-05 10:00:00",
                     "2024-01-12 10:00:00",
                     "2024-01-22 10:00:00",
                 ]
             ),
             "expected_delivery_date": pd.to_datetime(
                 [
+                    "2024-01-06 10:00:00",
                     "2024-01-13 10:00:00",
                     "2024-01-23 10:00:00",
                 ]
             ),
-            "carrier_name": ["carrier_a", "carrier_a"],
-            "route_id": ["route_a", "route_a"],
+            "carrier_name": ["carrier_a"] * 3,
+            "route_id": ["route_a"] * 3,
         }
     )
 
@@ -344,7 +351,29 @@ def test_eta_history_features_exclude_future_outcomes():
     ]
 
     # The first shipment has no prior shipment outcome.
-    first_row = result.loc[result["order_id"] == "early"].iloc[0]
+    first_row = result.loc[
+        result["order_id"] == "prior"
+    ].iloc[0]
 
     for column in history_columns:
         assert pd.isna(first_row[column])
+
+    # The in-flight shipment must not use its own future outcome.
+    in_flight_row = result.loc[
+        result["order_id"] == "in_flight"
+    ].iloc[0]
+
+    assert (
+        in_flight_row["historical_avg_transit_days_carrier"]
+        == 4.0
+    )
+
+    # An outcome exactly at departure time must also be excluded.
+    same_timestamp_row = result.loc[
+        result["order_id"] == "same_timestamp"
+    ].iloc[0]
+
+    assert (
+        same_timestamp_row["historical_avg_transit_days_carrier"]
+        == 3.0
+    )

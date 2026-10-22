@@ -130,17 +130,23 @@ def test_shap_explanations_match_predictions(fitted_r14_model):
 
     predictions = model.predict(test_features)
 
+    order_ids = pd.Series(
+        ["order_1", "order_2", "order_3", "order_4"],
+        index=test_features.index,
+    )
+
     explanations = explain_predictions(
         model,
         test_features,
         predictions=predictions,
         top_n=5,
+        order_ids=order_ids,
     )
 
     assert len(explanations) == len(test_features)
 
     for index, explanation in enumerate(explanations):
-        assert explanation["row_index"] == index
+        assert explanation["order_id"] == f"order_{index + 1}"
         assert np.isclose(
             explanation["prediction"],
             predictions[index],

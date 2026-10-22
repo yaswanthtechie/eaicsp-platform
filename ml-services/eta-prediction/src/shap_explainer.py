@@ -14,6 +14,8 @@ def explain_predictions(
     features: pd.DataFrame,
     predictions: np.ndarray | None = None,
     top_n: int = 5,
+    sample_size: int | None = None,
+    order_ids: pd.Series | None = None,
 ) -> list[dict[str, Any]]:
     """Generate top SHAP feature contributions for ETA predictions.
 
@@ -26,7 +28,13 @@ def explain_predictions(
     if features.empty:
         return []
 
-    if not isinstance(model, object) or not hasattr(model, "named_steps"):
+    if sample_size is not None:
+        if sample_size < 1:
+            raise ValueError("sample_size must be at least 1.")
+
+        sample_size = min(sample_size, len(features))
+
+    if not hasattr(model, "named_steps"):
         raise TypeError("model must be a fitted sklearn Pipeline.")
 
     preprocessor = model.named_steps.get("preprocessor")
@@ -65,8 +73,30 @@ def explain_predictions(
             "Prediction count must match the number of feature rows."
         )
 
+    if order_ids is not None and len(order_ids) != len(features):
+        raise ValueError(
+            "Order ID count must match the number of feature rows."
+        )
+
     base_values = np.asarray(explainer.expected_value).reshape(-1)
     base_value = float(base_values[0])
+
+    # Select a deterministic sample so we do not generate explanations
+    # for the entire test set.
+    if sample_size is not None and sample_size < len(features):
+        sample_indices = np.linspace(
+            0,
+            len(features) - 1,
+            num=sample_size,
+            dtype=int,
+        )
+
+        features = features.iloc[sample_indices].copy()
+        predictions = predictions[sample_indices]
+        shap_values = shap_values[sample_indices]
+
+        if order_ids is not None:
+            order_ids = order_ids.iloc[sample_indices].reset_index(drop=True)
 
     explanations: list[dict[str, Any]] = []
 
@@ -85,7 +115,11 @@ def explain_predictions(
 
         explanations.append(
             {
-                "row_index": row_index,
+                "order_id": (
+                    str(order_ids.iloc[row_index])
+                    if order_ids is not None
+                    else row_index
+                ),
                 "prediction": round(float(predictions[row_index]), 6),
                 "base_value": round(base_value, 6),
                 "top_features": contributions,

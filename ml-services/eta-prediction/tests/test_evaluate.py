@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from src.evaluate import evaluate_model
+from src.evaluate import compare_models, evaluate_model
 
 
 class DummyModel:
@@ -458,3 +458,49 @@ def test_inherited_and_r14_use_same_test_period(sample_model_data):
     assert list(inherited_model.received_test.index) == list(
         r14_model.received_test.index
     )
+
+def test_compare_models_returns_comparison_metrics():
+    """Round 14 comparison must calculate metrics for both models."""
+
+    y_true = np.array([10.0, 12.0, 14.0, 16.0])
+
+    inherited_predictions = np.array([9.0, 13.0, 15.0, 15.0])
+    r14_predictions = np.array([10.0, 11.0, 15.0, 17.0])
+
+    inherited_calibration = {
+        "coverage": 0.80,
+        "residual_lower": -2.0,
+        "residual_upper": 2.0,
+    }
+
+    r14_calibration = {
+        "coverage": 0.80,
+        "residual_lower": -3.0,
+        "residual_upper": 3.0,
+    }
+
+    comparison = compare_models(
+        y_true,
+        inherited_predictions,
+        inherited_calibration,
+        r14_predictions,
+        r14_calibration,
+    )
+
+    assert "inherited" in comparison
+    assert "r14" in comparison
+
+    for model_name in ["inherited", "r14"]:
+        assert "mae" in comparison[model_name]
+        assert "nominal_coverage" in comparison[model_name]
+        assert "actual_coverage" in comparison[model_name]
+        assert "mean_interval_width" in comparison[model_name]
+
+    assert comparison["inherited"]["mae"] == 1.0
+    assert comparison["r14"]["mae"] == 0.75
+
+    assert comparison["inherited"]["nominal_coverage"] == 0.80
+    assert comparison["r14"]["nominal_coverage"] == 0.80
+
+    assert comparison["inherited"]["mean_interval_width"] == 4.0
+    assert comparison["r14"]["mean_interval_width"] == 6.0

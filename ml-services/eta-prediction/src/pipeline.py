@@ -1,7 +1,7 @@
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
-
+from .preprocess import ETA_HISTORY_FEATURES
 from .preprocess import (
     NUMERIC_FEATURES,
     CATEGORICAL_FEATURES,
@@ -48,14 +48,7 @@ def create_pipeline():
 def create_eta_history_pipeline():
     """Create the Round 14 ETA pipeline with historical feature-lib features."""
 
-    historical_features = [
-        "historical_on_time_rate_carrier",
-        "historical_avg_transit_days_carrier",
-        "historical_on_time_rate_route",
-        "historical_avg_transit_days_route",
-        "historical_avg_transit_days_carrier_route",
-        "historical_on_time_rate_departure_season",
-    ]
+    historical_features = ETA_HISTORY_FEATURES
 
     training_numeric_features = (
         NUMERIC_FEATURES

@@ -37,7 +37,7 @@ validation.
   `{"eta_days", "confidence_low", "confidence_high"}`.
 - Added tests covering Round 14 feature usage, as-of leakage protection,
   same-test-period evaluation, and SHAP explanations.
-- Full test suite passes with `122 passed`.
+- Full test suite passes with `123 passed`.
 
 ## Round 14 Evaluation
 
@@ -310,7 +310,7 @@ EAICSP repository:
 
 Return to the ETA service:
 
-    cd ../../eaicsp-eta
+    cd ..
 
 Verify that the shared package can be imported:
 
@@ -648,30 +648,42 @@ shipment outcomes.
 
 ## Round 14 Leakage Investigation
 
-The inherited model achieved a lower MAE than the rebuilt Round 14 model:
+The inherited model achieved lower MAE than the rebuilt Round 14 model on the same chronological test period:
 
 - Inherited model MAE: `4.3012` days
 - Round 14 model MAE: `4.6000` days
 
-Because the inherited model performed better, its feature-generation path was
-reviewed for possible future-information leakage.
+Because the inherited model performed better, its feature-generation path was reviewed for possible future-information leakage.
 
-The inspection found no direct use of the actual delivery outcome as a model
-feature. Actual delivery timestamps are used to construct the supervised
-`delivery_days` target and are excluded from the saved feature dataset.
+The inherited feature-generation path does not use the actual delivery outcome as a model feature. Actual delivery timestamps are used to construct the supervised `delivery_days` target and are excluded from the saved model feature set. The Round 14 historical carrier/route features additionally use strict as-of historical joins, excluding outcomes at or after the shipment departure time.
 
-The Round 14 historical carrier and route features additionally use strict
-as-of historical joins, excluding outcomes at or after the shipment departure
-time.
+### One-at-a-time historical-feature ablation
 
-Therefore, the inherited model's better MAE is not supported as evidence of
-future-information leakage based on the inspected feature-generation path.
+Each of the six Round 14 historical features was removed individually and the model was retrained and evaluated on the same chronological test period.
 
-The performance difference is treated as a model and feature-set difference,
-with Round 14 providing higher prediction-interval coverage:
+| Configuration | Test MAE (days) |
+|---|---:|
+| All six historical features | `4.6000` |
+| Remove `historical_on_time_rate_carrier` | `4.5490` |
+| Remove `historical_avg_transit_days_carrier` | `4.8385` |
+| Remove `historical_on_time_rate_route` | `4.5054` |
+| Remove `historical_avg_transit_days_route` | `4.7188` |
+| Remove `historical_avg_transit_days_carrier_route` | `4.7133` |
+| Remove `historical_on_time_rate_departure_season` | `4.4103` |
 
-- Inherited model coverage: `94.46%`
-- Round 14 model coverage: `95.83%`
+No individual historical feature removal caused a suspicious collapse in model performance. The results therefore provide no evidence that one historical feature is acting as a hidden leakage channel.
+
+### Finding
+
+No direct future-information leakage was identified in the inspected inherited feature-generation path. The inherited model's lower MAE should therefore be treated as a model/feature-set difference rather than evidence of leakage.
+
+The model referred to as the **inherited model** in the Round 14 comparison is a model retrained using the inherited feature set on the same chronological training/test split; it is not the previously committed production model artifact.
+
+### Dependency on Round 9–11 results
+
+The Round 9–11 ETA-anomaly correlation analysis was implemented as a standalone statistical analysis. It consumes precomputed ETA errors and anomaly results and does not import, load, or invoke the inherited ETA model.
+
+Therefore, the R14 rebuild does not invalidate that correlation analysis and no Round 9–11 rerun is required because of the R14 model rebuild.
 
 ## Leakage Validation
 
@@ -904,21 +916,14 @@ Results:
 
 ## Inherited vs Round 14 Comparison
 
-| Model | MAE (days) | Interval Coverage |
-|---|---:|---:|
-| Inherited model | `4.3012` | `94.46%` |
-| Round 14 rebuilt model | `4.6000` | `95.83%` |
+| Model | MAE | Nominal Coverage | Actual Coverage | Mean Interval Width |
+|---|---:|---:|---:|---:|
+| Inherited model | `4.3012` days | `80%` | `94.46%` | `20.3939` days |
+| Round 14 rebuilt model | `4.6000` days | `80%` | `95.83%` | `22.9100` days |
 
-The inherited model has the lower MAE by `0.2988` days, while the Round 14
-model provides higher prediction-interval coverage by `1.37` percentage
-points.
+Both models over-cover the nominal 80% target on the chronological test period. The Round 14 model has slightly higher observed coverage, but its prediction intervals are also wider. Therefore, the higher coverage alone does not indicate better interval quality.
 
-Because the inherited model performed better on MAE, its feature-generation
-path was reviewed for possible future-information leakage. The investigation
-found no evidence of direct future-information leakage in the inspected
-feature-generation path. The difference is therefore treated as a
-model/feature-set performance difference rather than evidence that the
-inherited model is using future delivery outcomes.
+The exact comparison metrics are recorded in `results/round14_metrics.json`.
 
 ## Baseline Comparison
 
@@ -1057,8 +1062,9 @@ On the chronological test period, the Round 14 prediction interval achieved:
 Interval coverage: 95.83%
 ```
 
-The achieved coverage is higher than the nominal 80% calibration target because
-the calibration interval is evaluated on a separate chronological test period.
+The achieved coverage is higher than the nominal 80% calibration target on the
+chronological test period. This is observed test-set coverage and is not a
+guarantee of exactly 80% coverage on future shipments.
 
 ## Asymmetric Calibration
 
@@ -1759,32 +1765,6 @@ historical out-of-sample residuals and should not be interpreted as formally
 guaranteed statistical coverage intervals.
 
 ---
-
-## Round 14 Leakage Investigation
-
-The inherited model achieved lower MAE than the rebuilt Round 14 model:
-
-- Inherited model: `4.3012` days
-- Round 14 model: `4.6000` days
-
-Because the inherited model performed better, its feature-generation path was
-reviewed for possible future-information leakage.
-
-The inspection found no evidence of direct future-information leakage in the
-inspected feature-generation path. Actual delivery information is used to
-construct the supervised target and is not included as a direct model feature.
-
-The Round 14 historical carrier and route features additionally use strict
-as-of historical joins so that outcomes at or after the shipment departure
-time are excluded.
-
-The performance difference is therefore treated as a model/feature-set
-difference rather than evidence that the inherited model uses future delivery
-outcomes.
-
-This finding is based on inspection of the implemented feature-generation path
-and should not be interpreted as a mathematical guarantee about every possible
-upstream data source.
 
 # Future Enhancements
 

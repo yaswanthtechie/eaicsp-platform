@@ -51,6 +51,7 @@ def validate_columns(features):
     required_columns = (
         [ID_COLUMN]
         + MODEL_FEATURES
+        + ETA_HISTORY_FEATURES
         + [TARGET_COLUMN]
     )
 

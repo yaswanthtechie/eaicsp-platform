@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from feature_lib import add_eta_features
 from .paths import PROCESSED_DATA_DIR
+from .preprocess import ETA_HISTORY_FEATURES
 
 
 TARGET_COLUMN = "delivery_days"
@@ -555,12 +556,7 @@ def build_eta_features(datasets):
         "total_volume_cm3",
         "total_freight_value",
         "product_category_name",
-        "historical_on_time_rate_carrier",
-        "historical_avg_transit_days_carrier",
-        "historical_on_time_rate_route",
-        "historical_avg_transit_days_route",
-        "historical_avg_transit_days_carrier_route",
-        "historical_on_time_rate_departure_season",
+        *ETA_HISTORY_FEATURES,
         TARGET_COLUMN,
     ]
 
