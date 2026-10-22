@@ -14,12 +14,14 @@
   "properties": {
     "event_id": {
       "type": "string",
-      "format": "uuid"
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
     },
     "event_type": {
       "const": "supplierportal.shipment.dispatched"
     },
     "event_version": {
+      "type": "integer",
       "const": 1
     },
     "occurred_at": {
@@ -28,6 +30,10 @@
     },
     "producer": {
       "const": "supplier-portal"
+    },
+    "trace_id": {
+      "type": ["string", "null"],
+      "description": "Optional distributed trace id."
     },
     "payload": {
       "type": "object",
@@ -56,7 +62,8 @@
         },
         "origin": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "pattern": "\\S"
         },
         "destination_warehouse": {
           "type": "string",
@@ -64,7 +71,8 @@
         },
         "carrier": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "pattern": "\\S"
         },
         "dispatched_at": {
           "type": "string",

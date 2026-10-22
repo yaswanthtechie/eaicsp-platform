@@ -48,10 +48,10 @@ Round 14 adds Kafka event validation, idempotency, out-of-order event protection
 ### Round 15 — Supplier Portal Event Contracts
 
 - Created versioned JSON Schema contracts for `supplierportal.po.acknowledged.v1` and `supplierportal.shipment.dispatched.v1`.
-- Added example JSON files for both events under `contracts/examples/`.
+- Added example JSON files for both events under `contracts/events/examples/`.
 - Validated both example files against their corresponding JSON Schemas.
 - Added automated contract tests covering required fields, event types, versions, UUIDs, timestamps, and identifier formats.
-- **Test result:** `20 passed`.
+- **Test result:** `32 passed`.
 - These contracts provide a consistent integration interface for the Inventory and ETA model services.
 
 **Note:** Contract validation passed; Kafka event publishing and end-to-end integration are separate verification steps.
@@ -240,8 +240,6 @@ Run the MinIO tests using:
 python -m pytest tests/test_document_storage_service.py tests/test_supplier_document_download.py -q
 python -m pytest -m integration -q
 ```
-
----
 
 ## Supplier Portal–Compliance Integration
 
@@ -6125,7 +6123,7 @@ Related workflow data, such as shipment, goods receipt, onboarding, and other bu
 
 This approach supports local development and functional testing but does not provide durable persistence for these records across application restarts.
 
-
+**Restart behavior:** business records held only in memory are lost when the process restarts.
 
 ## Document Object Storage
 
