@@ -1,0 +1,12 @@
+{
+  "event_id": "8f6e9c42-7f6c-4b7a-9b6e-123456789abc",
+  "event_type": "supplierportal.po.acknowledged",
+  "event_version": 1,
+  "occurred_at": "2026-10-15T06:00:00Z",
+  "producer": "supplier-portal",
+  "payload": {
+    "po_number": "PO-2026-000123",
+    "supplier_id": "SUP-00045",
+    "acknowledged_at": "2026-10-15T06:00:00Z"
+  }
+}

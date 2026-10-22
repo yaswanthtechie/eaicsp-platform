@@ -20,12 +20,18 @@ This is the single reference for **who owns which data, how services and models 
 | Entity | ID format | Example | Owner service | Source of truth |
 |---|---|---|---|---|
 | Product / SKU | `SKU-` + 6 digits | `SKU-000123` | Inventory | `inventory.products` |
-| Warehouse | `WH-` + city code + 2 digits | `WH-BLR-01` | Inventory | `inventory.warehouses` |
+| Warehouse | `WH-` + city's 3-letter IATA airport code + 2 digits | `WH-BLR-01` | Inventory | `inventory.warehouses` |
 | Supplier | `SUP-` + 5 digits | `SUP-00045` | Supplier Portal | `supplier_portal.suppliers` |
 | Purchase order | `PO-` + year + 6 digits | `PO-2026-000123` | Inventory (create, approve) then Supplier Portal (supplier-facing lifecycle) | see Flow B |
 | Shipment | `SHP-` + year + 6 digits | `SHP-2026-000077` | Supplier Portal (dispatch) | `supplier_portal.shipments` |
+| Goods receipt | `GR-` + year + 6 digits | `GR-2026-000077` | Inventory | `inventory.goods_receipts` |
 | User | UUID | | Platform | `platform.users` |
 | Event | UUID v4 | | Producer | envelope `event_id` |
+
+The six seed warehouses are `WH-BLR-01`, `WH-BOM-01` (Mumbai), `WH-CCU-01` (Kolkata),
+  `WH-DEL-01`, `WH-HYD-01`, `WH-MAA-01` (Chennai). New warehouses use the IATA code of
+  their city (e.g. Pune → `WH-PNQ-01`). Sanctions test suppliers: `SUP-00007`, `SUP-00023`, `SUP-00045`.
+  This goes just above the paragraph that starts with "One shared seed dataset". Save the file.
 
 **One shared seed dataset** (`data-platform/seed/`, owned by Vivek) generates all master data with these IDs: 500 SKUs, 6 warehouses, 60 suppliers (a few with names on sanctions lists), 2 years of daily sales. Every service and model loads from it. No more per-person mock data for shared entities.
 

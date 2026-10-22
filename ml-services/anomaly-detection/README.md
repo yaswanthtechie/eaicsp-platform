@@ -2139,6 +2139,147 @@ method on the Olist order features the ETA model already uses and
 correlate the flags with ETA residuals by `order_id`. That needs changes
 in the `eta-prediction` folder.
 
+# Round 14 - Streaming Anomaly Detection (Kafka + InfluxDB)
+
+Simulator -> Kafka `iot.sensor.reading` -> consumer -> InfluxDB (every reading)
++ anomaly scoring -> one `iot.anomaly.detected` event per episode.
+
+| File | Role |
+|---|---|
+| `src/stream_simulator.py` | 3 sensors, 5-min steps, injected episodes with known start/end; held-out patterns |
+| `src/stream_model.py` | 4-feature Isolation Forest + SHAP on `-score`; versioned save/load (separate from the 3-feature production models) |
+| `src/train_stream_model.py` | trains and saves the model, logs to MLflow |
+| `src/episode_detector.py` | time-gap grouping, `min_flagged_readings`, severe exception, duplicate/late rejection |
+| `src/stream_events.py` | event envelope (inventory-service schema) |
+| `src/stream_processor.py` | pure core, in-memory fakes for tests |
+| `src/stream_consumer.py` | Kafka + InfluxDB I/O |
+| `src/stream_eval.py` | event precision/recall via `eval_framework.event_scores`, detection delay, MLflow logging |
+| `src/stream_tune.py` | picks the threshold percentile on a separate tuning stream |
+| `src/check_influx.py` | counts rows stored in InfluxDB (parameterized Flux) |
+| `docker-compose.stream.yml` | Kafka 4.0.0 (KRaft) + InfluxDB 2.7 |
+| `results/` | evaluation outputs (CSV/JSONL) |
+
+## Design rules
+
+- Score: `anomaly_score = -model.score(X)`; `score >= threshold` is anomaly.
+- Episode: flags within 15 minutes join; closed on quiet; open episodes are flushed at shutdown with `closed_by: "shutdown"` (only with `--flush-open-episodes`).
+- `min_flagged_readings=2` by default. A single reading with `score >= threshold + severe_margin * scale` (`severe_margin=3.0`, a fixed design value, not tuned on results) still opens an episode. This keeps the recall-first policy (miss 500, false alarm 2).
+- Threshold: `SignificanceThresholdTuner(percentile=97)`, calibrated on normal data only. It is fed only readings that are unflagged and outside any episode. Each sensor has 1,000 clean readings before its first episode. The M2 cold-start limitation applies.
+- Seeds differ for training, calibration, evaluation, held-out and tuning streams. Readings carry no labels.
+- Event envelope follows the inventory-service schema: `event_id, event_type, producer, occurred_at, event_version ("1.0"), trace_id, payload`. `occurred_at` is wall-clock creation time; sensor time is in the payload.
+- `payload.top_features`: each feature's share of the positive (toward-anomaly) SHAP push; features pushing toward normal are not listed. Each item also carries the signed `shap_value` and `direction` (high/low vs the training mean). Computed once per episode, on the peak-score reading.
+- Delivery is at-least-once. Consumers de-duplicate on `payload.episode_id` (`sensor_id|window_start`).
+- InfluxDB 2.x: measurement `warehouse_sensor`, tag `sensor_id`, fields `temperature, humidity, door_open, power, anomaly_score, is_flagged`.
+
+## Operational behaviour
+
+- Invalid messages are logged and skipped; the consumer does not crash. This covers bad JSON, missing fields, non-finite values, a `sensor_id` that is not a string matching `[A-Za-z0-9._-]{1,64}` (so no newlines, commas or spaces can reach the InfluxDB line protocol), and a `door_open` that is not the integer 0 or 1 (0.9, `true` and `"1"` are rejected, not truncated).
+- Duplicate or late readings (same or earlier timestamp for a sensor) are skipped before scoring or writing.
+- Offsets are committed only when no sensor has an open or candidate episode. After a crash, replay from the last commit rebuilds the same episodes with the same `episode_id`. A unit test replays from several crash points and also shows that a naive commit inside an open episode gives different ids.
+- The threshold tuner restarts from its calibration state (not persisted).
+- The consumer and the evaluation load the saved model `models/stream_model.joblib` (checked for features and version); neither trains at runtime.
+- Event publishing retries 3 times with backoff.
+- Training and evaluation runs are logged to MLflow experiment `anomaly-detection-r14-streaming` (`sqlite:///mlflow.db`): one `train-stream-1.0` run, and one `stream-eval` run with child runs A-D, `heldout-B` and `run-E`.
+
+## Evaluation
+
+`python -m src.stream_eval` (in-memory, same stream for all runs, 3 sensors x 3000 readings, 18 injected episodes). Event metrics come from `eval_framework.event_scores`. Detection delay and cost are computed in `stream_eval.py`. Results: `results/stream_eval_results.csv`, `results/stream_eval_by_kind.csv`. No winner was chosen after seeing results.
+
+| Run | min_flagged | Threshold | Detected | Missed | Events | False-alarm events | Event precision | Event recall | Cost (500/2) |
+|---|---:|---|---:|---:|---:|---:|---:|---:|---:|
+| A | 1 | tuner on | 17 | 1 | 264 | 247 | 0.0644 | 0.9444 | 994 |
+| B | 2 | tuner on | 15 | 3 | 49 | 34 | 0.3061 | 0.8333 | 1568 |
+| C | 1 | frozen | 17 | 1 | 264 | 247 | 0.0644 | 0.9444 | 994 |
+| D | 2 | frozen | 15 | 3 | 49 | 34 | 0.3061 | 0.8333 | 1568 |
+
+Detection delay (first flag minus episode start): median 0 min in all runs. Maximum delay to confirmation: 0 min at min 1, 5 min at min 2. Dropped candidates (min 2): 215. Flagged readings: 381 of 9,000. Initial threshold: -0.0782.
+
+Recall by episode kind:
+
+| Kind | min 1 | min 2 |
+|---|---:|---:|
+| combined | 1.00 | 1.00 |
+| door_stuck | 1.00 | 1.00 |
+| power_surge | 1.00 | 1.00 |
+| temperature_spike | 1.00 | 1.00 |
+| single_severe | 1.00 | 1.00 |
+| single_mild | 0.67 | 0.00 |
+
+What this shows:
+- `min_flagged_readings=2` cut false-alarm events from 247 to 34 and lost the single-reading mild anomalies (17 -> 15 detected). The severe exception caught every severe single reading.
+- Under the 500/2 cost policy, min 1 is cheaper on this stream (994 vs 1568) because a miss costs 500. This applies to this stream only; the default stays at 2 as agreed.
+- Tuner on and frozen are identical because the tuner made 0 adaptations and 0 freezes. The stream has no regime change, so this run does not test the tuner.
+- Precision at the 97th percentile is low because about 4% of readings are flagged (381 of 9,000) and scattered flags pair up into false episodes within the 15-minute gap.
+
+## Held-out patterns (not used for any design choice)
+
+Patterns the settings were not designed around: a slow temperature ramp (`gradual_drift`, +8 C over 24-36 readings) and a stuck sensor (`flatline`, all features frozen at the first value). Separate stream (seed `STREAM_SEED + 100`), run B settings. Results: `results/stream_eval_heldout.csv`.
+
+| Kind | Detected | Total |
+|---|---:|---:|
+| gradual_drift | 9 | 9 |
+| flatline | 0 | 9 |
+
+Overall: 9 of 18 detected (recall 0.5), 49 events, 36 false-alarm events, precision 0.2653, cost 4572, dropped candidates 205. For detected episodes: median delay to first flag 55 min, to confirmation 65 min, maximum 95 min. On average 1.44 events per detected episode (some drift episodes were split into more than one event).
+
+Findings:
+- Slow drift is always caught, but late (median 55 min), because a flag needs the ramp to reach the model's threshold.
+- Stuck-sensor episodes are never detected. A frozen reading near normal values looks normal to a per-reading model, and there is no "value has not changed" check. Not fixed here; it needs a window-based rule (future work).
+
+## Precision follow-up
+
+The percentile was chosen on a separate tuning stream (seed `STREAM_SEED + 10` = 2013) with the rule fixed in advance: lowest episode cost, ties to higher recall; min 2, frozen threshold. Results: `results/stream_tuning_stream.csv`.
+
+| Percentile | Detected | Missed | False-alarm events | Precision | Recall | Cost |
+|---:|---:|---:|---:|---:|---:|---:|
+| 95.0 | 15 | 3 | 84 | 0.1515 | 0.8333 | 1668 |
+| 97.0 | 15 | 3 | 47 | 0.2419 | 0.8333 | 1594 |
+| 98.0 | 15 | 3 | 18 | 0.4545 | 0.8333 | 1536 |
+| 99.0 | 15 | 3 | 4 | 0.7895 | 0.8333 | 1508 |
+| 99.5 | 14 | 4 | 1 | 0.9333 | 0.7778 | 2002 |
+
+Chosen: 99.0. Single report on the evaluation stream (run E, `results/stream_eval_extra.csv`, threshold -0.0364, min 2, frozen): 15 of 18 detected, 3 missed, 21 events, 6 false-alarm events, precision 0.7143, recall 0.8333, cost 1512, dropped candidates 92, maximum confirmation delay 5 min. Recall equals run B; false-alarm events fall from 34 to 6. The consumer default stays at percentile 97 until the team decides on a change.
+
+## Real Kafka + InfluxDB run
+
+Status: **DONE** (Docker Desktop, `docker-compose.stream.yml`). Consumer settings: min_flagged_readings=2, tuner on, `--flush-open-episodes`.
+
+| Check | Result |
+|---|---|
+| Consumer summary | `processed=9000 skipped_invalid=0 skipped_stale=0 flagged=381 episodes=49 dropped_candidates=215 final_threshold=-0.078208` |
+| Rows stored in InfluxDB (`python -m src.check_influx`) | wh1-s1 3000, wh1-s2 3000, wh1-s3 3000; total 9000 |
+| Events in `results/real_run_events.jsonl` | 49 |
+| Integration test (`pytest -m integration`, 700 readings, one sensor) | 1 passed |
+
+Evaluation of the real events (`python -m src.stream_eval --events-file output/stream_events.jsonl`, de-duplicated on `episode_id`, `results/real_run_eval.csv`): 15 of 18 detected, 3 missed, 34 false-alarm events, precision 0.3061, recall 0.8333, cost 1568, median delay 0 min, maximum confirmation delay 5 min. These match in-memory run B exactly.
+
+Run it:
+
+```powershell
+Copy-Item .env.example .env        # fill in local dev values
+docker compose -f docker-compose.stream.yml up -d
+docker exec iot-anomaly-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --if-not-exists --topic iot.sensor.reading --partitions 1 --replication-factor 1
+docker exec iot-anomaly-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --if-not-exists --topic iot.anomaly.detected --partitions 1 --replication-factor 1
+python -m src.train_stream_model
+python -m src.stream_consumer --idle-exit 30 --flush-open-episodes --events-log output\stream_events.jsonl   # terminal 1
+python -m src.stream_simulator --publish                                                                       # terminal 2
+python -m src.check_influx
+python -m src.stream_eval --events-file output\stream_events.jsonl
+docker compose -f docker-compose.stream.yml down -v
+```
+
+Use local dev values for the token and password; never commit `.env`. Run `down -v` between runs: old messages left on the topic would be replayed. The console consumer used to inspect the topic ends with a `TimeoutException` after `--timeout-ms`; this is how it stops once all messages are read.
+
+## Limitations
+
+- All sensors share one simulated normal distribution, so one model fits. Real sensors would need per-sensor or per-site models.
+- Injected amplitudes are design choices; results describe this simulation only.
+- Stuck-sensor (flatline) episodes are not detected, and slow drift is flagged about an hour late (see held-out results).
+- The stream has no regime change, so the tuner's behaviour on shifting data is not evaluated here (see the M2 simulation results).
+- Not tested: multi-partition topics, per-sensor models.
+- The consumer writes to InfluxDB one reading at a time (several minutes for 9,000 readings); batching is a possible improvement.
+- Known follow-ups (next round): an episode on a sensor that goes silent stays open and blocks offset commits; InfluxDB writes have no retry; `PERCENTILE`, `GAP` and `SEVERE_MARGIN` are duplicated in `stream_consumer.py` and `stream_eval.py` and should move to one config module.
+- Full test suite: 651 passed (1 integration test deselected by default; run with `pytest -m integration`).
 
 # Future Improvements
 
@@ -2262,7 +2403,7 @@ The validated continuous-lifecycle results are:
 ## Test suite
 
 ```text
-546 passed
+651 passed
 3 warnings
 0 failures
 ```

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Supplier Portal PO Acknowledged Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "event_version",
+    "occurred_at",
+    "producer",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "event_type": {
+      "const": "supplierportal.po.acknowledged"
+    },
+    "event_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "const": "supplier-portal"
+    },
+    "trace_id": {
+      "type": ["string", "null"],
+      "description": "Optional distributed trace id."
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "po_number",
+        "supplier_id",
+        "acknowledged_at"
+      ],
+      "properties": {
+        "po_number": {
+          "type": "string",
+          "pattern": "^PO-[0-9]{4}-[0-9]{6}$"
+        },
+        "supplier_id": {
+          "type": "string",
+          "pattern": "^SUP-[0-9]{5}$"
+        },
+        "acknowledged_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}
