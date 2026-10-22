@@ -64,7 +64,7 @@ def _export(admin_token):
 def test_login_without_mfa_still_returns_tokens():
     r = client.post("/api/v1/auth/login", data=ANALYST)
     assert r.status_code == 200
-    assert "access_token" in r.json()
+    assert "fix10_missing_token" in r.json()
 
 
 def test_mfa_end_to_end_and_audited(monkeypatch):
