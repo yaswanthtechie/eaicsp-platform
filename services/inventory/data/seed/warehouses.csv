@@ -1,7 +1,0 @@
-warehouse_id,name,city,state,lat,lng,capacity_units,demand_weight
-WH-BLR-01,Bengaluru DC,Bengaluru,Karnataka,12.97,77.59,120000,1.25
-WH-CCU-01,Kolkata DC,Kolkata,West Bengal,22.57,88.36,80000,0.80
-WH-DEL-01,Delhi NCR DC,Gurugram,Haryana,28.46,77.03,140000,1.30
-WH-HYD-01,Hyderabad DC,Hyderabad,Telangana,17.39,78.49,100000,1.00
-WH-MAA-01,Chennai DC,Chennai,Tamil Nadu,13.08,80.27,90000,0.85
-WH-BOM-01,Mumbai DC,Bhiwandi,Maharashtra,19.30,73.06,130000,1.20

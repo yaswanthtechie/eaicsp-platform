@@ -138,7 +138,7 @@ def test_approving_missing_po_returns_404(client):
 def test_vp_approval_changes_status(db_session):
     po = PurchaseOrder(
         po_id="PO-TEST-VP",
-        sku_id="SKU-TEST-003",
+        sku_id="SKU-000703",
         warehouse_id="WH-BLR-01",
         supplier_id="SUP-00003",
         quantity=100,
@@ -165,7 +165,7 @@ def test_already_approved_po_cannot_be_approved_again(
 ):
     po = PurchaseOrder(
         po_id="PO-TEST-ALREADY",
-        sku_id="SKU-TEST-004",
+        sku_id="SKU-000704",
         warehouse_id="WH-BLR-01",
         supplier_id="SUP-00004",
         quantity=5,
@@ -197,7 +197,7 @@ def test_already_approved_po_cannot_be_approved_again(
 def test_pending_po_cannot_be_received(db_session):
     po = PurchaseOrder(
         po_id="PO-TEST-PENDING",
-        sku_id="SKU-TEST-005",
+        sku_id="SKU-000705",
         warehouse_id="WH-BLR-01",
         supplier_id="SUP-00005",
         quantity=100,

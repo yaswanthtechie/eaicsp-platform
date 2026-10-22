@@ -13,7 +13,7 @@ def test_network_optimization_aggregates_child_demand(
     db_session,
 ):
     central = Inventory(
-        sku_id="SKU-NET-001",
+        sku_id="SKU-000501",
         warehouse_id="WH-CENTRAL",
         product_name="Network Product",
         category="Test",
@@ -27,7 +27,7 @@ def test_network_optimization_aggregates_child_demand(
     )
 
     regional = Inventory(
-        sku_id="SKU-NET-001",
+        sku_id="SKU-000501",
         warehouse_id="WH-REGIONAL",
         product_name="Network Product",
         category="Test",
@@ -41,7 +41,7 @@ def test_network_optimization_aggregates_child_demand(
     )
 
     local = Inventory(
-        sku_id="SKU-NET-001",
+        sku_id="SKU-000501",
         warehouse_id="WH-LOCAL",
         product_name="Network Product",
         category="Test",
@@ -71,7 +71,7 @@ def test_network_optimization_aggregates_child_demand(
 
         db_session.add(
             SalesHistory(
-                sku_id="SKU-NET-001",
+                sku_id="SKU-000501",
                 warehouse_id="WH-CENTRAL",
                 sale_date=sale_date,
                 quantity_sold=2,
@@ -80,7 +80,7 @@ def test_network_optimization_aggregates_child_demand(
 
         db_session.add(
             SalesHistory(
-                sku_id="SKU-NET-001",
+                sku_id="SKU-000501",
                 warehouse_id="WH-REGIONAL",
                 sale_date=sale_date,
                 quantity_sold=3,
@@ -89,7 +89,7 @@ def test_network_optimization_aggregates_child_demand(
 
         db_session.add(
             SalesHistory(
-                sku_id="SKU-NET-001",
+                sku_id="SKU-000501",
                 warehouse_id="WH-LOCAL",
                 sale_date=sale_date,
                 quantity_sold=5,

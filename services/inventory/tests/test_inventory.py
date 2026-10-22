@@ -663,7 +663,7 @@ def test_bulk_update_failure(client_warehouse_manager):
 
     seed_sales_history(
         "BULK1",
-        "WH1",
+        "WH-BLR-01",
         daily_quantity=5,
     )
 
@@ -671,7 +671,7 @@ def test_bulk_update_failure(client_warehouse_manager):
         "/api/v1/inventory/",
         json=create_payload(
             "BULK1",
-            "WH1",
+            "WH-BLR-01",
             50,
         ),
     )
@@ -682,7 +682,7 @@ def test_bulk_update_failure(client_warehouse_manager):
     # attempts to decrease stock by 10.
     seed_cost_layer(
         sku_id="BULK1",
-        warehouse_id="WH1",
+        warehouse_id="WH-BLR-01",
         quantity=50,
         unit_cost=50.0,
     )
@@ -692,12 +692,12 @@ def test_bulk_update_failure(client_warehouse_manager):
         json=[
             {
                 "sku_id": "BULK1",
-                "warehouse_id": "WH1",
+                "warehouse_id": "WH-BLR-01",
                 "quantity_delta": -10,
             },
             {
                 "sku_id": "INVALID",
-                "warehouse_id": "WH1",
+                "warehouse_id": "WH-BLR-01",
                 "quantity_delta": -10,
             },
         ],
@@ -706,7 +706,7 @@ def test_bulk_update_failure(client_warehouse_manager):
     assert response.status_code == 409
 
     response = client_warehouse_manager.get(
-        "/api/v1/inventory/BULK1/WH1"
+        "/api/v1/inventory/BULK1/WH-BLR-01"
     )
 
     assert response.status_code == 200
@@ -976,7 +976,7 @@ def test_update_inventory(client):
 
     seed_sales_history(
         "UPD1",
-        "WH1",
+        "WH-BLR-01",
         daily_quantity=5,
     )
 
@@ -984,7 +984,7 @@ def test_update_inventory(client):
         "/api/v1/inventory/",
         json=create_payload(
             "UPD1",
-            "WH1",
+            "WH-BLR-01",
             50,
         ),
     )
@@ -993,13 +993,13 @@ def test_update_inventory(client):
 
     seed_cost_layer(
         sku_id="UPD1",
-        warehouse_id="WH1",
+        warehouse_id="WH-BLR-01",
         quantity=50,
         unit_cost=50.0,
     )
 
     response = client.put(
-        "/api/v1/inventory/UPD1/WH1",
+        "/api/v1/inventory/UPD1/WH-BLR-01",
         json={
             "quantity_on_hand": 20,
             "lead_time_days": 6,
@@ -1025,7 +1025,7 @@ def test_manual_demand_update_rejected(client):
 
     seed_sales_history(
         "UPD2",
-        "WH1",
+        "WH-BLR-01",
         daily_quantity=5,
     )
 
@@ -1033,7 +1033,7 @@ def test_manual_demand_update_rejected(client):
         "/api/v1/inventory/",
         json=create_payload(
             "UPD2",
-            "WH1",
+            "WH-BLR-01",
             50,
         ),
     )
@@ -1041,7 +1041,7 @@ def test_manual_demand_update_rejected(client):
     assert response.status_code == 201
 
     response = client.put(
-        "/api/v1/inventory/UPD2/WH1",
+        "/api/v1/inventory/UPD2/WH-BLR-01",
         json={
             "avg_daily_demand": 999,
         },

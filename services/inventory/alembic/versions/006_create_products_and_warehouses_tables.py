@@ -33,7 +33,6 @@ def upgrade() -> None:
             sa.Column("supplier_id", sa.String(16), nullable=True),
             sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
         )
-        op.create_index("ix_products_sku_id", "products", ["sku_id"])
         op.create_index("ix_products_supplier_id", "products", ["supplier_id"])
 
     if "warehouses" not in tables:
@@ -51,13 +50,9 @@ def upgrade() -> None:
             sa.Column("parent_warehouse_id", sa.String(16), nullable=True),
             sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
         )
-        op.create_index("ix_warehouses_warehouse_id", "warehouses", ["warehouse_id"])
 
 
 def downgrade() -> None:
-    op.drop_index("ix_warehouses_warehouse_id", table_name="warehouses")
     op.drop_table("warehouses")
     op.drop_index("ix_products_supplier_id", table_name="products")
-    op.drop_index("ix_products_sku_id", table_name="products")
     op.drop_table("products")
-
