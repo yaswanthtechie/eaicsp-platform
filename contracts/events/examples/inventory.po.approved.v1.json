@@ -11,7 +11,7 @@
     "supplier_id": "SUP-00045",
     "warehouse_id": "WH-BLR-01",
     "approval_status": "approved",
-    "approved_by": "USR-00042",
+    "approved_by": "3f2b8c1e-7a4d-4e9b-9c2f-1d5e6a7b8c90",
     "approved_at": "2026-10-15T10:30:00Z",
     "total_amount": 45000.0,
     "currency": "INR",
