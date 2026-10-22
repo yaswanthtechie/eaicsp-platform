@@ -24,6 +24,7 @@ This is the single reference for **who owns which data, how services and models 
 | Supplier | `SUP-` + 5 digits | `SUP-00045` | Supplier Portal | `supplier_portal.suppliers` |
 | Purchase order | `PO-` + year + 6 digits | `PO-2026-000123` | Inventory (create, approve) then Supplier Portal (supplier-facing lifecycle) | see Flow B |
 | Shipment | `SHP-` + year + 6 digits | `SHP-2026-000077` | Supplier Portal (dispatch) | `supplier_portal.shipments` |
+| Goods receipt | `GR-` + year + 6 digits | `GR-2026-000077` | Inventory | `inventory.goods_receipts` |
 | User | UUID | | Platform | `platform.users` |
 | Event | UUID v4 | | Producer | envelope `event_id` |
 

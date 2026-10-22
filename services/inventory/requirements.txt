@@ -19,10 +19,13 @@ python-dotenv==1.0.1
 # CSV File Upload
 python-multipart==0.0.20
 
-# Testing
+# Testing & Contract Validation
 pytest==8.3.4
 pytest-cov==6.0.0
 httpx==0.28.1
+jsonschema==4.26.0
+rfc3339-validator==0.1.4
+PyYAML==6.0.3
 
 # Redis Cache
 redis==8.1.0

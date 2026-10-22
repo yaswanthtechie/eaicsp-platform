@@ -1,0 +1,5 @@
+run,min_flagged_readings,threshold,true_episodes,detected,missed,published_events,false_alarm_events,event_precision,event_recall,events_per_detected_episode,median_delay_first_flag_min,median_delay_confirmed_min,max_delay_confirmed_min,episode_cost,percentile,dropped_candidates,flagged_readings,threshold_start,threshold_end,tuner_adaptations,tuner_freezes
+A,1,tuner on,18,17,1,264,247,0.06439393939393939,0.9444444444444444,1.0,0.0,0.0,0.0,994,97.0,0,381,-0.07820778816714336,-0.07820778816714336,0,0
+B,2,tuner on,18,15,3,49,34,0.30612244897959184,0.8333333333333334,1.0,0.0,0.0,5.0,1568,97.0,215,381,-0.07820778816714336,-0.07820778816714336,0,0
+C,1,frozen,18,17,1,264,247,0.06439393939393939,0.9444444444444444,1.0,0.0,0.0,0.0,994,97.0,0,381,-0.07820778816714336,-0.07820778816714336,0,0
+D,2,frozen,18,15,3,49,34,0.30612244897959184,0.8333333333333334,1.0,0.0,0.0,5.0,1568,97.0,215,381,-0.07820778816714336,-0.07820778816714336,0,0

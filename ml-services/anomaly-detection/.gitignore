@@ -16,3 +16,5 @@ models/
 output/
 mlflow.db
 mlruns/
+
+!.env.example
