@@ -2281,6 +2281,17 @@ Use local dev values for the token and password; never commit `.env`. Run `down 
 - Known follow-ups (next round): an episode on a sensor that goes silent stays open and blocks offset commits; InfluxDB writes have no retry; `PERCENTILE`, `GAP` and `SEVERE_MARGIN` are duplicated in `stream_consumer.py` and `stream_eval.py` and should move to one config module.
 - Full test suite: 651 passed (1 integration test deselected by default; run with `pytest -m integration`).
 
+# Round 15 - Sensors on canonical warehouses (#232)
+
+- `src/sensor_config.py` generates `config/sensors.json` from the shared seed warehouses (`python -m src.sensor_config`): 2 sensors per warehouse, ids `WH-XXX-NN-S1/S2`, with a sensor-to-warehouse map. Re-generate when the seed changes.
+- The simulator takes `--sensors-config config/sensors.json` and `--n-per-sensor`. Round 14 ids (`wh1-s1`) remain only in unit tests and the in-memory evaluation.
+- Events now carry `warehouse_id`, `severity` and `message` and are validated against `contracts/events/iot.anomaly.detected.v1.json` in `tests/test_stream_contract.py`. `event_version` stays "1.0" (additive fields).
+- Severity rule, fixed in code before any run: critical = severe and >= 10 flagged readings; high = severe; medium = >= 3 flagged readings; low otherwise.
+- Readings from sensors missing from the config are counted (`skipped_unknown_sensor`) and not scored.
+- Docker: `ml-services/anomaly-detection/Dockerfile` (build context = repo root) and `infra/compose/anomaly.override.yml` (services `anomaly-detector`, `anomaly-simulator`). The model is mounted from `models/` and never trained in the container.
+- Real run (Docker: Kafka, InfluxDB, `anomaly-simulator`, `anomaly-detector` from the overlay): 18000 readings published, 18000 rows stored in InfluxDB (12 sensors x 1500), 131 events on `iot.anomaly.detected`, 0 invalid against `contracts/events/iot.anomaly.detected.v1.json`, all six seed warehouses present. The detector ran without `--flush-open-episodes`, so an episode still open at the end of a sensor's stream is not in this count.
+- Not done: the services are in an overlay file, not yet in `infra/docker-compose.yml` (does not exist on develop; owned by Ajith). The sensor count per warehouse and the sensor id format are my choice.
+
 # Future Improvements
 
 Potential future enhancements include:
@@ -2403,7 +2414,7 @@ The validated continuous-lifecycle results are:
 ## Test suite
 
 ```text
-651 passed
+673 passed
 3 warnings
 0 failures
 ```

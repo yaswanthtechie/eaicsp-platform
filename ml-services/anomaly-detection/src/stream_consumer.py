@@ -11,7 +11,9 @@ tag + timestamp overwrites). The threshold tuner restarts from its
 calibration state (not persisted).
 
 Invalid messages are logged and skipped. Duplicate or late readings are
-skipped before scoring.
+skipped before scoring. Readings from sensors missing from the sensor
+config are counted and skipped, so every event has a canonical
+warehouse_id (contract: contracts/events/iot.anomaly.detected.v1.json).
 
 Run:
     python -m src.stream_consumer --idle-exit 30 --flush-open-episodes --events-log output\\stream_events.jsonl
@@ -32,6 +34,7 @@ from .episode_detector import EpisodeDetector
 from .stream_events import EVENT_TYPE, event_key
 from .stream_model import load_stream_model
 from .stream_processor import StreamProcessor
+from .sensor_config import CONFIG_PATH, load_sensors, sensor_map as build_sensor_map
 from .stream_simulator import STEP, reading_from_json
 
 
@@ -288,7 +291,7 @@ class MultiPublisher:
             publisher.close()
 
 
-def build_processor(settings, model, writer, publisher):
+def build_processor(settings, model, writer, publisher, sensor_map=None):
 
     tuner = SignificanceThresholdTuner(
         model.calibration_scores, percentile=PERCENTILE
@@ -301,10 +304,18 @@ def build_processor(settings, model, writer, publisher):
         severe_margin=SEVERE_MARGIN,
     )
 
-    return StreamProcessor(model, tuner, detector, writer, publisher)
+    return StreamProcessor(
+        model, tuner, detector, writer, publisher, sensor_map=sensor_map
+    )
 
 
-def run(settings, events_log=None, idle_exit=None, flush_open_episodes=False):
+def run(
+    settings,
+    events_log=None,
+    idle_exit=None,
+    flush_open_episodes=False,
+    sensor_map=None,
+):
 
     from confluent_kafka import Consumer, KafkaError, KafkaException
 
@@ -328,7 +339,7 @@ def run(settings, events_log=None, idle_exit=None, flush_open_episodes=False):
 
     publisher = MultiPublisher(*publishers)
 
-    processor = build_processor(settings, model, writer, publisher)
+    processor = build_processor(settings, model, writer, publisher, sensor_map)
 
     consumer = Consumer(
         {
@@ -417,6 +428,7 @@ def run(settings, events_log=None, idle_exit=None, flush_open_episodes=False):
     print(
         f"processed={processed} skipped_invalid={skipped} "
         f"skipped_stale={processor.skipped_stale} "
+        f"skipped_unknown_sensor={processor.skipped_unknown} "
         f"flagged={processor.flagged_count} "
         f"episodes={processor.detector.episodes_emitted} "
         f"dropped_candidates={processor.detector.dropped_candidates} "
@@ -435,6 +447,7 @@ def main(argv=None):
     parser.add_argument("--events-log", default=None)
     parser.add_argument("--group-id", default=None)
     parser.add_argument("--flush-open-episodes", action="store_true")
+    parser.add_argument("--sensors-config", default=str(CONFIG_PATH))
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO)
@@ -444,11 +457,14 @@ def main(argv=None):
     if args.group_id:
         settings["group_id"] = args.group_id
 
+    sensor_map = build_sensor_map(load_sensors(args.sensors_config))
+
     run(
         settings,
         events_log=args.events_log,
         idle_exit=args.idle_exit,
         flush_open_episodes=args.flush_open_episodes,
+        sensor_map=sensor_map,
     )
 
 
