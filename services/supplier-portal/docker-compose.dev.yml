@@ -7,7 +7,7 @@ services:
       - "5434:5432"
     environment:
       POSTGRES_USER: supplier_portal
-      POSTGRES_PASSWORD: supplier_portal_dev
+      POSTGRES_PASSWORD: ${SUPPLIER_PORTAL_DB_PASSWORD:?set SUPPLIER_PORTAL_DB_PASSWORD in .env}
       POSTGRES_DB: eaicsp
     volumes:
       - supplier_portal_postgres_data:/var/lib/postgresql/data

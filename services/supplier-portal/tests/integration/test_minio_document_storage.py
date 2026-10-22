@@ -269,7 +269,7 @@ def test_real_minio_different_suppliers_have_different_object_keys(
 
     object_key_a = (
         storage_service.build_onboarding_object_key(
-            supplier_id="SUP001",
+            supplier_id="SUP-00001",
             document_id=document_id_a,
             file_name="pan_card.pdf",
         )
@@ -277,7 +277,7 @@ def test_real_minio_different_suppliers_have_different_object_keys(
 
     object_key_b = (
         storage_service.build_onboarding_object_key(
-            supplier_id="SUP002",
+            supplier_id="SUP-00002",
             document_id=document_id_b,
             file_name="pan_card.pdf",
         )
@@ -286,11 +286,11 @@ def test_real_minio_different_suppliers_have_different_object_keys(
     assert object_key_a != object_key_b
 
     assert object_key_a.startswith(
-        "suppliers/SUP001/onboarding/"
+        "suppliers/SUP-00001/onboarding/"
     )
 
     assert object_key_b.startswith(
-        "suppliers/SUP002/onboarding/"
+        "suppliers/SUP-00002/onboarding/"
     )
 
 
@@ -306,7 +306,7 @@ def test_real_minio_supplier_a_object_is_not_supplier_b_object(
 
     object_key_a = (
         storage_service.build_onboarding_object_key(
-            supplier_id="SUP001",
+            supplier_id="SUP-00001",
             document_id=document_id_a,
             file_name="pan_card.pdf",
         )
@@ -314,7 +314,7 @@ def test_real_minio_supplier_a_object_is_not_supplier_b_object(
 
     object_key_b = (
         storage_service.build_onboarding_object_key(
-            supplier_id="SUP002",
+            supplier_id="SUP-00002",
             document_id=document_id_b,
             file_name="pan_card.pdf",
         )
@@ -322,8 +322,8 @@ def test_real_minio_supplier_a_object_is_not_supplier_b_object(
 
     assert object_key_a != object_key_b
 
-    assert "/SUP001/" in object_key_a
-    assert "/SUP002/" in object_key_b
+    assert "/SUP-00001/" in object_key_a
+    assert "/SUP-00002/" in object_key_b
 
     assert (
         storage_service.object_exists(

@@ -1,4 +1,4 @@
-﻿
+
 import csv
 from pathlib import Path
 
@@ -30,7 +30,6 @@ def db_session():
     Base.metadata.drop_all(engine)
     engine.dispose()
 
-
 def test_seed_persists_suppliers_and_is_idempotent(
     tmp_path, db_session
 ):
@@ -54,6 +53,21 @@ def test_seed_persists_suppliers_and_is_idempotent(
 
     assert first == {"inserted": 2, "updated": 0}
 
+    # Change existing values to verify that the seed updates rows.
+    write_csv(
+        path,
+        [
+            supplier("SUP-00001", name="Renamed Supplier"),
+            supplier(
+                "SUP-00007",
+                name="ALPHA SANCTIONS CORP",
+                country="Russia",
+                sanctions_flag="True",
+                sanctions_list="OFAC-SDN",
+            ),
+        ],
+    )
+
     with db_session.begin():
         second = seed_suppliers(path, db_session)
 
@@ -65,6 +79,7 @@ def test_seed_persists_suppliers_and_is_idempotent(
 
     assert len(saved) == 2
     assert saved[0].supplier_id == "SUP-00001"
+    assert saved[0].name == "Renamed Supplier"
     assert saved[1].supplier_id == "SUP-00007"
     assert saved[1].sanctions_flag is True
     assert saved[1].sanctions_list == "OFAC-SDN"
@@ -161,9 +176,6 @@ def test_rejects_missing_required_value(tmp_path):
 def test_rejects_missing_file(tmp_path):
     with pytest.raises(FileNotFoundError, match="CSV not found"):
         load_supplier_csv(tmp_path / "missing.csv")
-
-
-from pathlib import Path
 
 
 def test_repository_seed_has_60_canonical_supplier_ids():

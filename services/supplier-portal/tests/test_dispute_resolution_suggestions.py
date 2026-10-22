@@ -68,7 +68,7 @@ def test_price_mismatch_suggests_correct_invoice():
 
     seed_match(
         match_id="HIST-001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="OLD001",
         status="matched",
         discrepancies=["price_mismatch"],
@@ -77,7 +77,7 @@ def test_price_mismatch_suggests_correct_invoice():
 
     seed_match(
         match_id="HIST-002",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
         invoice_number="OLD002",
         status="matched",
         discrepancies=["price_mismatch"],
@@ -86,7 +86,7 @@ def test_price_mismatch_suggests_correct_invoice():
 
     seed_match(
         match_id="HIST-003",
-        supplier_id="SUP003",
+        supplier_id="SUP-00003",
         invoice_number="OLD003",
         status="matched",
         discrepancies=["price_mismatch"],
@@ -95,7 +95,7 @@ def test_price_mismatch_suggests_correct_invoice():
 
     seed_match(
         match_id="CURRENT-001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="INV1001",
         status="discrepancy",
         discrepancies=["price_mismatch"],
@@ -106,7 +106,7 @@ def test_price_mismatch_suggests_correct_invoice():
     )
 
     result = get_dispute_resolution_suggestions(
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="INV1001",
     )
 
@@ -129,7 +129,7 @@ def test_quantity_mismatch_suggests_credit_note():
 
     seed_match(
         match_id="HIST-004",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="OLD004",
         status="matched",
         discrepancies=["quantity_mismatch"],
@@ -138,7 +138,7 @@ def test_quantity_mismatch_suggests_credit_note():
 
     seed_match(
         match_id="HIST-005",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
         invoice_number="OLD005",
         status="matched",
         discrepancies=["quantity_mismatch"],
@@ -147,7 +147,7 @@ def test_quantity_mismatch_suggests_credit_note():
 
     seed_match(
         match_id="HIST-006",
-        supplier_id="SUP003",
+        supplier_id="SUP-00003",
         invoice_number="OLD006",
         status="matched",
         discrepancies=["quantity_mismatch"],
@@ -156,7 +156,7 @@ def test_quantity_mismatch_suggests_credit_note():
 
     seed_match(
         match_id="CURRENT-002",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="INV1002",
         status="discrepancy",
         discrepancies=["quantity_mismatch"],
@@ -167,7 +167,7 @@ def test_quantity_mismatch_suggests_credit_note():
     )
 
     result = get_dispute_resolution_suggestions(
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="INV1002",
     )
 
@@ -187,7 +187,7 @@ def test_multiple_discrepancies_generate_multiple_suggestions():
 
     seed_match(
         match_id="HIST-007",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="OLD007",
         status="matched",
         discrepancies=["quantity_mismatch"],
@@ -196,7 +196,7 @@ def test_multiple_discrepancies_generate_multiple_suggestions():
 
     seed_match(
         match_id="HIST-008",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
         invoice_number="OLD008",
         status="matched",
         discrepancies=["price_mismatch"],
@@ -205,7 +205,7 @@ def test_multiple_discrepancies_generate_multiple_suggestions():
 
     seed_match(
         match_id="CURRENT-003",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="INV1003",
         status="discrepancy",
         discrepancies=[
@@ -219,7 +219,7 @@ def test_multiple_discrepancies_generate_multiple_suggestions():
     )
 
     result = get_dispute_resolution_suggestions(
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="INV1003",
     )
 
@@ -249,7 +249,7 @@ def test_no_historical_cases_returns_no_suggestion():
 
     seed_match(
         match_id="CURRENT-004",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="INV1004",
         status="discrepancy",
         discrepancies=["price_mismatch"],
@@ -260,7 +260,7 @@ def test_no_historical_cases_returns_no_suggestion():
     )
 
     result = get_dispute_resolution_suggestions(
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="INV1004",
     )
 
@@ -279,7 +279,7 @@ def test_unresolved_historical_cases_are_ignored():
 
     seed_match(
         match_id="HIST-009",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="OLD009",
         status="discrepancy",
         discrepancies=["price_mismatch"],
@@ -288,7 +288,7 @@ def test_unresolved_historical_cases_are_ignored():
 
     seed_match(
         match_id="CURRENT-005",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="INV1005",
         status="discrepancy",
         discrepancies=["price_mismatch"],
@@ -299,7 +299,7 @@ def test_unresolved_historical_cases_are_ignored():
     )
 
     result = get_dispute_resolution_suggestions(
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="INV1005",
     )
 
@@ -317,7 +317,7 @@ def test_current_match_is_not_used_as_historical_evidence():
 
     seed_match(
         match_id="CURRENT-006",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="INV1006",
         status="discrepancy",
         discrepancies=["price_mismatch"],
@@ -329,7 +329,7 @@ def test_current_match_is_not_used_as_historical_evidence():
     )
 
     result = get_dispute_resolution_suggestions(
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="INV1006",
     )
 
@@ -347,7 +347,7 @@ def test_unclassified_resolution_is_ignored():
 
     seed_match(
         match_id="HIST-010",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="OLD010",
         status="matched",
         discrepancies=["price_mismatch"],
@@ -356,7 +356,7 @@ def test_unclassified_resolution_is_ignored():
 
     seed_match(
         match_id="CURRENT-007",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="INV1007",
         status="discrepancy",
         discrepancies=["price_mismatch"],
@@ -367,7 +367,7 @@ def test_unclassified_resolution_is_ignored():
     )
 
     result = get_dispute_resolution_suggestions(
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="INV1007",
     )
 
@@ -384,7 +384,7 @@ def test_resolved_current_match_cannot_generate_suggestion():
 
     seed_match(
         match_id="CURRENT-008",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="INV1008",
         status="matched",
         discrepancies=["price_mismatch"],
@@ -397,7 +397,7 @@ def test_resolved_current_match_cannot_generate_suggestion():
 
     with pytest.raises(ValueError, match="unresolved discrepancies"):
         get_dispute_resolution_suggestions(
-            supplier_id="SUP001",
+            supplier_id="SUP-00001",
             invoice_number="INV1008",
         )
 
@@ -416,7 +416,7 @@ def test_unknown_match_raises_error():
         match="Three-way match not found",
     ):
         get_dispute_resolution_suggestions(
-            supplier_id="SUP001",
+            supplier_id="SUP-00001",
             invoice_number="UNKNOWN",
         )
 
@@ -429,7 +429,7 @@ def test_suggestion_service_is_read_only():
 
     seed_match(
         match_id="CURRENT-009",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="INV1009",
         status="discrepancy",
         discrepancies=["price_mismatch"],
@@ -441,17 +441,17 @@ def test_suggestion_service_is_read_only():
 
     before = dict(
         three_way_matches[
-            ("SUP001", "INV1009")
+            ("SUP-00001", "INV1009")
         ]
     )
 
     get_dispute_resolution_suggestions(
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="INV1009",
     )
 
     after = three_way_matches[
-        ("SUP001", "INV1009")
+        ("SUP-00001", "INV1009")
     ]
 
     assert after == before

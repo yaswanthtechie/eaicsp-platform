@@ -37,7 +37,7 @@ def clear_storage():
 
 def create_acknowledged_po(
     po_number="PO1001",
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
 ):
     purchase_orders[po_number] = {
         "po_number": po_number,
@@ -72,7 +72,7 @@ def create_acknowledged_po(
 
 def create_shipment_for_supplier(
     po_number="PO1001",
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
     quantity=5,
     created_by="supplier@company.com",
 ):
@@ -115,7 +115,7 @@ def test_create_shipment_successfully():
     )
 
     assert result["po_number"] == "PO1001"
-    assert result["supplier_id"] == "SUP001"
+    assert result["supplier_id"] == "SUP-00001"
     assert result["carrier"] == "DHL"
     assert result["tracking_number"] == "DHL123456789"
     assert result["status"] == "created"
@@ -142,7 +142,7 @@ def test_cross_supplier_shipment_is_rejected():
 
     create_acknowledged_po(
         po_number="PO2001",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     shipment = ShipmentCreate(
@@ -165,7 +165,7 @@ def test_cross_supplier_shipment_is_rejected():
     ):
         create_shipment(
             shipment,
-            supplier_id="SUP001",
+            supplier_id="SUP-00001",
             created_by="supplier@company.com",
         )
 
@@ -195,7 +195,7 @@ def test_shipment_for_nonexistent_po_is_rejected():
     ):
         create_shipment(
             shipment,
-            supplier_id="SUP001",
+            supplier_id="SUP-00001",
             created_by="supplier@company.com",
         )
 
@@ -207,7 +207,7 @@ def test_shipment_before_acknowledgment_is_rejected():
 
     purchase_orders["PO1001"] = {
         "po_number": "PO1001",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [
             {
                 "item_code": "LAP001",
@@ -244,7 +244,7 @@ def test_shipment_before_acknowledgment_is_rejected():
     ):
         create_shipment(
             shipment,
-            supplier_id="SUP001",
+            supplier_id="SUP-00001",
             created_by="supplier@company.com",
         )
 
@@ -279,7 +279,7 @@ def test_shipment_requires_acknowledged_p2p_state():
     ):
         create_shipment(
             shipment,
-            supplier_id="SUP001",
+            supplier_id="SUP-00001",
             created_by="supplier@company.com",
         )
 
@@ -311,7 +311,7 @@ def test_shipment_with_unknown_item_is_rejected():
     ):
         create_shipment(
             shipment,
-            supplier_id="SUP001",
+            supplier_id="SUP-00001",
             created_by="supplier@company.com",
         )
 
@@ -344,7 +344,7 @@ def test_shipment_quantity_cannot_exceed_po_quantity():
     ):
         create_shipment(
             shipment,
-            supplier_id="SUP001",
+            supplier_id="SUP-00001",
             created_by="supplier@company.com",
         )
 
@@ -380,7 +380,7 @@ def test_duplicate_shipment_item_is_rejected():
     ):
         create_shipment(
             shipment,
-            supplier_id="SUP001",
+            supplier_id="SUP-00001",
             created_by="supplier@company.com",
         )
 
@@ -428,12 +428,12 @@ def test_get_all_shipments():
 
     create_acknowledged_po(
         po_number="PO1001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     create_acknowledged_po(
         po_number="PO1002",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     shipment1 = ShipmentCreate(
@@ -466,13 +466,13 @@ def test_get_all_shipments():
 
     create_shipment(
         shipment1,
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         created_by="supplier1@company.com",
     )
 
     create_shipment(
         shipment2,
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
         created_by="supplier2@company.com",
     )
 
@@ -516,12 +516,12 @@ def test_supplier_can_view_own_shipment(
 
     create_acknowledged_po(
         po_number="PO1001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     result = create_shipment_for_supplier(
         po_number="PO1001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     response = supplier_client.get(
@@ -533,7 +533,7 @@ def test_supplier_can_view_own_shipment(
     body = response.json()
 
     assert body["shipment_id"] == result["shipment_id"]
-    assert body["supplier_id"] == "SUP001"
+    assert body["supplier_id"] == "SUP-00001"
 
 
 def test_supplier_cannot_view_another_suppliers_shipment(
@@ -545,13 +545,13 @@ def test_supplier_cannot_view_another_suppliers_shipment(
 
     create_acknowledged_po(
         po_number="PO2001",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     # Shipment creation changes the P2P state only for PO2001.
     result = create_shipment_for_supplier(
         po_number="PO2001",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
         created_by="supplierb@example.com",
     )
 
@@ -640,12 +640,12 @@ def test_internal_user_can_view_existing_supplier_shipment(
 
     create_acknowledged_po(
         po_number="PO2001",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     result = create_shipment_for_supplier(
         po_number="PO2001",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
         created_by="supplierb@example.com",
     )
 
@@ -658,7 +658,7 @@ def test_internal_user_can_view_existing_supplier_shipment(
     body = response.json()
 
     assert body["shipment_id"] == result["shipment_id"]
-    assert body["supplier_id"] == "SUP002"
+    assert body["supplier_id"] == "SUP-00002"
 
 
 # ============================================================
@@ -676,23 +676,23 @@ def test_supplier_list_shipments_returns_only_own_shipments(
 
     create_acknowledged_po(
         po_number="PO1001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     create_acknowledged_po(
         po_number="PO2001",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     create_shipment_for_supplier(
         po_number="PO1001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         created_by="supplier@company.com",
     )
 
     create_shipment_for_supplier(
         po_number="PO2001",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
         created_by="supplierb@example.com",
     )
 
@@ -705,7 +705,7 @@ def test_supplier_list_shipments_returns_only_own_shipments(
     body = response.json()
 
     assert len(body) == 1
-    assert body[0]["supplier_id"] == "SUP001"
+    assert body[0]["supplier_id"] == "SUP-00001"
 
 
 def test_internal_user_can_list_all_shipments(
@@ -718,23 +718,23 @@ def test_internal_user_can_list_all_shipments(
 
     create_acknowledged_po(
         po_number="PO1001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     create_acknowledged_po(
         po_number="PO2001",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     create_shipment_for_supplier(
         po_number="PO1001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         created_by="supplier@company.com",
     )
 
     create_shipment_for_supplier(
         po_number="PO2001",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
         created_by="supplierb@example.com",
     )
 
@@ -754,7 +754,7 @@ def test_internal_user_can_list_all_shipments(
     }
 
     assert supplier_ids == {
-        "SUP001",
-        "SUP002",
+        "SUP-00001",
+        "SUP-00002",
     }
 
