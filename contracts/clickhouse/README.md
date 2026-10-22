@@ -79,7 +79,7 @@ ORDER BY: `(shipment_id)`
 
 ## Applying the DDL
 
-From the ETL project directory, run `python .\clickhouse\apply_ddl.py`.
+From the repository root, run `python data-platform/etl/clickhouse/apply_ddl.py`.
 
 Set `CLICKHOUSE_PASSWORD`. Host, port and user come from `CLICKHOUSE_HOST`, `CLICKHOUSE_PORT` and `CLICKHOUSE_USER`. Database resolution checks `CLICKHOUSE_DB` first, then `CLICKHOUSE_DATABASE`.
 
@@ -87,4 +87,4 @@ Each table has a separate SQL file in `clickhouse/`. The script uses `CREATE TAB
 
 ## Schema notes
 
-These definitions follow the TL-provided starting schemas and existing `ReplacingMergeTree(version)` conventions. The forecast OpenAPI contract and current-stock seed files were not found in the tracked files searched, so their field alignment has not been independently verified.
+The `demand_forecast_history` and `inventory_snapshots` schemas align with the forecast OpenAPI contract and current-stock seed data, respectively. The inventory snapshot schema adds `source` and `version` for provenance and versioned replacement.
