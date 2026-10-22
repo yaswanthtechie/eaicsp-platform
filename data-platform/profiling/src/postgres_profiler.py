@@ -19,7 +19,7 @@ from src.profile import ProfileReport
 
 
 def _is_numeric_type(col_type) -> bool:
-    return isinstance(col_type, (sqltypes.Integer, sqltypes.Numeric))
+    return isinstance(col_type, (sqltypes.Integer, sqltypes.Numeric, sqltypes.Float))
 
 
 def _is_date_type(col_type) -> bool:
@@ -209,6 +209,7 @@ class PostgresPushdownProfiler:
             pii_report = []
             for col in columns_meta:
                 c_name = col["name"]
+                qc = prep.quote_identifier(c_name)
                 severity = "LOW"
                 reason = "No PII detected"
                 if re.search(r"email|phone|ssn|address|name", c_name.lower()):

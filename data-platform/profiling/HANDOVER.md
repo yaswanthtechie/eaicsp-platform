@@ -3,13 +3,13 @@
 **Folder:** `data-platform/profiling/`
 **Previous owner:** Sandeep (until 08/10/2026)
 **Current owner:** Tharun (from 08/10/2026)
-**Last updated:** 21/10/2026
+**Last updated:** 22/10/2026
 
 ---
 
 ## 1. What this library does
 
-3 lines, in plain words. Example: "Profiles datasets (null rates, distinct counts, min/max, quantiles, drift) from files or directly inside Postgres (SQL pushdown). Runs on a schedule through an Airflow DAG and stores every run in an audit archive."
+Profiles datasets (null rates, distinct counts, min/max, quantiles, outliers, PII, drift) from files or directly inside Postgres via SQL pushdown. Runs on a schedule through an Airflow DAG and stores every run in the audit archive.
 
 ---
 
@@ -23,7 +23,7 @@ python -m venv .venv
 pip install -r requirements.txt
 pytest -m "not integration" -q
 ```
-Result on 21/10/2026: `185 passed, 1 skipped, 1 deselected with Docker stopped`
+Result on 22/10/2026: `193 passed, 1 skipped, 1 deselected with Docker stopped`
 
 ### Database (Docker)
 ```powershell
@@ -34,6 +34,7 @@ docker compose -f docker-compose.dev.yml up -d
 
 ### Load test data
 ```powershell
+python seed_db.py
 python benchmark_pushdown.py
 ```
 Creates: `benchmark_1m_sales (benchmark_pushdown.py), products (seed_db.py), test_sales_parity (integration test)`
@@ -42,7 +43,7 @@ Creates: `benchmark_1m_sales (benchmark_pushdown.py), products (seed_db.py), tes
 ```powershell
 docker exec -it airflow-tester python dags/profiling_dag.py
 ```
-Result on 21/10/2026: `both tasks succeeded`
+Result on 22/10/2026: `both tasks succeeded`
 
 ---
 
@@ -53,8 +54,8 @@ Result on 21/10/2026: `both tasks succeeded`
 | My laptop (seed script, local tests) | `localhost:5433` |
 | Inside Docker (the Airflow DAG) | `postgres-profiler:5432` |
 
-- Port **5433** on the laptop, because 5432 is already in use by.
-- The DAG first looks for the Airflow connection `postgres_profiler_db`. If it doesn't exist, it uses the `PROFILING_DB_URL` environment variable, or the local default.
+- Port **5433** on the laptop, because 5432 is already in use by a local PostgreSQL install.
+- The DAG first looks for the Airflow connection `postgres_profiler_db`. If it doesn't exist, it uses the `PROFILING_DB_URL` environment variable. If neither is set, the task fails with a clear error.
 - Credentials come from `.env` (see `.env.example`). Nothing is hardcoded for real environments.
 
 ---
@@ -74,9 +75,9 @@ Result on 21/10/2026: `both tasks succeeded`
 
 | Milestone | Status                             | Notes |
 |---|------------------------------------|---|
-| 1. SQL pushdown profiling (same results as pandas, with timings) | done (fixed by Tharun, 12/10/2026) |Benchmark summary written to reports/pushdown_benchmark_results.csv |
+| 1. SQL pushdown profiling (same results as pandas, with timings) | done (fixed by Tharun, 12/10/2026) |Benchmark summary written to reports/pushdown_benchmark_results.json |
 | 2. Scheduled profiling as an Airflow DAG | Done (fixed by Tharun, 13/10/2026) | See section 7 |
-| 3. Evidently comparison (agreements and disagreements explained) | Done (fixed by Tharun, 13/10/2026) | reports/evidently_drift_report.html |
+| 3. Evidently comparison (agreements and disagreements explained) | Done (fixed by Tharun, 13/10/2026) | results/evidently_comparison_no_drift.csv, results/evidently_comparison_deliberate_drift.csv |
 
 Open PR from Sandeep: `#187` → `finished and not closed`
 

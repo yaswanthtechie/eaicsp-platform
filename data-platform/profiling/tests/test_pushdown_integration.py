@@ -1,6 +1,6 @@
 import pytest
 import pandas as pd
-from sqlalchemy import create_engine, types
+from sqlalchemy import create_engine
 from src.db_config import get_db_url
 from src.postgres_profiler import PostgresPushdownProfiler
 from src.profile import profile
@@ -23,13 +23,11 @@ def test_postgres_pushdown_vs_pandas_parity():
 
     table_name = "test_sales_parity"
     with engine.begin() as connection:
-        # Store as NUMERIC so the columns are profiled as numeric.
         df_sample.to_sql(
             table_name,
             connection,
             if_exists="replace",
             index=False,
-            dtype=dict(quantity_sold=types.Numeric(), unit_price=types.Numeric())
         )
 
     # 2. Run Pushdown Profiler

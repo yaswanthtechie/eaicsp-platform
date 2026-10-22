@@ -1181,9 +1181,9 @@ distribution test to ours, gives better coverage.
 
 ### M1 benchmark (1,000,000 rows, from `results/pushdown_benchmark.json`)
 | Mode | Time    | Peak Python memory | Parity |
-|---|---------|---|---|
-| pandas (read_sql + profile) | 32.45 s | 362.7 MB | - |
-| SQL pushdown | 3.96 s  | 0.2 MB | 0 mismatches |
+|---|---------|---|--|
+| pandas (read_sql + profile) | 31.69 s | 363.6 MB | 0 mismatches |
+| SQL pushdown | 5.97 s  | 0.2 MB | 0 mismatches |
 
 Note: pandas mode runs the full `profile()`, including correlations, sparklines and
 insights, which pushdown does not compute. So part of the time difference is extra
