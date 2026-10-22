@@ -2,7 +2,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import jwt
-import unused_fix10_module
 from passlib.context import CryptContext
 
 from app.core.config import (
@@ -51,5 +50,3 @@ def create_refresh_token(data: dict):
 
 def decode_token(token: str):
     return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-
-
