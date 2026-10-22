@@ -68,6 +68,8 @@ To accommodate browser clients while enforcing Platform authentication (Blueprin
    Sec-WebSocket-Version: 13
    ```
 
+   > The gateway and any reverse proxy must redact the `token` query parameter from access logs. Tokens used here should be short-lived access tokens, never refresh tokens.
+
 2. **WebSocket Subprotocol Header (Optional for programmatic/CLI clients):**
    ```text
    Sec-WebSocket-Protocol: bearer, <JWT_ACCESS_TOKEN>
@@ -76,7 +78,7 @@ To accommodate browser clients while enforcing Platform authentication (Blueprin
 **Authentication Validation Rule:**
 - The Gateway BFF extracts the bearer JWT and validates signature, expiry, and permissions against the Platform service (`/verify` endpoint).
 - If the token is missing, expired, or invalid, the Gateway immediately terminates the connection with WebSocket close code `4401` (`Unauthorized`) or rejects the handshake with HTTP `401 Unauthorized`.
-- Allowed RBAC roles: `executive`, `admin`, `procurement_manager`, `warehouse_manager`, `analyst`.
+- Allowed RBAC roles (values from `services/platform/app/schemas/user.py` `Role`): `ceo`, `vp_operations`, `platform_admin`, `procurement_manager`, `logistics_manager`, `warehouse_manager`, `inventory_planner`, `demand_planner`, `analyst`, `risk_analyst`. Any other role gets close code `4403`.
 
 ### 2.3 Message Framing & Serialization
 
@@ -111,6 +113,13 @@ Clients must implement the exponential backoff reconnection behavior established
 | `4403` | Forbidden | Authenticated user lacks permission to view live feed | Halt reconnection; show error |
 | `4429` | Rate Limited | Exceeded per-user concurrent connection limit | Wait 60s before retry |
 
+### 2.6 BFF Kafka consumer behaviour
+
+- **Consumer group:** `api-gateway-bff` (its own group; does not share with any other service).
+- **Validation:** Each message must parse as JSON, have all required envelope fields, a known `event_type`, and major `event_version` 1. Anything else is published to `<topic>.dlq` (e.g. `inventory.stock.low.dlq`) with the error reason, its offset is committed, and it is **never** forwarded to WebSocket clients. The BFF does not crash on a bad message.
+- **Dedup:** Messages whose `event_id` was already broadcast are dropped before broadcast.
+- **Offset commit:** After the message is broadcast / added to the reconnect buffer.
+
 ---
 
 ## 3. Standard Event Envelope
@@ -123,11 +132,13 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 |:---|:---|:---|:---|
 | `event_id` | `string` | **Yes** | Globally unique identifier (UUID v4) for the event. Used for client deduplication. |
 | `event_type` | `string` | **Yes** | Dot-delimited canonical event name matching the Kafka topic (e.g. `inventory.stock.low`). |
-| `event_version` | `integer` | **Yes** | Schema version number (`1` for Round 15). Backwards-compatible additive changes keep version `1`. |
-| `occurred_at` | `string` | **Yes** | UTC ISO-8601 timestamp with `Z` suffix (`YYYY-MM-DDTHH:MM:SSZ` or with fractional seconds). |
+| `event_version` | `string \| integer` | **Yes** | Schema version as sent by the producer. Currently `"1.0"` (inventory, anomaly) or `1` (supplier-risk, etl). Clients compare major version only: treat `1`, `"1"`, `"1.0"` as v1. The BFF forwards it unchanged. |
+| `occurred_at` | `string` | **Yes** | UTC ISO-8601 with offset, either `Z` or `+00:00` (e.g. `2026-10-15T10:14:22Z` or `2026-10-15T10:14:22.481203+00:00`). Parse with `new Date()`, not string matching. |
 | `producer` | `string` | **Yes** | Canonical service identifier producing the message (e.g. `inventory-service`, `supplier-risk-service`). |
 | `trace_id` | `string` | *No* | Distributed trace identifier (W3C TraceContext / OpenTelemetry) for cross-service correlation. |
 | `payload` | `object` | **Yes** | Event-specific domain payload conforming to the event schema below. |
+
+> The BFF forwards the producer's envelope **unchanged**. It does not rename, retype or add envelope fields.
 
 ---
 
@@ -150,7 +161,6 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 | `reorder_point` | `integer` | **Yes** | Units (pieces) | Calculated replenishment threshold triggering reorder workflow. |
 | `safety_stock` | `integer` | **Yes** | Units (pieces) | Buffer stock reserved for demand volatility. |
 | `avg_daily_demand` | `number` | **Yes** | Units / day | Rolling 30-day average daily consumption rate. |
-| `severity` | `string` | *No* (Proposed) | Enum | Proposed UI severity mapping: `"error"` if `quantity_on_hand == 0`, else `"warning"`. |
 | `message` | `string` | *No* (Proposed) | Human-readable text | Summary description ready for display on the alert card. |
 
 #### Realistic JSON Example
@@ -159,8 +169,8 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 {
   "event_id": "b9c51ff8-45e0-40e1-95eb-3fa5bf237075",
   "event_type": "inventory.stock.low",
-  "event_version": 1,
-  "occurred_at": "2026-10-15T10:14:22Z",
+  "event_version": "1.0",
+  "occurred_at": "2026-10-15T10:14:22.481203+00:00",
   "producer": "inventory-service",
   "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
   "payload": {
@@ -170,7 +180,6 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
     "reorder_point": 35,
     "safety_stock": 15,
     "avg_daily_demand": 4.5,
-    "severity": "warning",
     "message": "Stock for SKU-000123 in WH-BLR-01 dropped to 8 units (Reorder Point: 35, Safety Stock: 15)."
   }
 }
@@ -180,59 +189,63 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 
 ### 4.2 Event 2: `iot.anomaly.detected`
 
-- **Producer:** `anomaly-detection-service` (IoT Anomaly Detection, Kalyani)
-- **Status:** **Proposed event contract** (Core detection logic and incident playbooks confirmed in `ml-services/anomaly-detection/src/playbook.py` and `schemas.py`; formal event envelope proposed per Issue #231).
-- **Trigger:** Published when the temporal detector or multivariate ML model flags anomalous IoT telemetry (temperature excursion, refrigeration failure, vibration anomaly, or rapid stock drift).
-- **Routing Key:** `{warehouse_id}:{sensor_id}` (e.g. `WH-BLR-01:SENSOR-WH-BLR-01-T04`)
+- **Producer:** `anomaly-detection-service` (Kalyani)
+- **Status:** **Contract owned by producer**: `contracts/events/iot.anomaly.detected.v1.json` (PR #258). This section mirrors it; if they differ, the producer contract wins.
+- **Trigger:** One event per detected anomaly episode on a warehouse sensor.
+- **Routing Key:** `{sensor_id}` (e.g. `WH-BLR-01-S1`)
+- **Dedup key:** `payload.episode_id` (or `event_id`)
 
 #### Payload Fields
 
-| Field Name | Type | Required | Units / Meaning | Description |
-|:---|:---|:---|:---|:---|
-| `warehouse_id` | `string` | **Yes** | Canonical Warehouse ID | Target facility (e.g. `WH-BLR-01`). |
-| `sensor_id` | `string` | **Yes** | Identifier | Sensor or telemetry device tag (e.g. `SENSOR-WH-BLR-01-T04`). |
-| `reading_id` | `integer` | **Yes** | Counter / ID | Telemetry reading identifier used for deduplication across sliding windows. |
-| `incident_type` | `string` | **Yes** | Classification tag | Anomaly type from `playbook.py`: `"temperature_spike"`, `"humidity_drift"`, or `"inventory_discrepancy"`. |
-| `severity` | `string` | **Yes** | Enum | `"medium"`, `"high"`, or `"critical"` (conforming to `tokens.ts` alert levels). |
-| `anomaly_score` | `number` | **Yes** | Score (0.0 to 1.0) | Normalized model confidence score where 1.0 indicates extreme outlier. |
-| `threshold` | `number` | **Yes** | Score (0.0 to 1.0) | Adaptive or tuned decision threshold at the time of detection. |
-| `metric_name` | `string` | **Yes** | Telemetry name | Monitored physical property (e.g. `"temperature"`, `"humidity"`, `"stock_count"`). |
-| `metric_value` | `number` | **Yes** | Metric unit | Actual measured value triggering the alert (e.g. `8.4`). |
-| `metric_unit` | `string` | **Yes** | Unit abbreviation | Unit of measurement: `"celsius"`, `"percentage"`, or `"units"`. |
-| `message` | `string` | **Yes** | Human-readable text | Summary description of the incident for operator notification. |
-| `top_shap_features` | `array[object]` | *No* | Feature attributions | List of `{ "feature": string, "attribution": number }` indicating root-cause drivers. |
-| `playbook_title` | `string` | *No* | Title | Operational response playbook title (e.g. `"Temperature spike response"`). |
-| `response_sla_minutes`| `integer` | *No* | Minutes | Recommended maximum response SLA (e.g. `15`). |
+| Field Name | Type | Required | Description |
+|:---|:---|:---|:---|
+| `episode_id` | `string` | **Yes** | Deterministic `sensor_id\|window_start`. Same episode = same id. |
+| `sensor_id` | `string` | **Yes** | Sensor tag, e.g. `WH-BLR-01-S1`. |
+| `warehouse_id` | `string` | **Yes** | Canonical `WH-XXX-NN`. |
+| `severity` | `string` | **Yes** | `"low"`, `"medium"`, `"high"`, `"critical"` (ordered). |
+| `message` | `string` | **Yes** | One-line summary, max 300 chars, ready for the alert card. |
+| `window_start` / `window_end` | `string` (date-time) | **Yes** | UTC sensor time of first / last flagged reading. |
+| `first_flag_time` / `confirmed_time` / `peak_time` | `string` (date-time) | **Yes** | UTC sensor times. |
+| `peak_score` | `number` | **Yes** | Highest anomaly score in the episode (higher = more anomalous). Not 0 to 1. |
+| `threshold` | `number` | **Yes** | Threshold at the peak reading. `score >= threshold` = anomalous. |
+| `n_flagged` | `integer` | **Yes** | Number of flagged readings (≥ 1). |
+| `severe` | `boolean` | **Yes** | True if any reading was far above threshold. |
+| `closed_by` | `string` | **Yes** | `"quiet"` or `"shutdown"`. |
+| `top_features` | `array[object]` | **Yes** | 1 to 3 items of `{feature, contribution, shap_value, direction}`. `feature` ∈ `temperature, humidity, door_open, power`; `contribution` 0 to 1; `direction` ∈ `high, low`. |
+| `model_version` | `string` | **Yes** | e.g. `stream-1.0`. |
 
 #### Realistic JSON Example
 
 ```json
 {
-  "event_id": "7d2b4510-1849-43c2-a42e-151025a78d02",
+  "event_id": "3f6c1d2e-8a4b-4c7e-9b1a-5d2e7f0a9c31",
   "event_type": "iot.anomaly.detected",
-  "event_version": 1,
-  "occurred_at": "2026-10-15T10:18:45Z",
+  "event_version": "1.0",
+  "occurred_at": "2026-10-15T10:46:12Z",
   "producer": "anomaly-detection-service",
-  "trace_id": "5c18a9ef3d714b988f01b1cb9a941582",
+  "trace_id": null,
   "payload": {
+    "episode_id": "WH-BLR-01-S1|2026-10-15T10:05:00Z",
+    "sensor_id": "WH-BLR-01-S1",
     "warehouse_id": "WH-BLR-01",
-    "sensor_id": "SENSOR-WH-BLR-01-T04",
-    "reading_id": 10428,
-    "incident_type": "temperature_spike",
-    "severity": "critical",
-    "anomaly_score": 0.94,
-    "threshold": 0.85,
-    "metric_name": "temperature",
-    "metric_value": 8.4,
-    "metric_unit": "celsius",
-    "message": "Temperature spike detected in Cold Storage Bay 4: 8.4°C exceeds critical threshold (2.0°C - 6.0°C).",
-    "top_shap_features": [
-      { "feature": "temperature", "attribution": 0.65 },
-      { "feature": "door_open_duration", "attribution": 0.25 },
-      { "feature": "ambient_humidity", "attribution": 0.10 }
+    "severity": "high",
+    "message": "Temperature unusually high at WH-BLR-01 (sensor WH-BLR-01-S1): 6 abnormal readings between 10:05 and 10:30 UTC.",
+    "window_start": "2026-10-15T10:05:00Z",
+    "window_end": "2026-10-15T10:30:00Z",
+    "first_flag_time": "2026-10-15T10:05:00Z",
+    "confirmed_time": "2026-10-15T10:05:00Z",
+    "peak_time": "2026-10-15T10:20:00Z",
+    "peak_score": 0.0825,
+    "threshold": -0.0782,
+    "n_flagged": 6,
+    "severe": true,
+    "closed_by": "quiet",
+    "top_features": [
+      { "feature": "temperature", "contribution": 0.8412, "shap_value": 0.071234, "direction": "high" },
+      { "feature": "power", "contribution": 0.1201, "shap_value": 0.01017, "direction": "high" },
+      { "feature": "humidity", "contribution": 0.0387, "shap_value": 0.003277, "direction": "high" }
     ],
-    "playbook_title": "Temperature spike response",
-    "response_sla_minutes": 15
+    "model_version": "stream-1.0"
   }
 }
 ```
@@ -257,7 +270,6 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 | `evidence_count` | `integer` | **Yes** | Article count | Count of processed sentiment articles and adverse news signals. |
 | `explanation` | `string` | **Yes** | Narrative text | LLM/NLP-generated explanation justifying the score change. |
 | `supporting_articles`| `array[object]`| *No* | Article citations | List of `{ "headline": string, "date": string, "score": number }`. |
-| `severity` | `string` | *No* (Proposed) | Enum | UI alert severity: `"info"` (improvement/low), `"warning"` (medium), `"error"` (high). |
 
 #### Realistic JSON Example
 
@@ -266,9 +278,8 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
   "event_id": "c452e891-9e73-455b-b9d2-74891104e112",
   "event_type": "supplierrisk.score.changed",
   "event_version": 1,
-  "occurred_at": "2026-10-15T10:22:10Z",
+  "occurred_at": "2026-10-15T10:22:10.118342+00:00",
   "producer": "supplier-risk-service",
-  "trace_id": "8e31a8bc2e5445dca056d61033b0f711",
   "payload": {
     "supplier": "SUP-00045",
     "previous_tier": "low",
@@ -287,8 +298,7 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
         "date": "2026-10-15",
         "score": 0.79
       }
-    ],
-    "severity": "error"
+    ]
   }
 }
 ```
@@ -353,7 +363,7 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 ### 4.5 Event 5: `forecast.batch.completed`
 
 - **Producer:** `demand-forecast-service` (Demand Forecasting, Uday)
-- **Status:** **Proposed event contract** (Serving contract confirmed in `contracts/openapi/forecast.yaml`; event payload proposed per Issue #228).
+- **Status:** **Proposed event contract** (Serving contract proposed in PR #241 (contracts/openapi/forecast.yaml, not yet merged); event payload proposed per Issue #228).
 - **Trigger:** Published when the nightly or scheduled batch forecasting pipeline finishes training/inferring SKU demand across warehouses and persists output to ClickHouse / Redis.
 - **Routing Key:** `{run_id}` (e.g. `BATCH-20261015-01`)
 
@@ -424,7 +434,7 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 | `rows_inserted` | `integer` | **Yes** | Row count | Total new sales records inserted into staging / storage. |
 | `rows_updated` | `integer` | **Yes** | Row count | Total existing records updated. |
 | `rows_rejected` | `integer` | **Yes** | Row count | Records discarded due to quality check or schema violations. |
-| `task_states` | `object` | **Yes** | Task state map | Mapping of Airflow tasks to their states (e.g. `dbt_build: "success"`). |
+| `task_states` | `object` | **Yes** | Task state map | Mapping of Airflow tasks to their states (e.g. dbt_build, clickhouse_load, archive_old_data to "success"). |
 | `duration_seconds` | `number` | *No* (Proposed) | Seconds | Total runtime duration of the ETL DAG. |
 | `pipeline_name` | `string` | *No* (Proposed) | Name | DAG identifier (e.g. `"sales_etl_pipeline"`). |
 | `message` | `string` | *No* (Proposed) | Human-readable text | Summary notification of pipeline success. |
@@ -447,8 +457,6 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
     "rows_updated": 320,
     "rows_rejected": 0,
     "task_states": {
-      "extract_source": "success",
-      "validate_schema": "success",
       "dbt_build": "success",
       "clickhouse_load": "success",
       "archive_old_data": "success"
@@ -464,16 +472,27 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 
 ## 5. UI Alert Panel Mapping Guide (For Chandhu)
 
-To ensure the alerts panel renders uniformly across the six event types, the table below provides the recommended visual mappings following `frontend/packages/dashboard/src/styles/tokens.ts`:
+To ensure the alerts panel renders uniformly across the six event types, the table below provides the recommended visual mappings following `frontend/packages/dashboard/src/tokens.ts`:
 
 | Event Type | Display Title | Severity Color | Icon Hint | Primary UI Action / Drilldown |
 |:---|:---|:---|:---|:---|
 | `inventory.stock.low` | **Low Stock Alert** | Warning (Amber) / Error (Red if 0) | Package / Box | Navigate to Inventory table filtered by `sku_id` & `warehouse_id` |
-| `iot.anomaly.detected` | **Cold-Chain Anomaly** | Critical (Red) / High (Orange) | Alert Triangle / Thermometer | Open Playbook modal with incident actions & SLA countdown |
+| `iot.anomaly.detected` | **Cold-Chain Anomaly** | Critical (Red) / High (Orange) | Alert Triangle / Thermometer | Open anomaly detail (message, peak_score vs threshold, top_features) |
 | `supplierrisk.score.changed` | **Supplier Risk Change**| Warning (Amber) / Error (Red) | Shield Alert | View Supplier Risk breakdown & news citations modal |
 | `eta.shipment.predicted` | **Shipment ETA Update** | Info (Blue) / Warning (if delayed) | Truck / Navigation | Open Shipment tracking card for `shipment_id` |
 | `forecast.batch.completed` | **Forecast Batch Done** | Success (Green) / Info (Blue) | Trend / Chart | Refresh demand forecast chart view for updated horizon |
 | `data.pipeline.completed` | **Data Ingestion Sync** | Success (Green) | Database / Refresh | Refresh live KPI snapshot widgets |
+
+### UI severity (derived by the client; producers are not asked to add fields)
+
+| Event | Rule to UI severity (`info` / `success` / `warning` / `critical`) |
+|:---|:---|
+| `inventory.stock.low` | `quantity_on_hand == 0` to `critical`, else `warning` |
+| `iot.anomaly.detected` | `payload.severity`: `low` to `info`, `medium` to `warning`, `high`/`critical` to `critical` |
+| `supplierrisk.score.changed` | `new_tier`: `high` to `critical`, `medium` to `warning`, `low` to `info` |
+| `eta.shipment.predicted` | `delay_risk == "high_risk"` to `warning`, else `info` |
+| `forecast.batch.completed` | `status == "PARTIAL"` to `warning`, else `success` |
+| `data.pipeline.completed` | `success` |
 
 ---
 
@@ -482,10 +501,10 @@ To ensure the alerts panel renders uniformly across the six event types, the tab
 | Event Type | Producer Service | Implementation Status in Repo | Notes |
 |:---|:---|:---|:---|
 | `inventory.stock.low` | Inventory | **Confirmed** | Outbox relay in `services/inventory` |
-| `iot.anomaly.detected` | Anomaly Detection | **Proposed Event Shape** | Models in `ml-services/anomaly-detection`; Issue #231 (Kalyani) |
+| `iot.anomaly.detected` | Anomaly Detection | **Producer contract** | contracts/events/iot.anomaly.detected.v1.json (PR #258) |
 | `supplierrisk.score.changed` | Supplier Risk | **Confirmed** | Hysteresis publisher in `ml-services/supplier-risk/src/events.py` |
 | `eta.shipment.predicted` | ETA Prediction | **Proposed Event Shape** | Model in `ml-services/eta-prediction`; Issue #234 (Harish) |
-| `forecast.batch.completed` | Demand Forecast | **Proposed Event Shape** | Serving API in `contracts/openapi/forecast.yaml`; Issue #228 (Uday) |
+| `forecast.batch.completed` | Demand Forecast | **Proposed Event Shape** | Serving API proposed in PR #241; Issue #228 (Uday) |
 | `data.pipeline.completed` | ETL Pipeline | **Confirmed** | Outbox publisher in `data-platform/etl/etl/src/kafka_events.py` |
 
 ---

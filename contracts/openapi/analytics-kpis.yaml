@@ -119,7 +119,7 @@ paths:
                     target_rate: 95.0
                     total_lines_ordered: 12500
                     lines_fulfilled: 11850
-                    status: "on_target"
+                    status: "warning"
                     trend: "up"
                     change_percentage: 1.2
                   stockouts:
@@ -149,7 +149,7 @@ paths:
                         stockout_count: 1
                         at_risk_count: 3
                         total_skus: 500
-                      - warehouse_id: "WH-PNQ-01"
+                      - warehouse_id: "WH-CCU-01"
                         stockout_count: 2
                         at_risk_count: 3
                         total_skus: 500
@@ -168,7 +168,7 @@ paths:
                     total_shipments: 340
                     delivered_on_time: 314
                     delayed: 26
-                    status: "on_target"
+                    status: "warning"
                     trend: "up"
                     change_percentage: 0.8
 
@@ -234,6 +234,9 @@ components:
       description: >
         Platform-issued JWT bearer token. Validated by Gateway BFF against the
         Platform Service `/verify` endpoint.
+        Allowed roles: ceo, vp_operations, platform_admin, procurement_manager,
+        logistics_manager, warehouse_manager, inventory_planner, demand_planner,
+        analyst, risk_analyst. Other roles receive 403.
 
   schemas:
     KpiDashboardResponse:
@@ -257,9 +260,8 @@ components:
           type: boolean
           description: True if the response was served from the Redis `live_kpis` cache.
         cache_ttl_seconds:
-          type: integer
+          type: [integer, "null"]
           description: Remaining time-to-live in seconds for cached data (null if cache bypass or cold miss).
-          nullable: true
         filters_applied:
           $ref: "#/components/schemas/AppliedFilters"
         kpis:
@@ -271,22 +273,18 @@ components:
         - window_days
       properties:
         warehouse_id:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Canonical warehouse ID filter applied, or null if platform-wide.
         category:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Product category filter applied, or null if all categories.
         start_date:
-          type: string
+          type: [string, "null"]
           format: date
-          nullable: true
           description: Start date of observation window.
         end_date:
-          type: string
+          type: [string, "null"]
           format: date
-          nullable: true
           description: End date of observation window.
         window_days:
           type: integer
@@ -347,9 +345,8 @@ components:
           enum: ["up", "down", "stable"]
           description: Directional movement compared to previous equivalent window.
         change_percentage:
-          type: number
+          type: [number, "null"]
           description: Absolute change in percentage points compared to prior period.
-          nullable: true
 
     StockoutsKpi:
       type: object
@@ -506,9 +503,8 @@ components:
           enum: ["up", "down", "stable"]
           description: Directional trend compared to prior period.
         change_percentage:
-          type: number
+          type: [number, "null"]
           description: Change in percentage points relative to prior period.
-          nullable: true
 
     ErrorResponse:
       type: object
@@ -523,6 +519,5 @@ components:
           type: string
           description: Human-readable error description.
         details:
-          type: object
+          type: [object, "null"]
           description: Optional structured context or validation field error list.
-          nullable: true
