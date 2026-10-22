@@ -2,11 +2,10 @@ name: Platform Service CI
 
 # ------------------------------------------------------------------
 # TEMPLATE: to adopt this for another service, copy this file to
-# .github/workflows/<service>-ci.yml and change FOUR things:
+# .github/workflows/<service>-ci.yml and change THREE things:
 #   1. on.pull_request.paths   (GitHub does not allow env vars here)
 #   2. env.SERVICE_DIR
 #   3. env.IMAGE_NAME
-#   4. working-directory in each job (literal path)
 # Then delete or adapt the jobs marked PLATFORM-SPECIFIC.
 # Full guide: docs/ci-template.md
 # ------------------------------------------------------------------
@@ -43,10 +42,10 @@ jobs:
     timeout-minutes: 15
     defaults:
       run:
-        working-directory: services/platform
+        working-directory: ${{ env.SERVICE_DIR }}
     env:
-      DATABASE_URL: sqlite:////tmp/unit-ci.db
-
+      # quality-security-unit job env
+      TEST_DATABASE_URL: sqlite:////tmp/unit-ci.db
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -54,9 +53,9 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: services/platform/requirements*.txt
+          cache-dependency-path: ${{ env.SERVICE_DIR }}/requirements*.txt
 
       - name: Install dependencies and CI tools
         run: |
@@ -99,8 +98,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: platform-service-coverage
-          path: services/platform/coverage.xml
+          name: ${{ env.IMAGE_NAME }}-coverage
+          path: ${{ env.SERVICE_DIR }}/coverage.xml
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------
@@ -113,9 +112,10 @@ jobs:
     timeout-minutes: 15
     defaults:
       run:
-        working-directory: services/platform
+        working-directory: ${{ env.SERVICE_DIR }}
     env:
-      DATABASE_URL: sqlite:////tmp/platform-integration-ci.db
+      # integration job env (line 118)
+      TEST_DATABASE_URL: sqlite:////tmp/platform-integration-ci.db
       REDIS_URL: redis://localhost:6379/0
       KAFKA_BOOTSTRAP_SERVERS: localhost:9092
       # Integration tests must fail, not skip, if a container is missing.
@@ -165,9 +165,9 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: services/platform/requirements*.txt
+          cache-dependency-path: ${{ env.SERVICE_DIR }}/requirements*.txt
 
       - name: Install dependencies
         run: |
@@ -251,7 +251,7 @@ jobs:
     timeout-minutes: 15
     defaults:
       run:
-        working-directory: services/platform
+        working-directory: ${{ env.SERVICE_DIR }}
     env:
       DATABASE_URL: sqlite:////tmp/platform-http-ci.db
       REDIS_URL: redis://localhost:6379/0
@@ -274,9 +274,9 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: services/platform/requirements*.txt
+          cache-dependency-path: ${{ env.SERVICE_DIR }}/requirements*.txt
 
       - name: Install dependencies
         run: |
@@ -345,22 +345,40 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
 
       - name: Build image (with layer cache)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
-          context: services/platform
-          file: services/platform/Dockerfile
-          tags: platform-service:${{ github.sha }}
+          context: ${{ env.SERVICE_DIR }}
+          file: ${{ env.SERVICE_DIR }}/Dockerfile
+          tags: ${{ env.IMAGE_NAME }}:${{ github.sha }}
           load: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ env.IMAGE_NAME }}
+          cache-to: type=gha,mode=max,scope=${{ env.IMAGE_NAME }}
+
+      - name: Smoke-test container starts
+        run: |
+          docker run -d --name smoke -p 8005:8005 \
+            -e SECRET_KEY=ci-only-test-secret-key-not-for-production-123456 \
+            -e DATABASE_URL=sqlite:///./platform.db \
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8005/docs > /dev/null; then
+              echo "Container is serving"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Container did not start:"
+          docker logs smoke
+          exit 1
 
       - name: Scan image with Trivy (fail on CRITICAL)
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
-          image-ref: platform-service:${{ github.sha }}
+          image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
           format: table
           exit-code: "1"
           ignore-unfixed: true
