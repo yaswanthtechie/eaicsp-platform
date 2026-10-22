@@ -248,6 +248,7 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
     connected,
     isConnecting,
     failed,
+    retryConnection,
   } = useWebSocket({
     url: "ws://localhost:8080",
     onMessage: handleMessage,
@@ -702,6 +703,7 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
               isConnecting={isConnecting}
               failed={failed}
               onRemove={removeAlert}
+              onRetry={retryConnection}
             />
           </ErrorBoundary>
         </div>

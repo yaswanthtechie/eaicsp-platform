@@ -91,12 +91,14 @@ frontend/
             |   ├── SupplierRiskDistribution.test.tsx
             │   ├── SupplierRisk.test.tsx
             |   ├── dashboardGraphql.test.tsx
+            │   ├── AlertMapper.test.tsx
             |   ├── theme.test.tsx
             |   └── useWebSocket.test.ts
             ├── utils/
             │   ├── exportCsv.ts
             |   ├── exportPdf.ts
             |   ├── insights.ts
+            |   ├── alertMapper.ts
             │   └── kpiSnapshot.ts
             │
             ├── App.tsx
@@ -221,6 +223,59 @@ The mock WebSocket server is used only during development.
 It is started only when `import.meta.env.DEV` is true, so the mock server is not started in the production build.
 
 `mock-socket` is kept as a development dependency because it is only required for the mock WebSocket server and tests.
+
+### Live Alerts and WebSocket Event Handling
+
+The dashboard uses the reusable `useWebSocket` hook to receive real-time alerts. During development, the mock WebSocket server runs at `ws://localhost:8080` and simulates events based on the dashboard WebSocket contract.
+
+The dashboard supports the following six event types:
+
+| Event type                   | Purpose                            | Dashboard severity                                     |
+| ---------------------------- | ---------------------------------- | ------------------------------------------------------ |
+| `inventory.stock.low`        | Reports low or depleted inventory  | Critical when quantity is zero; otherwise warning      |
+| `iot.anomaly.detected`       | Reports detected IoT anomalies     | Low: info; medium: warning; high or critical: critical |
+| `supplierrisk.score.changed` | Reports supplier risk-tier changes | High: critical; medium: warning; low: info             |
+| `eta.shipment.predicted`     | Reports predicted shipment delays  | High risk: warning; otherwise info                     |
+| `forecast.batch.completed`   | Reports forecast batch completion  | Partial: warning; otherwise success                    |
+| `data.pipeline.completed`    | Reports data pipeline completion   | Success                                                |
+
+Severity is derived from each event's payload using the alert-mapping utility in `src/utils/alertMapper.ts`. The Alerts Panel uses the shared dashboard design tokens to display severity consistently.
+
+### WebSocket Contract and Mock Events
+
+The mock WebSocket server is implemented in `src/mocks/wsServer.ts`. It provides sample events for all six supported event types so the dashboard can be tested without a live analytics backend.
+
+The event handling supports the contract's event envelope, including event type, event version, event ID, occurrence timestamp, producer, and payload.
+
+The event-version validator accepts the supported v1 representations (`1`, `"1"`, and `"1.0"`). Timestamps are parsed using JavaScript date handling, allowing valid UTC timestamp representations such as `Z` and `+00:00`. The optional `trace_id` field is supported.
+
+The IoT anomaly mock follows the reviewed contract, including episode and sensor identifiers, warehouse, severity, message, anomaly timestamps, peak score, threshold, flagged count, closure reason, top features, and model version.
+
+### Reconnection and Failure Handling
+
+The `useWebSocket` hook manages connection status, incoming events, disconnections, and automatic reconnection.
+
+The reconnection strategy uses exponential backoff, starting at approximately one second and increasing the delay up to a maximum of 30 seconds. The hook limits retry attempts and exposes a failure state when reconnection attempts are exhausted. The Alerts Panel displays an error state when the connection cannot be restored.
+
+The WebSocket mock server is started only in development mode. The mock implementation is not intended to replace the production analytics WebSocket service.
+
+### Live Alerts Test Coverage
+
+The alert-related tests cover event-to-alert mapping, severity selection, panel rendering, WebSocket connection states, incoming events, reconnection behavior, exponential backoff, and failure after the retry limit.
+
+Relevant test files include:
+
+- `src/test/AlertsPanel.test.tsx`
+- `src/test/useWebSocket.test.tsx`
+- `src/test/AlertMapper.test.tsx`
+
+Run the focused alert tests using:
+
+```powershell
+npx vitest run src/test/AlertsPanel.test.tsx src/test/useWebSocket.test.tsx src/test/AlertMapper.test.tsx
+```
+
+The latest reported targeted test run passed all 32 tests across these three files.
 
 
 # 6. KPI Views and Dashboard Filters
@@ -1157,10 +1212,17 @@ npm run test:e2e
 
 Test verification completed successfully.
 
+<<<<<<< HEAD
 * Vitest: 21 test files, 176/176 tests passed
 * Playwright Dashboard E2E: 4/4 tests passed
 * Authentication E2E: 14/14 passed with valid credentials.
 * Total: 193 tests passed across the three reported test groups.
+=======
+* Vitest: 20 test files, 155/155 tests passed
+* Playwright Dashboard E2E: 4/4 tests passed
+* Authentication E2E: 14/14 passed with valid credentials.
+* Total: 173 tests passed across the three reported test groups.
+>>>>>>> 934e98d (feat(dashboard): support all six WebSocket alert event types)
 
 The authentication tests are run separately using
 npm run test:e2e:auth.
