@@ -50,7 +50,7 @@ http://127.0.0.1:8005
 | Uvicorn     | ASGI server                     |
 | PostgreSQL  | Production database             |
 | SQLite      | Local development/demo database |
-| python-jose | JWT creation and verification   |
+| PyJWT       | JWT creation and verification   |
 | Passlib     | Password hashing utilities      |
 | BCrypt      | Secure password hashing         |
 | Pytest      | Automated testing               |
@@ -263,6 +263,17 @@ service_api_keys
 abuse_event
 ```
 ---
+### Database Schema Migrations
+
+The Platform Service currently uses SQLAlchemy's `Base.metadata.create_all()` to create database tables. This creates tables that do not already exist, but it does **not** modify existing tables when model definitions change.
+
+For example, changing `RefreshToken.created_at` to `nullable=True` in the SQLAlchemy model does not automatically update an existing database column. Existing databases may require an explicit schema migration to keep their structure aligned with the models.
+
+**Current limitation:** The Platform Service does not currently have a configured Alembic migration workflow.
+
+**Future improvement:** Introduce Alembic to manage schema changes through versioned migration scripts. Before applying migrations to an existing database, back up the data and test the migration against a representative database.
+
+Until migrations are implemented, model changes that affect existing database schemas must be reviewed carefully. Updating a model alone does not guarantee that an existing database schema has been updated.
 
 ---
 
@@ -3653,17 +3664,16 @@ consistent request tracing and operational monitoring.
 
 | Job | What it runs | Status |
 |---|---|---|
-| Lint, type check, security, unit tests | `ruff check .`, `ruff format --check .`, `mypy app/core app/services`, `bandit -r app -ll`, `pip-audit -r requirements.txt`, `pytest -m "not integration"` with coverage (fails under 85%) | Done |
+| Lint, type check, security, unit tests | `ruff check .`, `ruff format --check .`, `mypy app`, `bandit -r app -ll`, `pip-audit -r requirements.txt`, `pytest -m "not integration"` with coverage (fails under 85%) | Done |
 | Redis + Kafka integration | Redis and Kafka service containers; cross-instance revocation + Kafka event tests | Done |
 | HTTP integration | Seeds a DB with CI-generated passwords, starts the API, runs `tests/test_integration.py` | Done |
 | Docker + Trivy | Builds the image (layer cache), Trivy fails on CRITICAL, ignoring vulnerabilities with no fix available | Done |
 
-**Latest green run:** <link to the Actions run>
-**Deliberate-failure checks:** lint failure <link>, test failure <link>
+**Latest green run:** [run 39740566650](https://github.com/yaswanthtechie/eaicsp-platform/actions/runs/39740566650)
+**Deliberate-failure checks:** [lint failure](https://github.com/yaswanthtechie/eaicsp-platform/actions/runs/39730800033), [test failure](https://github.com/yaswanthtechie/eaicsp-platform/actions/runs/39732243873)
 
 **Not done / known limits**
-- mypy covers `app/core` and `app/services` only (or `app` after Fix 7)
-- Trivy ignores unfixed vulnerabilities (`ignore-unfixed: true`)
+- Trivy ignores vulnerabilities with no fix available (`ignore-unfixed: true`)
 - No deploy step; CI only
 
 **Adopting for another service:** see `docs/ci-template.md`.
@@ -3673,7 +3683,7 @@ consistent request tracing and operational monitoring.
 ```bash
 python -m ruff check .
 python -m ruff format --check .
-python -m mypy --config-file pyproject.toml app/core app/services
+python -m mypy --config-file pyproject.toml app
 python -m bandit -r app -ll
 python -m pip_audit -r requirements.txt
 python -m pytest -o addopts= -m "not integration" --cov=app --cov-fail-under=85

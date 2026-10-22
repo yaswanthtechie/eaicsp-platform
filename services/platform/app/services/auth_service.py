@@ -49,6 +49,9 @@ WINDOW = timedelta(minutes=15)
 LOCKOUT_DURATION = timedelta(minutes=15)
 
 RESET_TOKEN_EXPIRE_MINUTES = 15
+# Generated once per process to avoid skipping password verification
+# when the supplied username does not match an account.
+DUMMY_PASSWORD_HASH = hash_password(secrets.token_urlsafe(32))
 
 # ============================================================
 # REFRESH TOKEN
@@ -305,13 +308,9 @@ def login(
 
     user = db.query(User).filter(User.email == username).first()
 
-    if user is None:
-        return None
+    password_hash = user.password if user is not None else DUMMY_PASSWORD_HASH
 
-    if not verify_password(
-        password,
-        user.password,
-    ):
+    if not verify_password(password, password_hash):
         return None
 
     return user
@@ -366,7 +365,10 @@ def login_user(
         # 4. Validate username/password
         # ----------------------------------------------------
 
-        if user is None or not verify_password(password, user.password):
+        password_hash = user.password if user is not None else DUMMY_PASSWORD_HASH
+        password_is_valid = verify_password(password, password_hash)
+
+        if user is None or not password_is_valid:
             # Record failed attempt
             log_failed_login(
                 db=db,

@@ -420,7 +420,11 @@ def list_user_sessions(
         {
             "id": session.id,
             "user_id": session.user_id,
-            "created_at": session.created_at.isoformat(),
+            "created_at": (
+                session.created_at.isoformat()
+                if session.created_at is not None
+                else None
+            ),
             "expires_at": session.expires_at.isoformat(),
             "is_revoked": session.is_revoked,
         }

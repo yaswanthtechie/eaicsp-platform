@@ -1,13 +1,20 @@
 import os
 import secrets
 
+from dotenv import load_dotenv
+
+# A developer's .env wins; the random values below only fill the gaps.
+load_dotenv()
+
 # These must be set BEFORE any `app.*` import, because
 # app/core/config.py reads os.environ at import time.
+os.environ["SECRET_KEY"] = "test-secret-key-for-unit-tests-only-0123456789"
 
-os.environ["SECRET_KEY"] = "test-secret-key"
-# Use a dedicated test database so running the suite never
-# touches (or seeds, or deletes rows from) a real dev database.
-os.environ["DATABASE_URL"] = "sqlite:///./test_platform.db"
+# Tests always use a dedicated database, never the developer's DATABASE_URL.
+os.environ["DATABASE_URL"] = os.environ.get(
+    "TEST_DATABASE_URL",
+    "sqlite:///./test_platform.db",
+)
 
 # Seed credentials for the test database: random per run, never committed.
 # setdefault lets CI (or a developer) supply their own values instead.

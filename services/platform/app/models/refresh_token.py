@@ -19,8 +19,8 @@ class RefreshToken(Base):
         String(512), unique=True, nullable=False, index=True
     )
     is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=True
     )
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False

@@ -2,7 +2,7 @@
 
 Reference workflow: `.github/workflows/platform-ci.yml`
 
-## Copy it and change four things
+## Copy it and change three things
 
 ```bash
 cp .github/workflows/platform-ci.yml .github/workflows/<service>-ci.yml
@@ -13,11 +13,8 @@ cp .github/workflows/platform-ci.yml .github/workflows/<service>-ci.yml
 | 1 | `on.pull_request.paths` (GitHub does not allow env vars here) | `"services/inventory/**"` and `".github/workflows/inventory-ci.yml"` |
 | 2 | `env.SERVICE_DIR` | `services/inventory` |
 | 3 | `env.IMAGE_NAME` | `inventory-service` |
-| 4 | `working-directory` in each job | Replace `services/platform` with `services/inventory` |
 
-Also rename `name:` at the top, for example `Inventory Service CI`.
-
-The workflow uses literal paths for `working-directory` because job-level default working directories cannot use expressions. Update all three occurrences when copying the template.
+Also rename `name:` at the top, for example `Inventory Service CI`. Every other path and image name in the workflow reads from these env vars, so nothing else needs editing.
 
 ## Then keep or delete jobs
 
