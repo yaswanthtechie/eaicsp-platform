@@ -452,6 +452,10 @@ def revoke_user_session(
         )
 
     target = db.query(User).filter(User.id == user_id).first()
+    if target is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
     ensure_can_manage_user(current_user, target)
 
     if session.is_revoked:

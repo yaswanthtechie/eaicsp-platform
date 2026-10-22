@@ -15,6 +15,11 @@ MOCK_SSO_PROVIDER = "mock-enterprise-sso"
 ASSERTION_AUDIENCE = "eaicsp-platform"
 ASSERTION_TTL_SECONDS = 120
 
+# ------------------------------------------------------------
+# Mock enterprise directory: this is the IDENTITY PROVIDER's data,
+# used only to ISSUE assertions (tests/demo). The login endpoint
+# never trusts these values from a client.
+# ------------------------------------------------------------
 MOCK_SSO_USERS = {
     "enterprise-001": {"email": "ceo@company.com", "full_name": "CEO User"},
     "enterprise-002": {
@@ -30,6 +35,7 @@ def _require_enabled() -> str:
 
     secret = app_config.MOCK_SSO_SECRET or ""
     if len(secret) < 32:
+        # Never verify with an empty or guessable key.
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="SSO is not configured",
@@ -102,6 +108,8 @@ def mock_sso_login(
     if role is None:
         reject("account has no role")
 
+    # Same lockout the password login enforces. SQLite returns naive
+    # datetimes, so treat a naive locked_until as UTC.
     locked_until = user.locked_until
     if locked_until is not None:
         if locked_until.tzinfo is None:

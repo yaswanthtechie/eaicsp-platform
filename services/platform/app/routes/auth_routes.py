@@ -462,7 +462,7 @@ def verify_access_token(
     # include fine-grained permissions
     # -------------------------------------------------
     role = user.role.name if user.role else None
-    permissions = sorted(ROLE_PERMISSIONS.get(role, set()))
+    permissions = sorted(ROLE_PERMISSIONS.get(role, set())) if role else []
 
     response_data = {
         "valid": True,

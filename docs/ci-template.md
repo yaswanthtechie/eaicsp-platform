@@ -1,90 +1,70 @@
-# Platform Service CI Template
+# CI template: adopting the Platform workflow for your service
 
-## Purpose
+Reference workflow: `.github/workflows/platform-ci.yml`
 
-The Platform Service CI workflow validates code quality, type safety, security, automated tests, and Docker image vulnerabilities before changes are merged.
+## Copy it and change four things
 
-**Workflow file:** `.github/workflows/platform-ci.yml`
-
-## Trigger
-
-The workflow runs for pull requests that modify files under `services/platform/**` or change the CI workflow itself.
-
-## Pipeline jobs
-
-| Job | Checks performed |
-|---|---|
-| Quality, security and unit tests | Ruff linting, mypy type checking, Bandit security checks, pip-audit dependency scanning, and pytest with coverage |
-| Redis and Kafka integration tests | Cross-instance token revocation and Kafka event publishing and account-lock event integration |
-| HTTP integration tests | Starts the Platform API on port 8005 and runs HTTP integration tests against a seeded test database |
-| Docker and Trivy | Builds the service image and fails the scan when Trivy finds CRITICAL vulnerabilities that are not excluded by the configured policy |
-
-## Performance and readable failures
-
-- **pip caching:** GitHub Actions caches pip dependencies to reduce repeated downloads and speed up subsequent workflow runs.
-- **Named steps:** Each major check runs in a clearly named step so the failed operation is easy to identify.
-- **Readable test output:** pytest reports failed tests, assertions, and tracebacks. Use concise traceback output where appropriate.
-- **Debugging integration failures:** When an integration test fails, inspect its job logs and the relevant service or API logs.
-- **Security failures:** Review Bandit, pip-audit, and Trivy output to identify the affected code, dependency, or image vulnerability.
-
-A failing required check must cause its job to fail. Do not ignore genuine lint, test, or security failures just to make the workflow green.
-
-## Local validation
-
-Run these commands from `services/platform` with the project's virtual environment activated.
-
-```powershell
-python -m ruff check app/core app/services
-
-python -m mypy app/core app/services
-
-python -m bandit -r app -ll
-
-python -m pip_audit -r requirements.txt
-
-python -m pytest -o addopts= -m "not integration" --tb=short -ra --cov=app --cov-report=term-missing --cov-report=xml:coverage.xml
+```bash
+cp .github/workflows/platform-ci.yml .github/workflows/<service>-ci.yml
 ```
 
-Integration tests require the appropriate services and environment variables. Follow the repository's development setup instructions for Redis, Kafka, and the Platform API.
+| # | What | Example for inventory |
+|---|---|---|
+| 1 | `on.pull_request.paths` (GitHub does not allow env vars here) | `"services/inventory/**"` and `".github/workflows/inventory-ci.yml"` |
+| 2 | `env.SERVICE_DIR` | `services/inventory` |
+| 3 | `env.IMAGE_NAME` | `inventory-service` |
+| 4 | `working-directory` in each job | Replace `services/platform` with `services/inventory` |
 
-## Adopting this template for another service
+Also rename `name:` at the top, for example `Inventory Service CI`.
 
-To reuse the workflow for another EAICSP service, copy `.github/workflows/platform-ci.yml` and update these three areas:
+The workflow uses literal paths for `working-directory` because job-level default working directories cannot use expressions. Update all three occurrences when copying the template.
 
-### 1. Service paths
+## Then keep or delete jobs
 
-Update the pull-request path filters, working directories, and file paths to match the target service's directory.
+| Job | Keep? |
+|---|---|
+| `quality-security-unit` | **Always keep.** Ruff, mypy, bandit, pip-audit, unit tests + coverage. |
+| `docker-trivy` | **Always keep.** Needs a `Dockerfile` in `SERVICE_DIR`. |
+| `integration` (Redis + Kafka) | **Platform-specific.** Keep only the containers your service uses, and point the pytest steps at your integration test files. Delete the job if you have none. |
+| `http-integration` | **Platform-specific.** Replace the seed command, port and test file, or delete it. |
 
-### 2. Dependencies and checks
+## What your service needs for this to work
 
-Update the dependency installation commands, requirements files, Ruff and mypy targets, test paths, and coverage configuration to match the service's technology stack.
+- `requirements.txt` (runtime) and `requirements-dev.txt` (starts with `-r requirements.txt`, then ruff, mypy, bandit, pip-audit, pytest, pytest-cov)
+- `pytest.ini` with `pythonpath = .` and the `integration` marker
+- `pyproject.toml` with `[tool.ruff]` and `[tool.mypy]` sections (copy Platform's)
+- A `Dockerfile` that runs as a non-root user
+- No passwords or keys in test files. Read them from `os.environ`, and let CI generate them.
 
-### 3. Integration and container configuration
+## Rules for every service
 
-Update the required service containers, environment variables, health checks, startup commands, Dockerfile path, and image name. Keep only the integration dependencies required by the target service.
+- Trivy fails on **CRITICAL** vulnerabilities that have a fix available (`ignore-unfixed: true`). Changing that needs team approval.
+- Coverage floor is `--cov-fail-under=85`. Set yours to just below your current number and only raise it.
+- Integration tests must **fail, not skip**, when `CI_REQUIRE_SERVICES=1`.
+- Pin third-party actions to a commit SHA.
 
-Preserve pip caching, clear step names, useful failure output, and the applicable security checks. Keep the configured Trivy CRITICAL vulnerability failure threshold unless the team explicitly approves a policy change.
+## Reading a failure
 
-## Pull request acceptance
+- **Ruff:** the error appears as an annotation on the changed line in the PR diff.
+- **Tests:** `-ra --tb=short` prints one short traceback per failure, plus a summary of every failed or skipped test at the end.
+- **HTTP integration:** the API log is printed automatically when the job fails.
+- **Coverage:** shown as a table on the run's Summary page.
 
-A pull request is ready for review when all required CI jobs pass.
+## Pull Request Acceptance Checklist
 
-Before accepting the workflow as complete, verify the following:
-
-- [ ] Open a real pull request that triggers the workflow.
-- [ ] Confirm pip caching is configured and the workflow executes the expected jobs.
-- [ ] Introduce a temporary lint violation and verify that the lint job fails with a readable message.
-- [ ] Introduce a temporary failing test and verify that the test job fails with a useful assertion or traceback.
-- [ ] Remove the deliberate failures and confirm the normal checks pass.
+- [x] Open a real pull request that triggers the workflow.
+- [x] Introduce a temporary lint violation and verify that the lint job fails with a readable message.
+- [x] Introduce a temporary failing test and verify that the test job fails with a useful assertion or traceback.
+- [x] Remove the deliberate failures and restore the intended implementation.
 - [ ] Confirm the Docker image builds successfully.
-- [ ] Confirm Trivy scans the image and fails the job for qualifying CRITICAL vulnerabilities.
+- [ ] Confirm Trivy scans the image and handles qualifying CRITICAL vulnerabilities as configured.
 - [ ] Review coverage results, security findings, integration-test failures, and Trivy output before merging.
 - [ ] Confirm the final pull-request workflow run is green.
 
-## Security notes
+### Fix 10 Evidence
 
-Use CI-only test credentials and secrets. Never commit production credentials or real secret keys. Keep dependency and container vulnerability scans enabled to detect known risks before merging.
+- Ruff failure: https://github.com/yaswanthtechie/eaicsp-platform/actions/runs/39730800033
+- Unit-test failure: https://github.com/yaswanthtechie/eaicsp-platform/actions/runs/39732243873
+- PR checks: https://github.com/yaswanthtechie/eaicsp-platform/pull/247/checks
 
-## Maintenance
-
-The Platform Service owner maintains this reference workflow. When the template changes, review this document and communicate relevant updates to other service owners before the next CI adoption round.
+The lint and unit-test failures were temporary verification changes and were reverted after their respective runs.

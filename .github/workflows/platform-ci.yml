@@ -1,5 +1,16 @@
 name: Platform Service CI
 
+# ------------------------------------------------------------------
+# TEMPLATE: to adopt this for another service, copy this file to
+# .github/workflows/<service>-ci.yml and change FOUR things:
+#   1. on.pull_request.paths   (GitHub does not allow env vars here)
+#   2. env.SERVICE_DIR
+#   3. env.IMAGE_NAME
+#   4. working-directory in each job (literal path)
+# Then delete or adapt the jobs marked PLATFORM-SPECIFIC.
+# Full guide: docs/ci-template.md
+# ------------------------------------------------------------------
+
 on:
   pull_request:
     paths:
@@ -9,20 +20,32 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  SERVICE_DIR: services/platform
+  IMAGE_NAME: platform-service
+  PYTHON_VERSION: "3.11"
+  # CI-only throwaway key; not used anywhere outside this workflow.
+  SECRET_KEY: ci-only-test-secret-key-not-for-production-123456
+  MFA_ENABLED: "false"
+  MOCK_SSO_ENABLED: "false"
+
 jobs:
+  # ---------------------------------------------------------------
+  # GENERIC: every Python service keeps this job as is.
+  # ---------------------------------------------------------------
   quality-security-unit:
     name: Lint, type check, security and unit tests
     runs-on: ubuntu-latest
-
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: services/platform
-
     env:
-      SECRET_KEY: ci-only-test-secret-key-not-for-production-123456
-      DATABASE_URL: sqlite:////tmp/platform-unit-ci.db
-      MFA_ENABLED: "false"
-      MOCK_SSO_ENABLED: "false"
+      DATABASE_URL: sqlite:////tmp/unit-ci.db
 
     steps:
       - name: Checkout repository
@@ -33,59 +56,70 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: |
-            services/platform/requirements.txt
-            services/platform/requirements-dev.txt
+          cache-dependency-path: services/platform/requirements*.txt
 
       - name: Install dependencies and CI tools
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements-dev.txt
 
-      - name: Ruff
-        run: python -m ruff check app/core app/services
+      - name: Ruff lint
+        run: python -m ruff check --output-format=github .
+
+      - name: Ruff format check
+        run: python -m ruff format --check .
 
       - name: Mypy
-        run: python -m mypy --config-file pyproject.toml app/core app/services
+        run: python -m mypy --config-file pyproject.toml app
 
-      - name: Bandit
+      - name: Bandit (code security)
         run: python -m bandit -r app -ll
 
-      - name: pip-audit
-        run: python -m pip_audit -r requirements.txt
+      - name: pip-audit (dependency security)
+        run: python -m pip_audit -r requirements.txt --desc
 
       - name: Unit tests with coverage
         run: |
-          python -m pytest \
-            -o addopts= \
-            -m "not integration" \
+          python -m pytest -o addopts= -m "not integration" \
+            --tb=short -ra \
             --cov=app \
             --cov-report=term-missing \
-            --cov-report=xml:coverage.xml
+            --cov-report=xml:coverage.xml \
+            --cov-fail-under=85
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [ -f .coverage ]; then
+            echo "## Coverage" >> "$GITHUB_STEP_SUMMARY"
+            python -m coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: platform-coverage
+          name: platform-service-coverage
           path: services/platform/coverage.xml
           if-no-files-found: ignore
 
+  # ---------------------------------------------------------------
+  # PLATFORM-SPECIFIC: Redis + Kafka. Other services keep only the
+  # containers and tests they actually need.
+  # ---------------------------------------------------------------
   integration:
     name: Redis and Kafka integration tests
     runs-on: ubuntu-latest
-
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: services/platform
-
     env:
-      SECRET_KEY: ci-only-test-secret-key-not-for-production-123456
       DATABASE_URL: sqlite:////tmp/platform-integration-ci.db
       REDIS_URL: redis://localhost:6379/0
-      MFA_ENABLED: "false"
-      MOCK_SSO_ENABLED: "false"
       KAFKA_BOOTSTRAP_SERVERS: localhost:9092
+      # Integration tests must fail, not skip, if a container is missing.
+      CI_REQUIRE_SERVICES: "1"
 
     services:
       redis:
@@ -133,9 +167,7 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: |
-            services/platform/requirements.txt
-            services/platform/requirements-dev.txt
+          cache-dependency-path: services/platform/requirements*.txt
 
       - name: Install dependencies
         run: |
@@ -148,24 +180,22 @@ jobs:
           import os
           import redis
 
-          client = redis.Redis.from_url(os.environ["REDIS_URL"])
-          client.ping()
+          redis.Redis.from_url(os.environ["REDIS_URL"]).ping()
           print("Redis is ready")
           PY
 
       - name: Wait for Kafka
         run: |
           python - <<'PY'
+          import os
           import time
           from kafka import KafkaAdminClient
 
+          servers = os.environ["KAFKA_BOOTSTRAP_SERVERS"]
           for attempt in range(30):
               client = None
               try:
-                  client = KafkaAdminClient(
-                      bootstrap_servers="localhost:9092",
-                      request_timeout_ms=3000,
-                  )
+                  client = KafkaAdminClient(bootstrap_servers=servers, request_timeout_ms=3000)
                   client.list_topics()
                   print("Kafka is ready")
                   break
@@ -181,21 +211,17 @@ jobs:
       - name: Ensure event topic exists
         run: |
           python - <<'PY'
+          import os
           from kafka.admin import KafkaAdminClient, NewTopic
 
           admin = KafkaAdminClient(
-              bootstrap_servers="localhost:9092",
+              bootstrap_servers=os.environ["KAFKA_BOOTSTRAP_SERVERS"],
               request_timeout_ms=10000,
           )
           try:
-              topics = admin.list_topics()
-              if "platform.user.locked" not in topics:
+              if "platform.user.locked" not in admin.list_topics():
                   admin.create_topics([
-                      NewTopic(
-                          name="platform.user.locked",
-                          num_partitions=1,
-                          replication_factor=1,
-                      )
+                      NewTopic(name="platform.user.locked", num_partitions=1, replication_factor=1)
                   ])
                   print("Created platform.user.locked")
               else:
@@ -206,22 +232,29 @@ jobs:
 
       - name: Redis cross-instance revocation test
         run: |
-          python -m pytest -o addopts= -m integration -v \
+          python -m pytest -o addopts= -m integration -v --tb=short -ra \
             tests/test_two_instance_revocation.py
 
       - name: Kafka integration tests
         run: |
-          python -m pytest -o addopts= -m integration -v \
+          python -m pytest -o addopts= -m integration -v --tb=short -ra \
             tests/test_event_publisher_integration.py \
             tests/test_account_lock_event_integration.py
 
+  # ---------------------------------------------------------------
+  # PLATFORM-SPECIFIC: live HTTP tests against a seeded API.
+  # Other services change the seed command, port and test file.
+  # ---------------------------------------------------------------
   http-integration:
     name: Platform HTTP integration tests
     runs-on: ubuntu-latest
-
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: services/platform
+    env:
+      DATABASE_URL: sqlite:////tmp/platform-http-ci.db
+      REDIS_URL: redis://localhost:6379/0
 
     services:
       redis:
@@ -234,13 +267,6 @@ jobs:
           --health-timeout 3s
           --health-retries 10
 
-    env:
-      SECRET_KEY: ci-only-test-secret-key-not-for-production-123456
-      DATABASE_URL: sqlite:////tmp/platform-http-ci.db
-      REDIS_URL: redis://localhost:6379/0
-      MFA_ENABLED: "false"
-      MOCK_SSO_ENABLED: "false"
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -250,25 +276,24 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: |
-            services/platform/requirements.txt
-            services/platform/requirements-dev.txt
+          cache-dependency-path: services/platform/requirements*.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements-dev.txt
 
+      - name: Generate CI-only seed passwords
+        run: |
+          for key in CEO_PASSWORD VP_OPERATIONS_PASSWORD PROCUREMENT_MANAGER_PASSWORD \
+                     LOGISTICS_MANAGER_PASSWORD COMPLIANCE_OFFICER_PASSWORD \
+                     WAREHOUSE_MANAGER_PASSWORD ANALYST_PASSWORD SUPPLIER_PASSWORD; do
+            value="Ci-$(openssl rand -hex 12)@1"
+            echo "::add-mask::$value"
+            echo "$key=$value" >> "$GITHUB_ENV"
+          done
+
       - name: Seed integration test database
-        env:
-          CEO_PASSWORD: "CI-ceo-password-123!"
-          WAREHOUSE_MANAGER_PASSWORD: "warehouse@123"
-          VP_OPERATIONS_PASSWORD: "vpoperations@123"
-          PROCUREMENT_MANAGER_PASSWORD: "CI-procurement-123!"
-          LOGISTICS_MANAGER_PASSWORD: "CI-logistics-123!"
-          COMPLIANCE_OFFICER_PASSWORD: "CI-compliance-123!"
-          SUPPLIER_PASSWORD: "supplier@123"
-          ANALYST_PASSWORD: "CI-analyst-123!"
         run: python -m app.seed
 
       - name: Start Platform API
@@ -276,7 +301,6 @@ jobs:
           nohup python -m uvicorn app.main:app \
             --host 127.0.0.1 --port 8005 \
             > /tmp/platform-api.log 2>&1 &
-          echo $! > /tmp/platform-api.pid
 
       - name: Wait for Platform API
         run: |
@@ -286,35 +310,35 @@ jobs:
 
           for attempt in range(30):
               try:
-                  with urllib.request.urlopen(
-                      "http://127.0.0.1:8005/docs", timeout=2
-                  ) as response:
+                  with urllib.request.urlopen("http://127.0.0.1:8005/docs", timeout=2) as response:
                       if response.status == 200:
                           print("Platform API is ready")
                           break
               except Exception:
                   if attempt == 29:
-                      with open("/tmp/platform-api.log", encoding="utf-8") as log:
-                          print(log.read())
+                      print(open("/tmp/platform-api.log", encoding="utf-8").read())
                       raise
                   time.sleep(2)
           else:
               raise RuntimeError("Platform API did not become ready")
-
           PY
 
       - name: HTTP integration tests
         run: |
-          python -m pytest -o addopts= -m integration -v \
+          python -m pytest -o addopts= -m integration -v --tb=short -ra \
             tests/test_integration.py
 
       - name: Show API logs on failure
         if: failure()
         run: cat /tmp/platform-api.log
 
+  # ---------------------------------------------------------------
+  # GENERIC: every service keeps this job as is.
+  # ---------------------------------------------------------------
   docker-trivy:
     name: Build Docker image and scan vulnerabilities
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
@@ -323,15 +347,18 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Platform Service image
-        run: |
-          docker build \
-            -f services/platform/Dockerfile \
-            -t platform-service:${{ github.sha }} \
-            services/platform
+      - name: Build image (with layer cache)
+        uses: docker/build-push-action@v6
+        with:
+          context: services/platform
+          file: services/platform/Dockerfile
+          tags: platform-service:${{ github.sha }}
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Scan image with Trivy
-        uses: aquasecurity/trivy-action@0.35.0
+      - name: Scan image with Trivy (fail on CRITICAL)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
           image-ref: platform-service:${{ github.sha }}
           format: table
