@@ -1,4 +1,4 @@
-﻿"""Apply the four ClickHouse table contracts idempotently."""
+"""Apply the four ClickHouse table contracts idempotently."""
 import os
 import re
 import sys

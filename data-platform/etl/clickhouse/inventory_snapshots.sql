@@ -1,4 +1,4 @@
-﻿CREATE TABLE IF NOT EXISTS inventory_snapshots
+CREATE TABLE IF NOT EXISTS inventory_snapshots
 (
     snapshot_date Date,
     sku_id String,

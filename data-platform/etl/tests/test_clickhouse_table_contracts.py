@@ -8,7 +8,7 @@ from clickhouse import apply_ddl as ddl
 
 ROOT = Path(__file__).resolve().parents[1]
 DDL_DIR = ROOT / "clickhouse"
-README = ROOT / "contracts" / "clickhouse" / "README.md"
+README = Path(__file__).resolve().parents[3] / "contracts" / "clickhouse" / "README.md"
 
 TABLES = (
     "demand_forecast_history",

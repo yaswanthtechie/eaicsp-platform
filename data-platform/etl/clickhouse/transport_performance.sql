@@ -1,4 +1,4 @@
-﻿CREATE TABLE IF NOT EXISTS transport_performance
+CREATE TABLE IF NOT EXISTS transport_performance
 (
     shipment_id String,
     po_id String,

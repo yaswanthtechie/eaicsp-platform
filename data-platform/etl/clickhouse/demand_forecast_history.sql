@@ -1,4 +1,4 @@
-﻿CREATE TABLE IF NOT EXISTS demand_forecast_history
+CREATE TABLE IF NOT EXISTS demand_forecast_history
 (
     batch_date Date,
     forecast_date Date,

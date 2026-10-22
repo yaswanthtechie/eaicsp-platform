@@ -39,13 +39,14 @@ ORDER BY: `(snapshot_date, sku_id, warehouse_id)`
 
 ## 3. kpi_metrics
 
-One row per KPI per day per warehouse. Use an empty `warehouse_id` for all-warehouse totals.
+One row per KPI per day per warehouse per category. Use an empty `warehouse_id` for all-warehouse totals and an empty `category` for all-category totals.
 
 | Column | ClickHouse type | Description |
 |---|---|---|
 | metric_date | Date | KPI date |
 | metric_name | LowCardinality(String) | KPI name |
 | warehouse_id | String | Canonical warehouse ID or empty for totals |
+| category | LowCardinality(String) | Product category or empty for totals |
 | value | Float64 | KPI value |
 | computed_at | DateTime64(3, 'UTC') | Computation timestamp |
 | version | DateTime64(3, 'UTC') | Replacement version |
@@ -53,7 +54,7 @@ One row per KPI per day per warehouse. Use an empty `warehouse_id` for all-wareh
 Allowed metric names: `fill_rate`, `stockout_count`, `open_pos`, `on_time_delivery_pct`.
 
 Partition: `toYYYYMM(metric_date)`
-ORDER BY: `(metric_date, metric_name, warehouse_id)`
+ORDER BY: `(metric_date, metric_name, warehouse_id, category)`
 
 ## 4. transport_performance
 
