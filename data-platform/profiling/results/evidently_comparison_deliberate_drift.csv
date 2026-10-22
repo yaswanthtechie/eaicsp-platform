@@ -1,0 +1,5 @@
+column,custom,evidently,agree,custom_reasons,evidently_detail
+quantity_sold,no drift,drift,False,,Drift score is 2.43. The drift detection method is Wasserstein distance (normed). The drift threshold is 0.10.
+sku_id,drift,no drift,False,Null rate changed by 12.0 percentage points,Drift score is 0.01. The drift detection method is Jensen-Shannon distance. The drift threshold is 0.10.
+unit_price,drift,drift,True,Mean shifted by more than 1 standard deviation,Drift score is 1.47. The drift detection method is Wasserstein distance (normed). The drift threshold is 0.10.
+warehouse_id,drift,drift,True,Significant categorical proportion change,Drift score is 0.12. The drift detection method is Jensen-Shannon distance. The drift threshold is 0.10.

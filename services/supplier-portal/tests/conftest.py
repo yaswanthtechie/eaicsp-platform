@@ -15,6 +15,12 @@ os.environ.setdefault(
     "test-secret-key",
 )
 
+# Unit tests never connect; DB tests build their own SQLite engine.
+os.environ.setdefault(
+    "DATABASE_URL",
+    "sqlite://",
+)
+
 import pytest
 from fastapi.testclient import TestClient
 from minio.error import S3Error
@@ -162,7 +168,7 @@ SUPPLIER_USER = {
     "email": "supplier@company.com",
     "full_name": "Supplier User",
     "role": "supplier",
-    "supplier_id": "SUP001",
+    "supplier_id": "SUP-00001",
     "is_active": True,
 }
 
@@ -171,7 +177,7 @@ SUPPLIER_B_USER = {
     "valid": True,
     "user_id": 99,
     "role": "supplier",
-    "supplier_id": "SUP002",
+    "supplier_id": "SUP-00002",
     "email": "supplierb@example.com",
     "full_name": "Supplier B",
     "is_active": True,
@@ -241,7 +247,7 @@ def mock_authentication():
     Default authentication for tests that do not explicitly
     request a role-specific client.
 
-    Default user = SUP001 supplier.
+    Default user = SUP-00001 supplier.
     """
 
     async def mock_verify_token():
@@ -262,7 +268,7 @@ def mock_authentication():
 @pytest.fixture
 def supplier_client():
     """
-    TestClient authenticated as supplier SUP001.
+    TestClient authenticated as supplier SUP-00001.
     """
 
     with AuthenticatedTestClient(
@@ -275,7 +281,7 @@ def supplier_client():
 @pytest.fixture
 def supplier_b_client():
     """
-    TestClient authenticated as supplier SUP002.
+    TestClient authenticated as supplier SUP-00002.
     """
 
     with AuthenticatedTestClient(

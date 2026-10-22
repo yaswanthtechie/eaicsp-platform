@@ -1,4 +1,5 @@
 
+import argparse
 from pathlib import Path
 
 from app.database import SessionLocal
@@ -12,8 +13,26 @@ DEFAULT_SEED_PATH = (
 )
 
 
-def main() -> None:
-    seed_path = DEFAULT_SEED_PATH
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Load the canonical supplier seed into "
+            "supplier_portal.suppliers."
+        ),
+    )
+    parser.add_argument(
+        "--path",
+        type=Path,
+        default=DEFAULT_SEED_PATH,
+        help=(
+            "suppliers.csv to load, e.g. the output of "
+            "data-platform: python -m seed.generate --out out/"
+        ),
+    )
+    seed_path = parser.parse_args(argv).path
+
+    if not seed_path.is_file():
+        parser.error(f"Supplier seed CSV not found: {seed_path}")
 
     print(f"Loading supplier seed from: {seed_path}")
 

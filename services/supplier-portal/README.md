@@ -47,6 +47,16 @@ Round 15 adds the Inventory approved-PO consumer, `po_mirror` persistence, suppl
 29. [Future Enhancements](#29-future-enhancements)
 
 ---
+### Round 15 — Supplier Portal Event Contracts
+
+- Created versioned JSON Schema contracts for `supplierportal.po.acknowledged.v1` and `supplierportal.shipment.dispatched.v1`.
+- Added example JSON files for both events under `contracts/events/examples/`.
+- Validated both example files against their corresponding JSON Schemas.
+- Added automated contract tests covering required fields, event types, versions, UUIDs, timestamps, and identifier formats.
+- **Test result:** `32 passed`.
+- These contracts provide a consistent integration interface for the Inventory and ETA model services.
+
+**Note:** Contract validation passed; Kafka event publishing and end-to-end integration are separate verification steps.
 
 ## Round 12–13 Status
 
@@ -247,8 +257,6 @@ Run document-storage tests:
 python -m pytest tests/test_document_storage_service.py tests/test_supplier_document_download.py -q
 python -m pytest -m integration -q
 ```
-
----
 
 ## Supplier Portal–Compliance Integration
 

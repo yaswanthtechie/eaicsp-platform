@@ -1,0 +1,15 @@
+services:
+  kafka:
+    profiles: ["full"]
+
+  clickhouse:
+    profiles: ["full"]
+
+  mongodb:
+    profiles: ["full"]
+
+  influxdb:
+    profiles: ["full"]
+
+  mlflow:
+    profiles: ["full"]

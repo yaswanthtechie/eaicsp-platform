@@ -13,7 +13,7 @@ from app.services.compliance_client import (
 # TEST DATA
 # ============================================================
 
-SUPPLIER_ID = "SUP001"
+SUPPLIER_ID = "SUP-00001"
 SUPPLIER_NAME = "ABC Supplies Pvt Ltd"
 COUNTRY = "India"
 

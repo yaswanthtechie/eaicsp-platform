@@ -1,5 +1,4 @@
 from datetime import UTC, datetime
-from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
@@ -30,8 +29,17 @@ from app.services.outbox_service import record_event
 from app.services.cache_service import invalidate_inventory_cache
 
 
-def generate_po_id():
-    return f"PO-{uuid4().hex[:8].upper()}"
+def generate_po_id(db: Session) -> str:
+    """Canonical PO ID per blueprint section 2: PO-<year>-<6 digits>, e.g. PO-2026-000123."""
+    prefix = f"PO-{datetime.now(UTC).year}-"
+    last = (
+        db.query(PurchaseOrder.po_id)
+        .filter(PurchaseOrder.po_id.like(f"{prefix}%"))
+        .order_by(PurchaseOrder.po_id.desc())
+        .first()
+    )
+    next_number = int(last[0].removeprefix(prefix)) + 1 if last else 1
+    return f"{prefix}{next_number:06d}"
 
 
 def select_supplier(
@@ -233,7 +241,7 @@ def create_draft_po_for_inventory(
     po_status, hold_reason, hold_source = _initial_po_status(db, po_details["supplier_id"])
 
     purchase_order = PurchaseOrder(
-        po_id=generate_po_id(),
+        po_id=generate_po_id(db),
         sku_id=inventory.sku_id,
         warehouse_id=inventory.warehouse_id,
         supplier_id=po_details["supplier_id"],
@@ -327,7 +335,7 @@ def create_automatic_draft_po(
     po_status, hold_reason, hold_source = _initial_po_status(db, po_details["supplier_id"])
 
     purchase_order = PurchaseOrder(
-        po_id=generate_po_id(),
+        po_id=generate_po_id(db),
         sku_id=inventory.sku_id,
         warehouse_id=inventory.warehouse_id,
         supplier_id=po_details["supplier_id"],

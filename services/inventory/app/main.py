@@ -14,6 +14,12 @@ from app.routes.purchase_orders import (
 from app.routes.reports import (
     router as reports_router,
 )
+from app.routes.optimization import (
+    router as optimization_router,
+)
+from app.routes.goods_receipts import (
+    router as goods_receipts_router,
+)
 from app.routes.inventory import (
     router as inventory_router,
 )
@@ -54,8 +60,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Inventory Service",
+    title="EAICSP Inventory Service API",
     version="1.0.0",
+    description="API specification for EAICSP Inventory Service, including Round 15 Flow A and Flow B endpoints.",
     lifespan=lifespan,
 )
 
@@ -74,6 +81,16 @@ app.include_router(
 
 app.include_router(
     reports_router,
+    prefix="/api/v1/inventory",
+)
+
+app.include_router(
+    optimization_router,
+    prefix="/api/v1/inventory",
+)
+
+app.include_router(
+    goods_receipts_router,
     prefix="/api/v1/inventory",
 )
 

@@ -51,7 +51,7 @@ def clear_test_data():
 
 def create_shipped_po(
     po_number="PO1001",
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
 ):
     """
     Create a PO that is ready for Goods Receipt.
@@ -125,7 +125,7 @@ def valid_goods_receipt(
 
 
 def create_goods_receipt_for_supplier(
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
     po_number="PO1001",
     quantity_lap=10,
     quantity_mouse=10,
@@ -172,7 +172,7 @@ def test_create_goods_receipt_successfully():
     assert receipt["po_number"] == "PO1001"
 
     # Supplier ID must come from the Purchase Order.
-    assert receipt["supplier_id"] == "SUP001"
+    assert receipt["supplier_id"] == "SUP-00001"
 
     assert receipt["warehouse"] == "WH-HYD-01"
     assert (
@@ -267,7 +267,7 @@ def test_goods_receipt_creates_fulfillment_history_event():
     event = history[-1]
 
     assert event["po_number"] == "PO1001"
-    assert event["supplier_id"] == "SUP001"
+    assert event["supplier_id"] == "SUP-00001"
 
     assert (
         event["actor"]
@@ -567,7 +567,7 @@ def test_goods_receipt_allows_partial_quantity():
     )
 
     assert result["po_number"] == "PO1001"
-    assert result["supplier_id"] == "SUP001"
+    assert result["supplier_id"] == "SUP-00001"
     assert result["status"] == "received"
 
     assert result["items"][0]["quantity"] == 5
@@ -608,7 +608,7 @@ def test_goods_receipt_allows_missing_po_item_for_partial_receipt():
     )
 
     assert result["po_number"] == "PO1001"
-    assert result["supplier_id"] == "SUP001"
+    assert result["supplier_id"] == "SUP-00001"
     assert result["status"] == "received"
 
     assert len(result["items"]) == 1
@@ -918,7 +918,7 @@ def test_supplier_can_view_own_goods_receipt(
     """
 
     receipt = create_goods_receipt_for_supplier(
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     response = supplier_client.get(
@@ -930,19 +930,19 @@ def test_supplier_can_view_own_goods_receipt(
     body = response.json()
 
     assert body["receipt_id"] == receipt["receipt_id"]
-    assert body["supplier_id"] == "SUP001"
+    assert body["supplier_id"] == "SUP-00001"
 
 
 def test_supplier_cannot_view_another_suppliers_goods_receipt(
     supplier_client,
 ):
     """
-    Supplier SUP001 must not access a Goods Receipt
-    belonging to SUP002.
+    Supplier SUP-00001 must not access a Goods Receipt
+    belonging to SUP-00002.
     """
 
     receipt = create_goods_receipt_for_supplier(
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
         po_number="PO2001",
     )
 
@@ -992,7 +992,7 @@ def test_supplier_gets_same_forbidden_response_for_existing_and_unknown_receipts
     """
 
     receipt = create_goods_receipt_for_supplier(
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
         po_number="PO2002",
     )
 
@@ -1056,7 +1056,7 @@ def test_internal_user_can_view_existing_supplier_goods_receipt(
     """
 
     receipt = create_goods_receipt_for_supplier(
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
         po_number="PO2003",
     )
 
@@ -1069,5 +1069,5 @@ def test_internal_user_can_view_existing_supplier_goods_receipt(
     body = response.json()
 
     assert body["receipt_id"] == receipt["receipt_id"]
-    assert body["supplier_id"] == "SUP002"
+    assert body["supplier_id"] == "SUP-00002"
 

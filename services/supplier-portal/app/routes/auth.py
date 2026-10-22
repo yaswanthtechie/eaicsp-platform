@@ -30,7 +30,7 @@ def login(
         "access_token": token_urlsafe(32),
         "refresh_token": token_urlsafe(32),
         "token_type": "bearer",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
     }
 
 

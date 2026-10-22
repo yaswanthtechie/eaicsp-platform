@@ -1,11 +1,11 @@
-﻿from logging.config import fileConfig
+from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from app.core.config import settings
 from app.database import Base
-from app.models import POMirror, Supplier  # noqa: F401
+from app.models import Supplier  # noqa: F401
 
 config = context.config
 
@@ -29,8 +29,8 @@ def run_migrations_offline() -> None:
         dialect_opts={"paramstyle": "named"},
         include_schemas=True,
         compare_type=True,
-        # Keep alembic_version in the default schema,
-        # consistent with online migrations.
+        # Keep alembic_version in the service's own schema.
+        version_table_schema=settings.SUPPLIER_DB_SCHEMA,
     )
 
     with context.begin_transaction():
@@ -61,8 +61,9 @@ def run_migrations_online() -> None:
                 target_metadata=target_metadata,
                 include_schemas=True,
                 compare_type=True,
-                # Do not set version_table_schema here:
-                # Alembic tracks revisions in the default schema.
+                # Keep alembic_version in our own schema: the shared
+                # Postgres has one schema per service and no public writes.
+                version_table_schema=settings.SUPPLIER_DB_SCHEMA,
             )
 
             with context.begin_transaction():
@@ -75,4 +76,3 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
-

@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field, ConfigDict
-
+from app.schemas.ids import SUPPLIER_ID_PATTERN
 
 # ============================================================
 # SUPPLIER ONBOARDING STATUS
@@ -56,7 +56,7 @@ class SupplierRegistration(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "supplier_id": "SUP001",
+                "supplier_id": "SUP-00001",
                 "company_name": "ABC Supplies Pvt Ltd",
                 "contact_name": "Ravi Kumar",
                 "email": "ravi@abcsupplies.com",
@@ -76,7 +76,7 @@ class SupplierRegistration(BaseModel):
         ...,
         min_length=1,
         max_length=100,
-        pattern=r"^[A-Za-z0-9_-]+$"
+        pattern=SUPPLIER_ID_PATTERN
     )
 
     company_name: str = Field(
