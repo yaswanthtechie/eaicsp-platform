@@ -56,10 +56,10 @@ The workflow uses literal paths for `working-directory` because job-level defaul
 - [x] Introduce a temporary lint violation and verify that the lint job fails with a readable message.
 - [x] Introduce a temporary failing test and verify that the test job fails with a useful assertion or traceback.
 - [x] Remove the deliberate failures and restore the intended implementation.
-- [ ] Confirm the Docker image builds successfully.
-- [ ] Confirm Trivy scans the image and handles qualifying CRITICAL vulnerabilities as configured.
-- [ ] Review coverage results, security findings, integration-test failures, and Trivy output before merging.
-- [ ] Confirm the final pull-request workflow run is green.
+- [x] Confirm the Docker image builds successfully.
+- [x] Confirm Trivy scans the image and handles qualifying CRITICAL vulnerabilities as configured.
+- [x] Review coverage results, security findings, integration-test failures, and Trivy output before merging.
+- [x] Confirm the final pull-request workflow run is green.
 
 ### Fix 10 Evidence
 

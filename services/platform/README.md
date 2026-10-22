@@ -1942,33 +1942,34 @@ Issue Service Key
 
 # Setup
 
-Install dependencies:
+From `services/platform`:
 
-Unit tests — run without requiring the Platform Service to be running.
-Integration tests — make real HTTP requests to the running Platform Service on port 8005.
-Run the default test suite
 ```bash
-pip install -r requirements.txt
+python -m venv .venv
+.venv\Scripts\activate            # Windows
+pip install -r requirements-dev.txt   # runtime + test + CI tools
 ```
 
-Start the service:
+Unit tests (no Docker needed):
 
 ```bash
+pytest -q
+```
+
+Integration tests (need Redis and Kafka):
+
+```bash
+docker compose -f docker-compose.dev.yml up -d redis kafka
+pytest -o addopts= -m integration tests/test_two_instance_revocation.py tests/test_event_publisher_integration.py tests/test_account_lock_event_integration.py
+```
+
+The HTTP integration tests (`tests/test_integration.py`) also need the API running on port 8005 with a seeded database:
+
+```bash
+python -m app.seed
 uvicorn app.main:app --host 127.0.0.1 --port 8005
+pytest -o addopts= -m integration tests/test_integration.py
 ```
-
-Open Swagger:
-
-```text
-http://127.0.0.1:8005/docs
-```
-
-Open ReDoc:
-
-```text
-http://127.0.0.1:8005/redoc
-```
----
 
 # Startup Flow
 
@@ -3646,188 +3647,46 @@ for cross-service events and the same structured logging conventions for
 consistent request tracing and operational monitoring.
 
 
-# Platform Service CI Pipeline:Round-14
-### Round 14 CI checks
+# Round 14: CI pipeline (status)
 
-The `platform-ci.yml` workflow validates the Platform Service using:
+**Workflow:** `.github/workflows/platform-ci.yml`. It runs only on PRs that touch `services/platform/**` or the workflow itself.
 
-- Ruff linting and formatting
-- Mypy type checking
-- Bandit security scanning
-- pip-audit dependency vulnerability scanning
-- Unit tests and coverage reporting
-- Redis integration tests
-- Docker image build and Trivy vulnerability scanning
-
-
-**Workflow file:** `.github/workflows/platform-ci.yml`
-
-**Scope:** `services/platform/`
-
-The workflow is triggered by pull requests that modify files under `services/platform/**`. Changes to unrelated services should not trigger this service-specific workflow.
-
-## CI Pipeline Checks
-
-The workflow must run the following checks:
-
-| Check | Tool | Purpose |
+| Job | What it runs | Status |
 |---|---|---|
-| Python linting | Ruff | Detect code-quality issues |
-| Formatting | Ruff | Verify consistent Python formatting |
-| Static type checking | Mypy | Detect type-related errors |
-| Source security | Bandit | Identify potentially insecure Python patterns |
-| Dependency security | pip-audit | Identify known vulnerabilities in dependencies |
-| Unit tests | Pytest | Run tests excluding integration tests |
-| Coverage | pytest-cov | Report covered and uncovered lines |
-| Integration tests | Pytest + Redis | Validate integration behavior using Redis |
-| Container build | Docker | Verify the service image builds successfully |
-| Image security | Trivy | Scan the image and fail on critical vulnerabilities |
+| Lint, type check, security, unit tests | `ruff check .`, `ruff format --check .`, `mypy app/core app/services`, `bandit -r app -ll`, `pip-audit -r requirements.txt`, `pytest -m "not integration"` with coverage (fails under 85%) | Done |
+| Redis + Kafka integration | Redis and Kafka service containers; cross-instance revocation + Kafka event tests | Done |
+| HTTP integration | Seeds a DB with CI-generated passwords, starts the API, runs `tests/test_integration.py` | Done |
+| Docker + Trivy | Builds the image (layer cache), Trivy fails on CRITICAL, ignoring vulnerabilities with no fix available | Done |
 
-## 1. Ruff Linting and Formatting
+**Latest green run:** <link to the Actions run>
+**Deliberate-failure checks:** lint failure <link>, test failure <link>
 
-Run linting:
+**Not done / known limits**
+- mypy covers `app/core` and `app/services` only (or `app` after Fix 7)
+- Trivy ignores unfixed vulnerabilities (`ignore-unfixed: true`)
+- No deploy step; CI only
+
+**Adopting for another service:** see `docs/ci-template.md`.
+
+**Run the same checks locally** (from `services/platform`):
 
 ```bash
 python -m ruff check .
-```
-
-Check formatting:
-
-```bash
 python -m ruff format --check .
-```
-
-CI must fail if either check fails. The workflow should report the failing step clearly.
-
-## 2. Mypy Type Checking
-
-Mypy performs static type checking without running the application.
-
-The minimum required scope is:
-
-```text
-app/core/
-app/services/
-```
-
-Run:
-
-```bash
-python -m mypy app/core app/services
-```
-
-Configure Mypy and resolve genuine type errors. Any intentional exceptions must be narrowly scoped and documented.
-
-A type-checking failure must fail the CI job.
-
-## 3. Bandit Source-Code Security Scan
-
-Bandit scans Python source code for common security issues.
-
-Run:
-
-```bash
-python -m bandit -r app
-```
-
-The workflow must display the findings and fail when the configured security check fails. Do not suppress findings globally merely to make CI pass.
-
-## 4. pip-audit Dependency Security Scan
-
-pip-audit checks installed or declared Python dependencies against known vulnerability information.
-
-Run:
-
-```bash
+python -m mypy --config-file pyproject.toml app/core app/services
+python -m bandit -r app -ll
 python -m pip_audit -r requirements.txt
+python -m pytest -o addopts= -m "not integration" --cov=app --cov-fail-under=85
 ```
 
-Update the command if the project uses a different authoritative dependency file.
+### Evidence — Readable CI Failures
 
-The workflow must make dependency vulnerabilities visible and fail according to the configured audit policy.
+The Platform Service CI workflow was tested with temporary, intentional failures to verify that GitHub Actions reports useful diagnostics.
 
-## 5. Unit Tests and Coverage
+| Validation | Expected result | Evidence |
+|---|---|---|
+| Intentional Ruff lint failure | CI identifies the linting issue and fails the job | [Ruff failure run](https://github.com/yaswanthtechie/eaicsp-platform/actions/runs/39730800033) |
+| Intentional unit-test failure | CI identifies the failing test and reports the assertion or traceback | [Unit-test failure run](https://github.com/yaswanthtechie/eaicsp-platform/actions/runs/39732243873) |
+| Pull request validation | Review the workflow checks and final validation status | [PR #247 checks](https://github.com/yaswanthtechie/eaicsp-platform/pull/247/checks) |
 
-Run the unit test suite without integration tests:
-
-```bash
-python -m pytest -m "not integration" \
-  --cov=app \
-  --cov-report=term-missing
-```
-
-Install `pytest-cov` if it is not already included in the project dependencies.
-
-Coverage output must identify missing lines. Do not claim that a minimum coverage percentage is enforced unless an explicit threshold is configured.
-
-## 6. Redis Integration Tests
-
-The integration-test job must start a Redis service container and wait until Redis is healthy.
-
-Use the application's existing `REDIS_URL` configuration.
-
-Example test command:
-
-```bash
-python -m pytest -m integration -rs
-```
-
-The job must:
-
-1. Start Redis and verify its health.
-2. Configure the application to connect to Redis.
-3. Install project dependencies.
-4. Run the integration tests.
-5. Report failures clearly.
-
-Tests requiring Kafka or another external service must have that dependency configured or be separated from the Redis-only job.
-
-## 7. Docker Build and Trivy Scan
-
-Build the Platform Service image using the repository's Dockerfile and the correct build context.
-
-The workflow must:
-
-- Build the image successfully.
-- Scan the built image using Trivy.
-- Fail when critical (`CRITICAL`) vulnerabilities are found.
-- Display vulnerability scan results in the CI logs.
-- Avoid exposing secrets through build arguments or logs.
-
-The image scan is a required pull-request validation step.
-
-## 8. Workflow Performance and Readable Failures
-
-The workflow must use pip caching to reduce dependency installation time.
-
-Use descriptive steps or jobs:
-
-```text
-Ruff lint
-Ruff format
-Mypy type check
-Bandit security scan
-Dependency vulnerability scan
-Unit tests and coverage
-Redis integration tests
-Docker build
-Trivy vulnerability scan
-```
-
-Each failed check must provide enough output to identify and fix the problem.
-
-## 9. Reusable CI Template
-
-Create:
-
-```text
-docs/ci-template.md
-```
-
-The document must explain how another EAICSP service can adopt this workflow by changing three service-specific settings:
-
-1. **Path filter:** Replace `services/platform/**` with the target service's path.
-2. **Working directory and build context:** Update the service directory, Dockerfile location, and image build context.
-3. **Service-specific test and dependency configuration:** Update test commands, environment variables, dependency files, and required integration services.
-
-The template must also explain the shared quality checks, security scans, caching, coverage reporting, Docker scanning, and failure interpretation.
+The deliberate lint and unit-test failures were temporary verification changes and were reverted after their respective runs. The final pull-request checks should be confirmed green before merging.
