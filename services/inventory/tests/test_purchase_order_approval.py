@@ -1,6 +1,13 @@
+import json
+from pathlib import Path
 import pytest
+from jsonschema import Draft202012Validator
 
 from app.core.auth import verify_token
+from app.models.outbox import Outbox
+from app.services.outbox_relay import OutboxRelay
+from tests.fakes import InMemoryKafkaPublisher
+from app.schemas.events import InventoryPOApprovedEvent
 from app.core.config import settings
 from app.main import app
 from app.models.inventory import Inventory
@@ -101,9 +108,9 @@ def test_large_draft_po_requires_vp_approval(client, db_session):
 
 @pytest.mark.parametrize(
     "role",
-    ["warehouse_manager", "procurement_manager", "ceo"],
+    ["warehouse_manager", "analyst", "ceo"],
 )
-def test_only_vp_operations_can_approve(client, db_session, role):
+def test_approval_requires_procurement_manager(client, db_session, role):
     _seed_reorderable_sku(db_session, unit_cost=100.0)
 
     po_id = client.post(
@@ -117,7 +124,7 @@ def test_only_vp_operations_can_approve(client, db_session, role):
     )
     assert rejected.status_code == 403
 
-    app.dependency_overrides[verify_token] = _as_user("vp_operations")
+    app.dependency_overrides[verify_token] = _as_user("procurement_manager")
     approved = client.post(
         f"/api/v1/inventory/purchase-orders/{po_id}/approve"
     )
@@ -126,7 +133,7 @@ def test_only_vp_operations_can_approve(client, db_session, role):
 
 
 def test_approving_missing_po_returns_404(client):
-    app.dependency_overrides[verify_token] = _as_user("vp_operations")
+    app.dependency_overrides[verify_token] = _as_user("procurement_manager")
 
     response = client.post(
         "/api/v1/inventory/purchase-orders/PO-DOES-NOT-EXIST/approve"
@@ -224,3 +231,93 @@ def test_pending_po_cannot_be_received(db_session):
             "requires VP Operations approval"
             in str(exc)
         )
+
+def test_approve_po_publishes_inventory_po_approved_event(client, db_session):
+    """
+    Done-when:
+    1. Approval requires procurement_manager
+    2. Event written through outbox, matching the contract exactly
+    3. Test: approve, then the outbox relay publishes exactly one event
+    """
+    user_uuid = "3f2b8c1e-7a4d-4e9b-9c2f-1d5e6a7b8c90"
+    app.dependency_overrides[verify_token] = lambda: {
+        "valid": True,
+        "role": "procurement_manager",
+        "user_id": user_uuid,
+        "email": "pm@example.com",
+        "permissions": ["supplier:read", "supplier:write"],
+    }
+
+    # 1. Seed canonical PO requiring approval
+    po = PurchaseOrder(
+        po_id="PO-2026-000123",
+        sku_id="SKU-000123",
+        warehouse_id="WH-BLR-01",
+        supplier_id="SUP-00045",
+        quantity=100,
+        unit_cost=450.0,
+        expected_cost=45000.0,
+        status="draft",
+        approval_status="pending_vp_approval",
+    )
+    db_session.add(po)
+    db_session.commit()
+
+    # 2. Approve via API endpoint
+    response = client.post("/api/v1/inventory/purchase-orders/PO-2026-000123/approve")
+    assert response.status_code == 200, response.text
+    assert response.json()["approval_status"] == "approved"
+
+    # 3. Verify atomic outbox entry written with status PENDING
+    outbox_entry = (
+        db_session.query(Outbox)
+        .filter(
+            Outbox.aggregate_id == "PO-2026-000123",
+            Outbox.event_type == "inventory.po.approved",
+        )
+        .first()
+    )
+    assert outbox_entry is not None, "Outbox event must be recorded during PO approval"
+    assert outbox_entry.status == "PENDING"
+    assert outbox_entry.retry_count == 0
+
+    # 4. Run Outbox Relay to publish to Kafka
+    fake_publisher = InMemoryKafkaPublisher()
+    relay = OutboxRelay(publisher=fake_publisher)
+    published_count, failed_count = relay.relay_pending_events(db=db_session)
+
+    # Done-when: Outbox relay publishes exactly ONE event
+    assert published_count == 1
+    assert failed_count == 0
+    assert len(fake_publisher.published_messages) == 1
+
+    msg = fake_publisher.published_messages[0]
+    assert msg["topic"] == "inventory.po.approved"
+    assert msg["key"] == "PO-2026-000123"
+
+    # 5. Verify published message matches contract schema strictly
+    repo_root = Path(__file__).resolve().parents[3]
+    schema_path = repo_root / "contracts" / "events" / "inventory.po.approved.v1.json"
+    with open(schema_path, "r", encoding="utf-8") as f:
+        schema = json.load(f)
+
+    envelope = json.loads(msg["value"])
+    Draft202012Validator(schema, format_checker=Draft202012Validator.FORMAT_CHECKER).validate(envelope)
+
+    # 6. Verify with strict Pydantic model
+    event = InventoryPOApprovedEvent.model_validate(envelope)
+    assert event.event_type == "inventory.po.approved"
+    assert event.event_version == 1
+    assert event.producer == "inventory-service"
+    assert str(event.payload.approved_by) == user_uuid
+    assert event.payload.approval_status == "approved"
+    assert event.payload.total_amount == 45000.0
+    assert len(event.payload.lines) == 1
+    assert event.payload.lines[0].sku_id == "SKU-000123"
+    assert event.payload.lines[0].quantity == 100
+
+    # 7. Verify outbox entry state transitions to PUBLISHED
+    db_session.refresh(outbox_entry)
+    assert outbox_entry.status == "PUBLISHED"
+    assert outbox_entry.published_at is not None
+

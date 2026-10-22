@@ -1,0 +1,29 @@
+{
+  "event_id": "a4b6c8d0-e2f4-4a6b-8c0d-1e3f5a7b9c1d",
+  "event_type": "inventory.po.approved",
+  "event_version": 1,
+  "occurred_at": "2026-10-15T10:30:00Z",
+  "producer": "inventory-service",
+  "trace_id": "trace-4a6b8c0d-1e3f-4a6b-8c0d-1e3f5a7b9c1d",
+  "payload": {
+    "po_id": "PO-2026-000123",
+    "po_number": "PO-2026-000123",
+    "supplier_id": "SUP-00045",
+    "warehouse_id": "WH-BLR-01",
+    "approval_status": "approved",
+    "approved_by": "3f2b8c1e-7a4d-4e9b-9c2f-1d5e6a7b8c90",
+    "approved_at": "2026-10-15T10:30:00Z",
+    "total_amount": 45000.0,
+    "currency": "INR",
+    "expected_delivery_date": "2026-10-25",
+    "lines": [
+      {
+        "line_number": 1,
+        "sku_id": "SKU-000123",
+        "quantity": 100,
+        "unit_cost": 450.0,
+        "expected_cost": 45000.0
+      }
+    ]
+  }
+}
