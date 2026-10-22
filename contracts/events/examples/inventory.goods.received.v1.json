@@ -1,0 +1,26 @@
+{
+  "event_id": "b7c8d9e0-f1a2-4b3c-8d5e-6f7a8b9c0d1e",
+  "event_type": "inventory.goods.received",
+  "event_version": 1,
+  "occurred_at": "2026-10-15T14:15:00Z",
+  "producer": "inventory-service",
+  "trace_id": "trace-b7c8d9e0-f1a2-4b3c-8d5e-6f7a8b9c0d1e",
+  "payload": {
+    "receipt_id": "GR-2026-000077",
+    "po_id": "PO-2026-000123",
+    "po_number": "PO-2026-000123",
+    "supplier_id": "SUP-00045",
+    "warehouse_id": "WH-BLR-01",
+    "received_by": "warehouse.manager@company.com",
+    "received_at": "2026-10-15T14:15:00Z",
+    "status": "received",
+    "notes": "Full shipment received in good condition",
+    "items": [
+      {
+        "sku_id": "SKU-000123",
+        "quantity_received": 100,
+        "unit_cost": 450.0
+      }
+    ]
+  }
+}

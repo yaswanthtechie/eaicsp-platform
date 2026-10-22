@@ -1,4 +1,4 @@
-﻿import csv
+import csv
 import math
 import re
 from pathlib import Path

@@ -18,8 +18,8 @@ from app.services.supplier_onboarding_service import suppliers
 def compliance_db(tmp_path):
     """Create an isolated SQLite database and supplier for each test."""
     suppliers.clear()
-    suppliers["SUP001"] = {
-        "supplier_id": "SUP001",
+    suppliers["SUP-00001"] = {
+        "supplier_id": "SUP-00001",
         "company_name": "ABC Supplies",
         "contact_name": "Supplier User",
         "email": "supplier@company.com",
@@ -72,11 +72,11 @@ def test_block_status_survives_service_restart(compliance_db):
     restarted_service = SupplierComplianceService(db_path=db_path)
 
     assert (
-        restarted_service.get_access_status("SUP001")
+        restarted_service.get_access_status("SUP-00001")
         == SupplierComplianceStatus.suspended
     )
     assert restarted_service.is_event_processed(event.event_id) is True
-    assert len(restarted_service.get_audit_history("SUP001")) == 1
+    assert len(restarted_service.get_audit_history("SUP-00001")) == 1
 
 
 def test_duplicate_event_does_not_create_duplicate_audit(compliance_db):
@@ -91,8 +91,8 @@ def test_duplicate_event_does_not_create_duplicate_audit(compliance_db):
     # Reprocessing the same event must be idempotent.
     assert service.apply_status_changed_event(event) is False
 
-    assert len(service.get_audit_history("SUP001")) == 1
-    assert service.get_access_status("SUP001") == (
+    assert len(service.get_audit_history("SUP-00001")) == 1
+    assert service.get_access_status("SUP-00001") == (
         SupplierComplianceStatus.suspended
     )
 
@@ -119,12 +119,12 @@ def test_stale_event_is_recorded_but_does_not_change_status(compliance_db):
     assert service.apply_status_changed_event(older_review) is False
 
     assert service.is_event_processed("older-review") is True
-    assert service.get_access_status("SUP001") == (
+    assert service.get_access_status("SUP-00001") == (
         SupplierComplianceStatus.suspended
     )
 
     # Only the accepted state-changing event should appear in the audit.
-    assert len(service.get_audit_history("SUP001")) == 1
+    assert len(service.get_audit_history("SUP-00001")) == 1
 
 
 def test_audit_failure_rolls_back_state_and_processed_event(compliance_db):
@@ -182,6 +182,6 @@ def test_audit_failure_rolls_back_state_and_processed_event(compliance_db):
     assert audit is None
 
     # No durable BLOCK state was committed.
-    assert service.get_access_status("SUP001") == (
+    assert service.get_access_status("SUP-00001") == (
         SupplierComplianceStatus.cleared
     )

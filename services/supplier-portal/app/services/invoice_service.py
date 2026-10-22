@@ -1396,7 +1396,7 @@ def upload_invoice_document(
     The PDF is stored in MinIO under a supplier-scoped object key.
 
     Example:
-        suppliers/SUP001/invoices/INV1001_INV1001.pdf
+        suppliers/SUP-00001/invoices/INV1001_INV1001.pdf
     """
 
     # ---------------------------------------------------------
@@ -1714,7 +1714,7 @@ def find_orphaned_invoice_files(
         #
         # Expected:
         #
-        # suppliers/SUP001/invoices/INV1001.pdf
+        # suppliers/SUP-00001/invoices/INV1001.pdf
         # -----------------------------------------------------
 
         parts = object_key.split("/")

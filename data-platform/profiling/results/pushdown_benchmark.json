@@ -1,0 +1,19 @@
+{
+  "rows": 1000000,
+  "pandas_in_memory": {
+    "time_seconds": 31.69,
+    "peak_python_mb": 363.6
+  },
+  "sql_pushdown": {
+    "time_seconds": 5.97,
+    "peak_python_mb": 0.2
+  },
+  "parity_mismatches": [],
+  "environment": {
+    "python": "3.11.17",
+    "pandas": "3.0.6",
+    "postgres": "PostgreSQL 16.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+    "machine": "Intel64 Family 6 Model 142 Stepping 12, GenuineIntel"
+  },
+  "memory_note": "tracemalloc measures Python-heap allocations only."
+}

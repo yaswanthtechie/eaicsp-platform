@@ -22,7 +22,7 @@ def setup_function():
     """
     Clear all in-memory stores before every test.
 
-    Existing Purchase Order tests use SUP001 and SUP002,
+    Existing Purchase Order tests use SUP-00001 and SUP-00002,
     so both suppliers are prepared as active suppliers.
     """
 
@@ -31,13 +31,13 @@ def setup_function():
     po_events.clear()
     suppliers.clear()
 
-    suppliers["SUP001"] = {
-        "supplier_id": "SUP001",
+    suppliers["SUP-00001"] = {
+        "supplier_id": "SUP-00001",
         "status": SupplierOnboardingStatus.active,
     }
 
-    suppliers["SUP002"] = {
-        "supplier_id": "SUP002",
+    suppliers["SUP-00002"] = {
+        "supplier_id": "SUP-00002",
         "status": SupplierOnboardingStatus.active,
     }
 
@@ -49,7 +49,7 @@ def setup_function():
 def create_sample_po(
     client,
     po_number="PO1001",
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
 ):
     """
     Create a valid Purchase Order.
@@ -183,7 +183,7 @@ def test_create_purchase_order(procurement_client):
 
     assert response.status_code == 201
     assert body["po_number"] == "PO1001"
-    assert body["supplier_id"] == "SUP001"
+    assert body["supplier_id"] == "SUP-00001"
     assert body["status"] == "draft"
     assert body["total_amount"] == 55000
     assert body["actual_delivery_date"] is None
@@ -202,7 +202,7 @@ def test_duplicate_purchase_order(procurement_client):
         "/api/v1/purchase-orders",
         json={
             "po_number": "PO1001",
-            "supplier_id": "SUP001",
+            "supplier_id": "SUP-00001",
             "items": [
                 {
                     "item_code": "LAP001",
@@ -236,7 +236,7 @@ def test_create_purchase_order_wrong_total(procurement_client):
         "/api/v1/purchase-orders",
         json={
             "po_number": "PO1002",
-            "supplier_id": "SUP001",
+            "supplier_id": "SUP-00001",
             "items": [
                 {
                     "item_code": "LAP001",
@@ -1071,13 +1071,13 @@ def test_supplier_can_access_own_purchase_order(
 ):
     """
     R5:
-    Supplier SUP001 must be able to access its own Purchase Order.
+    Supplier SUP-00001 must be able to access its own Purchase Order.
     """
 
     create_sample_po(
         procurement_client,
         po_number="PO2001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     response = supplier_client.get(
@@ -1089,7 +1089,7 @@ def test_supplier_can_access_own_purchase_order(
     body = response.json()
 
     assert body["po_number"] == "PO2001"
-    assert body["supplier_id"] == "SUP001"
+    assert body["supplier_id"] == "SUP-00001"
 
 
 def test_supplier_cannot_access_other_supplier_purchase_order(
@@ -1099,8 +1099,8 @@ def test_supplier_cannot_access_other_supplier_purchase_order(
     """
     R5 Supplier Scoping:
 
-    Authenticated supplier = SUP001
-    Requested PO supplier = SUP002
+    Authenticated supplier = SUP-00001
+    Requested PO supplier = SUP-00002
 
     The supplier must not be able to access another
     supplier's Purchase Order.
@@ -1109,7 +1109,7 @@ def test_supplier_cannot_access_other_supplier_purchase_order(
     create_sample_po(
         procurement_client,
         po_number="PO2002",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     response = supplier_client.get(
@@ -1131,14 +1131,14 @@ def test_supplier_cannot_acknowledge_other_supplier_purchase_order(
     """
     R5 Supplier Scoping:
 
-    SUP001 must not be able to acknowledge a PO
-    that belongs to SUP002.
+    SUP-00001 must not be able to acknowledge a PO
+    that belongs to SUP-00002.
     """
 
     create_sample_po(
         procurement_client,
         po_number="PO2003",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     # Internal procurement action:
@@ -1150,7 +1150,7 @@ def test_supplier_cannot_acknowledge_other_supplier_purchase_order(
 
     assert response.status_code == 200
 
-    # SUP001 attempts to acknowledge SUP002's PO.
+    # SUP-00001 attempts to acknowledge SUP-00002's PO.
     response = supplier_client.post(
         "/api/v1/purchase-orders/PO2003/acknowledge"
     )
@@ -1170,14 +1170,14 @@ def test_supplier_cannot_view_other_supplier_purchase_order_events(
     """
     R5 Supplier Scoping:
 
-    SUP001 must not be able to view the event/history
-    of a PO owned by SUP002.
+    SUP-00001 must not be able to view the event/history
+    of a PO owned by SUP-00002.
     """
 
     create_sample_po(
         procurement_client,
         po_number="PO2004",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     # Create an event so the PO has history.
@@ -1188,7 +1188,7 @@ def test_supplier_cannot_view_other_supplier_purchase_order_events(
 
     assert response.status_code == 200
 
-    # SUP001 attempts to view SUP002's PO history.
+    # SUP-00001 attempts to view SUP-00002's PO history.
     response = supplier_client.get(
         "/api/v1/purchase-orders/PO2004/events"
     )
@@ -1239,7 +1239,7 @@ def test_supplier_cannot_create_purchase_order(
         "/api/v1/purchase-orders",
         json={
             "po_number": "PO3001",
-            "supplier_id": "SUP001",
+            "supplier_id": "SUP-00001",
             "items": [
                 {
                     "item_code": "LAP001",
@@ -1274,7 +1274,7 @@ def test_compliance_cannot_create_purchase_order(
         "/api/v1/purchase-orders",
         json={
             "po_number": "PO3002",
-            "supplier_id": "SUP001",
+            "supplier_id": "SUP-00001",
             "items": [
                 {
                     "item_code": "LAP001",
@@ -1313,7 +1313,7 @@ def test_supplier_cannot_transition_purchase_order(
 
     purchase_orders["PO3003"] = {
         "po_number": "PO3003",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [
         {
             "item_code": "ITEM001",
@@ -1357,7 +1357,7 @@ def test_compliance_cannot_transition_purchase_order(
 
     purchase_orders["PO3004"] = {
         "po_number": "PO3004",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [],
         "total_amount": 0,
         "status": "draft",
@@ -1396,7 +1396,7 @@ def test_transition_uses_authenticated_user_email_as_actor(
 
     purchase_orders["PO3005"] = {
         "po_number": "PO3005",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [],
         "total_amount": 0,
         "status": "draft",
@@ -1441,12 +1441,12 @@ def test_supplier_can_update_own_purchase_order(
 ):
     """
     R5:
-    Supplier SUP001 can update its own Purchase Order.
+    Supplier SUP-00001 can update its own Purchase Order.
     """
 
     purchase_orders["PO3006"] = {
     "po_number": "PO3006",
-    "supplier_id": "SUP001",
+    "supplier_id": "SUP-00001",
     "items": [
         {
             "item_code": "LAP001",
@@ -1475,7 +1475,7 @@ def test_supplier_can_update_own_purchase_order(
     body = response.json()
 
     assert body["po_number"] == "PO3006"
-    assert body["supplier_id"] == "SUP001"
+    assert body["supplier_id"] == "SUP-00001"
 
 
 def test_supplier_cannot_update_other_supplier_purchase_order(
@@ -1484,15 +1484,15 @@ def test_supplier_cannot_update_other_supplier_purchase_order(
     """
     R5 Supplier Scoping:
 
-    Authenticated supplier = SUP001
-    Requested PO supplier = SUP002
+    Authenticated supplier = SUP-00001
+    Requested PO supplier = SUP-00002
 
     Update must be rejected with 403.
     """
 
     purchase_orders["PO3007"] = {
         "po_number": "PO3007",
-        "supplier_id": "SUP002",
+        "supplier_id": "SUP-00002",
         "items": [],
         "total_amount": 5000,
         "status": "draft",
@@ -1526,7 +1526,7 @@ def test_compliance_cannot_update_purchase_order(
 
     purchase_orders["PO3008"] = {
         "po_number": "PO3008",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [],
         "total_amount": 5000,
         "status": "draft",
@@ -1561,7 +1561,7 @@ def test_supplier_without_supplier_id_cannot_update_po(
 
     purchase_orders["PO3009"] = {
         "po_number": "PO3009",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [],
         "total_amount": 5000,
         "status": "draft",
@@ -1601,7 +1601,7 @@ def test_supplier_can_delete_own_purchase_order(
 
     purchase_orders["PO3010"] = {
         "po_number": "PO3010",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [],
         "total_amount": 5000,
         "status": "draft",
@@ -1630,12 +1630,12 @@ def test_supplier_cannot_delete_other_supplier_purchase_order(
     """
     R5 Supplier Scoping:
 
-    SUP001 attempts to delete a PO owned by SUP002.
+    SUP-00001 attempts to delete a PO owned by SUP-00002.
     """
 
     purchase_orders["PO3011"] = {
         "po_number": "PO3011",
-        "supplier_id": "SUP002",
+        "supplier_id": "SUP-00002",
         "items": [],
         "total_amount": 5000,
         "status": "draft",
@@ -1668,7 +1668,7 @@ def test_compliance_cannot_delete_purchase_order(
 
     purchase_orders["PO3012"] = {
         "po_number": "PO3012",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [],
         "total_amount": 5000,
         "status": "draft",
@@ -1700,7 +1700,7 @@ def test_supplier_without_supplier_id_cannot_delete_po(
 
     purchase_orders["PO3013"] = {
         "po_number": "PO3013",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [],
         "total_amount": 5000,
         "status": "draft",
@@ -1753,13 +1753,13 @@ def test_supplier_list_returns_only_own_purchase_orders(
     """
     R5 Supplier Scoping:
 
-    Supplier SUP001 must receive only POs belonging
-    to SUP001.
+    Supplier SUP-00001 must receive only POs belonging
+    to SUP-00001.
     """
 
     purchase_orders["PO3014"] = {
         "po_number": "PO3014",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [],
         "total_amount": 5000,
         "status": "draft",
@@ -1771,7 +1771,7 @@ def test_supplier_list_returns_only_own_purchase_orders(
 
     purchase_orders["PO3015"] = {
         "po_number": "PO3015",
-        "supplier_id": "SUP002",
+        "supplier_id": "SUP-00002",
         "items": [],
         "total_amount": 7000,
         "status": "draft",
@@ -1798,7 +1798,7 @@ def test_supplier_list_returns_only_own_purchase_orders(
     assert "PO3015" not in po_numbers
 
     for po in body:
-        assert po["supplier_id"] == "SUP001"
+        assert po["supplier_id"] == "SUP-00001"
 
 
 def test_supplier_without_supplier_id_cannot_list_purchase_orders(
@@ -1812,7 +1812,7 @@ def test_supplier_without_supplier_id_cannot_list_purchase_orders(
 
     purchase_orders["PO3016"] = {
         "po_number": "PO3016",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [],
         "total_amount": 5000,
         "status": "draft",
@@ -1849,7 +1849,7 @@ def test_procurement_manager_can_delete_any_supplier_po(
 
     purchase_orders["PO3017"] = {
         "po_number": "PO3017",
-        "supplier_id": "SUP002",
+        "supplier_id": "SUP-00002",
         "items": [],
         "total_amount": 7000,
         "status": "draft",
@@ -1873,7 +1873,7 @@ def test_supplier_without_supplier_id_cannot_get_po(
 ):
     purchase_orders["PO3018"] = {
         "po_number": "PO3018",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [],
         "total_amount": 5000,
         "status": "draft",
@@ -1895,7 +1895,7 @@ def test_supplier_without_supplier_id_cannot_acknowledge_po(
 ):
     purchase_orders["PO3019"] = {
         "po_number": "PO3019",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [],
         "total_amount": 5000,
         "status": "sent",
@@ -1917,7 +1917,7 @@ def test_supplier_without_supplier_id_cannot_view_po_events(
 ):
     purchase_orders["PO3020"] = {
         "po_number": "PO3020",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [],
         "total_amount": 5000,
         "status": "draft",
@@ -1938,7 +1938,7 @@ def test_procurement_manager_can_view_any_supplier_po(
 ):
     purchase_orders["PO3021"] = {
         "po_number": "PO3021",
-        "supplier_id": "SUP002",
+        "supplier_id": "SUP-00002",
         "items": [],
         "total_amount": 7000,
         "status": "draft",
@@ -1953,14 +1953,14 @@ def test_procurement_manager_can_view_any_supplier_po(
     )
 
     assert response.status_code == 200
-    assert response.json()["supplier_id"] == "SUP002"
+    assert response.json()["supplier_id"] == "SUP-00002"
 
 def test_procurement_manager_can_update_any_supplier_po(
     procurement_client,
 ):
     purchase_orders["PO3022"] = {
         "po_number": "PO3022",
-        "supplier_id": "SUP002",
+        "supplier_id": "SUP-00002",
         "items": [
         {
             "item_code": "ITEM001",
@@ -1989,7 +1989,7 @@ def test_procurement_manager_can_list_all_purchase_orders(
 ):
     purchase_orders["PO3023"] = {
         "po_number": "PO3023",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [],
         "total_amount": 5000,
         "status": "draft",
@@ -2001,7 +2001,7 @@ def test_procurement_manager_can_list_all_purchase_orders(
 
     purchase_orders["PO3024"] = {
         "po_number": "PO3024",
-        "supplier_id": "SUP002",
+        "supplier_id": "SUP-00002",
         "items": [],
         "total_amount": 7000,
         "status": "draft",
@@ -2041,7 +2041,7 @@ def test_cannot_create_purchase_order_for_unregistered_supplier(
         "/api/v1/purchase-orders",
         json={
             "po_number": "PO4001",
-            "supplier_id": "SUP999",
+            "supplier_id": "SUP-00999",
             "items": [
                 {
                     "item_code": "LAP001",
@@ -2074,8 +2074,8 @@ def test_cannot_create_purchase_order_for_inactive_supplier(
     is registered but has not reached active onboarding status.
     """
 
-    suppliers["SUP003"] = {
-        "supplier_id": "SUP003",
+    suppliers["SUP-00003"] = {
+        "supplier_id": "SUP-00003",
         "status": SupplierOnboardingStatus.pending_documents,
     }
 
@@ -2083,7 +2083,7 @@ def test_cannot_create_purchase_order_for_inactive_supplier(
         "/api/v1/purchase-orders",
         json={
             "po_number": "PO4002",
-            "supplier_id": "SUP003",
+            "supplier_id": "SUP-00003",
             "items": [
                 {
                     "item_code": "LAP001",
@@ -2120,7 +2120,7 @@ def test_can_create_purchase_order_for_active_supplier(
         "/api/v1/purchase-orders",
         json={
             "po_number": "PO4003",
-            "supplier_id": "SUP001",
+            "supplier_id": "SUP-00001",
             "items": [
                 {
                     "item_code": "LAP001",
@@ -2140,5 +2140,5 @@ def test_can_create_purchase_order_for_active_supplier(
     body = response.json()
 
     assert body["po_number"] == "PO4003"
-    assert body["supplier_id"] == "SUP001"
+    assert body["supplier_id"] == "SUP-00001"
     assert body["status"] == "draft"

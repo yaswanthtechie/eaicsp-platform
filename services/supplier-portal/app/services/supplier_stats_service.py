@@ -96,7 +96,7 @@ def _get_invoice_po_numbers(invoice):
  
         { 
             "invoice_number": "INV001", 
-            "supplier_id": "SUP001", 
+            "supplier_id": "SUP-00001", 
             "items": [ 
                 { 
                     "po_number": "PO1001", 
