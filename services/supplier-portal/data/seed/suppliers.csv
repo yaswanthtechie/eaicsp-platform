@@ -1,0 +1,61 @@
+supplier_id,name,country,city,state,lat,lng,sanctions_flag,sanctions_list,lead_time_days,payment_terms_days,reliability_score
+SUP-00001,Orion Supplies Inc,Thailand,Bhubaneswar,Odisha,20.2961,85.8245,False,,16,60,0.82
+SUP-00002,Driftwood Sourcing Pvt Ltd,India,Indore,Madhya Pradesh,22.7196,75.8577,False,,42,60,0.77
+SUP-00003,Quartz Sourcing Co,Taiwan,Chennai,Tamil Nadu,13.0827,80.2707,False,,31,60,0.96
+SUP-00004,Evergreen Wholesale Pvt Ltd,India,Hyderabad,Telangana,17.385,78.4867,False,,43,45,0.78
+SUP-00005,Zenith Manufacturing Co,Malaysia,Ahmedabad,Gujarat,23.0225,72.5714,False,,10,60,0.88
+SUP-00006,Orion Exports LLP,India,Chennai,Tamil Nadu,13.0827,80.2707,False,,6,60,0.86
+SUP-00007,ALPHA SANCTIONS CORP,Russia,New Delhi,Delhi,28.6139,77.209,True,OFAC-SDN,32,60,0.76
+SUP-00008,Tidal Industries Inc,UAE,Pune,Maharashtra,18.5204,73.8567,False,,36,30,0.81
+SUP-00009,Meridian Enterprises Pvt Ltd,India,Ahmedabad,Gujarat,23.0225,72.5714,False,,6,30,0.8
+SUP-00010,Willow Traders Co,Thailand,Guwahati,Assam,26.1445,91.7362,False,,30,60,0.74
+SUP-00011,Vertex Exports Ltd,Germany,Mumbai,Maharashtra,19.076,72.8777,False,,27,60,0.89
+SUP-00012,Ironwood Exports Co,Thailand,Jaipur,Rajasthan,26.9124,75.7873,False,,38,60,0.74
+SUP-00013,Meridian Wholesale Pvt Ltd,India,Mumbai,Maharashtra,19.076,72.8777,False,,28,45,0.73
+SUP-00014,Apex Distribution LLP,Taiwan,Bengaluru,Karnataka,12.9716,77.5946,False,,30,30,0.88
+SUP-00015,Falcon Supplies LLP,Malaysia,Kochi,Kerala,9.9312,76.2673,False,,5,30,0.77
+SUP-00016,Unity Distribution Pvt Ltd,India,Indore,Madhya Pradesh,22.7196,75.8577,False,,34,15,0.92
+SUP-00017,Meridian Supplies Co,India,Bengaluru,Karnataka,12.9716,77.5946,False,,13,30,0.71
+SUP-00018,Bluepeak Manufacturing Co,UAE,Hyderabad,Telangana,17.385,78.4867,False,,42,45,0.92
+SUP-00019,Unity Manufacturing GmbH,India,Lucknow,Uttar Pradesh,26.8467,80.9462,False,,33,15,0.98
+SUP-00020,Unity Logistics GmbH,Vietnam,Chennai,Tamil Nadu,13.0827,80.2707,False,,29,30,0.88
+SUP-00021,Evergreen Supplies GmbH,Thailand,Mumbai,Maharashtra,19.076,72.8777,False,,25,30,0.82
+SUP-00022,Bluepeak Enterprises Inc,Taiwan,Ahmedabad,Gujarat,23.0225,72.5714,False,,44,30,0.77
+SUP-00023,TEST EU ENTITY 01,Iran,Hyderabad,Telangana,17.385,78.4867,True,EU-CONSOLIDATED,27,30,0.76
+SUP-00024,Vertex Logistics Ltd,Germany,Pune,Maharashtra,18.5204,73.8567,False,,36,15,0.83
+SUP-00025,Cedar Enterprises Ltd,India,Hyderabad,Telangana,17.385,78.4867,False,,23,30,0.72
+SUP-00026,Granite Enterprises GmbH,India,Bhubaneswar,Odisha,20.2961,85.8245,False,,29,45,0.81
+SUP-00027,Falcon Traders GmbH,India,Jaipur,Rajasthan,26.9124,75.7873,False,,41,45,0.83
+SUP-00028,Zenith Industries Pvt Ltd,India,Chennai,Tamil Nadu,13.0827,80.2707,False,,32,15,0.76
+SUP-00029,Willow Logistics GmbH,India,Jaipur,Rajasthan,26.9124,75.7873,False,,21,15,0.96
+SUP-00030,Unity Industries Inc,Vietnam,Kolkata,West Bengal,22.5726,88.3639,False,,14,15,0.94
+SUP-00031,Apex Industries Pvt Ltd,India,Jaipur,Rajasthan,26.9124,75.7873,False,,6,30,0.76
+SUP-00032,Evergreen Traders Pvt Ltd,China,Guwahati,Assam,26.1445,91.7362,False,,43,30,0.78
+SUP-00033,Vertex Enterprises Ltd,India,Bhubaneswar,Odisha,20.2961,85.8245,False,,24,30,0.97
+SUP-00034,Harbor Exports Co,India,Kochi,Kerala,9.9312,76.2673,False,,31,15,0.89
+SUP-00035,Harbor Traders GmbH,India,Kolkata,West Bengal,22.5726,88.3639,False,,37,45,0.84
+SUP-00036,Vertex Exports LLP,China,Bengaluru,Karnataka,12.9716,77.5946,False,,30,30,0.93
+SUP-00037,Nimbus Wholesale Ltd,India,Bengaluru,Karnataka,12.9716,77.5946,False,,13,45,0.78
+SUP-00038,Keystone Traders Co,India,Kochi,Kerala,9.9312,76.2673,False,,13,60,0.7
+SUP-00039,Falcon Enterprises Co,Vietnam,Lucknow,Uttar Pradesh,26.8467,80.9462,False,,12,30,0.85
+SUP-00040,Driftwood Industries Ltd,Vietnam,Indore,Madhya Pradesh,22.7196,75.8577,False,,36,15,0.86
+SUP-00041,Cedar Exports Co,China,Hyderabad,Telangana,17.385,78.4867,False,,39,30,0.97
+SUP-00042,Redwood Sourcing LLP,Vietnam,Guwahati,Assam,26.1445,91.7362,False,,29,30,0.92
+SUP-00043,Lotus Wholesale GmbH,China,New Delhi,Delhi,28.6139,77.209,False,,4,60,0.92
+SUP-00044,Redwood Manufacturing LLP,India,Pune,Maharashtra,18.5204,73.8567,False,,26,45,0.95
+SUP-00045,TEST UN ENTITY 01,Belarus,Kolkata,West Bengal,22.5726,88.3639,True,UN-SC,45,60,0.8
+SUP-00046,Apex Traders Co,UAE,Bhubaneswar,Odisha,20.2961,85.8245,False,,41,15,0.91
+SUP-00047,Evergreen Distribution GmbH,UAE,Mumbai,Maharashtra,19.076,72.8777,False,,11,45,0.88
+SUP-00048,Quartz Logistics Co,Taiwan,Indore,Madhya Pradesh,22.7196,75.8577,False,,5,45,0.8
+SUP-00049,Nimbus Distribution Inc,India,Guwahati,Assam,26.1445,91.7362,False,,44,30,0.86
+SUP-00050,Evergreen Manufacturing LLP,Germany,Bengaluru,Karnataka,12.9716,77.5946,False,,38,45,0.89
+SUP-00051,Keystone Manufacturing Pvt Ltd,India,New Delhi,Delhi,28.6139,77.209,False,,9,15,0.75
+SUP-00052,Vertex Supplies Co,India,Ahmedabad,Gujarat,23.0225,72.5714,False,,24,60,0.95
+SUP-00053,Vertex Traders Co,Thailand,Lucknow,Uttar Pradesh,26.8467,80.9462,False,,34,60,0.85
+SUP-00054,Granite Industries GmbH,India,New Delhi,Delhi,28.6139,77.209,False,,41,45,0.72
+SUP-00055,Redwood Logistics GmbH,Taiwan,Chennai,Tamil Nadu,13.0827,80.2707,False,,20,30,0.87
+SUP-00056,Tidal Industries LLP,UAE,Pune,Maharashtra,18.5204,73.8567,False,,31,30,0.78
+SUP-00057,Nimbus Enterprises Ltd,UAE,Kolkata,West Bengal,22.5726,88.3639,False,,19,30,0.95
+SUP-00058,Juniper Manufacturing Co,Vietnam,Lucknow,Uttar Pradesh,26.8467,80.9462,False,,7,15,0.96
+SUP-00059,Nimbus Sourcing Co,India,Kochi,Kerala,9.9312,76.2673,False,,20,30,0.89
+SUP-00060,Driftwood Enterprises Ltd,India,Mumbai,Maharashtra,19.076,72.8777,False,,39,45,0.95

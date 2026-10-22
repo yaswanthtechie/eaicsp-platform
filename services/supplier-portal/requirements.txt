@@ -10,3 +10,7 @@ minio==7.2.20
 strawberry-graphql==0.327.7
 confluent-kafka==2.16.0
 jsonschema[format]==4.25.1
+
+SQLAlchemy>=2.0,<3
+alembic>=1.13,<2
+psycopg[binary]>=3.2,<4

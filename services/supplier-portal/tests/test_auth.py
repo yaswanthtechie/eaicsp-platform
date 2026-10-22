@@ -16,7 +16,7 @@ VALID_SUPPLIER_RESPONSE = {
     "email": "supplier@company.com",
     "full_name": "Supplier User",
     "role": "supplier",
-    "supplier_id": "SUP001",
+    "supplier_id": "SUP-00001",
     "is_active": True,
 }
 
@@ -212,7 +212,7 @@ async def test_verify_token_valid_token(monkeypatch):
 
     assert request.state.user_id == 8
     assert request.state.role == "supplier"
-    assert request.state.supplier_id == "SUP001"
+    assert request.state.supplier_id == "SUP-00001"
 
     assert captured_request["headers"]["Authorization"] == (
         "Bearer valid-token"
@@ -569,7 +569,7 @@ async def test_verify_token_missing_user_id(monkeypatch):
         json_data={
             "valid": True,
             "role": "supplier",
-            "supplier_id": "SUP001",
+            "supplier_id": "SUP-00001",
         },
     )
 
@@ -623,7 +623,7 @@ async def test_verify_token_missing_role(monkeypatch):
             "valid": True,
             "user_id": 8,
             "email": "supplier@company.com",
-            "supplier_id": "SUP001",
+            "supplier_id": "SUP-00001",
         },
     )
 
@@ -701,7 +701,7 @@ async def test_verify_token_returns_supplier_identity(
     )
 
     assert result["role"] == "supplier"
-    assert result["supplier_id"] == "SUP001"
+    assert result["supplier_id"] == "SUP-00001"
     assert result["user_id"] == 8
 
 
@@ -836,7 +836,7 @@ async def test_require_roles_missing_role():
         "valid": True,
         "user_id": 8,
         "email": "supplier@company.com",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
     }
 
     with pytest.raises(auth.HTTPException) as exc_info:
