@@ -6,12 +6,12 @@ const alerts: Omit<AlertMessage, "id" | "timestamp">[] = [
   {
     type: "low-stock",
     severity: "error",
-    message: "SKU007 (Chocolates) quantity below threshold",
+    message: "SKU-000007 (Chocolates) quantity below threshold",
   },
   {
     type: "low-stock",
     severity: "warning",
-    message: "SKU012 (Shampoo) reorder needed",
+    message: "SKU-000012 (Shampoo) reorder needed",
   },
   {
     type: "forecast-change",
@@ -26,7 +26,7 @@ const alerts: Omit<AlertMessage, "id" | "timestamp">[] = [
   {
     type: "low-stock",
     severity: "warning",
-    message: "SKU014 (Detergent) reorder needed",
+    message: "SKU-000014 (Detergent) reorder needed",
   },
   {
     type: "system",
@@ -36,7 +36,7 @@ const alerts: Omit<AlertMessage, "id" | "timestamp">[] = [
   {
     type: "low-stock",
     severity: "warning",
-    message: "SKU009 (Biscuits) quantity below threshold",
+    message: "SKU-000009 (Biscuits) quantity below threshold",
   },
   {
     type: "system",
@@ -47,7 +47,7 @@ const alerts: Omit<AlertMessage, "id" | "timestamp">[] = [
   {
     type: "low-stock",
     severity: "error",
-    message: "SKU004 (Cooking Oil) quantity below threshold",
+    message: "SKU-000004 (Cooking Oil) quantity below threshold",
   }
 ];
 
