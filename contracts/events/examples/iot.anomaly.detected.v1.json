@@ -1,0 +1,46 @@
+{
+  "event_id": "3f6c1d2e-8a4b-4c7e-9b1a-5d2e7f0a9c31",
+  "event_type": "iot.anomaly.detected",
+  "producer": "anomaly-detection-service",
+  "occurred_at": "2026-10-15T10:46:12Z",
+  "event_version": "1.0",
+  "trace_id": null,
+  "payload": {
+    "episode_id": "WH-BLR-01-S1|2026-10-15T10:05:00Z",
+    "sensor_id": "WH-BLR-01-S1",
+    "warehouse_id": "WH-BLR-01",
+    "severity": "high",
+    "message": "Temperature unusually high at WH-BLR-01 (sensor WH-BLR-01-S1): 6 abnormal readings between 10:05 and 10:30 UTC.",
+    "window_start": "2026-10-15T10:05:00Z",
+    "window_end": "2026-10-15T10:30:00Z",
+    "first_flag_time": "2026-10-15T10:05:00Z",
+    "confirmed_time": "2026-10-15T10:05:00Z",
+    "peak_time": "2026-10-15T10:20:00Z",
+    "peak_score": 0.0825,
+    "threshold": -0.0782,
+    "n_flagged": 6,
+    "severe": true,
+    "closed_by": "quiet",
+    "top_features": [
+      {
+        "feature": "temperature",
+        "contribution": 0.8412,
+        "shap_value": 0.071234,
+        "direction": "high"
+      },
+      {
+        "feature": "power",
+        "contribution": 0.1201,
+        "shap_value": 0.01017,
+        "direction": "high"
+      },
+      {
+        "feature": "humidity",
+        "contribution": 0.0387,
+        "shap_value": 0.003277,
+        "direction": "high"
+      }
+    ],
+    "model_version": "stream-1.0"
+  }
+}
