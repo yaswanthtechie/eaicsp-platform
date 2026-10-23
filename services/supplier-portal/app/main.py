@@ -4,6 +4,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.services.kafka_consumer_runner import kafka_consumer_runner
+from app.services.inventory_goods_received_runner import (
+    inventory_goods_received_runner,
+)
 
 from app.routes.supplier_onboarding import (
     router as supplier_onboarding_router,
@@ -33,18 +36,19 @@ from app.core.config import settings
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Start and stop the Supplier Portal Kafka consumer
+    Start and stop Supplier Portal Kafka consumers
     with the FastAPI application lifecycle.
     """
     if settings.KAFKA_ENABLED:
         kafka_consumer_runner.start()
+        inventory_goods_received_runner.start()
 
     try:
         yield
     finally:
         if settings.KAFKA_ENABLED:
+            inventory_goods_received_runner.stop()
             kafka_consumer_runner.stop()
-
 
 app = FastAPI(
     title="Supplier Portal Service",
@@ -113,10 +117,6 @@ app.include_router(
     prefix="/api/v1",
     tags=["Authentication"],
 )
-
-
-
-
 
 # Goods Receipts
 app.include_router(
