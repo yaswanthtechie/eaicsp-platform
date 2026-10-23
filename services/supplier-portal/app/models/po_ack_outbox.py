@@ -1,4 +1,4 @@
-﻿from datetime import datetime
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import DateTime, Index, Integer, JSON, String, func

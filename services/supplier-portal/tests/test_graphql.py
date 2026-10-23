@@ -1,4 +1,4 @@
-"""
+﻿"""
 GraphQL API tests for the Supplier Portal.
 
 Covers:
@@ -490,15 +490,15 @@ def test_supplier_can_query_own_approved_purchase_orders(
 ):
     seed_approved_po(
         "PO-2026-000123",
-        "SUP001",
+        "SUP-00001",
     )
     seed_approved_po(
         "PO-2026-000124",
-        "SUP002",
+        "SUP-00002",
     )
 
     set_compliance_status(
-        "SUP001",
+        "SUP-00001",
         SupplierComplianceStatus.cleared,
     )
 
@@ -513,12 +513,12 @@ def test_supplier_can_query_own_approved_purchase_orders(
 
     assert any(
         po["poId"] == "PO-2026-000123"
-        and po["supplierId"] == "SUP001"
+        and po["supplierId"] == "SUP-00001"
         for po in pos
     )
 
     assert all(
-        po["supplierId"] == "SUP001"
+        po["supplierId"] == "SUP-00001"
         for po in pos
     )
 
@@ -528,11 +528,11 @@ def test_supplier_b_can_query_own_approved_purchase_orders(
 ):
     seed_approved_po(
         "PO-2026-000125",
-        "SUP002",
+        "SUP-00002",
     )
 
     set_compliance_status(
-        "SUP002",
+        "SUP-00002",
         SupplierComplianceStatus.cleared,
     )
 
@@ -547,12 +547,12 @@ def test_supplier_b_can_query_own_approved_purchase_orders(
 
     assert any(
         po["poId"] == "PO-2026-000125"
-        and po["supplierId"] == "SUP002"
+        and po["supplierId"] == "SUP-00002"
         for po in pos
     )
 
     assert all(
-        po["supplierId"] == "SUP002"
+        po["supplierId"] == "SUP-00002"
         for po in pos
     )
 
@@ -577,11 +577,11 @@ def test_suspended_supplier_cannot_query_approved_purchase_orders(
 ):
     seed_approved_po(
         "PO-2026-000126",
-        "SUP001",
+        "SUP-00001",
     )
 
     set_compliance_status(
-        "SUP001",
+        "SUP-00001",
         SupplierComplianceStatus.suspended,
     )
 
@@ -1766,11 +1766,11 @@ def test_supplier_can_acknowledge_own_approved_purchase_order(
 ):
     po_id = seed_approved_po(
         "PO-2026-000127",
-        "SUP001",
+        "SUP-00001",
     )
 
     set_compliance_status(
-        "SUP001",
+        "SUP-00001",
         SupplierComplianceStatus.cleared,
     )
 
@@ -1786,7 +1786,7 @@ def test_supplier_can_acknowledge_own_approved_purchase_order(
 
     assert po is not None
     assert po["poId"] == po_id
-    assert po["supplierId"] == "SUP001"
+    assert po["supplierId"] == "SUP-00001"
     assert po["status"] == "acknowledged"
     assert po["acknowledgedAt"] is not None
 
@@ -1810,7 +1810,7 @@ def test_supplier_can_acknowledge_own_approved_purchase_order(
             == "supplierportal.po.acknowledged"
         )
         assert (
-            outbox_events[0].payload["payload"]["po_id"]
+            outbox_events[0].payload["payload"]["po_number"]
             == po_id
         )
     finally:
@@ -1821,7 +1821,7 @@ def test_acknowledge_unknown_approved_po_returns_null(
     supplier_client,
 ):
     set_compliance_status(
-        "SUP001",
+        "SUP-00001",
         SupplierComplianceStatus.cleared,
     )
 
@@ -1843,11 +1843,11 @@ def test_supplier_cannot_acknowledge_another_suppliers_approved_po(
 ):
     po_id = seed_approved_po(
         "PO-2026-000128",
-        "SUP002",
+        "SUP-00002",
     )
 
     set_compliance_status(
-        "SUP001",
+        "SUP-00001",
         SupplierComplianceStatus.cleared,
     )
 
@@ -1884,11 +1884,11 @@ def test_needs_review_supplier_cannot_acknowledge_approved_po(
 ):
     po_id = seed_approved_po(
         "PO-2026-000129",
-        "SUP001",
+        "SUP-00001",
     )
 
     set_compliance_status(
-        "SUP001",
+        "SUP-00001",
         SupplierComplianceStatus.needs_review,
     )
 
@@ -1925,11 +1925,11 @@ def test_suspended_supplier_cannot_acknowledge_approved_po(
 ):
     po_id = seed_approved_po(
         "PO-2026-000130",
-        "SUP001",
+        "SUP-00001",
     )
 
     set_compliance_status(
-        "SUP001",
+        "SUP-00001",
         SupplierComplianceStatus.suspended,
     )
 
@@ -1966,11 +1966,11 @@ def test_repeated_approved_po_acknowledgement_does_not_duplicate_outbox_event(
 ):
     po_id = seed_approved_po(
         "PO-2026-000131",
-        "SUP001",
+        "SUP-00001",
     )
 
     set_compliance_status(
-        "SUP001",
+        "SUP-00001",
         SupplierComplianceStatus.cleared,
     )
 
@@ -2012,7 +2012,7 @@ def test_internal_user_cannot_acknowledge_approved_po(
 ):
     po_id = seed_approved_po(
         "PO-2026-000132",
-        "SUP001",
+        "SUP-00001",
     )
 
     result = graphql(
@@ -2227,10 +2227,15 @@ mutation AcknowledgeApprovedPurchaseOrder($poId: String!) {
     }
 }
 """
+@pytest.fixture(autouse=True)
+def approved_po_db(po_db, monkeypatch):
+    """Point this module's SessionLocal at the in-memory po_db."""
+    monkeypatch.setitem(globals(), "SessionLocal", po_db)
+    yield po_db
 
 def seed_approved_po(
     po_id: str,
-    supplier_id: str = "SUP001",
+    supplier_id: str = "SUP-00001",
     status: str = "approved",
 ):
     """Create a DB-backed inventory-approved PO for GraphQL tests."""
@@ -2258,11 +2263,11 @@ def seed_approved_po(
             event_version=1,
             occurred_at=approved_at,
             trace_id=None,
-            po_number=f"NUM-{po_id}",
+            po_number=po_id,
             supplier_id=supplier_id,
             warehouse_id="WH-BLR-01",
             approval_status="approved",
-            approved_by="procurement-manager",
+            approved_by="3f2b8c1e-7a4d-4e9b-9c2f-1d5e6a7b8c90",
             approved_at=approved_at,
             total_amount=2000,
             currency="INR",
@@ -3370,3 +3375,4 @@ def test_suspended_supplier_cannot_access_other_supplier_resources(
         expected_message
         in documents_result["errors"][0]["message"]
     )
+

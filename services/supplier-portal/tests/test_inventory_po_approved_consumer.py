@@ -1,11 +1,27 @@
-﻿from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.models.po_mirror import POMirror
 from app.services.inventory_po_approved_consumer import POApprovedConsumer
+
+
+INVENTORY_EXAMPLE = (
+    Path(__file__).resolve().parents[3]
+    / "contracts"
+    / "events"
+    / "examples"
+    / "inventory.po.approved.v1.json"
+)
+
+
+def load_inventory_example():
+    return json.loads(
+        INVENTORY_EXAMPLE.read_text(encoding="utf-8-sig")
+    )
 
 
 @pytest.fixture
@@ -33,7 +49,7 @@ def valid_event():
             "supplier_id": "SUP-00045",
             "warehouse_id": "WH-BLR-01",
             "approval_status": "approved",
-            "approved_by": "procurement-manager",
+            "approved_by": "3f2b8c1e-7a4d-4e9b-9c2f-1d5e6a7b8c90",
             "approved_at": "2026-10-21T11:59:00Z",
             "total_amount": 1250.00,
             "currency": "INR",
@@ -197,4 +213,79 @@ def test_database_failure_is_retried_then_sent_to_dlq(
 
     # The mocked DLQ does not commit the source offset.
     consumer.consumer.commit.assert_not_called()
+
+def test_inventory_example_event_is_persisted(consumer, po_db):
+    """Balaji's published example must go into po_mirror unchanged."""
+    event = load_inventory_example()
+    message = make_message(event)
+
+    with patch.object(consumer, "_publish_dlq") as publish_dlq:
+        consumer._process_message(message)
+
+    publish_dlq.assert_not_called()
+    consumer.consumer.commit.assert_called_once_with(
+        message=message,
+        asynchronous=False,
+    )
+
+    with po_db() as db:
+        po = db.query(POMirror).one()
+
+    payload = event["payload"]
+    assert po.po_id == payload["po_id"]
+    assert po.event_id == event["event_id"]
+    assert po.supplier_id == payload["supplier_id"]
+    assert po.warehouse_id == payload["warehouse_id"]
+    assert po.approved_by == payload["approved_by"]
+    assert po.trace_id == event["trace_id"]
+    assert po.lines == payload["lines"]
+    assert po.status == "approved"
+
+
+def test_mirror_columns_fit_inventory_example_values():
+    """SQLite ignores String(n); PostgreSQL does not. Check widths here."""
+    payload = load_inventory_example()["payload"]
+    columns = POMirror.__table__.c
+
+    for field in ("po_id", "po_number", "supplier_id", "warehouse_id",
+                  "approved_by"):
+        assert len(payload[field]) <= columns[field].type.length, field
+
+
+def test_replayed_example_event_is_stored_once(consumer, po_db):
+    event = load_inventory_example()
+
+    consumer._process_message(make_message(event))
+    consumer._process_message(make_message(event))
+
+    with po_db() as db:
+        assert db.query(POMirror).count() == 1
+    assert consumer.consumer.commit.call_count == 2
+
+
+def test_conflicting_event_for_same_po_goes_to_dlq_without_retry(
+    consumer, po_db
+):
+    first = load_inventory_example()
+    consumer._process_message(make_message(first))
+
+    conflicting = load_inventory_example()
+    conflicting["event_id"] = "b5c7d9e1-f3a5-4b7c-9d1e-2f4a6b8c0d2e"
+    conflicting["payload"]["total_amount"] = 99999.0
+
+    with (
+        patch.object(consumer, "_publish_dlq") as publish_dlq,
+        patch(
+            "app.services.inventory_po_approved_consumer.time.sleep"
+        ) as mock_sleep,
+    ):
+        consumer._process_message(make_message(conflicting))
+
+    publish_dlq.assert_called_once()
+    assert "Conflicting approved PO event" in publish_dlq.call_args.args[1]
+    mock_sleep.assert_not_called()
+
+    with po_db() as db:
+        assert float(db.query(POMirror).one().total_amount) == 45000.0
+
 

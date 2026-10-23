@@ -11,7 +11,9 @@ from app.services.po_acknowledgement_service import (
     POAcknowledgementError,
     acknowledge_approved_po,
 )
-
+import json
+from pathlib import Path
+from jsonschema import Draft202012Validator, FormatChecker
 
 def make_po(
     *,
@@ -90,11 +92,9 @@ def test_acknowledgement_creates_correct_outbox_event(
 
     assert payload["event_type"] == "supplierportal.po.acknowledged"
     assert payload["event_version"] == 1
-    assert payload["producer"] == "supplier-portal-service"
-    assert payload["payload"]["po_id"] == po.po_id
+    assert payload["producer"] == "supplier-portal"
+    assert payload["payload"]["po_number"] == po.po_id
     assert payload["payload"]["supplier_id"] == po.supplier_id
-    assert payload["payload"]["warehouse_id"] == po.warehouse_id
-    assert payload["payload"]["po_number"] == po.po_number
     assert payload["payload"]["acknowledged_at"] is not None
     assert payload["event_id"] == outbox.event_id
     assert payload["occurred_at"] is not None
@@ -204,4 +204,36 @@ def test_query_is_locked_and_scoped_to_requested_po_and_supplier(
     query.filter.assert_called_once()
     query.with_for_update.assert_called_once()
     query.one_or_none.assert_called_once()
+
+ACK_CONTRACT = (
+    Path(__file__).resolve().parents[3]
+    / "contracts"
+    / "events"
+    / "supplierportal.po.acknowledged.v1.json"
+)
+
+
+@pytest.mark.parametrize("po_number", ["PO-NUM-123", None])
+def test_outbox_payload_matches_acknowledged_contract(
+    mock_db,
+    po_number,
+):
+    """The event we store must be exactly what the contract allows."""
+    db, query = mock_db
+    po = make_po()
+    po.po_number = po_number
+    query.one_or_none.return_value = po
+
+    acknowledge_approved_po(
+        db=db,
+        po_id=po.po_id,
+        supplier_id=po.supplier_id,
+    )
+
+    event = db.add.call_args.args[0].payload
+    schema = json.loads(ACK_CONTRACT.read_text(encoding="utf-8-sig"))
+    validator = Draft202012Validator(schema, format_checker=FormatChecker())
+
+    errors = [error.message for error in validator.iter_errors(event)]
+    assert errors == []
 

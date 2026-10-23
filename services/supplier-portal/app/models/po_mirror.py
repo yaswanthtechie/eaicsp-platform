@@ -1,4 +1,4 @@
-﻿from datetime import date, datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -37,7 +37,7 @@ class POMirror(Base):
     approval_status: Mapped[str] = mapped_column(
         String(20), nullable=False
     )
-    approved_by: Mapped[str] = mapped_column(String(20), nullable=False)
+    approved_by: Mapped[str] = mapped_column(String(36), nullable=False)
     approved_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

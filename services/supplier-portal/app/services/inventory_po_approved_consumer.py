@@ -1,5 +1,4 @@
-﻿from __future__ import annotations
-
+from __future__ import annotations
 import json
 import logging
 import time
@@ -14,6 +13,10 @@ from app.models.po_mirror import POMirror
 from app.schemas.events import POApprovedEvent
 
 logger = logging.getLogger(__name__)
+
+
+class ConflictingPOEventError(ValueError):
+    """A different event arrived for a po_id already in po_mirror."""
 
 
 class POApprovedConsumer:
@@ -74,9 +77,7 @@ class POApprovedConsumer:
 
         pending = self.producer.flush(10)
 
-        # confluent_kafka.Producer.flush() returns the number of messages
-        # still queued. Treat an unexpected return type as a failure rather
-        # than allowing a TypeError or assuming delivery succeeded.
+        # Confirm delivery before acknowledging the source message.
         if not isinstance(pending, int):
             raise RuntimeError(
                 "DLQ delivery could not be confirmed: "
@@ -89,7 +90,6 @@ class POApprovedConsumer:
                 f"pending={pending}, errors={delivery_errors}"
             )
 
-        # The source message is acknowledged only after DLQ delivery.
         self._commit(message)
 
         logger.error(
@@ -126,8 +126,7 @@ class POApprovedConsumer:
                     )
                     return
 
-                # A PO ID is unique. Never overwrite an existing PO with a
-                # different event, even when the payload looks identical.
+                # Never overwrite a PO with a different event.
                 existing_po = (
                     db.query(POMirror)
                     .filter(POMirror.po_id == payload.po_id)
@@ -150,6 +149,7 @@ class POApprovedConsumer:
                         and existing_po.lines == event_lines
                     )
 
+                    existing_event_id = existing_po.event_id
                     db.rollback()
 
                     if same_payload:
@@ -157,12 +157,12 @@ class POApprovedConsumer:
                             "Duplicate approved PO ignored: po_id=%s "
                             "existing_event_id=%s incoming_event_id=%s",
                             payload.po_id,
-                            existing_po.event_id,
+                            existing_event_id,
                             event.event_id,
                         )
                         return
 
-                    raise ValueError(
+                    raise ConflictingPOEventError(
                         "Conflicting approved PO event for "
                         f"existing po_id={payload.po_id}"
                     )
@@ -202,8 +202,6 @@ class POApprovedConsumer:
 
     def _process_message(self, message: Any) -> None:
         """Validate, persist and acknowledge a single Kafka message."""
-        # Kafka transport errors are not malformed business events.
-        # Log them and leave the source offset uncommitted.
         message_error = message.error()
         if message_error:
             logger.error("PO Kafka message error: %s", message_error)
@@ -232,9 +230,13 @@ class POApprovedConsumer:
 
         for attempt in range(1, max_retries + 1):
             try:
-                # The database transaction completes inside _persist_event.
-                # Duplicate replays also return successfully.
                 self._persist_event(event)
+
+            except ConflictingPOEventError as exc:
+                # Conflicts are permanent data errors, not transient failures.
+                # Send them directly to the DLQ without retrying.
+                self._publish_dlq(message, str(exc))
+                return
 
             except Exception as exc:
                 logger.exception(
@@ -248,8 +250,8 @@ class POApprovedConsumer:
                     time.sleep(backoff)
                     continue
 
-                # If DLQ delivery fails, this exception propagates and the
-                # source offset remains uncommitted.
+                # If DLQ delivery fails, propagate the error and leave the
+                # source offset uncommitted.
                 self._publish_dlq(
                     message,
                     "Persistence failed after "
@@ -257,8 +259,7 @@ class POApprovedConsumer:
                 )
                 return
 
-            # Commit only after DB persistence or idempotent duplicate
-            # detection succeeds. Do not include this in the DB retry block.
+            # Commit only after persistence or idempotent duplicate detection.
             self._commit(message)
 
             logger.info(
@@ -285,9 +286,7 @@ class POApprovedConsumer:
         )
 
         self.producer = Producer(
-            {
-                "bootstrap.servers": settings.KAFKA_BOOTSTRAP_SERVERS,
-            }
+            {"bootstrap.servers": settings.KAFKA_BOOTSTRAP_SERVERS}
         )
 
         self.consumer.subscribe([settings.PO_APPROVED_TOPIC])
@@ -307,16 +306,12 @@ class POApprovedConsumer:
                     continue
 
                 if message.error():
-                    # Consumer-level errors should not be treated as
-                    # invalid PO events or sent to the DLQ.
                     logger.error(
                         "PO Kafka consumer error: %s",
                         message.error(),
                     )
                     continue
 
-                # Persistence, DLQ and offset-commit failures propagate.
-                # An uncommitted message can be replayed safely.
                 self._process_message(message)
 
         except KafkaException:

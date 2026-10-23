@@ -118,9 +118,7 @@ Implemented areas:
 - Transactional acknowledgement outbox.
 - Automated consumer, API, service, and GraphQL tests.
 
-**Event publication boundary:** Persisting an event in the transactional outbox does not, by itself, prove that it has been published to Kafka. Publication depends on the outbox publisher and its runtime configuration. Compatibility with the Inventory producer's canonical example must be verified against the actual event contract before being marked as confirmed.
-
----
+**Event publication boundary:** The acknowledgement event is first persisted in the transactional outbox. The outbox publisher (`app/services/po_ack_outbox_publisher.py`) polls pending records at the configured `PO_OUTBOX_POLL_SECONDS` interval and publishes them to Kafka. A record is marked as published only after successful delivery is confirmed; failed deliveries remain eligible for retry. Tests validate the acknowledgement event against `contracts/events/supplierportal.po.acknowledged.v1.json` and exercise the consumer using `contracts/events/examples/inventory.po.approved.v1.json`.
 
 ## Running Locally
 
@@ -395,7 +393,7 @@ Inventory approves a Purchase Order
   supplierportal.po.acknowledged
 ```
 
-The final Kafka publication depends on an operational outbox publisher. The persisted outbox record alone is not proof of successful publication.
+The acknowledgement event is persisted in the transactional outbox as part of the PO acknowledgement transaction. The outbox publisher (`app/services/po_ack_outbox_publisher.py`) polls pending records using `PO_OUTBOX_POLL_SECONDS` and publishes them to Kafka. An outbox record is marked as published only after successful delivery is confirmed. Failed deliveries retain their error details and remain eligible for retry.
 
 The wider P2P workflow continues as follows:
 
@@ -2835,11 +2833,36 @@ Automatic contract renewal and immutable contract versioning are not implemented
 The documented GraphQL scope covers the implemented PO, invoice, document, pagination, and acknowledgement operations. Additional domains, subscriptions, and production-grade query-complexity controls are potential future work.
 
 ---
-
 # 29. Future Enhancements
 
-The following items extend the documented functional scope or address production hardening.
+The following enhancements build on the Supplier Portal capabilities delivered across Rounds 1–15.
 
 ## Durable Business Persistence
 
-Replace in-memory business stores
+Replace any remaining in-memory business stores with durable database persistence where required.
+
+## Event Reliability and Integration
+
+- Harden Kafka outbox publishing, retries, idempotency, and dead-letter handling.
+- Complete and verify the shipment dispatch and ETA prediction workflow.
+- Maintain versioned event contracts and automated compatibility tests.
+
+## Compliance and Security
+
+- Improve compliance failure recovery, auditability, and monitoring.
+- Review service authentication, secrets management, and least-privilege access.
+
+## API and Document Management
+
+- Add GraphQL query-complexity limits and improve API performance.
+- Strengthen document retention, backup, and recovery procedures.
+
+## Testing and Observability
+
+- Expand cross-service integration and regression tests.
+- Improve structured logging, metrics, health checks, and operational alerts.
+- Document deployment, migration, and recovery procedures.
+
+## Scalability
+
+Measure performance and optimize database queries, indexing, and event processing as workload grows.

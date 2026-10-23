@@ -1,4 +1,4 @@
-﻿from alembic import op
+from alembic import op
 import sqlalchemy as sa
 
 from app.core.config import settings
@@ -20,7 +20,7 @@ def upgrade() -> None:
         sa.Column("supplier_id", sa.String(9), nullable=False),
         sa.Column("warehouse_id", sa.String(10), nullable=False),
         sa.Column("approval_status", sa.String(20), nullable=False),
-        sa.Column("approved_by", sa.String(20), nullable=False),
+        sa.Column("approved_by", sa.String(36), nullable=False),
         sa.Column("approved_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("total_amount", sa.Numeric(14, 2), nullable=False),
         sa.Column("currency", sa.String(3), nullable=True),

@@ -1,4 +1,4 @@
-﻿from datetime import datetime, timezone
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from sqlalchemy.orm import Session
@@ -51,20 +51,23 @@ def acknowledge_approved_po(
 
         acknowledged_at = datetime.now(timezone.utc)
         event_id = str(uuid4())
+        acknowledged_at_iso = acknowledged_at.isoformat()
 
+        # Shape must match
+        # contracts/events/supplierportal.po.acknowledged.v1.json.
+        # The contract's po_number is the canonical PO identifier.
+        # Use po_id as the fallback when Inventory's po_number is absent.
         event_payload = {
             "event_id": event_id,
             "event_type": "supplierportal.po.acknowledged",
             "event_version": 1,
-            "occurred_at": acknowledged_at.isoformat(),
-            "producer": "supplier-portal-service",
+            "occurred_at": acknowledged_at_iso,
+            "producer": "supplier-portal",
             "trace_id": None,
             "payload": {
-                "po_id": po.po_id,
-                "po_number": po.po_number,
+                "po_number": po.po_id,
                 "supplier_id": po.supplier_id,
-                "warehouse_id": po.warehouse_id,
-                "acknowledged_at": acknowledged_at.isoformat(),
+                "acknowledged_at": acknowledged_at_iso,
             },
         }
 

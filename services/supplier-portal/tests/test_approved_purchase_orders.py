@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+﻿from datetime import datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -28,7 +28,7 @@ def make_po(
         supplier_id=supplier_id,
         warehouse_id="WH-BLR-01",
         approval_status="approved",
-        approved_by="inventory-manager",
+        approved_by="3f2b8c1e-7a4d-4e9b-9c2f-1d5e6a7b8c90",
         approved_at=now,
         total_amount=Decimal("1250.50"),
         currency="INR",
@@ -83,7 +83,7 @@ def test_list_approved_purchase_orders_scopes_supplier(
     mock_po_api,
 ):
     client, db, query = mock_po_api
-    own_po = make_po(supplier_id="SUP001")
+    own_po = make_po(supplier_id="SUP-00001")
 
     query.all.return_value = [own_po]
 
@@ -93,7 +93,7 @@ def test_list_approved_purchase_orders_scopes_supplier(
     body = response.json()
 
     assert len(body) == 1
-    assert body[0]["supplier_id"] == "SUP001"
+    assert body[0]["supplier_id"] == "SUP-00001"
     assert body[0]["po_id"] == own_po.po_id
 
     # Ensure the endpoint applies a supplier filter.
@@ -118,7 +118,7 @@ def test_list_approved_purchase_orders_serializes_amount(
     mock_po_api,
 ):
     client, db, query = mock_po_api
-    query.all.return_value = [make_po(supplier_id="SUP001")]
+    query.all.return_value = [make_po(supplier_id="SUP-00001")]
 
     response = supplier_client.get("/approved-purchase-orders")
 
@@ -131,7 +131,7 @@ def test_get_own_approved_purchase_order(
     mock_po_api,
 ):
     client, db, query = mock_po_api
-    po = make_po(supplier_id="SUP001")
+    po = make_po(supplier_id="SUP-00001")
     query.one_or_none.return_value = po
 
     response = supplier_client.get(
@@ -140,7 +140,7 @@ def test_get_own_approved_purchase_order(
 
     assert response.status_code == 200
     assert response.json()["po_id"] == po.po_id
-    assert response.json()["supplier_id"] == "SUP001"
+    assert response.json()["supplier_id"] == "SUP-00001"
     assert query.filter.called
 
 
@@ -205,7 +205,7 @@ def test_acknowledge_own_approved_po(
     monkeypatch,
 ):
     client, db, query = mock_po_api
-    po = make_po(supplier_id="SUP001", status="acknowledged")
+    po = make_po(supplier_id="SUP-00001", status="acknowledged")
     po.acknowledged_at = datetime.now(timezone.utc)
 
     acknowledge = MagicMock(return_value=po)
@@ -224,7 +224,7 @@ def test_acknowledge_own_approved_po(
     acknowledge.assert_called_once_with(
         db=db,
         po_id=po.po_id,
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
 
@@ -299,7 +299,7 @@ def test_acknowledge_response_serializes_decimal_amount(
     mock_po_api,
     monkeypatch,
 ):
-    po = make_po(supplier_id="SUP001", status="acknowledged")
+    po = make_po(supplier_id="SUP-00001", status="acknowledged")
 
     monkeypatch.setattr(
         "app.routes.approved_purchase_orders.acknowledge_approved_po",
@@ -312,4 +312,5 @@ def test_acknowledge_response_serializes_decimal_amount(
 
     assert response.status_code == 200
     assert response.json()["total_amount"] == 1250.50
+
 

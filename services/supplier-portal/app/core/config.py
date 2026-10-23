@@ -1,3 +1,4 @@
+
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -77,10 +78,41 @@ class Settings(BaseSettings):
     # --------------------------------------------------------
 
     COMPLIANCE_DB_PATH: str = "data/compliance_state.db"
-    
-    # PostgreSQL - required, read from .env (no default credentials)
+
+    # --------------------------------------------------------
+    # Kafka - Inventory PO Consumer (R15)
+    # Separate from the Compliance consumer.
+    # --------------------------------------------------------
+
+    PO_KAFKA_ENABLED: bool = True
+
+    PO_APPROVED_TOPIC: str = "inventory.po.approved"
+    PO_CONSUMER_GROUP: str = "supplier-portal-po-approved-v1"
+    PO_DLQ_TOPIC: str = "inventory.po.approved.dlq"
+
+    PO_ACKNOWLEDGED_TOPIC: str = (
+        "supplierportal.po.acknowledged"
+    )
+
+    PO_AUTO_OFFSET_RESET: str = "earliest"
+    PO_RETRY_BACKOFF_SECONDS: float = 1.0
+    PO_MAX_RETRIES: int = 5
+
+    # --------------------------------------------------------
+    # PO Acknowledgement Outbox Publisher (R15)
+    # --------------------------------------------------------
+
+    PO_OUTBOX_ENABLED: bool = True
+    PO_OUTBOX_POLL_SECONDS: float = 2.0
+    PO_OUTBOX_BATCH_SIZE: int = 50
+
+    # --------------------------------------------------------
+    # PostgreSQL
+    # Required from environment/.env; no default.
+    # --------------------------------------------------------
+
     DATABASE_URL: str
-    
+
     SUPPLIER_DB_SCHEMA: str = "supplier_portal"
 
     model_config = SettingsConfigDict(
