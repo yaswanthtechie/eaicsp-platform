@@ -35,6 +35,7 @@ import ExportPdfButton from "./components/export/ExportPdfButton";
 import Skeleton from "./components/Skeleton";
 import KpiGrid from "./components/KpiGrid";
 import OfflineBanner from "./components/OfflineBanner";
+import AnalyticsKpiPanel from "./components/AnalyticsKpiPanel";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { mockUser, type UserRole } from "./mocks/user";
@@ -454,6 +455,8 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
           onRetry={() => void refreshDashboardData()}
         />
 
+        <AnalyticsKpiPanel />
+        
         <KpiGrid
           kpis={offlineSnapshot.kpis}
           selectedKpi={selectedKpi}
@@ -606,6 +609,7 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
           onRetry={() => void refreshDashboardData()}
         />
       )}
+      <AnalyticsKpiPanel />
       <KpiGrid
         kpis={kpis}
         selectedKpi={selectedKpi}
