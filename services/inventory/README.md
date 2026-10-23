@@ -376,3 +376,13 @@ In Docker Compose, this is automatically managed by the dedicated `compliance-co
 | Out-of-order event protection (`occurred_at`) | Completed |
 | Dead-Letter Queue & Transient Retry | Completed |
 | Full unit test suite (no Docker needed) | 226 passed, 14 skipped, 7 deselected |
+
+## Loading the shared seed
+
+```bash
+alembic upgrade head
+cd ../../data-platform && python -m seed.generate --out out/ && cd -
+python scripts/load_seed.py # or: --seed-dir PATH, --wipe to reset
+```
+
+The load runs in one transaction, so it either fully succeeds or changes nothing. Re-running it is safe and doesn't duplicate rows.
