@@ -212,6 +212,172 @@ services:
     networks:
       - shared
 
+  platform:
+    build:
+      context: ..
+      dockerfile: services/platform/Dockerfile
+    environment:
+      SECRET_KEY: ${SECRET_KEY}
+      DATABASE_URL: postgresql+psycopg2://platform_user:${PLATFORM_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      BASE_URL: http://platform:8005
+    ports:
+      - "8005:8005"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8005/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - shared
+
+  compliance:
+    build:
+      context: ..
+      dockerfile: services/compliance/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg://compliance_user:${COMPLIANCE_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      PLATFORM_AUTH_URL: http://platform:8005
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      USE_FIXTURES: ${COMPLIANCE_USE_FIXTURES:-false}
+      ENVIRONMENT: development
+    ports:
+      - "8003:8003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      platform:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+    networks:
+      - shared
+
+  inventory:
+    build:
+      context: ../services/inventory
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg2://inventory_user:${INVENTORY_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      PLATFORM_AUTH_URL: http://platform:8005
+      COMPLIANCE_SERVICE_URL: http://compliance:8003
+      REDIS_URL: redis://redis:6379/0
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      ENABLE_OUTBOX_RELAY: "true"
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      platform:
+        condition: service_healthy
+      compliance:
+        condition: service_healthy
+    networks:
+      - shared
+
+  logistics:
+    build:
+      context: ..
+      dockerfile: services/logistics/Dockerfile
+    ports:
+      - "8002:8002"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - shared
+
+  supplier-portal:
+    build:
+      context: ..
+      dockerfile: services/supplier-portal/Dockerfile
+    environment:
+      PLATFORM_AUTH_URL: http://platform:8005
+      COMPLIANCE_SERVICE_URL: http://compliance:8003
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: supplier-docs
+      MINIO_SECURE: "false"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_ENABLED: "true"
+      COMPLIANCE_DB_PATH: /app/data/compliance_state.db
+    ports:
+      - "8004:8004"
+    depends_on:
+      minio:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      platform:
+        condition: service_healthy
+      compliance:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - shared
+
+  api-gateway:
+    build:
+      context: ..
+      dockerfile: services/api-gateway/Dockerfile
+    environment:
+      SECRET_KEY: ${SECRET_KEY}
+      PLATFORM_SERVICE_URL: http://platform:8005
+      INVENTORY_SERVICE_URL: http://inventory:8001
+      SHIPMENTS_SERVICE_URL: http://logistics:8002
+      COMPLIANCE_SERVICE_URL: http://compliance:8003
+      PURCHASE_ORDERS_SERVICE_URL: http://inventory:8001
+      SUPPLIER_RISK_SERVICE_URL: http://compliance:8003
+    ports:
+      - "8000:8000"
+    depends_on:
+      platform:
+        condition: service_healthy
+      inventory:
+        condition: service_started
+      logistics:
+        condition: service_healthy
+      compliance:
+        condition: service_healthy
+      supplier-portal:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - shared
 networks:
   shared:
 

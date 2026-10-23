@@ -49,10 +49,11 @@ app = FastAPI(
 )
 
 
-@app.get("/root")
-def health_check():
+@app.get("/health")
+def health():
     return {
-        "service": "compliance",
+        "status": "ok",
+        "service": "compliance-service",
     }
 
 
