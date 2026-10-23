@@ -228,7 +228,6 @@ dist/
 *.csv
 *.db
 data/*.csv
-!data/seed/*.csv
 # ML
 mlruns/
 *.pt

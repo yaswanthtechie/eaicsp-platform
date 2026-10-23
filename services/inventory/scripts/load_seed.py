@@ -12,7 +12,7 @@ Run migrations first, then generate the seed and load it:
   python scripts/load_seed.py [--seed-dir PATH] [--wipe]
 
 The whole load is one transaction: it either fully succeeds or changes
-nothing. Re-running it upserts, so it never duplicates rows.
+nothing. Re-running it never duplicates rows: master data and stock are upserted, sales rows that already exist are skipped (not updated).
 --wipe clears the seeded tables first (use it to reset stock valuation).
 """
 
@@ -264,6 +264,17 @@ def load_current_stock(db, seed_dir: Path) -> int:
             db, sku_id, wh_id, end_date=snapshot_date
         )
         key = (sku_id, wh_id)
+        prev = existing.get(key)
+        if prev is not None and prev.quantity_on_hand != qty:
+            logger.warning(
+                "%s/%s: on-hand %s will be reset to seed snapshot %s; "
+                "cost layers are kept. Use --wipe for a clean reset.",
+                sku_id,
+                wh_id,
+                prev.quantity_on_hand,
+                qty,
+            )
+
         inv = _upsert(
             db,
             Inventory,
@@ -281,7 +292,8 @@ def load_current_stock(db, seed_dir: Path) -> int:
                 "parent_warehouse_id": warehouse.parent_warehouse_id,
             },
         )
-        inv.version = (inv.version or 0) + 1
+        if inv in db.new or db.is_modified(inv):
+            inv.version = (inv.version or 0) + 1
 
         # One opening FIFO layer per SKU/warehouse. A re-run never adds another.
         if qty > 0 and key not in has_cost_layer:
