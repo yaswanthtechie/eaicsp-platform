@@ -13,6 +13,11 @@ PROCESSED_DATA_DIR = DATA_DIR / "processed"
 MODELS_DIR = PROJECT_ROOT / "models"
 MODEL_PATH = MODELS_DIR / "eta_pipeline.joblib"
 
+R14_MODEL_PATH = MODELS_DIR / "eta_pipeline_r14.joblib"
+R14_CALIBRATION_MODEL_PATH = (
+    MODELS_DIR / "eta_prediction_interval_r14.joblib"
+)
+
 # MLflow
 MLFLOW_DIR = PROJECT_ROOT / "mlruns"
 
