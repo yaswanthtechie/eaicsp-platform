@@ -4,11 +4,13 @@
 
 A **FastAPI-based microservice** for supplier-facing purchase orders, invoices, document management, supplier onboarding, contracts, performance scorecards, dispute-resolution suggestions, and procure-to-pay workflows.
 
-The service integrates with the **Platform Service** for authentication and role-based authorization, the **Compliance Service** for supplier activation checks, **MinIO** for document storage, **Strawberry GraphQL** for portal queries and mutations, and **Apache Kafka** for ongoing supplier compliance status changes.
+The service integrates with the **Platform Service** for authentication and role-based authorization, the **Compliance Service** for supplier activation checks, **MinIO** for document storage, **Strawberry GraphQL** for portal queries and mutations, and **Apache Kafka** for supplier compliance status changes and Inventory workflow events.
 
 Invoice PDFs and onboarding documents are stored in MinIO. Authorized downloads use short-lived presigned URLs after access and supplier-ownership checks.
 
 Round 14 adds Kafka event validation, idempotency, out-of-order event protection, compliance audit history, manual offset management, and dead-letter queue (DLQ) handling.
+
+Round 15 extends the Supplier Portal's procure-to-pay integration with versioned event contracts for supplier PO acknowledgement and shipment dispatch, Inventory-approved PO mirroring, and consumption of Inventory goods-received events for three-way matching.
 
 ---
 
@@ -45,6 +47,7 @@ Round 14 adds Kafka event validation, idempotency, out-of-order event protection
 29. [Future Enhancements](#29-future-enhancements)
 
 ---
+
 ### Round 15 — Supplier Portal Event Contracts
 
 - Created versioned JSON Schema contracts for `supplierportal.po.acknowledged.v1` and `supplierportal.shipment.dispatched.v1`.
@@ -56,7 +59,21 @@ Round 14 adds Kafka event validation, idempotency, out-of-order event protection
 
 **Note:** Contract validation passed; Kafka event publishing and end-to-end integration are separate verification steps.
 
-## Round 12–13 Status
+### Round 15 — Inventory Goods Receipt Integration
+
+- Added a consumer for `inventory.goods.received` events and persistence of processed receipt events.
+- Receipt processing includes event validation, duplicate-event handling, and invalid-event dead-letter handling.
+- Three-way matching can retrieve Inventory receipt events for the relevant PO and supplier and compare received quantities by `sku_id` for canonical Inventory PO lines.
+- Quantity mismatches are represented as matching discrepancies for review rather than being treated as a successful match.
+- Legacy PO and goods-receipt matching behavior remains supported.
+
+**Verified tests so far:**
+- `tests/test_inventory_goods_received_consumer.py` and `tests/test_inventory_goods_received_runner.py`: **26 passed**.
+- `tests/test_three_way_match.py`: **65 passed**.
+
+These results verify the targeted consumer/runner tests and existing three-way-match test suite. They do not, by themselves, establish that a dedicated end-to-end test using a canonical Inventory PO, a persisted `inventory.goods.received` event, and a deliberate quantity mismatch has passed. Verify that integration scenario before claiming full end-to-end validation.
+
+### Round 12–13 Status
 
 - **Milestone 1:** Completed in PR #152, superseding PR #128.
 - **Milestone 2:** MinIO document storage and supplier-scoped presigned download URLs.
@@ -64,7 +81,7 @@ Round 14 adds Kafka event validation, idempotency, out-of-order event protection
 
 **Known limitation:** GraphQL cursors represent positions in in-memory lists, so their positions may change when records are added or removed. Most business records are not durable across application restarts.
 
-## Round 14 Status
+### Round 14 Status
 
 **Round 14 – Pod 1: Supplier Compliance Status Event Consumption**
 
@@ -202,6 +219,7 @@ If the container exists but is stopped:
 ```bash
 docker start supplier-portal-minio
 ```
+
 ### Start Kafka for Round 14
 
 Start the Kafka service using Docker Compose:
@@ -321,7 +339,7 @@ Kafka consumption is separate from the synchronous activation check. The consume
 ### Processing behaviour
 
 1. Parse the Kafka message and validate its schema, event type, and version.
-2. Validate `payload.supplier_id`.
+2. Validate the supplier identity using the event contract.
 3. Check `event_id` for duplicate processing.
 4. Compare `occurred_at` to prevent stale events from overwriting newer state.
 5. Apply the compliance state and record audit history.
@@ -357,6 +375,7 @@ The Supplier Portal Service provides APIs for supplier and procurement workflows
 - REST and GraphQL authorization and supplier isolation
 - Synchronous compliance checks during activation
 - Kafka-based compliance status updates and access enforcement
+- Inventory goods-received event consumption for PO/receipt/invoice matching
 
 ### Procure-to-pay workflow
 
@@ -378,7 +397,9 @@ Three-Way Match
                     Payment Approval
 ```
 
-Three-way matching compares the Purchase Order, Goods Receipt, and Invoice to identify quantity or price discrepancies.
+Three-way matching compares the Purchase Order, Goods Receipt, and Invoice to identify quantity or price discrepancies. For canonical Inventory PO lines, the matching service uses the PO line's `sku_id` to compare the PO quantity, quantity received from Inventory goods-received events, and invoice quantity.
+
+A quantity mismatch must produce a discrepancy requiring review; it must not be treated as a successful match or automatically approved for payment.
 
 ### Supplier onboarding
 
@@ -402,16 +423,18 @@ Onboarding status and compliance access state are distinct. An active supplier m
 | Round 12 | MinIO document storage and presigned downloads |
 | Round 13 | GraphQL queries, cursor pagination, acknowledge-PO mutation, resolver-level scoping |
 | Round 14 | Kafka compliance events, idempotency, ordering protection, audit history, offset and DLQ handling |
+| Round 15 | Supplier event contracts, Inventory PO integration, Inventory goods-received event consumption for three-way matching |
 
 ### Storage limitations
 
 - Purchase Orders, invoices, P2P records, onboarding records, and contract data use in-memory business storage.
 - Those business records are not durable across application restarts.
 - R14 compliance access state, processed-event information, and compliance audit history are SQLite-backed.
+- Inventory-approved PO mirrors and consumed Inventory goods-received events use their configured database persistence.
 - Invoice PDFs and onboarding documents are stored in MinIO.
 - Authentication depends on the Platform Service; supplier activation depends on the Compliance Service.
 - Local Kafka development configuration is not production security configuration.
-- The external producer must publish events that follow the agreed event contract.
+- External producers must publish events that follow the agreed event contracts.
 
 The service supports development, functional validation, and automated testing. Production deployment requires appropriate database operations, backups, monitoring, security hardening, and durable storage for business records.
 
@@ -483,8 +506,10 @@ Invoice-related scorecard calculations use the `po_number` stored on invoice lin
 ## Procure-to-Pay and Three-Way Match
 
 - PO acknowledgement, shipment notice, and Goods Receipt processing
+- Consumption and persistence of Inventory `inventory.goods.received` events
 - Partial/short receipts and P2P state transitions
-- PO/Receipt/Invoice matching
+- PO/Receipt/Invoice matching for legacy and canonical Inventory PO lines
+- `sku_id`-based receipt quantity comparison for canonical Inventory PO lines
 - Quantity and price discrepancy detection
 - Human-review handling and prevention of automatic approval when discrepancies exist
 - Payment-approval workflow states
@@ -546,10 +571,11 @@ Business Services
 Storage and Integrations
   ├── In-memory business records
   ├── SQLite-backed R14 compliance state/history
+  ├── Database-backed Inventory PO mirror and goods-receipt events
   ├── MinIO document objects
   ├── Platform Service authentication
   ├── Compliance Service activation check
-  └── Kafka compliance events
+  └── Kafka compliance and Inventory workflow events
 ```
 
 ## REST and GraphQL authorization
@@ -602,6 +628,28 @@ REST / GraphQL Authorization
 
 Invalid events are routed to the DLQ. Unexpected processing failures do not commit the original offset. The consumer is integrated with the FastAPI application lifecycle.
 
+### Inventory goods-received processing — Round 15
+
+```text
+Inventory Service
+       ↓
+Kafka: inventory.goods.received
+       ↓
+Supplier Portal Goods-Received Consumer
+       ↓
+Event Validation + Idempotency
+       ↓
+Persisted Inventory Goods-Receipt Event
+       ↓
+Three-Way Match Service
+       ↓
+PO Quantity vs Received Quantity vs Invoice Quantity
+       ├── Match → Matching result
+       └── Mismatch → Discrepancy / Human Review
+```
+
+The goods-received consumer stores the received event for later matching. For canonical Inventory PO lines, the matching service retrieves events scoped to the PO and supplier and compares quantities by `sku_id`. A valid consumer test does not by itself prove end-to-end matching; the canonical PO and deliberate-mismatch integration scenario must also be verified.
+
 ### Contracts and dispute suggestions
 
 Contract management is handled by a separate business service using an in-memory contract store. The dispute-resolution service analyses historical three-way-match dispute information to produce advisory suggestions.
@@ -621,10 +669,11 @@ Contract management is handled by a separate business service using an in-memory
 | Pytest | Automated testing |
 | `python-multipart` | Multipart file uploads |
 | MinIO / S3-compatible API | Invoice and onboarding document storage |
-| Apache Kafka | Supplier compliance status events |
+| Apache Kafka | Supplier compliance and Inventory workflow events |
 | `confluent-kafka` | Kafka consumer and DLQ publishing |
+| SQLAlchemy | Database models and queries for persisted Inventory integration records |
 
-Dependency versions are maintained in `requirements.txt`. The Supplier Portal consumes compliance status events; external producer implementation is outside its scope.
+Dependency versions are maintained in `requirements.txt`. The Supplier Portal consumes compliance status and Inventory goods-received events; external producer implementation is outside its scope.
 
 ---
 
@@ -699,6 +748,8 @@ supplier-portal/
 │   ├── test_invoice_document_download.py
 │   ├── test_graphql.py
 │   ├── test_kafka_consumer.py
+│   ├── test_inventory_goods_received_consumer.py
+│   ├── test_inventory_goods_received_runner.py
 │   └── integration/
 │       └── test_minio_document_storage.py
 ├── .env.example
@@ -741,9 +792,26 @@ This is a representative project structure for the files described here; keep it
 
 `app/services/kafka_consumer_runner.py` runs the consumer in the application background and handles shutdown.
 
+### Inventory goods-received consumer — Round 15
+
+The Inventory goods-received consumer and runner handle `inventory.goods.received` events. The consumer validates events, prevents duplicate processing, persists receipt-event payloads for matching, and handles invalid events through the configured dead-letter mechanism. The runner manages the consumer lifecycle and retry/shutdown behavior.
+
+Relevant tests:
+
+- `tests/test_inventory_goods_received_consumer.py`
+- `tests/test_inventory_goods_received_runner.py`
+- `tests/test_three_way_match.py`
+
+### Three-way match service
+
+`app/services/three_way_match_service.py` compares PO, receipt, and invoice line quantities and prices. For canonical Inventory POs, receipt quantities are retrieved from persisted Inventory goods-received events using the PO, supplier, and `sku_id`. Legacy PO and receipt handling remains supported.
+
 ### Document storage
 
 `app/services/document_storage_service.py` provides MinIO object uploads, object-existence checks, presigned URLs, missing-object handling, and storage-failure handling. Callers must complete authentication, compliance authorization, and supplier-ownership checks before requesting a presigned URL.
+
+---
+
 # 6. Authentication and Authorization
 
 The Supplier Portal delegates authentication to the **Platform Service**. It does not locally decode or independently validate JWT tokens. Instead, it forwards the received Bearer token to the Platform Service for verification.
@@ -800,9 +868,7 @@ PLATFORM_AUTH_URL
 
 Default development value:
 
-```text
-http://127.0.0.1:8005
-```
+`http://127.0.0.1:8005`
 
 The Platform Service remains the authentication provider; the Supplier Portal applies its own resource-level authorization rules.
 
@@ -846,6 +912,8 @@ This rule applies to supplier-scoped resources, including:
 Supplier filtering must be applied before returning collection results. GraphQL resolvers must enforce ownership independently of the REST routes.
 
 For a GraphQL lookup, an unauthorized resource must not be exposed. Depending on the resolver, the result may be `null` or a GraphQL authorization error.
+
+For Inventory goods-received matching, the matching service also scopes receipt events to the PO's supplier. Receipt events belonging to another supplier must not contribute to the received quantity for the current match.
 
 ## 6.5 Round 14 Compliance Access Control
 
@@ -989,7 +1057,7 @@ SUP001 token → SUP002 Document  → 403 Forbidden
 
 The same principle applies to supplier-scoped statistics, scorecards, contracts, onboarding resources, shipments, Goods Receipts, three-way matches, and GraphQL resources.
 
-Round 14 adds compliance restrictions without replacing the existing authentication and supplier-scoping model.
+Round 14 adds compliance restrictions without replacing the existing authentication and supplier-scoping model. Round 15's Inventory receipt integration preserves supplier scoping when retrieving receipt quantities for three-way matching.
 
 ---
 
