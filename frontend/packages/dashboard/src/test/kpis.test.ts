@@ -134,8 +134,38 @@ describe("KPI API", () => {
           Authorization: "Bearer test-access-token",
           Accept: "application/json",
         },
+        signal: expect.any(AbortSignal),
       },
     );
+  });
+
+  it("times out when the KPI service does not respond", async () => {
+    authMocks.getAuthSession.mockReturnValue({
+      access_token: "test-access-token",
+    });
+
+    const api = await loadApi("false");
+
+    fetchMock.mockImplementation(
+      (_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        }),
+    );
+
+    vi.useFakeTimers();
+
+    const request = api.fetchKpiDashboard();
+    const assertion = expect(request).rejects.toThrow(
+      "The KPI service took too long to respond.",
+    );
+
+    await vi.advanceTimersByTimeAsync(8000);
+    await assertion;
+
+    vi.useRealTimers();
   });
 
   it("uses the configured API base URL", async () => {

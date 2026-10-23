@@ -315,7 +315,7 @@ describe("DashboardFilters", () => {
     window.history.pushState(
       {},
       "",
-      "/?warehouse=WH001&category=Food&startDate=2026-08-01&endDate=2026-08-31",
+      "/?warehouse=WH-BLR-01&category=Food&startDate=2026-08-01&endDate=2026-08-31",
     );
 
     const urlFilters = {

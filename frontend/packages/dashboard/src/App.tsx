@@ -454,6 +454,8 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
           hasServerError={Boolean(dashboardError)}
           onRetry={() => void refreshDashboardData()}
         />
+
+        <AnalyticsKpiPanel />
         
         <KpiGrid
           kpis={offlineSnapshot.kpis}

@@ -127,6 +127,8 @@ const USE_MOCK_KPIS =
 const KPI_API_BASE_URL =
   import.meta.env.VITE_KPI_API_BASE_URL ?? "";
 
+const KPI_REQUEST_TIMEOUT_MS = 8000;
+
 export class KpiApiError extends Error {
   readonly status: number | undefined;
 
@@ -366,6 +368,11 @@ export async function fetchKpiDashboard(): Promise<KpiDashboardResponse> {
   const baseUrl = KPI_API_BASE_URL.replace(/\/+$/, "");
   let response: Response;
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    KPI_REQUEST_TIMEOUT_MS,
+  );
   try {
     response = await fetch(
       `${baseUrl}/api/v1/analytics/kpis`,
@@ -374,12 +381,21 @@ export async function fetchKpiDashboard(): Promise<KpiDashboardResponse> {
           Authorization: `Bearer ${session.access_token}`,
           Accept: "application/json",
         },
+        signal: controller.signal,
       },
     );
-  } catch {
+  } catch (error: unknown) {
+    const timedOut =
+      error instanceof DOMException &&
+      error.name === "AbortError";
+    
     throw new KpiApiError(
-      "The KPI service is unavailable. Check the connection and retry.",
+      timedOut
+        ? "The KPI service took too long to respond."
+        : "The KPI service is unavailable. Check the connection and retry.",
     );
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   if (!response.ok) {

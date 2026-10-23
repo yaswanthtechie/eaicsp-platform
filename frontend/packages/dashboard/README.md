@@ -73,7 +73,7 @@ frontend/
             │
             ├── test/
             │   ├── AlertsPanel.test.tsx
-            |   ├── AnalyticsKpiPanel.test.ts
+            |   ├── AnalyticsKpiPanel.test.tsx
             |   ├── App.role.test.tsx
             |   ├── ExportCsv.test.tsx
             |   ├── ExportCsvButton.test.tsx
@@ -1157,7 +1157,7 @@ npm run test:e2e
 
 Test verification completed successfully.
 
-* Vitest: 21 test files, 175/175 tests passed
+* Vitest: 21 test files, 176/176 tests passed
 * Playwright Dashboard E2E: 4/4 tests passed
 * Authentication E2E: 14/14 passed with valid credentials.
 * Total: 193 tests passed across the three reported test groups.
@@ -1239,8 +1239,6 @@ Run the TypeScript check with:
 ```powershell
 npx tsc --noEmit
 ```
-
-Record the actual command results before marking the tests as passed.
 
 ### 7. Outcome and Remaining Dependency
 

@@ -93,10 +93,10 @@ export function startMockWebSocketServer() {
       const quantityOnHand = 30 + Math.floor(Math.random() * 41);
 
       const inventoryItem : InventoryItem = {
-        sku_id: "SKU017",
+        sku_id: "SKU-000017",
         product_name: "Rice",
         category: "Food",
-        warehouse_id: "WH004",
+        warehouse_id: "WH-HYD-01",
         quantity_on_hand: quantityOnHand,
         reorder_point: 50,
         needs_reorder: quantityOnHand < 50,
