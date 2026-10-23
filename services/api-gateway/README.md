@@ -721,7 +721,7 @@ slows the dashboard by up to 3s. Caching health results is a planned improvement
 | Milestone | Status | Details |
 |---|---|---|
 | **M1 Structured JSON Logging** | **Complete** | Every gateway access log is emitted as a single valid JSON line via `app/middleware/logging.py`, containing `@timestamp`, `level`, `service.name`, `http.method`, `route`, `http.status_code`, `latency_ms`, `request_id`, and `trace_id`. |
-| **M2 Security & Redaction Tests** | **Complete** | Automated suite (`tests/test_structured_logging.py`, 14/14 passed) validates JSON validity, required field typing, token/header redaction, cookie protection, error responses, and W3C trace correlation. |
+| **M2 Security & Redaction Tests** | **Complete** | Automated suite (`tests/test_structured_logging.py`, 22/22 passed; `pytest -m "not integration"`: 375 passed, 2 skipped) validates JSON validity, required field typing, token/header redaction, cookie protection, error responses, and W3C trace correlation. |
 | M3 Local ELK Stack | Done | docker-compose.elk.yml + filebeat.yml; a gateway log line found in Elasticsearch by request ID: [elk_correlation.json](docs/evidence/round14/elk_correlation.json) |
 | M4 Kibana Saved Objects | Done | Exported from Kibana: kibana/exports/saved_objects.ndjson; import result: [kibana_import.json](docs/evidence/round14/kibana_import.json); dashboard: [kibana_dashboard.png](docs/evidence/round14/kibana_dashboard.png) |
 | M5 Observability Correlation | Done | One 503 followed by request ID / trace ID: [Grafana](docs/evidence/round14/loop_1_grafana_error.png) → [Jaeger](docs/evidence/round14/loop_2_jaeger_trace.png) → [Kibana](docs/evidence/round14/loop_3_kibana_logs.png) |
@@ -870,7 +870,7 @@ Or search by trace:
 trace_id : "<32-hex-trace-id>"
 ```
 Direct link template:
-http://127.0.0.1:15601/app/discover#/view/gateway-logs-by-request-id?_a=(query:(language:kuery,query:'request_id:"<id>"'))
+http://127.0.0.1:15601/app/discover#/view/1e6adbaa-1f7b-426c-bad0-d483bfff6c5c?_a=(query:(language:kuery,query:'request_id:"<id>"'))
 
 python scripts/verify_elk_correlation.py --path <route> prints the Kibana link and the Jaeger link for a fresh request.
 

@@ -85,7 +85,7 @@ def test_generate_urls():
     assert generate_jaeger_url("http://localhost:16686", "invalid") is None
 
     kibana_url = generate_kibana_url("http://127.0.0.1:5601/", "req-123")
-    assert kibana_url.startswith("http://127.0.0.1:5601/app/discover#/view/gateway-logs-by-request-id")
+    assert kibana_url.startswith("http://127.0.0.1:5601/app/discover#/view/1e6adbaa-1f7b-426c-bad0-d483bfff6c5c")
     assert "request_id:\"req-123\"" in kibana_url
 
 
@@ -362,10 +362,51 @@ def test_verify_correlation_all_pass_writes_evidence(tmp_path):
 
         evidence_file = tmp_path / "elk_correlation.json"
         assert evidence_file.exists()
-        saved = json.loads(evidence_file.read_text(encoding="utf-8"))
+        raw_evidence = evidence_file.read_text(encoding="utf-8")
+        saved = json.loads(raw_evidence)
         assert saved["http_status_returned"] == 502
+        assert saved["token_found_in_elasticsearch"] is False
+        assert '"token_found_in_elasticsearch": false' in raw_evidence
         # Ensure secret token is not written into evidence
-        assert "dummy-test-token" not in evidence_file.read_text(encoding="utf-8")
+        assert "dummy-test-token" not in raw_evidence
+
+
+def test_verify_correlation_without_token_sets_token_found_to_null(tmp_path):
+    mock_log = {
+        "@timestamp": "2026-10-13T12:00:00.000Z",
+        "level": "INFO",
+        "service.name": "api-gateway",
+        "http": {"status_code": 200},
+        "latency_ms": 10.5,
+        "request_id": "r14-elk-notoken",
+        "trace_id": VALID_TRACE_ID,
+    }
+
+    with (
+        patch("scripts.verify_elk_correlation.send_gateway_request", return_value=(200, None)),
+        patch("scripts.verify_elk_correlation.poll_elasticsearch_for_request", return_value=(mock_log, None)),
+        patch("scripts.verify_elk_correlation.check_token_absent") as mock_check,
+    ):
+        success, result, msg = verify_correlation(
+            gateway_base="http://localhost:8000",
+            path="/health",
+            token=None,
+            wait_seconds=1.0,
+            interval_seconds=0.1,
+            evidence_dir=tmp_path,
+        )
+
+        assert success is True
+        assert result is not None
+        assert result["token_found_in_elasticsearch"] is None
+        mock_check.assert_not_called()
+
+        evidence_file = tmp_path / "elk_correlation.json"
+        assert evidence_file.exists()
+        raw_evidence = evidence_file.read_text(encoding="utf-8")
+        saved = json.loads(raw_evidence)
+        assert saved["token_found_in_elasticsearch"] is None
+        assert '"token_found_in_elasticsearch": null' in raw_evidence
 
 
 def test_verify_correlation_gateway_down_no_evidence_written(tmp_path):

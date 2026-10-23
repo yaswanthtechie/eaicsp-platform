@@ -80,12 +80,19 @@ def generate_jaeger_url(jaeger_base: str, trace_id: str | None) -> str | None:
     return f"{base}/trace/{trace_id}"
 
 
-def generate_kibana_url(kibana_base: str, request_id: str) -> str:
+DEFAULT_SAVED_SEARCH_ID = "1e6adbaa-1f7b-426c-bad0-d483bfff6c5c"
+
+
+def generate_kibana_url(
+    kibana_base: str,
+    request_id: str,
+    saved_search_id: str = DEFAULT_SAVED_SEARCH_ID,
+) -> str:
     """Generate a Kibana Discover link for the saved search filtering by request_id."""
     base = kibana_base.rstrip("/")
     kql = f'request_id:"{request_id}"'
     return (
-        f"{base}/app/discover#/view/gateway-logs-by-request-id"
+        f"{base}/app/discover#/view/{saved_search_id}"
         f"?_a=(query:(language:kuery,query:'{kql}'))"
     )
 
@@ -290,14 +297,14 @@ def verify_correlation(
         return False, None, f"Invalid or missing trace_id in log entry: {trace_id}"
 
     # 5. Check token absence if token was provided
-    token_leaked = False
+    token_found: bool | None = None
     if token:
         check_ok, found, token_err = check_token_absent(es_base=es_base, token=token)
         if not check_ok:
             return False, None, f"Token leak check could not be completed: {token_err}"
         if found:
             return False, None, "SECURITY FAILURE: Provided token was discovered in Elasticsearch logs!"
-        token_leaked = False
+        token_found = found
 
     # 6. Generate Jaeger and Kibana URLs
     jaeger_url = generate_jaeger_url(jaeger_base, trace_id)
@@ -311,7 +318,7 @@ def verify_correlation(
         "trace_id": trace_id,
         "jaeger_url": jaeger_url,
         "kibana_url": kibana_url,
-        "token_found_in_elasticsearch": token_leaked,
+        "token_found_in_elasticsearch": token_found,
     }
 
     # 7. Write evidence ONLY on real successful live verification
@@ -319,7 +326,10 @@ def verify_correlation(
         evidence_file = write_evidence(evidence_dir, result_data)
         print(f"Evidence recorded at {evidence_file}")
 
-    return True, result_data, "Correlation verified successfully: log found in ES, status matches, trace_id valid, token absent"
+    status_msg = "Correlation verified successfully: log found in ES, status matches, trace_id valid"
+    if token:
+        status_msg += ", token absent"
+    return True, result_data, status_msg
 
 
 def main() -> int:
