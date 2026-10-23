@@ -45,10 +45,13 @@ def create_pipeline():
         ]
     )
 
-def create_eta_history_pipeline():
+def create_eta_history_pipeline(
+    historical_features=None
+):
     """Create the Round 14 ETA pipeline with historical feature-lib features."""
 
-    historical_features = ETA_HISTORY_FEATURES
+    if historical_features is None:
+        historical_features = ETA_HISTORY_FEATURES
 
     training_numeric_features = (
         NUMERIC_FEATURES

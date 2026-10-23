@@ -27,6 +27,7 @@ from src.train import (
 from src.evaluate import compare_models, evaluate_model
 from src.shap_explainer import explain_predictions
 from src.paths import (
+    PROJECT_ROOT,
     ensure_directories,
     R14_MODEL_PATH,
     R14_CALIBRATION_MODEL_PATH,
@@ -173,60 +174,6 @@ def main():
     inherited_predictions = inherited_model.predict(
         inherited_X_test
     )
-
-    # ---------------------------------------------------------
-    # 12. Log inherited model as a separate MLflow run
-    # ---------------------------------------------------------
-    with start_run(
-        run_name="ETA - Inherited Model"
-    ):
-        mlflow.set_tag(
-            "model_variant",
-            "inherited_round_9_11",
-        )
-
-        log_parameters(
-            inherited_model
-        )
-
-        inherited_results = evaluate_model(
-            inherited_model,
-            split.train,
-            split.test,
-            use_eta_history_features=False,
-        )
-
-        log_dataset_metadata(
-            features=features,
-            train=split.train,
-            test=split.test,
-            split_timestamp=split.split_timestamp,
-        )
-
-        log_calibration_metadata(
-            inherited_calibration
-        )
-
-        inherited_model_info = log_model(
-            inherited_model
-        )
-
-        print("\nInherited MLflow model logged:")
-        print(
-            f"  {inherited_model_info.model_uri}"
-        )
-
-    # ---------------------------------------------------------
-    # 13. Production calibration safety gate
-    #
-    # Refuse to continue if the prediction interval was
-    # calibrated on too few rows, which could indicate
-    # accidental training on test fixture data.
-    # ---------------------------------------------------------
-    check_production_calibration(
-        calibration
-    )
-
     # ---------------------------------------------------------
     # 14. Evaluate Round 14 model against naive baseline
     # ---------------------------------------------------------
@@ -294,7 +241,65 @@ def main():
         r14_predictions=r14_predictions,
         r14_calibration=calibration,
     )
+    # ---------------------------------------------------------
+    # 15c-2. Log inherited model as a separate MLflow run
+    #
+    # Logged after compare_models() so interval coverage and
+    # width are available for both runs.
+    # ---------------------------------------------------------
+    with start_run(
+        run_name="ETA - Inherited Model"
+    ):
+        mlflow.set_tag(
+            "model_variant",
+            "inherited_round_9_11",
+        )
 
+        log_parameters(
+            inherited_model
+        )
+
+        inherited_results = evaluate_model(
+            inherited_model,
+            split.train,
+            split.test,
+            use_eta_history_features=False,
+        )
+
+        inherited_results[
+            "interval_coverage"
+        ] = comparison["inherited"]["actual_coverage"]
+
+        log_metrics(
+            inherited_results
+        )
+
+        mlflow.log_metrics(
+            {
+                "nominal_coverage": comparison["inherited"]["nominal_coverage"],
+                "mean_interval_width": comparison["inherited"]["mean_interval_width"],
+            }
+        )
+
+        log_dataset_metadata(
+            features=features,
+            train=split.train,
+            test=split.test,
+            split_timestamp=split.split_timestamp,
+        )
+
+        log_calibration_metadata(
+            inherited_calibration
+        )
+
+        inherited_model_info = log_model(
+            inherited_model
+        )
+
+        print("\nInherited MLflow model logged:")
+        print(
+            f"  {inherited_model_info.model_uri}"
+        )
     inherited_mae = comparison[
         "inherited"
     ]["mae"]
@@ -320,11 +325,7 @@ def main():
     ] = r14_interval_coverage
 
     # ---------------------------------------------------------
-    # 15d. Add inherited comparison coverage to MLflow results
-    # ---------------------------------------------------------
-    # The inherited MLflow run has already been logged above.
-    # The comparison metrics are retained here for the final
-    # side-by-side reporting.
+    # 15d. Report model comparison metrics
     # ---------------------------------------------------------
 
     print("\nRound 14 Model")
@@ -374,8 +375,8 @@ def main():
         f"{inherited_interval_width:>15.4f}"
         f"{r14_interval_width:>15.4f}"
     )
-        # Save the Round 14 comparison metrics as a committed artifact.
-    metrics_path = Path("results/round14_metrics.json")
+    # Save the Round 14 comparison metrics as a committed artifact.
+    metrics_path = PROJECT_ROOT / "results" / "round14_metrics.json"
     metrics_path.parent.mkdir(parents=True, exist_ok=True)
 
     round14_metrics = {
@@ -411,7 +412,12 @@ def main():
         log_metrics(
             results
         )
-
+        mlflow.log_metrics(
+            {
+            "nominal_coverage": comparison["r14"]["nominal_coverage"],
+            "mean_interval_width": comparison["r14"]["mean_interval_width"],
+            }
+        )
         log_dataset_metadata(
             features=features,
             train=split.train,

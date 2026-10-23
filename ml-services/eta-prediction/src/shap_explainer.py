@@ -37,6 +37,33 @@ def explain_predictions(
     if not hasattr(model, "named_steps"):
         raise TypeError("model must be a fitted sklearn Pipeline.")
 
+    if order_ids is not None and len(order_ids) != len(features):
+        raise ValueError(
+            "Order ID count must match the number of feature rows."
+        )
+
+    if predictions is not None and len(predictions) != len(features):
+        raise ValueError(
+            "Prediction count must match the number of feature rows."
+        )
+
+    # Sample BEFORE computing SHAP so we only pay for the rows we keep.
+    if sample_size is not None and sample_size < len(features):
+        sample_indices = np.linspace(
+            0,
+            len(features) - 1,
+            num=sample_size,
+            dtype=int,
+        )
+
+        features = features.iloc[sample_indices].copy()
+
+        if predictions is not None:
+            predictions = np.asarray(predictions)[sample_indices]
+
+        if order_ids is not None:
+            order_ids = order_ids.iloc[sample_indices].reset_index(drop=True)
+
     preprocessor = model.named_steps.get("preprocessor")
     estimator = model.named_steps.get("model")
 
@@ -73,30 +100,8 @@ def explain_predictions(
             "Prediction count must match the number of feature rows."
         )
 
-    if order_ids is not None and len(order_ids) != len(features):
-        raise ValueError(
-            "Order ID count must match the number of feature rows."
-        )
-
     base_values = np.asarray(explainer.expected_value).reshape(-1)
     base_value = float(base_values[0])
-
-    # Select a deterministic sample so we do not generate explanations
-    # for the entire test set.
-    if sample_size is not None and sample_size < len(features):
-        sample_indices = np.linspace(
-            0,
-            len(features) - 1,
-            num=sample_size,
-            dtype=int,
-        )
-
-        features = features.iloc[sample_indices].copy()
-        predictions = predictions[sample_indices]
-        shap_values = shap_values[sample_indices]
-
-        if order_ids is not None:
-            order_ids = order_ids.iloc[sample_indices].reset_index(drop=True)
 
     explanations: list[dict[str, Any]] = []
 

@@ -673,6 +673,10 @@ Each of the six Round 14 historical features was removed individually and the mo
 
 No individual historical feature removal caused a suspicious collapse in model performance. The results therefore provide no evidence that one historical feature is acting as a hidden leakage channel.
 
+### Ablation Conclusion
+
+Removing `historical_on_time_rate_departure_season` alone reduces MAE from 4.60 to 4.41, recovering most of the gap to the inherited model (4.30). The seasonal on-time rate is the main cause of the regression: it is likely noisy or non-stationary across the chronological split, so the model learns a seasonal pattern from training years that does not hold in the test period. Removing `historical_avg_transit_days_carrier` makes MAE worse (4.84), so carrier transit history is the most useful of the six features.
+
 ### Finding
 
 No direct future-information leakage was identified in the inspected inherited feature-generation path. The inherited model's lower MAE should therefore be treated as a model/feature-set difference rather than evidence of leakage.
@@ -1530,7 +1534,7 @@ The historical dataset contains information that the current service contract do
 
 The current implementation uses fixed inference defaults for several features.
 
-This allows the exact contract to work now, but it is a significant limitation for real-world accuracy.
+The serving path uses the inherited model (no historical features). The Round 14 model is not served until historical features can be computed at prediction time, but it is a significant limitation for real-world accuracy.
 
 ---
 

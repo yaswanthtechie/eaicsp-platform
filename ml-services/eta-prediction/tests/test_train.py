@@ -695,3 +695,21 @@ def test_r14_training_uses_eta_history_features():
         assert any(column in name for name in feature_names)
 
     assert hasattr(model.named_steps["model"], "predict")
+
+def test_committed_model_serves_with_inference_features():
+    """The committed production model must predict using only the
+    features the serving path builds (MODEL_FEATURES)."""
+    import joblib
+    import pandas as pd
+
+    from src.paths import MODEL_PATH
+    from src.preprocess import MODEL_FEATURES
+
+    model = joblib.load(MODEL_PATH)
+
+    row = {feature: 1.0 for feature in MODEL_FEATURES}
+    row["product_category_name"] = "unknown"
+
+    predictions = model.predict(pd.DataFrame([row])[MODEL_FEATURES])
+
+    assert len(predictions) == 1    

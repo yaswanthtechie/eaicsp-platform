@@ -504,3 +504,21 @@ def test_compare_models_returns_comparison_metrics():
 
     assert comparison["inherited"]["mean_interval_width"] == 4.0
     assert comparison["r14"]["mean_interval_width"] == 6.0
+def test_compare_models_coverage_depends_on_interval_width():
+    y_true = np.array([10.0, 12.0, 14.0, 16.0])
+    predictions = np.array([10.0, 11.0, 15.0, 19.0])  # abs errors: 0, 1, 1, 3
+
+    comparison = compare_models(
+        y_true,
+        predictions,
+        {"coverage": 0.80, "residual_lower": -1.0, "residual_upper": 1.0},
+        predictions,
+        {"coverage": 0.80, "residual_lower": -3.0, "residual_upper": 3.0},
+    )
+
+    assert comparison["inherited"]["mae"] == pytest.approx(1.25)
+    assert comparison["inherited"]["actual_coverage"] == pytest.approx(0.75)
+    assert comparison["inherited"]["mean_interval_width"] == pytest.approx(2.0)
+
+    assert comparison["r14"]["actual_coverage"] == pytest.approx(1.0)
+    assert comparison["r14"]["mean_interval_width"] == pytest.approx(6.0)
