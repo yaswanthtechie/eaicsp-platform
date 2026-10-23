@@ -83,3 +83,16 @@ Or:
 winget install GnuWin32.Make
 Alternatively, run the equivalent docker compose commands directly
 from PowerShell.
+
+## Running the whole platform
+
+1. Copy `.env.example` to `.env` if needed, then set unique local secrets and database passwords. Do not commit `.env`.
+2. From the repository root, run `make up`. This starts the shared stores, initializes MinIO buckets, builds the application images, and waits for configured health checks.
+3. Run `make seed` to generate shared seed data and run the available seed loaders.
+4. Run `make logs` to follow container logs, or `make ps` to inspect service status.
+5. Run `make reset` to recreate containers while preserving named volumes and stored data.
+6. Run `make down` to stop the stack. `make up-low-memory` starts the reduced infrastructure only.
+
+Application ports: Gateway 8000, Inventory 8001, Logistics 8002, Compliance 8003, Supplier Portal 8004, Platform 8005.
+
+The Logistics service currently uses in-memory shipment storage; shipment records are not durable across restarts. The `e2e` target remains intentionally failing until a cross-service E2E suite is implemented.
