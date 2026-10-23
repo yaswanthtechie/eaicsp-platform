@@ -1,7 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eaicsp.platform/contracts/events/iot.anomaly.detected.v1.json",
   "title": "iot.anomaly.detected",
-  "description": "One event per detected anomaly episode on a warehouse sensor. Published by the anomaly-detection service to the Kafka topic named after event_type (iot.anomaly.detected), partition key = payload.sensor_id. Delivery is at-least-once: consumers must de-duplicate on payload.episode_id (or event_id). Consumers must ignore unknown fields so additive changes do not break them.",
+  "description": "One event per detected anomaly episode on a warehouse sensor. Published by the anomaly-detection service to the Kafka topic named after event_type (iot.anomaly.detected), partition key = payload.sensor_id. Delivery is at-least-once and a crash replay re-publishes the same episode with a NEW event_id, so consumers must de-duplicate on payload.episode_id, not event_id. Consumers must ignore unknown fields so additive changes do not break them.",
   "type": "object",
   "required": [
     "event_id",
@@ -21,8 +22,9 @@
       "const": "iot.anomaly.detected"
     },
     "event_version": {
-      "const": "1.0",
-      "description": "Envelope/payload schema version, as a string."
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version number (integer 1). Additive, backward-compatible changes keep version 1."
     },
     "occurred_at": {
       "type": "string",
@@ -61,7 +63,7 @@
         "episode_id": {
           "type": "string",
           "minLength": 1,
-          "description": "Deterministic id: sensor_id|window_start. The same episode always has the same id; use it to de-duplicate."
+          "description": "Deterministic id: sensor_id|window_start, where window_start is ISO-8601 UTC with a +00:00 offset (Python isoformat). Treat it as an opaque string; do not rebuild or reformat it. The same episode always has the same id; use it to de-duplicate."
         },
         "sensor_id": {
           "type": "string",
@@ -135,7 +137,7 @@
           "type": "array",
           "minItems": 1,
           "maxItems": 3,
-          "description": "SHAP explanation of the peak reading: only features that push toward anomaly, ordered by contribution, highest first.",
+          "description": "SHAP explanation of the peak reading, ordered by contribution, highest first. Normally only features that push toward anomaly (shap_value > 0). If no feature does, contains exactly one item: the least-normal feature with contribution 0.",
           "items": {
             "type": "object",
             "required": ["feature", "contribution", "shap_value", "direction"],
