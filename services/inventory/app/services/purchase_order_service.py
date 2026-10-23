@@ -435,24 +435,10 @@ def approve_purchase_order(
     return purchase_order
 
 
-class _LegacyReceiptItem:
-    def __init__(self, sku_id: str, quantity_received: int, unit_cost: float | None = None):
-        self.sku_id = sku_id
-        self.quantity_received = quantity_received
-        self.unit_cost = unit_cost
-
-
-class _LegacyReceiptData:
-    def __init__(self, po_id: str, warehouse_id: str, items: list, notes: str | None = None):
-        self.po_id = po_id
-        self.warehouse_id = warehouse_id
-        self.items = items
-        self.notes = notes
-
-
 def receive_purchase_order(
     db: Session,
     po_id: str,
+    received_by: str,
 ):
     """
     Receive a purchase order (legacy).
@@ -475,7 +461,7 @@ def receive_purchase_order(
 
     if purchase_order.status not in ("draft", "acknowledged"):
         raise ValueError(
-            "Only draft purchase orders can be received"
+            "Only draft or acknowledged purchase orders can be received"
         )
 
     if purchase_order.approval_status != "approved":
@@ -488,13 +474,17 @@ def receive_purchase_order(
             "Purchase order quantity must be greater than zero"
         )
 
-    from app.services.goods_receipt_service import record_goods_receipt
+    from app.schemas.goods_receipt import GoodsReceiptCreate, GoodsReceiptItemCreate
+    from app.services.goods_receipt_service import (
+        invalidate_receipt_cache,
+        record_goods_receipt,
+    )
 
-    receipt_data = _LegacyReceiptData(
+    receipt_data = GoodsReceiptCreate(
         po_id=purchase_order.po_id,
         warehouse_id=purchase_order.warehouse_id,
         items=[
-            _LegacyReceiptItem(
+            GoodsReceiptItemCreate(
                 sku_id=purchase_order.sku_id,
                 quantity_received=purchase_order.quantity,
                 unit_cost=purchase_order.unit_cost,
@@ -503,15 +493,16 @@ def receive_purchase_order(
         notes="Legacy PO receive endpoint",
     )
 
-    record_goods_receipt(
+    receipt = record_goods_receipt(
         db=db,
         data=receipt_data,
-        received_by="legacy_receive_endpoint",
+        received_by=received_by,
     )
 
     try:
         db.commit()
         db.refresh(purchase_order)
+        invalidate_receipt_cache(db, receipt)
     except Exception:
         db.rollback()
         raise

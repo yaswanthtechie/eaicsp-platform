@@ -247,7 +247,7 @@ def test_unapproved_po_returns_400(client, db_session):
         },
     )
     assert resp.status_code == 400
-    assert "approval" in resp.json()["detail"].lower()
+    assert "approved" in resp.json()["detail"].lower()
 
     db_session.refresh(inv)
     assert inv.quantity_on_hand == 100
@@ -336,4 +336,28 @@ def test_legacy_po_receive_delegation(client, db_session, seed_inventory_and_po)
     gr = db_session.query(GoodsReceipt).filter(GoodsReceipt.po_id == "PO-2026-000123").first()
     assert gr is not None
     assert gr.status == "received"
+
+
+def test_over_receipt_returns_400(client, db_session, seed_inventory_and_po):
+    resp = client.post(
+        "/api/v1/inventory/goods-receipts",
+        json={
+            "po_id": "PO-2026-000123",
+            "warehouse_id": "WH-BLR-01",
+            "items": [{"sku_id": "SKU-000123", "quantity_received": 51}],
+        },
+    )
+    assert resp.status_code == 400
+    assert "exceeds" in resp.json()["detail"]
+    inv = db_session.query(Inventory).filter_by(sku_id="SKU-000123", warehouse_id="WH-BLR-01").one()
+    assert inv.quantity_on_hand == 100  # unchanged
+
+
+def test_legacy_receive_requires_warehouse_manager(client, db_session, seed_inventory_and_po):
+    from app.main import app
+    from app.core.auth import verify_token
+    app.dependency_overrides[verify_token] = _as_user("analyst")
+    resp = client.post("/api/v1/inventory/purchase-orders/PO-2026-000123/receive")
+    assert resp.status_code == 403
+
 

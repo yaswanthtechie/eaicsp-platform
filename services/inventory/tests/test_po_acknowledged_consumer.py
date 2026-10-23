@@ -231,3 +231,40 @@ def test_worker_routes_unparseable_json_to_dlq(db_session):
     assert len(dlq.published) == 1
     assert len(consumer.committed) == 1
 
+
+def test_ack_for_unapproved_po_is_ignored(db_session, example_event, seed_po):
+    seed_po.approval_status = "pending_vp_approval"
+    db_session.commit()
+    result = process_po_acknowledged_event(db_session, example_event)
+    assert result.status == "SKIPPED_INVALID_STATE"
+    db_session.refresh(seed_po)
+    assert seed_po.status == "draft"
+
+
+def test_ack_for_on_hold_po_keeps_the_hold(db_session, example_event, seed_po):
+    seed_po.status = "on_hold"
+    seed_po.hold_reason = "Supplier under review"
+    seed_po.hold_source = "compliance"
+    db_session.commit()
+    result = process_po_acknowledged_event(db_session, example_event)
+    assert result.status == "SKIPPED_INVALID_STATE"
+    db_session.refresh(seed_po)
+    assert seed_po.status == "on_hold"
+
+
+def test_ack_from_other_supplier_is_rejected(db_session, example_event, seed_po):
+    bad = json.loads(json.dumps(example_event))
+    bad["payload"]["supplier_id"] = "SUP-99999"
+    with pytest.raises(InvalidMessageError, match="does not own"):
+        process_po_acknowledged_event(db_session, bad)
+    db_session.refresh(seed_po)
+    assert seed_po.status == "draft"
+
+
+def test_ack_with_non_canonical_po_number_is_rejected(db_session, example_event):
+    bad = json.loads(json.dumps(example_event))
+    bad["payload"]["po_number"] = "PO-123"  # noncanonical-ok
+    with pytest.raises(InvalidMessageError):
+        process_po_acknowledged_event(db_session, bad)
+
+

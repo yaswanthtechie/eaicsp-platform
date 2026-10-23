@@ -133,14 +133,19 @@ def approve_purchase_order_endpoint(
 def receive_purchase_order_endpoint(
     po_id: str,
     db: Session = Depends(get_db),
-    auth=Depends(
-        require_permission("inventory:write")
-    ),
+    auth=Depends(require_roles("warehouse_manager")),
 ):
+    user_id = auth.get("user_id")
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication token has no user_id",
+        )
     try:
         return receive_purchase_order(
             db=db,
             po_id=po_id,
+            received_by=str(user_id),
         )
 
     except LookupError as exc:

@@ -790,8 +790,8 @@ def test_m3_receive_purchase_order_creates_cost_layer(
     4. Change PO status to received.
     """
 
-    sku = "SKU-M3-PO-RECEIVE"
-    warehouse = "WH-M3-RECEIVE"
+    sku = "SKU-000301"
+    warehouse = "WH-BLR-01"
 
     inventory = Inventory(
         sku_id=sku,
@@ -806,7 +806,7 @@ def test_m3_receive_purchase_order_creates_cost_layer(
     )
 
     supplier = Supplier(
-        supplier_id="SUP-M3-RECEIVE",
+        supplier_id="SUP-00001",
         sku_id=sku,
         supplier_name="M3 Supplier",
         unit_cost=25.0,
@@ -904,8 +904,8 @@ def test_m3_receive_purchase_order_updates_inventory_value(
     be included in FIFO valuation.
     """
 
-    sku = "SKU-M3-PO-VALUE"
-    warehouse = "WH-M3-PO-VALUE"
+    sku = "SKU-000302"
+    warehouse = "WH-DEL-01"
 
     inventory = Inventory(
         sku_id=sku,
@@ -920,7 +920,7 @@ def test_m3_receive_purchase_order_updates_inventory_value(
     )
 
     supplier = Supplier(
-        supplier_id="SUP-M3-PO-VALUE",
+        supplier_id="SUP-00002",
         sku_id=sku,
         supplier_name="Value Supplier",
         unit_cost=20.0,
@@ -1002,8 +1002,8 @@ def test_m3_cannot_receive_purchase_order_twice(
     A received PO cannot be received again.
     """
 
-    sku = "SKU-M3-PO-DUPLICATE"
-    warehouse = "WH-M3-PO-DUPLICATE"
+    sku = "SKU-000303"
+    warehouse = "WH-BOM-01"
 
     inventory = Inventory(
         sku_id=sku,
@@ -1018,7 +1018,7 @@ def test_m3_cannot_receive_purchase_order_twice(
     )
 
     supplier = Supplier(
-        supplier_id="SUP-M3-DUPLICATE",
+        supplier_id="SUP-00003",
         sku_id=sku,
         supplier_name="Duplicate Supplier",
         unit_cost=30.0,
@@ -1067,5 +1067,5 @@ def test_m3_cannot_receive_purchase_order_twice(
 
     assert (
         second_receive.json()["detail"]
-        == "Only draft purchase orders can be received"
+        == "Only draft or acknowledged purchase orders can be received"
     )

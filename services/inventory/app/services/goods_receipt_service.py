@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 import logging
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from app.models.goods_receipt import GoodsReceipt, GoodsReceiptItem
@@ -16,6 +16,10 @@ logger = logging.getLogger(__name__)
 
 def generate_goods_receipt_id(db: Session) -> str:
     """Canonical Goods Receipt ID per blueprint Section 2: GR-<year>-<6 digits>, e.g. GR-2026-000077."""
+    # Serialise GR numbering until commit (Postgres). SQLite tests run single-threaded.
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtext('inventory.goods_receipt_id'))"))
+
     prefix = f"GR-{datetime.now(UTC).year}-"
     last = (
         db.query(GoodsReceipt.receipt_id)
@@ -62,7 +66,7 @@ def record_goods_receipt(
         )
 
     if po.approval_status != "approved":
-        raise ValueError("Purchase order requires VP Operations approval")
+        raise ValueError("Purchase order is not approved")
 
     if po.status == "received":
         raise ValueError(f"Purchase order {data.po_id} is already received")
@@ -80,6 +84,21 @@ def record_goods_receipt(
             )
         if item.quantity_received <= 0:
             raise ValueError("Quantity received must be greater than zero")
+
+    # 1b. Never receive more than is still outstanding on the PO
+    prior_received_qty = (
+        db.query(func.coalesce(func.sum(GoodsReceiptItem.quantity_received), 0))
+        .join(GoodsReceipt, GoodsReceipt.receipt_id == GoodsReceiptItem.receipt_id)
+        .filter(GoodsReceipt.po_id == po.po_id, GoodsReceiptItem.sku_id == po.sku_id)
+        .scalar()
+    ) or 0
+    current_batch_qty = sum(item.quantity_received for item in data.items)
+    outstanding = po.quantity - prior_received_qty
+    if current_batch_qty > outstanding:
+        raise ValueError(
+            f"Receiving {current_batch_qty} units exceeds the {outstanding} "
+            f"still outstanding on purchase order {po.po_id}"
+        )
 
     # 2. Update stock & cost layers for each item
     for item in data.items:
@@ -112,12 +131,6 @@ def record_goods_receipt(
             unit_cost=unit_cost,
         )
 
-        invalidate_inventory_cache(
-            inventory.sku_id,
-            inventory.warehouse_id,
-            version=inventory.version,
-        )
-
     # 3. Insert goods receipt and receipt line items
     receipt_id = generate_goods_receipt_id(db)
     received_at = datetime.now(UTC)
@@ -145,16 +158,6 @@ def record_goods_receipt(
         db.add(gr_item)
 
     # 4. Check whether PO is fully received or partially received
-    prior_received_qty = (
-        db.query(func.coalesce(func.sum(GoodsReceiptItem.quantity_received), 0))
-        .join(GoodsReceipt, GoodsReceipt.receipt_id == GoodsReceiptItem.receipt_id)
-        .filter(GoodsReceipt.po_id == po.po_id, GoodsReceiptItem.sku_id == po.sku_id)
-        .scalar()
-    ) or 0
-
-    current_batch_qty = sum(
-        item.quantity_received for item in data.items if item.sku_id == po.sku_id
-    )
     total_received = prior_received_qty + current_batch_qty
 
     if total_received >= po.quantity:
@@ -183,7 +186,6 @@ def record_goods_receipt(
     payload = {
         "receipt_id": receipt.receipt_id,
         "po_id": po.po_id,
-        "po_number": po.po_id,
         "supplier_id": po.supplier_id,
         "warehouse_id": receipt.warehouse_id,
         "received_by": receipt.received_by,
@@ -212,4 +214,24 @@ def record_goods_receipt(
     )
 
     return receipt
+
+
+def invalidate_receipt_cache(db: Session, receipt: GoodsReceipt) -> None:
+    """Call AFTER commit, so readers never re-cache pre-receipt stock."""
+    for item in receipt.items:
+        inventory = (
+            db.query(Inventory)
+            .filter(
+                Inventory.sku_id == item.sku_id,
+                Inventory.warehouse_id == receipt.warehouse_id,
+            )
+            .first()
+        )
+        if inventory is not None:
+            invalidate_inventory_cache(
+                inventory.sku_id,
+                inventory.warehouse_id,
+                version=inventory.version,
+            )
+
 

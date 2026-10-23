@@ -9,10 +9,12 @@ from typing import Any, Optional
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from pydantic import ValidationError
 
 from app.core.config import settings
 from app.models.compliance_event import ProcessedEvent
 from app.models.purchase_order import PurchaseOrder
+from app.schemas.events import POAcknowledgedPayload
 
 try:
     from confluent_kafka import Consumer, KafkaError, KafkaException, TopicPartition
@@ -39,7 +41,7 @@ class DeadLetterPublishError(Exception):
 
 @dataclass
 class ProcessingResult:
-    status: str  # "PROCESSED", "DUPLICATE", "PO_NOT_FOUND", "DLQ"
+    status: str  # "PROCESSED", "DUPLICATE", "PO_NOT_FOUND", "SKIPPED_INVALID_STATE", "DLQ"
     event_id: str
     affected_po: Optional[str] = None
     details: str = ""
@@ -136,17 +138,15 @@ def process_po_acknowledged_event(
     if not isinstance(payload, dict) or not payload:
         raise InvalidMessageError("Missing or invalid 'payload' object in event envelope")
 
-    # 2. Payload validation
-    po_number = payload.get("po_number")
-    supplier_id = payload.get("supplier_id")
-    acknowledged_at_raw = payload.get("acknowledged_at")
-
-    if not isinstance(po_number, str) or not po_number:
-        raise InvalidMessageError("Missing or invalid 'po_number' in payload")
-    if not isinstance(supplier_id, str) or not supplier_id:
-        raise InvalidMessageError("Missing or invalid 'supplier_id' in payload")
-    if not isinstance(acknowledged_at_raw, str) or not acknowledged_at_raw:
-        raise InvalidMessageError("Missing or invalid 'acknowledged_at' in payload")
+    # 2. Payload validation against the contract
+    try:
+        ack = POAcknowledgedPayload.model_validate(payload)
+    except ValidationError as exc:
+        raise InvalidMessageError(
+            f"Payload does not match supplierportal.po.acknowledged v1: {exc}"
+        ) from exc
+    po_number = ack.po_number
+    supplier_id = ack.supplier_id
 
     occurred_at_raw = event_data.get("occurred_at")
     try:
@@ -212,9 +212,27 @@ def process_po_acknowledged_event(
             details=f"Purchase order {po_number} not found",
         )
 
-    # 5. Mark PO as acknowledged (if not already progressed to received)
-    if po.status not in ("received", "partially_received"):
+    # 5. The sender must own the PO. A mismatch is a bad message, so it goes to the DLQ.
+    if po.supplier_id != supplier_id:
+        raise InvalidMessageError(
+            f"Supplier {supplier_id} does not own PO {po.po_id} (owner is {po.supplier_id})"
+        )
+
+    # 6. Only an approved draft moves to 'acknowledged'. Later states stay as they are.
+    if po.status == "draft" and po.approval_status == "approved":
         po.status = "acknowledged"
+        outcome = "PROCESSED"
+        details = f"PO {po.po_id} marked as acknowledged"
+    elif po.status in ("acknowledged", "received", "partially_received"):
+        outcome = "PROCESSED"
+        details = f"PO {po.po_id} already {po.status}; nothing to change"
+    else:
+        outcome = "SKIPPED_INVALID_STATE"
+        details = (
+            f"PO {po.po_id} is {po.status}/{po.approval_status}; "
+            "only approved draft POs can be acknowledged"
+        )
+        logger.warning("Ignoring acknowledgement %s: %s", event_id, details)
 
     _record_processed(
         db,
@@ -222,7 +240,7 @@ def process_po_acknowledged_event(
         event_type=event_type,
         supplier_id=supplier_id,
         occurred_at=occurred_at,
-        status="PROCESSED",
+        status=outcome,
     )
 
     if not _commit_or_duplicate(db, event_id):
@@ -232,17 +250,12 @@ def process_po_acknowledged_event(
             details=f"Event {event_id} already processed concurrently",
         )
 
-    logger.info(
-        "Acknowledged PO %s from supplier %s (event %s)",
-        po.po_id,
-        supplier_id,
-        event_id,
-    )
+    logger.info("PO acknowledgement %s for %s: %s", event_id, po.po_id, outcome)
     return ProcessingResult(
-        status="PROCESSED",
+        status=outcome,
         event_id=event_id,
         affected_po=po.po_id,
-        details=f"PO {po.po_id} marked as acknowledged",
+        details=details,
     )
 
 
@@ -493,4 +506,19 @@ class POAcknowledgedConsumerWorker:
                 break
 
         return processed_count
+
+
+def run_po_acknowledged_consumer(poll_timeout: float = 1.0, stop_event=None) -> None:
+    """Entry point for the standalone PO acknowledged consumer worker."""
+    worker = POAcknowledgedConsumerWorker()
+    worker.run_worker_loop(poll_timeout=poll_timeout, stop_event=stop_event)
+
+
+if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+    run_po_acknowledged_consumer()
+
 

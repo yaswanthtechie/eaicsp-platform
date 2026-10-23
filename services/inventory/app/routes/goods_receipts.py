@@ -5,7 +5,10 @@ from sqlalchemy.orm import Session
 from app.core.auth import require_permission, require_roles
 from app.database import get_db
 from app.schemas.goods_receipt import GoodsReceiptCreate, GoodsReceiptResponse
-from app.services.goods_receipt_service import record_goods_receipt
+from app.services.goods_receipt_service import (
+    invalidate_receipt_cache,
+    record_goods_receipt,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,12 +45,13 @@ def create_goods_receipt(
     Records physical receipt of goods (Flow B).
     Increments on-hand stock, updates purchase order status, and publishes inventory.goods.received outbox event.
     """
-    received_by = str(
-        auth.get("username")
-        or auth.get("email")
-        or auth.get("user_id")
-        or "warehouse_manager"
-    )
+    user_id = auth.get("user_id")
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication token has no user_id",
+        )
+    received_by = str(user_id)
 
     try:
         receipt = record_goods_receipt(
@@ -57,6 +61,7 @@ def create_goods_receipt(
         )
         db.commit()
         db.refresh(receipt)
+        invalidate_receipt_cache(db, receipt)
         return receipt
 
     except LookupError as exc:
