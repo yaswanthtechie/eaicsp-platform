@@ -34,7 +34,7 @@ sources:
   null_rate_threshold: 0.1
   negative_rate_threshold: 0.05
   min_rows: 5
-  max_rows: 2000
+  max_rows: 3000000
   history_table: sales_fact_history
   schema_evolution: quarantine
 - name: inventory
