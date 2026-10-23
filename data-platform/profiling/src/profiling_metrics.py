@@ -3,7 +3,7 @@ import time
 import logging
 from pathlib import Path
 from prometheus_client import start_http_server, Gauge
-from datetime import datetime, timezone
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -44,10 +44,11 @@ PROFILING_LAST_RUN = Gauge(
     ["dataset"]
 )
 
+DEFAULT_ARCHIVE_PATH = Path(__file__).resolve().parent.parent / "reports" / "audit_archive.jsonl"
 
 def update_metrics_from_archive(archive_path="reports/audit_archive.jsonl"):
     """Reads the latest profiling runs and updates Prometheus Gauges."""
-    path = Path(archive_path)
+    path = Path(archive_path) if archive_path else DEFAULT_ARCHIVE_PATH
     if not path.exists():
         logger.warning(f"Archive not found at {archive_path}. Waiting for data...")
         return
@@ -60,18 +61,7 @@ def update_metrics_from_archive(archive_path="reports/audit_archive.jsonl"):
                 continue
             try:
                 record = json.loads(line)
-
-                # Infer dataset name based on specific columns
-                columns = record.get("profile_report", {}).get("columns", [])
-                if "quantity_sold" in columns:
-                    dataset = "benchmark_1m_sales"
-                elif "unit_cost" in columns:
-                    dataset = "products"
-                elif "product_name" in columns:
-                    dataset = "sales_parity"
-                else:
-                    dataset = f"unknown_{len(columns)}_cols"
-
+                dataset = record.get("dataset", "unknown")
                 latest_runs[dataset] = record
             except json.JSONDecodeError:
                 continue
@@ -80,32 +70,31 @@ def update_metrics_from_archive(archive_path="reports/audit_archive.jsonl"):
     for dataset, data in latest_runs.items():
         report = data.get("profile_report", {})
         q_score = report.get("quality_score", {})
+        scorecard = report.get("quality_scorecard", {})
+        components = scorecard.get("components", {})
 
-        # Total rows is the first element of the shape array
         shape = report.get("shape", [0, 0])
         total_rows = shape[0]
 
-        # 1. Overall Quality Score (directly from JSON)
-        PROFILING_QUALITY_SCORE.labels(dataset=dataset).set(q_score.get("score", 0))
+        # 1. Overall Quality Score
+        overall = scorecard.get("overall_score", q_score.get("score", 0))
+        PROFILING_QUALITY_SCORE.labels(dataset=dataset).set(overall)
 
-        if total_rows > 0:
-            # 2. Completeness (1 - (missing_values / total_rows)) * 100
-            missing = q_score.get("missing_values", 0)
-            completeness = (1 - (missing / total_rows)) * 100
-            PROFILING_COMPLETENESS_SCORE.labels(dataset=dataset).set(completeness)
+        # 2-4. Sub-scores (Use scorecard if available, otherwise calculate from quality_score)
+        if "completeness" in components:
+            PROFILING_COMPLETENESS_SCORE.labels(dataset=dataset).set(components["completeness"])
+            PROFILING_VALIDITY_SCORE.labels(dataset=dataset).set(components.get("validity", 0))
+            PROFILING_UNIQUENESS_SCORE.labels(dataset=dataset).set(components.get("uniqueness", 0))
+        elif total_rows > 0:
+            comp = (1 - (q_score.get("missing_values", 0) / total_rows)) * 100
+            val = (1 - (q_score.get("total_outliers", 0) / total_rows)) * 100
+            uniq = (1 - (q_score.get("duplicate_rows", 0) / total_rows)) * 100
+            PROFILING_COMPLETENESS_SCORE.labels(dataset=dataset).set(comp)
+            PROFILING_VALIDITY_SCORE.labels(dataset=dataset).set(val)
+            PROFILING_UNIQUENESS_SCORE.labels(dataset=dataset).set(uniq)
 
-            # 3. Validity (1 - (total_outliers / total_rows)) * 100
-            outliers = q_score.get("total_outliers", 0)
-            validity = (1 - (outliers / total_rows)) * 100
-            PROFILING_VALIDITY_SCORE.labels(dataset=dataset).set(validity)
-
-            # 4. Uniqueness (1 - (duplicate_rows / total_rows)) * 100
-            duplicates = q_score.get("duplicate_rows", 0)
-            uniqueness = (1 - (duplicates / total_rows)) * 100
-            PROFILING_UNIQUENESS_SCORE.labels(dataset=dataset).set(uniqueness)
-
-        # 5. Consistency (Not explicitly tracked in this JSON schema, defaulting to 100)
-        PROFILING_CONSISTENCY_SCORE.labels(dataset=dataset).set(100.0)
+        # 5. Consistency (No math fallback exists; default to 0 if missing)
+        PROFILING_CONSISTENCY_SCORE.labels(dataset=dataset).set(components.get("consistency", 0.0))
 
         # Publish the timestamp of the run
         run_time_str = data.get("timestamp")
@@ -124,11 +113,11 @@ def update_metrics_from_archive(archive_path="reports/audit_archive.jsonl"):
 
 
 def main():
-    # We use 8001 to avoid colliding with the data-validator running on 8000
-    port = 8001
+    # 8000=validator, 8001-8006=services (see SERVICE_ROUTES in api-gateway config). Use 8007.
+    port = 8007
     start_http_server(port)
     logger.info(f"Prometheus metrics server listening on port {port}")
-    logger.info("Access metrics at: http://localhost:8001/metrics")
+    logger.info("Access metrics at: http://localhost:8007/metrics")
 
     try:
         while True:

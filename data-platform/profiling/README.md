@@ -1217,7 +1217,7 @@ It dynamically infers the dataset names and mathematically calculates sub-scores
 * `profiling_last_run_timestamp`
 
 **Observability Alignment:** 
-These metrics were deliberately designed to mirror the naming conventions of the real-time `data-validator` library (which uses the `validation_` prefix). Because they share the same label structures (`dataset="<table_name>"`), both platforms can now be scraped by Prometheus and plotted side-by-side in Grafana, providing a single, unified observability dashboard for all data quality across the organization.
+Profiling metrics follow the same profiling_* naming prefix as validation's validation_* metrics for a consistent Grafana namespace. Note: validation's metrics are currently global (unlabeled), while profiling's are labeled by dataset. They don't yet share identical label dimensions.
 
 ## How to run
 ```bash
