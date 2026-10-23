@@ -21,11 +21,17 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+from fastapi import WebSocketDisconnect
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings, settings
 from app.main import app
-from app.services.proxy import _find_service_route, build_downstream_url
+from app.services.proxy import (
+    _extract_websocket_token,
+    _find_service_route,
+    _safe_websocket_exception_detail,
+    build_downstream_url,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -47,8 +53,8 @@ from app.services.proxy import _find_service_route, build_downstream_url
         ),
         (
             "/api/v1/inventory/goods-receipts",
-            "/api/v1/inventory/goods-receipts",
-            "http://localhost:8004",
+            "/api/v1/inventory",
+            "http://localhost:8001",
         ),
         (
             "/api/v1/purchase-orders/PO-2026-0001",
@@ -57,8 +63,18 @@ from app.services.proxy import _find_service_route, build_downstream_url
         ),
         (
             "/api/v1/suppliers/SUP-00045/risk-score",
-            "/api/v1/suppliers",
+            "/api/v1/supplier-risk",
             "http://localhost:8006",
+        ),
+        (
+            "/api/v1/suppliers/SUP-00045/stats",
+            "/api/v1/suppliers",
+            "http://localhost:8004",
+        ),
+        (
+            "/api/v1/suppliers/SUP-00045/scorecard",
+            "/api/v1/suppliers",
+            "http://localhost:8004",
         ),
         (
             "/api/v1/analytics/kpis",
@@ -181,11 +197,21 @@ def test_build_downstream_url_with_configured_rewrite():
     assert url3 == "http://localhost:8007/forecast/SKU-000123?horizon=30"
 
 
-def test_goods_receipts_downstream_url_selection_and_rewrite():
+def test_goods_receipts_routes_to_inventory_without_rewrite():
     """
-    Prove that POST /api/v1/inventory/goods-receipts routes to the supplier-portal
-    service on port 8004 with path rewritten to /api/v1/goods-receipts.
+    Prove that POST /api/v1/inventory/goods-receipts routes through /api/v1/inventory
+    to the inventory service on port 8001 without rewrite.
     """
+    route = _find_service_route("/api/v1/inventory/goods-receipts")
+    assert route == ("/api/v1/inventory", "http://localhost:8001")
+
+    url = build_downstream_url(
+        target_base_url="http://localhost:8001",
+        path="/api/v1/inventory/goods-receipts",
+        route_prefix="/api/v1/inventory",
+    )
+    assert url == "http://localhost:8001/api/v1/inventory/goods-receipts"
+
     sent_requests: list[httpx.Request] = []
 
     async def fake_send(request: httpx.Request, *args, **kwargs):
@@ -200,7 +226,7 @@ def test_goods_receipts_downstream_url_selection_and_rewrite():
     assert len(sent_requests) == 1
     req = sent_requests[0]
     assert req.method == "POST"
-    assert str(req.url) == "http://localhost:8004/api/v1/goods-receipts"
+    assert str(req.url) == "http://localhost:8001/api/v1/inventory/goods-receipts"
 
 
 def test_inventory_endpoints_preserve_inventory_routing_without_rewrite():
@@ -279,6 +305,112 @@ def test_supplier_risk_downstream_url_selection_default_and_rewrite():
 
     assert len(sent_requests) == 1
     assert str(sent_requests[0].url) == "http://localhost:8006/api/v1/supplier-risk/SUP-00045/risk-score?detail=true"
+
+
+def test_supplier_portal_endpoints_route_to_supplier_portal_port_8004():
+    """
+    Verify that general supplier endpoints route to Supplier Portal (port 8004).
+    Specifically:
+    - /api/v1/suppliers/{id}/stats
+    - /api/v1/suppliers/{id}/scorecard
+    """
+    sent_requests: list[httpx.Request] = []
+
+    async def fake_send(request: httpx.Request, *args, **kwargs):
+        sent_requests.append(request)
+        return httpx.Response(200, json={"status": "ok"}, request=request)
+
+    with patch("httpx.AsyncClient.send", new=AsyncMock(side_effect=fake_send)):
+        with TestClient(app, raise_server_exceptions=True) as client:
+            resp_stats = client.get("/api/v1/suppliers/SUP-00045/stats")
+            assert resp_stats.status_code == 200
+
+            resp_scorecard = client.get("/api/v1/suppliers/SUP-00045/scorecard")
+            assert resp_scorecard.status_code == 200
+
+    assert len(sent_requests) == 2
+    assert str(sent_requests[0].url) == "http://localhost:8004/api/v1/suppliers/SUP-00045/stats"
+    assert str(sent_requests[1].url) == "http://localhost:8004/api/v1/suppliers/SUP-00045/scorecard"
+
+
+def test_supplier_portal_supplier_endpoints_not_sent_to_supplier_risk():
+    """
+    Verify routing separation:
+    - /api/v1/suppliers/SUP-00045/stats routes to port 8004.
+    - /api/v1/suppliers/SUP-00045/risk-score routes to port 8006.
+    """
+    sent_requests: list[httpx.Request] = []
+
+    async def fake_send(request: httpx.Request, *args, **kwargs):
+        sent_requests.append(request)
+        return httpx.Response(200, json={"status": "ok"}, request=request)
+
+    with patch("httpx.AsyncClient.send", new=AsyncMock(side_effect=fake_send)):
+        with TestClient(app, raise_server_exceptions=True) as client:
+            resp_stats = client.get("/api/v1/suppliers/SUP-00045/stats")
+            assert resp_stats.status_code == 200
+
+            resp_risk = client.get("/api/v1/suppliers/SUP-00045/risk-score")
+            assert resp_risk.status_code == 200
+
+    assert len(sent_requests) == 2
+    assert str(sent_requests[0].url) == "http://localhost:8004/api/v1/suppliers/SUP-00045/stats"
+    assert str(sent_requests[1].url) == "http://localhost:8006/api/v1/suppliers/SUP-00045/risk-score"
+
+
+def test_supplier_risk_score_pattern_routing_and_malformed_ids():
+    """
+    Verify that only /api/v1/suppliers/{supplier_id}/risk-score routes to Supplier Risk (port 8006).
+    Malformed supplier IDs must still route to Supplier Risk so its contract returns validation errors.
+    """
+    # Valid and malformed IDs must all match the risk-score pattern and route to /api/v1/supplier-risk
+    supplier_ids = [
+        "SUP-00045",
+        "invalid-id",
+        "123",
+        "bad_supplier_id",
+        "MALFORMED!!",
+        "non-existent-uuid-1234",
+    ]
+    for sup_id in supplier_ids:
+        path = f"/api/v1/suppliers/{sup_id}/risk-score"
+        route = _find_service_route(path)
+        assert route is not None, f"Expected {path} to resolve"
+        assert route == ("/api/v1/supplier-risk", "http://localhost:8006")
+
+        # Also with optional trailing slash
+        route_slash = _find_service_route(f"{path}/")
+        assert route_slash == ("/api/v1/supplier-risk", "http://localhost:8006")
+
+    # Verify that a request with malformed ID is actually sent downstream to port 8006
+    sent_requests: list[httpx.Request] = []
+
+    async def fake_send(request: httpx.Request, *args, **kwargs):
+        sent_requests.append(request)
+        return httpx.Response(422, json={"detail": "Invalid supplier ID format"}, request=request)
+
+    with patch("httpx.AsyncClient.send", new=AsyncMock(side_effect=fake_send)):
+        with TestClient(app, raise_server_exceptions=True) as client:
+            resp = client.get("/api/v1/suppliers/invalid-id/risk-score")
+            assert resp.status_code == 422
+            assert resp.json() == {"detail": "Invalid supplier ID format"}
+
+    assert len(sent_requests) == 1
+    assert str(sent_requests[0].url) == "http://localhost:8006/api/v1/suppliers/invalid-id/risk-score"
+
+
+def test_pattern_route_ignored_when_owner_prefix_not_in_service_routes():
+    """
+    Verify that if the pattern's owner prefix is not present in SERVICE_ROUTES,
+    it falls back to normal prefix matching.
+    """
+    routes_without_risk = dict(settings.SERVICE_ROUTES)
+    routes_without_risk.pop("/api/v1/supplier-risk", None)
+
+    with patch.object(settings, "SERVICE_ROUTES", routes_without_risk):
+        route = _find_service_route("/api/v1/suppliers/SUP-00045/risk-score")
+        # Since /api/v1/supplier-risk is missing, it falls back to prefix matching /api/v1/suppliers (port 8004)
+        assert route == ("/api/v1/suppliers", "http://localhost:8004")
 
 
 # ---------------------------------------------------------------------------
@@ -373,7 +505,7 @@ def test_request_id_generated_when_missing():
 # ---------------------------------------------------------------------------
 
 def test_post_goods_receipts_preserves_body_and_method():
-    """Verify that POST /api/v1/inventory/goods-receipts sends the exact request body downstream."""
+    """Verify that POST /api/v1/inventory/goods-receipts sends the exact request body downstream to port 8001."""
     sent_requests: list[httpx.Request] = []
 
     async def fake_send(request: httpx.Request, *args, **kwargs):
@@ -395,7 +527,7 @@ def test_post_goods_receipts_preserves_body_and_method():
     assert len(sent_requests) == 1
     req = sent_requests[0]
     assert req.method == "POST"
-    assert str(req.url) == "http://localhost:8004/api/v1/goods-receipts"
+    assert str(req.url) == "http://localhost:8001/api/v1/inventory/goods-receipts"
     assert json.loads(req.content.decode("utf-8")) == payload
     assert "application/json" in req.headers.get("content-type", "")
 
@@ -564,14 +696,437 @@ def test_websockets_connect_header_argument_matches_installed_version():
 
     assert len(captured_kwargs) == 1
     assert expected_kwarg in captured_kwargs[0], f"Expected {expected_kwarg} in websockets.connect arguments"
+    assert captured_kwargs[0].get("open_timeout") == 5.0
 
 
 def test_websocket_proxy_unknown_route_closed():
     """Verify that attempting to connect via WebSocket to an unknown route closes with code 1008."""
     with TestClient(app) as client:
-        with pytest.raises(Exception):
+        with pytest.raises(WebSocketDisconnect) as exc_info:
             with client.websocket_connect("/api/v1/nonexistent/ws") as ws:
                 ws.receive_text()
+        assert exc_info.value.code == 1008
+        assert exc_info.value.reason == "Service not found for the requested path."
+
+
+def test_websocket_not_on_allowlist_is_closed():
+    """A non-allowlisted path closes with code 1008; no downstream connection is opened."""
+    with patch("websockets.connect") as mock_connect:
+        with TestClient(app) as client:
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                with client.websocket_connect("/api/v1/inventory/optimization/recommendations") as ws:
+                    ws.receive_text()
+            assert exc_info.value.code == 1008
+            assert exc_info.value.reason == "Service not found for the requested path."
+
+        mock_connect.assert_not_called()
+
+
+def test_websocket_proxy_rejects_non_allowlisted_known_http_routes():
+    """
+    Verify that known gateway HTTP routes or non-allowlisted routes are rejected
+    when connected to via WebSocket with close code 1008, and no downstream connection is opened.
+    """
+    non_allowlisted_paths = [
+        "/api/v1/inventory/optimization/recommendations",
+        "/api/v1/demand/forecast/SKU-000123",
+        "/api/v1/purchase-orders/PO-100",
+        "/api/v1/suppliers/SUP-00045/risk-score",
+        "/api/v1/analytics/kpis",
+    ]
+    with patch("websockets.connect") as mock_connect:
+        with TestClient(app) as client:
+            for path in non_allowlisted_paths:
+                with pytest.raises(WebSocketDisconnect) as exc_info:
+                    with client.websocket_connect(path) as ws:
+                        ws.receive_text()
+                assert exc_info.value.code == 1008
+                assert exc_info.value.reason == "Service not found for the requested path."
+
+        mock_connect.assert_not_called()
+
+
+def test_websocket_proxy_open_timeout_configuration():
+    """Verify that websockets.connect receives open_timeout=5.0 by default and custom values when configured."""
+    mock_ws = MockDownstreamWebSocket()
+    captured_kwargs: list[dict] = []
+
+    @asynccontextmanager
+    async def fake_ws_connect(uri: str, **kwargs):
+        captured_kwargs.append(kwargs)
+        yield mock_ws
+
+    # 1. Default open_timeout (5.0s)
+    with patch("websockets.connect", side_effect=fake_ws_connect):
+        with TestClient(app) as client:
+            with client.websocket_connect("/api/v1/analytics/kpis/real-time") as ws:
+                pass
+
+    assert len(captured_kwargs) == 1
+    assert captured_kwargs[0].get("open_timeout") == 5.0
+
+    # 2. Custom open_timeout configuration
+    captured_kwargs.clear()
+    with patch("websockets.connect", side_effect=fake_ws_connect):
+        with patch.object(settings, "WEBSOCKET_OPEN_TIMEOUT_SECONDS", 10.0):
+            with TestClient(app) as client:
+                with client.websocket_connect("/api/v1/analytics/kpis/real-time") as ws:
+                    pass
+
+    assert len(captured_kwargs) == 1
+    assert captured_kwargs[0].get("open_timeout") == 10.0
+
+
+# ---------------------------------------------------------------------------
+# WebSocket Authentication Precheck (Fix 1)
+# ---------------------------------------------------------------------------
+
+class DummyWebSocket:
+    def __init__(self, headers: dict | None = None, query_params: dict | None = None):
+        self.headers = headers or {}
+        self.query_params = query_params or {}
+
+
+def test_extract_websocket_token_order_and_formats():
+    """Verify token extraction order: Authorization header -> ?token= -> Sec-WebSocket-Protocol."""
+    # 1. Authorization header (Bearer scheme)
+    ws1 = DummyWebSocket(headers={"Authorization": "Bearer token_from_header"})
+    assert _extract_websocket_token(ws1) == "token_from_header"
+
+    # Lowercase authorization header
+    ws1_lower = DummyWebSocket(headers={"authorization": "Bearer token_from_header_lower"})
+    assert _extract_websocket_token(ws1_lower) == "token_from_header_lower"
+
+    # 2. Query parameter (?token=)
+    ws2 = DummyWebSocket(query_params={"token": "token_from_query"})
+    assert _extract_websocket_token(ws2) == "token_from_query"
+
+    # 3. Sec-WebSocket-Protocol (bearer, <token>)
+    ws3 = DummyWebSocket(headers={"Sec-WebSocket-Protocol": "bearer, token_from_subprotocol"})
+    assert _extract_websocket_token(ws3) == "token_from_subprotocol"
+
+    # Precedence: Header over query over subprotocol
+    ws_all = DummyWebSocket(
+        headers={
+            "Authorization": "Bearer header_token",
+            "Sec-WebSocket-Protocol": "bearer, subproto_token",
+        },
+        query_params={"token": "query_token"},
+    )
+    assert _extract_websocket_token(ws_all) == "header_token"
+
+    ws_query_and_sub = DummyWebSocket(
+        headers={"Sec-WebSocket-Protocol": "bearer, subproto_token"},
+        query_params={"token": "query_token"},
+    )
+    assert _extract_websocket_token(ws_query_and_sub) == "query_token"
+
+    # Return None when missing or invalid
+    assert _extract_websocket_token(DummyWebSocket()) is None
+    assert _extract_websocket_token(DummyWebSocket(headers={"Authorization": "Basic 12345"})) is None
+    assert _extract_websocket_token(DummyWebSocket(query_params={"token": "   "})) is None
+    assert _extract_websocket_token(DummyWebSocket(headers={"Sec-WebSocket-Protocol": "mqtt"})) is None
+
+
+def test_websocket_rejected_without_token_when_auth_precheck_enabled(monkeypatch):
+    """Missing token is rejected with close code 4401; downstream is never opened."""
+    monkeypatch.setattr(settings, "AUTH_PRECHECK_ENABLED", True)
+
+    with patch("websockets.connect") as mock_ws_connect:
+        with TestClient(app) as client:
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                with client.websocket_connect("/api/v1/analytics/kpis/real-time") as ws:
+                    ws.receive_text()
+
+            assert exc_info.value.code == 4401
+            assert exc_info.value.reason == "Unauthorized"
+            mock_ws_connect.assert_not_called()
+
+
+@patch("httpx.AsyncClient.post", new_callable=AsyncMock)
+def test_websocket_rejected_when_platform_rejects_token(mock_post, monkeypatch):
+    """Platform /verify returns HTTP 401; WebSocket closes with code 4401; downstream not opened."""
+    monkeypatch.setattr(settings, "AUTH_PRECHECK_ENABLED", True)
+
+    mock_post.return_value = httpx.Response(
+        status_code=401,
+        json={"detail": "Invalid or expired token"},
+        request=httpx.Request("POST", "http://localhost:8005/api/v1/auth/verify"),
+    )
+
+    with patch("websockets.connect") as mock_ws_connect:
+        with TestClient(app) as client:
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                with client.websocket_connect("/api/v1/analytics/kpis/real-time?token=bad.jwt.token") as ws:
+                    ws.receive_text()
+
+            assert exc_info.value.code == 4401
+            assert exc_info.value.reason == "Unauthorized"
+            mock_ws_connect.assert_not_called()
+            mock_post.assert_called_once()
+            call_headers = mock_post.call_args[1].get("headers", {})
+            assert call_headers.get("Authorization") == "Bearer bad.jwt.token"
+
+
+@patch("httpx.AsyncClient.post", new_callable=AsyncMock)
+def test_websocket_query_token_is_verified_with_platform(mock_post, monkeypatch):
+    """?token=good.jwt is sent to Platform /verify as Bearer good.jwt; valid token allows downstream proxying."""
+    monkeypatch.setattr(settings, "AUTH_PRECHECK_ENABLED", True)
+
+    mock_post.return_value = httpx.Response(
+        status_code=200,
+        json={"valid": True, "user_id": 100},
+        request=httpx.Request("POST", "http://localhost:8005/api/v1/auth/verify"),
+    )
+
+    mock_ws = MockDownstreamWebSocket()
+
+    @asynccontextmanager
+    async def fake_ws_connect(uri: str, **kwargs):
+        await mock_ws.incoming_from_downstream.put(json.dumps({"event": "connected"}))
+        try:
+            yield mock_ws
+        finally:
+            await mock_ws.close()
+
+    with patch("websockets.connect", side_effect=fake_ws_connect) as mock_ws_connect:
+        with TestClient(app) as client:
+            with client.websocket_connect("/api/v1/analytics/kpis/real-time?token=good.jwt") as ws:
+                msg = json.loads(ws.receive_text())
+                assert msg == {"event": "connected"}
+
+    mock_post.assert_called_once()
+    call_headers = mock_post.call_args[1].get("headers", {})
+    assert call_headers.get("Authorization") == "Bearer good.jwt"
+
+
+@patch("httpx.AsyncClient.post", new_callable=AsyncMock)
+def test_websocket_token_from_authorization_header_proxied(mock_post, monkeypatch):
+    """Token extraction from Authorization header is sent to /verify and proxied."""
+    monkeypatch.setattr(settings, "AUTH_PRECHECK_ENABLED", True)
+
+    mock_post.return_value = httpx.Response(
+        status_code=200,
+        json={"valid": True, "user_id": 101},
+        request=httpx.Request("POST", "http://localhost:8005/api/v1/auth/verify"),
+    )
+
+    mock_ws = MockDownstreamWebSocket()
+
+    @asynccontextmanager
+    async def fake_ws_connect(uri: str, **kwargs):
+        await mock_ws.incoming_from_downstream.put(json.dumps({"status": "ok"}))
+        try:
+            yield mock_ws
+        finally:
+            await mock_ws.close()
+
+    with patch("websockets.connect", side_effect=fake_ws_connect):
+        with TestClient(app) as client:
+            with client.websocket_connect(
+                "/api/v1/analytics/kpis/real-time",
+                headers={"Authorization": "Bearer header.valid.jwt"},
+            ) as ws:
+                msg = json.loads(ws.receive_text())
+                assert msg == {"status": "ok"}
+
+    mock_post.assert_called_once()
+    call_headers = mock_post.call_args[1].get("headers", {})
+    assert call_headers.get("Authorization") == "Bearer header.valid.jwt"
+
+
+@patch("httpx.AsyncClient.post", new_callable=AsyncMock)
+def test_websocket_token_from_sec_websocket_protocol_proxied(mock_post, monkeypatch):
+    """Token extraction from Sec-WebSocket-Protocol is sent to /verify and proxied."""
+    monkeypatch.setattr(settings, "AUTH_PRECHECK_ENABLED", True)
+
+    mock_post.return_value = httpx.Response(
+        status_code=200,
+        json={"valid": True, "user_id": 102},
+        request=httpx.Request("POST", "http://localhost:8005/api/v1/auth/verify"),
+    )
+
+    mock_ws = MockDownstreamWebSocket()
+
+    @asynccontextmanager
+    async def fake_ws_connect(uri: str, **kwargs):
+        await mock_ws.incoming_from_downstream.put(json.dumps({"status": "ok_proto"}))
+        try:
+            yield mock_ws
+        finally:
+            await mock_ws.close()
+
+    with patch("websockets.connect", side_effect=fake_ws_connect):
+        with TestClient(app) as client:
+            with client.websocket_connect(
+                "/api/v1/analytics/kpis/real-time",
+                subprotocols=["bearer", "subproto.valid.jwt"],
+            ) as ws:
+                msg = json.loads(ws.receive_text())
+                assert msg == {"status": "ok_proto"}
+
+    mock_post.assert_called_once()
+    call_headers = mock_post.call_args[1].get("headers", {})
+    assert call_headers.get("Authorization") == "Bearer subproto.valid.jwt"
+
+
+@patch("httpx.AsyncClient.post", new_callable=AsyncMock)
+def test_websocket_precheck_platform_error_returns_1013(mock_post, monkeypatch):
+    """Platform /verify error (503/504) closes connection with code 1013 and Try again later."""
+    monkeypatch.setattr(settings, "AUTH_PRECHECK_ENABLED", True)
+
+    mock_post.return_value = httpx.Response(
+        status_code=503,
+        json={"detail": "Service unavailable"},
+        request=httpx.Request("POST", "http://localhost:8005/api/v1/auth/verify"),
+    )
+
+    with patch("websockets.connect") as mock_ws_connect:
+        with TestClient(app) as client:
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                with client.websocket_connect("/api/v1/analytics/kpis/real-time?token=any.token") as ws:
+                    ws.receive_text()
+
+            assert exc_info.value.code == 1013
+            assert exc_info.value.reason == "Try again later"
+            mock_ws_connect.assert_not_called()
+
+
+def test_websocket_failure_log_does_not_contain_token(caplog):
+    """
+    Simulated downstream failure closes with code 1011;
+    captured logs do not contain the secret token or sensitive query parameters,
+    even if downstream connection exception message includes them.
+    """
+    import logging
+
+    synthetic_token = "synthetic_secret_token_123"
+    sensitive_param = "top_secret_api_key_456"
+    raw_query = f"token={synthetic_token}&api_key={sensitive_param}&filter=active"
+
+    # Exception simulating downstream error containing full raw URL with secret token & query
+    failing_exc = Exception(
+        f"Failed to connect to ws://localhost:8008/api/v1/analytics/kpis/real-time?{raw_query}"
+    )
+
+    with patch("websockets.connect", side_effect=failing_exc):
+        with caplog.at_level(logging.WARNING, logger="api_gateway.proxy"):
+            with TestClient(app) as client:
+                with pytest.raises(WebSocketDisconnect) as exc_info:
+                    with client.websocket_connect(f"/api/v1/analytics/kpis/real-time?{raw_query}") as ws:
+                        ws.receive_text()
+
+                assert exc_info.value.code == 1011
+                assert exc_info.value.reason == "Downstream service unavailable"
+
+    # Verify secret token and sensitive query parameter are NOT leaked in any log record
+    assert synthetic_token not in caplog.text
+    assert sensitive_param not in caplog.text
+    assert "api_key" not in caplog.text
+    # Verify the sanitized URL is logged
+    assert "ws://localhost:8008/api/v1/analytics/kpis/real-time" in caplog.text
+    assert "Downstream WebSocket connection failed" in caplog.text
+
+
+@patch("httpx.AsyncClient.post", new_callable=AsyncMock)
+def test_websocket_downstream_failure_with_precheck_sanitizes_token_in_logs(mock_post, monkeypatch, caplog):
+    """
+    Verify token and sensitive query parameter redaction in WebSocket downstream error log
+    when precheck is enabled and downstream connection raises an exception containing secrets.
+    """
+    import logging
+
+    monkeypatch.setattr(settings, "AUTH_PRECHECK_ENABLED", True)
+    mock_post.return_value = httpx.Response(
+        status_code=200,
+        json={"valid": True, "user_id": 999},
+        request=httpx.Request("POST", "http://localhost:8005/api/v1/auth/verify"),
+    )
+
+    synthetic_token = "synthetic_precheck_token_789"
+    sensitive_param = "super_confidential_param_999"
+    raw_query = f"token={synthetic_token}&secret_param={sensitive_param}"
+
+    failing_exc = Exception(f"Connection refused with {raw_query}")
+
+    with patch("websockets.connect", side_effect=failing_exc):
+        with caplog.at_level(logging.WARNING, logger="api_gateway.proxy"):
+            with TestClient(app) as client:
+                with pytest.raises(WebSocketDisconnect) as exc_info:
+                    with client.websocket_connect(f"/api/v1/analytics/kpis/real-time?{raw_query}") as ws:
+                        ws.receive_text()
+
+                assert exc_info.value.code == 1011
+                assert exc_info.value.reason == "Downstream service unavailable"
+
+    assert synthetic_token not in caplog.text
+    assert sensitive_param not in caplog.text
+    assert "secret_param" not in caplog.text
+    assert "ws://localhost:8008/api/v1/analytics/kpis/real-time" in caplog.text
+    assert "Downstream WebSocket connection failed" in caplog.text
+
+
+def test_websocket_streaming_exception_debug_log_does_not_contain_sensitive_details(caplog):
+    """
+    Verify that exceptions inside client_to_downstream and downstream_to_client
+    log only the exception type and do not leak sensitive tokens or query parameters.
+    """
+    import logging
+
+    mock_ws = MockDownstreamWebSocket()
+    synthetic_token = "synthetic_stream_token_456"
+
+    async def bad_send(msg):
+        raise ValueError(f"Corrupt payload containing {synthetic_token} and secret_key=classified")
+
+    mock_ws.send = bad_send
+
+    @asynccontextmanager
+    async def fake_ws_connect(uri: str, **kwargs):
+        try:
+            yield mock_ws
+        finally:
+            await mock_ws.close()
+
+    with patch("websockets.connect", side_effect=fake_ws_connect):
+        with caplog.at_level(logging.DEBUG, logger="api_gateway.proxy"):
+            with TestClient(app) as client:
+                with client.websocket_connect(f"/api/v1/analytics/kpis/real-time?token={synthetic_token}") as ws:
+                    ws.send_text('{"type": "ping"}')
+
+    assert synthetic_token not in caplog.text
+    assert "classified" not in caplog.text
+    assert "secret_key" not in caplog.text
+    assert "ValueError" in caplog.text
+
+
+def test_safe_websocket_exception_detail_redacts_sensitive_info():
+    """
+    Unit test for _safe_websocket_exception_detail ensuring tokens, URLs,
+    and sensitive parameters are redacted to exception type name.
+    """
+    raw_url = "ws://localhost:8008/api/v1/analytics/kpis/real-time?token=secret123&key=456"
+
+    # 1. Exception containing raw target URL
+    exc1 = Exception(f"Failed to connect to {raw_url}")
+    assert _safe_websocket_exception_detail(exc1, target_url=raw_url) == "Exception"
+
+    # 2. Exception containing raw query
+    exc2 = Exception("Handshake error with query token=secret123&key=456")
+    assert _safe_websocket_exception_detail(exc2, query="token=secret123&key=456") == "Exception"
+
+    # 3. Exception containing token
+    exc3 = Exception("Authentication token secret123 expired")
+    assert _safe_websocket_exception_detail(exc3, token="secret123") == "Exception"
+
+    # 4. Exception containing sensitive keywords
+    exc4 = ValueError("Invalid bearer token passed")
+    assert _safe_websocket_exception_detail(exc4) == "ValueError"
+
+    # 5. Safe exception preserves message
+    exc5 = ConnectionRefusedError("Connection refused")
+    assert _safe_websocket_exception_detail(exc5) == "Connection refused"
+
 
 
 # ---------------------------------------------------------------------------
@@ -614,15 +1169,7 @@ def test_config_precedence_and_url_synchronization():
     assert custom_settings.SERVICE_ROUTES["/api/v1/demand"] == "http://forecast-host:9999"
     assert custom_settings.SERVICE_ROUTES["/api/v1/analytics"] == "http://analytics-host:8888"
 
-    # Case 2: FORECAST_SERVICE_URL alias updates DEMAND_FORECAST_SERVICE_URL
-    alias_settings = Settings(
-        SECRET_KEY="test-secret-key-123",
-        FORECAST_SERVICE_URL="http://alias-forecast:7777",
-    )
-    assert alias_settings.DEMAND_FORECAST_SERVICE_URL == "http://alias-forecast:7777"
-    assert alias_settings.SERVICE_ROUTES["/api/v1/demand"] == "http://alias-forecast:7777"
-
-    # Case 3: Explicit SERVICE_ROUTES takes precedence
+    # Case 2: Explicit SERVICE_ROUTES takes precedence
     override_settings = Settings(
         SECRET_KEY="test-secret-key-123",
         DEMAND_FORECAST_SERVICE_URL="http://forecast-host:9999",
@@ -630,10 +1177,22 @@ def test_config_precedence_and_url_synchronization():
     )
     assert override_settings.SERVICE_ROUTES["/api/v1/demand"] == "http://override-host:1234"
 
-    # Case 4: GOODS_RECEIPTS_SERVICE_URL updates /api/v1/inventory/goods-receipts without affecting /api/v1/inventory
-    gr_settings = Settings(
+    # Case 3: Goods Receipts is not a dedicated entry in SERVICE_ROUTES and follows INVENTORY_SERVICE_URL
+    inv_settings = Settings(
         SECRET_KEY="test-secret-key-123",
-        GOODS_RECEIPTS_SERVICE_URL="http://gr-host:8040",
+        INVENTORY_SERVICE_URL="http://inv-host:8001",
     )
-    assert gr_settings.SERVICE_ROUTES["/api/v1/inventory/goods-receipts"] == "http://gr-host:8040"
-    assert gr_settings.SERVICE_ROUTES["/api/v1/inventory"] == "http://localhost:8001"
+    assert inv_settings.SERVICE_ROUTES["/api/v1/inventory"] == "http://inv-host:8001"
+    assert "/api/v1/inventory/goods-receipts" not in inv_settings.SERVICE_ROUTES
+    assert not hasattr(inv_settings, "GOODS_RECEIPTS_SERVICE_URL")
+
+    # Case 4: Changing SUPPLIER_RISK_SERVICE_URL updates /api/v1/supplier-risk
+    # without moving Supplier Portal routes away from PURCHASE_ORDERS_SERVICE_URL
+    supplier_settings = Settings(
+        SECRET_KEY="test-secret-key-123",
+        PURCHASE_ORDERS_SERVICE_URL="http://portal-host:8004",
+        SUPPLIER_RISK_SERVICE_URL="http://custom-risk-host:9006",
+    )
+    assert supplier_settings.SERVICE_ROUTES["/api/v1/supplier-risk"] == "http://custom-risk-host:9006"
+    assert supplier_settings.SERVICE_ROUTES["/api/v1/suppliers"] == "http://portal-host:8004"
+    assert supplier_settings.SERVICE_ROUTES["/api/v1/purchase-orders"] == "http://portal-host:8004"

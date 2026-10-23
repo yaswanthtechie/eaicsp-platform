@@ -4,6 +4,7 @@ HTTP reverse-proxy service used by the API Gateway.
 import asyncio
 import inspect
 import logging
+import re
 import time
 import uuid
 from typing import Any
@@ -12,7 +13,7 @@ import httpx
 import websockets
 from fastapi import HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, StreamingResponse
-from websockets.exceptions import ConnectionClosed, WebSocketException
+from websockets.exceptions import ConnectionClosed
 from tenacity import (
     AsyncRetrying,
     retry_if_exception,
@@ -27,6 +28,7 @@ from app.services.metrics import metrics_collector
 from app.middleware.tracing import (
     extract_trace_context,
     inject_trace_context,
+    sanitize_url_for_tracing,
     start_proxy_span,
     StatusCode,
 )
@@ -103,9 +105,16 @@ def _find_service_route(path: str) -> tuple[str, str] | None:
     """
     Find the most specific downstream route matching the request path.
 
-    Longer route prefixes take precedence over broader prefixes.
+    Pattern-based overrides in SERVICE_ROUTE_PATTERNS take precedence.
+    Otherwise, longer route prefixes take precedence over broader prefixes.
     This prevents nested routes from being matched by a parent route.
     """
+    patterns = getattr(settings, "SERVICE_ROUTE_PATTERNS", {})
+    for pattern, owner_prefix in patterns.items():
+        if re.fullmatch(pattern, path):
+            if owner_prefix in settings.SERVICE_ROUTES:
+                return owner_prefix, settings.SERVICE_ROUTES[owner_prefix]
+
     for route_prefix, service_url in sorted(
         settings.SERVICE_ROUTES.items(),
         key=lambda item: len(item[0]),
@@ -115,6 +124,102 @@ def _find_service_route(path: str) -> tuple[str, str] | None:
             return route_prefix, service_url
 
     return None
+
+
+def _extract_websocket_token(websocket: WebSocket) -> str | None:
+    """
+    Extract authentication token from an incoming WebSocket connection.
+
+    Checks in order:
+    1. Authorization header using the Bearer scheme.
+    2. ?token=<jwt> query parameter.
+    3. Sec-WebSocket-Protocol: bearer, <jwt> subprotocol format.
+
+    Returns None when no valid token is found.
+    """
+    # 1. Authorization header using the Bearer scheme
+    auth_header = websocket.headers.get("authorization") or websocket.headers.get("Authorization")
+    if auth_header:
+        parts = auth_header.strip().split(" ", 1)
+        if len(parts) == 2 and parts[0].lower() == "bearer" and parts[1].strip():
+            return parts[1].strip()
+
+    # 2. ?token=<jwt> query parameter
+    token = websocket.query_params.get("token")
+    if token and token.strip():
+        return token.strip()
+
+    # 3. Sec-WebSocket-Protocol: bearer, <jwt> subprotocol format
+    subprotocols_header = (
+        websocket.headers.get("sec-websocket-protocol")
+        or websocket.headers.get("Sec-WebSocket-Protocol")
+        or ""
+    )
+    if subprotocols_header:
+        subprotocols = [s.strip() for s in subprotocols_header.split(",") if s.strip()]
+        for i, sub in enumerate(subprotocols):
+            if sub.lower() == "bearer" and i + 1 < len(subprotocols) and subprotocols[i + 1]:
+                return subprotocols[i + 1]
+
+    return None
+
+
+def _safe_websocket_exception_detail(
+    exc: Exception,
+    target_url: str | None = None,
+    query: str | None = None,
+    token: str | None = None,
+) -> str:
+    """
+    Ensure WebSocket exception log messages do not expose raw tokens,
+    sensitive query parameters, authorization headers, or downstream URLs.
+    Returns type(exc).__name__ when sensitive information is detected or suspected,
+    otherwise returns a safe string representation.
+    """
+    exc_str = str(exc)
+    if not exc_str:
+        return type(exc).__name__
+
+    exc_lower = exc_str.lower()
+
+    if target_url and target_url in exc_str:
+        return type(exc).__name__
+
+    if query:
+        if query in exc_str:
+            return type(exc).__name__
+        for part in query.split("&"):
+            if part and part in exc_str:
+                return type(exc).__name__
+            if "=" in part:
+                val = part.split("=", 1)[1]
+                if val and val in exc_str:
+                    return type(exc).__name__
+
+    if token and token in exc_str:
+        return type(exc).__name__
+
+    # Check for sensitive indicators/credentials
+    sensitive_markers = (
+        "token",
+        "secret",
+        "bearer",
+        "key",
+        "password",
+        "passwd",
+        "auth",
+        "credential",
+        "jwt",
+        "signature",
+    )
+    if any(marker in exc_lower for marker in sensitive_markers):
+        return type(exc).__name__
+
+    # Check for presence of URLs with query strings (e.g. ws://...?foo=bar)
+    if ("ws://" in exc_str or "wss://" in exc_str or "http://" in exc_str or "https://" in exc_str) and "?" in exc_str:
+        return type(exc).__name__
+
+    return exc_str
 
 
 def build_downstream_url(
@@ -611,11 +716,26 @@ class ProxyService:
         """
         normalized_path = "/" + path.lstrip("/")
         route = _find_service_route(normalized_path)
-        if route is None:
+        if route is None or normalized_path not in settings.WEBSOCKET_ROUTE_ALLOWLIST:
             await websocket.close(code=1008, reason="Service not found for the requested path.")
             return
 
         route_prefix, target_base_url = route
+
+        auth_error = await auth_precheck_service.verify_request(
+            websocket,
+            route_prefix,
+            bearer_token=_extract_websocket_token(websocket),
+        )
+        if auth_error is not None:
+            status_code = getattr(auth_error, "status_code", 401)
+            if status_code == 401:
+                await websocket.accept()
+                await websocket.close(code=4401, reason="Unauthorized")
+            else:
+                await websocket.accept()
+                await websocket.close(code=1013, reason="Try again later")
+            return
 
         # Convert http/https target base URL to ws/wss
         if target_base_url.startswith("https://"):
@@ -675,6 +795,7 @@ class ProxyService:
             )
             connect_kwargs: dict[str, Any] = {
                 header_param: headers,
+                "open_timeout": settings.WEBSOCKET_OPEN_TIMEOUT_SECONDS,
             }
             if requested_subprotocols:
                 connect_kwargs["subprotocols"] = requested_subprotocols
@@ -702,7 +823,7 @@ class ProxyService:
                         except (WebSocketDisconnect, asyncio.CancelledError):
                             pass
                         except Exception as exc:
-                            logger.debug("WebSocket client->downstream exception: %s", exc)
+                            logger.debug("WebSocket client->downstream exception: %s", type(exc).__name__)
 
                     async def downstream_to_client():
                         try:
@@ -714,7 +835,7 @@ class ProxyService:
                         except (ConnectionClosed, asyncio.CancelledError):
                             pass
                         except Exception as exc:
-                            logger.debug("WebSocket downstream->client exception: %s", exc)
+                            logger.debug("WebSocket downstream->client exception: %s", type(exc).__name__)
 
                     client_task = asyncio.create_task(client_to_downstream())
                     downstream_task = asyncio.create_task(downstream_to_client())
@@ -729,11 +850,22 @@ class ProxyService:
 
             except asyncio.CancelledError:
                 pass
-            except (OSError, WebSocketException, Exception) as exc:
+            except Exception as exc:
                 if proxy_span is not None:
                     proxy_span.record_exception(exc)
                     proxy_span.set_status(StatusCode.ERROR, str(exc))
-                logger.warning("Downstream WebSocket connection failed (%s): %s", target_ws_url, exc)
+                # Never log the raw URL: it can carry ?token=<jwt>.
+                err_detail = _safe_websocket_exception_detail(
+                    exc=exc,
+                    target_url=target_ws_url,
+                    query=query,
+                    token=_extract_websocket_token(websocket),
+                )
+                logger.warning(
+                    "Downstream WebSocket connection failed (%s): %s",
+                    sanitize_url_for_tracing(target_ws_url),
+                    err_detail,
+                )
                 try:
                     await websocket.close(code=1011, reason="Downstream service unavailable")
                 except Exception:
