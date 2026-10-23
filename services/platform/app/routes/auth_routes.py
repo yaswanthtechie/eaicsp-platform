@@ -4,10 +4,6 @@ from datetime import UTC, datetime, timedelta
 import jwt
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
-<<<<<<< HEAD
-import jwt
-=======
->>>>>>> origin/develop
 from sqlalchemy.orm import Session
 
 from app.core.config import TRUST_PROXY
