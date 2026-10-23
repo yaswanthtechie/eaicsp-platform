@@ -6,7 +6,7 @@ interface MockSocket {
   onopen: (() => void) | null;
   onmessage: ((event: { data: string }) => void) | null;
   onerror: ((error: Event) => void) | null;
-  onclose: (() => void) | null;
+  onclose: ((event: { code: number}) => void) | null;
   close: ReturnType<typeof vi.fn>;
 }
 
@@ -23,7 +23,7 @@ describe("useWebSocket", () => {
       onopen: (() => void) | null = null;
       onmessage: ((event: { data: string }) => void) | null = null;
       onerror: ((error: Event) => void) | null = null;
-      onclose: (() => void) | null = null;
+      onclose: ((event: { code: number}) => void) | null = null;
       close = vi.fn();
 
       constructor(url: string) {
@@ -83,21 +83,36 @@ describe("useWebSocket", () => {
       }),
     );
 
-    const alert = {
-      id: "ALERT001",
-      type: "inventory",
-      severity: "warning",
-      message: "Low stock",
-      timestamp: "2026-08-24T10:00:00Z",
+    const event = {
+      event_id: "EVENT001",
+      event_type: "inventory.stock.low",
+      event_version: 1,
+      occurred_at: "2026-08-24T10:00:00Z",
+      producer: "inventory-service",
+      payload: {
+        sku_id: "SKU001",
+        warehouse_id: "WH001",
+        quantity_on_hand: 5,
+        reorder_point: 10,
+        safety_stock: 3,
+        avg_daily_demand: 2,
+      },
     };
 
     act(() => {
       sockets[0].onmessage?.({
-        data: JSON.stringify(alert),
+        data: JSON.stringify(event),
       });
     });
 
-    expect(onMessage).toHaveBeenCalledWith(alert);
+    expect(onMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "EVENT001",
+        type: "low-stock",
+        severity: "warning",
+        timestamp: "2026-08-24T10:00:00Z",
+      }),
+    );
   });
 
   it("ignores invalid JSON message", () => {
@@ -121,7 +136,7 @@ describe("useWebSocket", () => {
     expect(onMessage).not.toHaveBeenCalled();
   });
 
-  it("does not set failed when socket closes and autoReconnect is false", () => {
+  it("sets failed when socket closes and autoReconnect is false", () => {
     const { result } = renderHook(() =>
       useWebSocket({
         url: "ws://localhost:8080",
@@ -138,13 +153,13 @@ describe("useWebSocket", () => {
     expect(result.current.failed).toBe(false);
 
     act(() => {
-      sockets[0].onclose?.();
+      sockets[0].onclose?.({ code: 1006});
     });
 
     expect(result.current.connected).toBe(false);
     expect(result.current.isConnecting).toBe(false);
 
-    expect(result.current.failed).toBe(false);
+    expect(result.current.failed).toBe(true);
   });
 
   it("calls onError when socket has an error", () => {
@@ -180,7 +195,7 @@ describe("useWebSocket", () => {
     expect(sockets).toHaveLength(1);
 
     act(() => {
-      sockets[0].onclose?.();
+      sockets[0].onclose?.({ code: 1006});
     });
 
     act(() => {
@@ -196,7 +211,7 @@ describe("useWebSocket", () => {
     expect(sockets).toHaveLength(2);
 
     act(() => {
-      sockets[1].onclose?.();
+      sockets[1].onclose?.({ code: 1006});
     });
 
     act(() => {
@@ -212,7 +227,7 @@ describe("useWebSocket", () => {
     expect(sockets).toHaveLength(3);
 
     act(() => {
-      sockets[2].onclose?.();
+      sockets[2].onclose?.({ code: 1006});
     });
 
     act(() => {
@@ -241,7 +256,7 @@ describe("useWebSocket", () => {
     expect(sockets).toHaveLength(1);
 
     act(() => {
-      sockets[0].onclose?.();
+      sockets[0].onclose?.({ code: 1006});
     });
 
     act(() => {
@@ -251,7 +266,7 @@ describe("useWebSocket", () => {
     expect(sockets).toHaveLength(2);
 
     act(() => {
-      sockets[1].onclose?.();
+      sockets[1].onclose?.({ code: 1006});
     });
 
     act(() => {
@@ -261,7 +276,7 @@ describe("useWebSocket", () => {
     expect(sockets).toHaveLength(3);
 
     act(() => {
-      sockets[2].onclose?.();
+      sockets[2].onclose?.({ code: 1006});
     });
 
     expect(result.current.failed).toBe(true);
