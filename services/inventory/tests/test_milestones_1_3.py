@@ -7,6 +7,7 @@ from app.models.inventory_cost_layer import InventoryCostLayer
 from app.models.supplier import Supplier
 
 from tests.conftest import seed_sales_history
+from app.services.purchase_order_service import approve_purchase_order
 
 
 # ============================================================
@@ -790,8 +791,8 @@ def test_m3_receive_purchase_order_creates_cost_layer(
     4. Change PO status to received.
     """
 
-    sku = "SKU-M3-PO-RECEIVE"
-    warehouse = "WH-M3-RECEIVE"
+    sku = "SKU-000301"
+    warehouse = "WH-BLR-01"
 
     inventory = Inventory(
         sku_id=sku,
@@ -806,7 +807,7 @@ def test_m3_receive_purchase_order_creates_cost_layer(
     )
 
     supplier = Supplier(
-        supplier_id="SUP-M3-RECEIVE",
+        supplier_id="SUP-00301",
         sku_id=sku,
         supplier_name="M3 Supplier",
         unit_cost=25.0,
@@ -844,6 +845,8 @@ def test_m3_receive_purchase_order_creates_cost_layer(
     po_id = draft_data["po_id"]
     po_quantity = draft_data["quantity"]
     po_unit_cost = draft_data["unit_cost"]
+
+    approve_purchase_order(db=db_session, po_id=po_id, approved_by="7")
 
     receive_response = client.post(
         f"/api/v1/inventory/purchase-orders/{po_id}/receive"
@@ -904,8 +907,8 @@ def test_m3_receive_purchase_order_updates_inventory_value(
     be included in FIFO valuation.
     """
 
-    sku = "SKU-M3-PO-VALUE"
-    warehouse = "WH-M3-PO-VALUE"
+    sku = "SKU-000302"
+    warehouse = "WH-DEL-01"
 
     inventory = Inventory(
         sku_id=sku,
@@ -920,7 +923,7 @@ def test_m3_receive_purchase_order_updates_inventory_value(
     )
 
     supplier = Supplier(
-        supplier_id="SUP-M3-PO-VALUE",
+        supplier_id="SUP-00302",
         sku_id=sku,
         supplier_name="Value Supplier",
         unit_cost=20.0,
@@ -966,6 +969,8 @@ def test_m3_receive_purchase_order_updates_inventory_value(
     po_id = draft_data["po_id"]
     po_quantity = draft_data["quantity"]
 
+    approve_purchase_order(db=db_session, po_id=po_id, approved_by="7")
+
     receive_response = client.post(
         f"/api/v1/inventory/purchase-orders/{po_id}/receive"
     )
@@ -1002,8 +1007,8 @@ def test_m3_cannot_receive_purchase_order_twice(
     A received PO cannot be received again.
     """
 
-    sku = "SKU-M3-PO-DUPLICATE"
-    warehouse = "WH-M3-PO-DUPLICATE"
+    sku = "SKU-000303"
+    warehouse = "WH-BOM-01"
 
     inventory = Inventory(
         sku_id=sku,
@@ -1018,7 +1023,7 @@ def test_m3_cannot_receive_purchase_order_twice(
     )
 
     supplier = Supplier(
-        supplier_id="SUP-M3-DUPLICATE",
+        supplier_id="SUP-00303",
         sku_id=sku,
         supplier_name="Duplicate Supplier",
         unit_cost=30.0,
@@ -1052,6 +1057,8 @@ def test_m3_cannot_receive_purchase_order_twice(
     assert draft_response.status_code == 201
 
     po_id = draft_response.json()["po_id"]
+
+    approve_purchase_order(db=db_session, po_id=po_id, approved_by="7")
 
     first_receive = client.post(
         f"/api/v1/inventory/purchase-orders/{po_id}/receive"

@@ -119,6 +119,10 @@ class KafkaEventPublisher:
         remaining = self._producer.flush(timeout=5.0)
 
         if remaining > 0:
+            try:
+                self._producer.purge()
+            except Exception:
+                pass
             raise KafkaBrokerError(
                 f"Kafka did not acknowledge {remaining} message(s) within 5s"
             )
