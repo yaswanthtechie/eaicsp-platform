@@ -89,8 +89,8 @@ def clear_supplier_state(monkeypatch, tmp_path):
     """
     suppliers.clear()
 
-    suppliers["SUP001"] = {
-        "supplier_id": "SUP001",
+    suppliers["SUP-00001"] = {
+        "supplier_id": "SUP-00001",
         "company_name": "ABC Supplies",
         "contact_name": "Supplier User",
         "email": "supplier@company.com",
@@ -98,8 +98,8 @@ def clear_supplier_state(monkeypatch, tmp_path):
         "status": "active",
     }
 
-    suppliers["SUP002"] = {
-        "supplier_id": "SUP002",
+    suppliers["SUP-00002"] = {
+        "supplier_id": "SUP-00002",
         "company_name": "XYZ Supplies",
         "contact_name": "Supplier B",
         "email": "supplierb@example.com",
@@ -178,7 +178,7 @@ def test_block_event_suspends_supplier(consumer):
     assert consumer.process_message(make_message(event)) is True
 
     assert (
-        suppliers["SUP001"]["compliance_access_status"]
+        suppliers["SUP-00001"]["compliance_access_status"]
         == SupplierComplianceStatus.suspended.value
     )
 
@@ -192,13 +192,13 @@ def test_review_event_sets_needs_review(consumer):
     assert consumer.process_message(make_message(event)) is True
 
     assert (
-        suppliers["SUP001"]["compliance_access_status"]
+        suppliers["SUP-00001"]["compliance_access_status"]
         == SupplierComplianceStatus.needs_review.value
     )
 
 
 def test_clear_event_restores_access(consumer):
-    suppliers["SUP001"]["compliance_access_status"] = (
+    suppliers["SUP-00001"]["compliance_access_status"] = (
         SupplierComplianceStatus.suspended.value
     )
 
@@ -211,7 +211,7 @@ def test_clear_event_restores_access(consumer):
     assert consumer.process_message(make_message(event)) is True
 
     assert (
-        suppliers["SUP001"]["compliance_access_status"]
+        suppliers["SUP-00001"]["compliance_access_status"]
         == SupplierComplianceStatus.cleared.value
     )
 
@@ -229,11 +229,11 @@ def test_duplicate_event_is_idempotent(consumer):
     assert consumer.process_message(second_message) is True
 
     assert (
-        suppliers["SUP001"]["compliance_access_status"]
+        suppliers["SUP-00001"]["compliance_access_status"]
         == SupplierComplianceStatus.suspended.value
     )
 
-    assert len(supplier_compliance_service.get_audit_history("SUP001")) == 1
+    assert len(supplier_compliance_service.get_audit_history("SUP-00001")) == 1
 
 
 def test_out_of_order_event_is_ignored(consumer):
@@ -254,7 +254,7 @@ def test_out_of_order_event_is_ignored(consumer):
     assert consumer.process_message(make_message(older_event)) is True
 
     assert (
-        suppliers["SUP001"]["compliance_access_status"]
+        suppliers["SUP-00001"]["compliance_access_status"]
         == SupplierComplianceStatus.suspended.value
     )
 
@@ -338,7 +338,7 @@ def test_pre_onboarding_event_is_persisted_without_committing(consumer):
         key="Unknown Supplier",
     )
 
-    assert "SUP999" not in suppliers
+    assert "SUP-00999" not in suppliers
     assert consumer.process_message(message) is True
 
     assert supplier_compliance_service.is_event_processed(
@@ -349,15 +349,15 @@ def test_pre_onboarding_event_is_persisted_without_committing(consumer):
     consumer.consumer.commit.assert_not_called()
 
     # After onboarding, the persisted BLOCK should be enforced.
-    suppliers["SUP999"] = {
-        "supplier_id": "SUP999",
+    suppliers["SUP-00999"] = {
+        "supplier_id": "SUP-00999",
         "company_name": "Unknown Supplier",
         "country": "India",
         "status": "active",
     }
 
     assert (
-        supplier_compliance_service.get_access_status("SUP999")
+        supplier_compliance_service.get_access_status("SUP-00999")
         == SupplierComplianceStatus.suspended
     )
 
@@ -453,7 +453,7 @@ def test_audit_is_created_for_accepted_event(consumer):
 
     assert consumer.process_message(make_message(event)) is True
 
-    audit = supplier_compliance_service.get_audit_history("SUP001")
+    audit = supplier_compliance_service.get_audit_history("SUP-00001")
 
     assert len(audit) == 1
     assert audit[0].event_id == "event-audit-001"
@@ -500,8 +500,8 @@ def test_crash_before_commit_redelivery_is_idempotent(tmp_path):
         make_event(event_id="e-crash")
     )
 
-    suppliers["SUP001"] = {
-        "supplier_id": "SUP001",
+    suppliers["SUP-00001"] = {
+        "supplier_id": "SUP-00001",
         "company_name": "ABC Supplies",
         "country": "India",
         "status": "active",
@@ -515,7 +515,7 @@ def test_crash_before_commit_redelivery_is_idempotent(tmp_path):
 
     assert fresh.apply_status_changed_event(event) is False
     assert fresh.is_event_processed("e-crash")
-    assert len(fresh.get_audit_history("SUP001")) == 1
+    assert len(fresh.get_audit_history("SUP-00001")) == 1
 
 
 def test_naive_occurred_at_is_rejected(consumer):
@@ -551,7 +551,7 @@ def test_same_timestamp_keeps_more_restrictive_status(consumer):
     )
 
     assert (
-        supplier_compliance_service.get_access_status("SUP001")
+        supplier_compliance_service.get_access_status("SUP-00001")
         == SupplierComplianceStatus.suspended
     )
 
@@ -567,15 +567,15 @@ def test_event_for_supplier_not_yet_onboarded_applies_when_they_onboard(
     # Supplier identity must come from the event payload, not the key.
     assert consumer.process_message(make_message(event)) is True
 
-    suppliers["SUP777"] = {
-        "supplier_id": "SUP777",
+    suppliers["SUP-00777"] = {
+        "supplier_id": "SUP-00777",
         "company_name": "New Co",
         "country": "India",
         "status": "active",
     }
 
     assert (
-        supplier_compliance_service.get_access_status("SUP777")
+        supplier_compliance_service.get_access_status("SUP-00777")
         == SupplierComplianceStatus.suspended
     )
 
@@ -583,8 +583,8 @@ def test_event_for_supplier_not_yet_onboarded_applies_when_they_onboard(
 def test_suspension_survives_restart(tmp_path):
     db = tmp_path / "restart.db"
 
-    suppliers["SUP001"] = {
-        "supplier_id": "SUP001",
+    suppliers["SUP-00001"] = {
+        "supplier_id": "SUP-00001",
         "company_name": "ABC Supplies",
         "country": "India",
         "status": "active",
@@ -601,7 +601,7 @@ def test_suspension_survives_restart(tmp_path):
     restarted = SupplierComplianceService(db_path=db)
 
     assert (
-        restarted.get_access_status("SUP001")
+        restarted.get_access_status("SUP-00001")
         == SupplierComplianceStatus.suspended
     )
 
@@ -688,11 +688,11 @@ def test_real_producer_event_suspends_onboarded_supplier(consumer):
     consumer.process_message(message)
 
     assert (
-        supplier_compliance_service.get_access_status("SUP001")
+        supplier_compliance_service.get_access_status("SUP-00001")
         == SupplierComplianceStatus.suspended
     )
     assert (
-        supplier_compliance_service.get_access_status("SUP002")
+        supplier_compliance_service.get_access_status("SUP-00002")
         == SupplierComplianceStatus.cleared
     )
 
@@ -705,7 +705,7 @@ def test_supplier_is_matched_by_name_not_by_kafka_key(consumer):
     consumer.process_message(message)
 
     assert (
-        supplier_compliance_service.get_access_status("SUP001")
+        supplier_compliance_service.get_access_status("SUP-00001")
         == SupplierComplianceStatus.suspended
     )
 
@@ -716,10 +716,10 @@ def test_block_for_another_supplier_does_not_suspend_this_one(consumer):
     )
 
     assert (
-        supplier_compliance_service.get_access_status("SUP001")
+        supplier_compliance_service.get_access_status("SUP-00001")
         == SupplierComplianceStatus.cleared
     )
     assert (
-        supplier_compliance_service.get_access_status("SUP002")
+        supplier_compliance_service.get_access_status("SUP-00002")
         == SupplierComplianceStatus.suspended
     )

@@ -46,8 +46,8 @@ def reset_data():
 
     suppliers.clear()
 
-    suppliers["SUP001"] = {
-        "supplier_id": "SUP001",
+    suppliers["SUP-00001"] = {
+        "supplier_id": "SUP-00001",
         "company_name": "ABC Supplies",
         "contact_name": "Supplier User",
         "email": "supplier@company.com",
@@ -55,8 +55,8 @@ def reset_data():
         "status": "active",
     }
 
-    suppliers["SUP002"] = {
-        "supplier_id": "SUP002",
+    suppliers["SUP-00002"] = {
+        "supplier_id": "SUP-00002",
         "company_name": "XYZ Supplies",
         "contact_name": "Supplier B",
         "email": "supplierb@example.com",
@@ -100,7 +100,7 @@ def reset_data():
 
 def create_fulfilled_po(
     po_number="PO1001",
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
     quantity=10,
     unit_price=100.0,
     item_code="LAP001",
@@ -132,7 +132,7 @@ def create_invoice_via_api(
     client,
     invoice_number="INV1001",
     po_number="PO1001",
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
     item_code="LAP001",
     quantity=10,
     unit_price=100.0,
@@ -162,7 +162,7 @@ def create_invoice_via_api(
 
 def create_received_goods_receipt(
     po_number="PO1001",
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
     quantity=10,
     item_code="LAP001",
 ):
@@ -189,7 +189,7 @@ def create_received_goods_receipt(
 
 def create_submitted_invoice(
     invoice_number="INV1001",
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
     po_number="PO1001",
     quantity=10,
     unit_price=100.0,
@@ -226,7 +226,7 @@ def create_submitted_invoice(
 def prepare_exact_match(
     po_number="PO1001",
     invoice_number="INV1001",
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
 ):
     create_fulfilled_po(
         po_number=po_number,
@@ -251,7 +251,7 @@ def prepare_exact_match(
 
 
 def match_url(
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
     invoice_number="INV1001",
 ):
     return (
@@ -261,7 +261,7 @@ def match_url(
 
 
 def resolve_url(
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
     invoice_number="INV1001",
 ):
     return (
@@ -271,7 +271,7 @@ def resolve_url(
 
 
 def payment_approve_url(
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
     invoice_number="INV1001",
 ):
     return (
@@ -280,7 +280,7 @@ def payment_approve_url(
     )
 
 def resolution_suggestion_url(
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
     invoice_number="INV1001",
 ):
     return (
@@ -305,7 +305,7 @@ def test_exact_three_way_match(
 
     data = response.json()
 
-    assert data["supplier_id"] == "SUP001"
+    assert data["supplier_id"] == "SUP-00001"
     assert data["invoice_number"] == "INV1001"
     assert data["status"] == "matched"
 
@@ -402,7 +402,7 @@ def test_invoice_quantity_mismatch(
     prepare_exact_match()
 
     invoices[
-        ("SUP001", "INV1001")
+        ("SUP-00001", "INV1001")
     ]["items"][0]["quantity"] = 5
 
     response = procurement_client.post(
@@ -429,7 +429,7 @@ def test_price_difference_below_five_percent_is_matched(
     prepare_exact_match()
 
     invoices[
-        ("SUP001", "INV1001")
+        ("SUP-00001", "INV1001")
     ]["items"][0]["unit_price"] = 104.0
 
     response = procurement_client.post(
@@ -456,7 +456,7 @@ def test_price_difference_exactly_five_percent_is_matched(
     prepare_exact_match()
 
     invoices[
-        ("SUP001", "INV1001")
+        ("SUP-00001", "INV1001")
     ]["items"][0]["unit_price"] = 105.0
 
     response = procurement_client.post(
@@ -594,7 +594,7 @@ def test_missing_invoice_returns_error(
 
     response = procurement_client.post(
         match_url(
-            supplier_id="SUP001",
+            supplier_id="SUP-00001",
             invoice_number="INV-NOT-FOUND",
         )
     )
@@ -612,7 +612,7 @@ def test_missing_po_returns_error(
 ):
     create_submitted_invoice(
         invoice_number="INV1001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         po_number="PO-NOT-FOUND",
     )
 
@@ -632,12 +632,12 @@ def test_supplier_cannot_match_other_supplier_invoice(
     supplier_client,
 ):
     prepare_exact_match(
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     response = supplier_client.post(
         match_url(
-            supplier_id="SUP002",
+            supplier_id="SUP-00002",
             invoice_number="INV1001",
         )
     )
@@ -665,7 +665,7 @@ def test_invoice_must_be_submitted(
     prepare_exact_match()
 
     invoices[
-        ("SUP001", "INV1001")
+        ("SUP-00001", "INV1001")
     ]["status"] = invoice_status
 
     response = procurement_client.post(
@@ -800,7 +800,7 @@ def test_discrepancy_contains_correct_line_details(
     prepare_exact_match()
 
     invoice = invoices[
-        ("SUP001", "INV1001")
+        ("SUP-00001", "INV1001")
     ]
 
     invoice["items"][0]["quantity"] = 5
@@ -841,7 +841,7 @@ def test_compliance_officer_can_resolve_discrepancy(
     prepare_exact_match()
 
     invoices[
-        ("SUP001", "INV1001")
+        ("SUP-00001", "INV1001")
     ]["items"][0]["quantity"] = 5
 
     match_response = procurement_client.post(
@@ -909,7 +909,7 @@ def test_resolution_requires_valid_reason(
     prepare_exact_match()
 
     invoices[
-        ("SUP001", "INV1001")
+        ("SUP-00001", "INV1001")
     ]["items"][0]["quantity"] = 5
 
     response = procurement_client.post(
@@ -940,7 +940,7 @@ def test_supplier_cannot_resolve_discrepancy(
     prepare_exact_match()
 
     # Create a quantity discrepancy in the stored invoice.
-    invoice = invoices[("SUP001", "INV1001")]
+    invoice = invoices[("SUP-00001", "INV1001")]
     invoice["items"][0]["quantity"] = 5
 
     # Procurement Manager performs the three-way match.
@@ -1003,7 +1003,7 @@ def test_payment_approval_from_discrepancy_fails(
     prepare_exact_match()
 
     invoices[
-        ("SUP001", "INV1001")
+        ("SUP-00001", "INV1001")
     ]["items"][0]["quantity"] = 5
 
     response = procurement_client.post(
@@ -1140,7 +1140,7 @@ def test_multiple_invoice_items_match(
 ):
     purchase_orders["PO1001"] = {
         "po_number": "PO1001",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [
             {
                 "item_code": "LAP001",
@@ -1168,7 +1168,7 @@ def test_multiple_invoice_items_match(
     goods_receipts["GR-PO1001"] = {
         "receipt_id": "GR-PO1001",
         "po_number": "PO1001",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "receipt_date": "2026-09-09",
         "warehouse": "WH-HYD-01",
         "received_by": "warehouse.user@company.com",
@@ -1185,9 +1185,9 @@ def test_multiple_invoice_items_match(
         "status": "received",
     }
 
-    invoices[("SUP001", "INV1001")] = {
+    invoices[("SUP-00001", "INV1001")] = {
         "invoice_number": "INV1001",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [
             {
                 "po_number": "PO1001",
@@ -1236,29 +1236,29 @@ def test_multiple_pos_in_one_invoice_match(
 ):
     create_fulfilled_po(
         po_number="PO1001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     create_fulfilled_po(
         po_number="PO1002",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     create_received_goods_receipt(
         po_number="PO1001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         quantity=10,
     )
 
     create_received_goods_receipt(
         po_number="PO1002",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         quantity=10,
     )
 
-    invoices[("SUP001", "INV1001")] = {
+    invoices[("SUP-00001", "INV1001")] = {
         "invoice_number": "INV1001",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [
             {
                 "po_number": "PO1001",
@@ -1314,29 +1314,29 @@ def test_multi_po_discrepancy_moves_all_referenced_pos_to_discrepancy(
 ):
     create_fulfilled_po(
         po_number="PO1001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     create_fulfilled_po(
         po_number="PO1002",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     create_received_goods_receipt(
         po_number="PO1001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         quantity=10,
     )
 
     create_received_goods_receipt(
         po_number="PO1002",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         quantity=10,
     )
 
-    invoices[("SUP001", "INV1001")] = {
+    invoices[("SUP-00001", "INV1001")] = {
         "invoice_number": "INV1001",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [
             {
                 "po_number": "PO1001",
@@ -1391,12 +1391,12 @@ def test_procurement_manager_can_access_supplier_match(
     procurement_client,
 ):
     prepare_exact_match(
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     response = procurement_client.post(
         match_url(
-            supplier_id="SUP002",
+            supplier_id="SUP-00002",
             invoice_number="INV1001",
         )
     )
@@ -1405,7 +1405,7 @@ def test_procurement_manager_can_access_supplier_match(
 
     response = procurement_client.get(
         match_url(
-            supplier_id="SUP002",
+            supplier_id="SUP-00002",
             invoice_number="INV1001",
         )
     )
@@ -1449,7 +1449,7 @@ def test_resolution_metadata_is_recorded(
     prepare_exact_match()
 
     invoices[
-        ("SUP001", "INV1001")
+        ("SUP-00001", "INV1001")
     ]["items"][0]["quantity"] = 5
 
     response = procurement_client.post(
@@ -1592,7 +1592,7 @@ def test_payment_approval_failure_keeps_discrepancy_state(
     prepare_exact_match()
 
     invoices[
-        ("SUP001", "INV1001")
+        ("SUP-00001", "INV1001")
     ]["items"][0]["quantity"] = 5
 
     response = procurement_client.post(
@@ -1623,29 +1623,29 @@ def test_multi_po_mixed_result_is_discrepancy(
 ):
     create_fulfilled_po(
         po_number="PO1001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     create_fulfilled_po(
         po_number="PO1002",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     create_received_goods_receipt(
         po_number="PO1001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         quantity=10,
     )
 
     create_received_goods_receipt(
         po_number="PO1002",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         quantity=10,
     )
 
-    invoices[("SUP001", "INV1001")] = {
+    invoices[("SUP-00001", "INV1001")] = {
         "invoice_number": "INV1001",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [
             {
                 "po_number": "PO1001",
@@ -1703,7 +1703,7 @@ def test_supplier_without_supplier_id_is_rejected(
 
     response = supplier_no_id_client.get(
         match_url(
-            supplier_id="SUP001",
+            supplier_id="SUP-00001",
             invoice_number="INV1001",
         )
     )
@@ -1722,25 +1722,25 @@ def test_supplier_cannot_get_other_supplier_match(
     supplier_client,
     procurement_client,
 ):
-    # Create and store a match belonging to SUP002.
+    # Create and store a match belonging to SUP-00002.
     prepare_exact_match(
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     # Procurement Manager creates the match.
     response = procurement_client.post(
         match_url(
-            supplier_id="SUP002",
+            supplier_id="SUP-00002",
             invoice_number="INV1001",
         )
     )
 
     assert response.status_code == 200
 
-    # SUP001 supplier attempts to access SUP002 match.
+    # SUP-00001 supplier attempts to access SUP-00002 match.
     response = supplier_client.get(
         match_url(
-            supplier_id="SUP002",
+            supplier_id="SUP-00002",
             invoice_number="INV1001",
         )
     )
@@ -1757,29 +1757,29 @@ def test_supplier_can_get_own_match(
     procurement_client,
 ):
     prepare_exact_match(
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     # Internal user creates the match.
     response = procurement_client.post(
         match_url(
-            supplier_id="SUP001",
+            supplier_id="SUP-00001",
             invoice_number="INV1001",
         )
     )
 
     assert response.status_code == 200
 
-    # SUP001 supplier accesses own match.
+    # SUP-00001 supplier accesses own match.
     response = supplier_client.get(
         match_url(
-            supplier_id="SUP001",
+            supplier_id="SUP-00001",
             invoice_number="INV1001",
         )
     )
 
     assert response.status_code == 200
-    assert response.json()["supplier_id"] == "SUP001"
+    assert response.json()["supplier_id"] == "SUP-00001"
     assert response.json()["invoice_number"] == "INV1001"
 
 
@@ -1792,7 +1792,7 @@ def test_unknown_three_way_match_returns_404(
 ):
     response = supplier_client.get(
         match_url(
-            supplier_id="SUP001",
+            supplier_id="SUP-00001",
             invoice_number="INV-NOT-FOUND",
         )
     )
@@ -1812,7 +1812,7 @@ def test_unknown_supplier_match_returns_403(
 ):
     response = supplier_client.get(
         match_url(
-            supplier_id="SUP-UNKNOWN",
+            supplier_id="SUP-99999",
             invoice_number="INV1001",
         )
     )
@@ -1826,7 +1826,7 @@ def test_unknown_match_for_own_supplier_returns_404(
 ):
     response = supplier_client.get(
         match_url(
-            supplier_id="SUP001",
+            supplier_id="SUP-00001",
             invoice_number="INV-DOES-NOT-EXIST",
         )
     )
@@ -1845,12 +1845,12 @@ def test_procurement_manager_can_get_other_supplier_match(
     procurement_client,
 ):
     prepare_exact_match(
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     response = procurement_client.post(
         match_url(
-            supplier_id="SUP002",
+            supplier_id="SUP-00002",
             invoice_number="INV1001",
         )
     )
@@ -1859,13 +1859,13 @@ def test_procurement_manager_can_get_other_supplier_match(
 
     response = procurement_client.get(
         match_url(
-            supplier_id="SUP002",
+            supplier_id="SUP-00002",
             invoice_number="INV1001",
         )
     )
 
     assert response.status_code == 200
-    assert response.json()["supplier_id"] == "SUP002"
+    assert response.json()["supplier_id"] == "SUP-00002"
 
 # ============================================================
 # TASK 4 — DISPUTE RESOLUTION SUGGESTIONS
@@ -1932,12 +1932,12 @@ def create_price_discrepancy_match(
     )
 
     invoices[
-        ("SUP001", invoice_number)
+        ("SUP-00001", invoice_number)
     ]["items"][0]["unit_price"] = 106.0
 
     response = procurement_client.post(
         match_url(
-            supplier_id="SUP001",
+            supplier_id="SUP-00001",
             invoice_number=invoice_number,
         )
     )
@@ -1966,7 +1966,7 @@ def test_price_mismatch_resolution_suggestion(
 
     seed_historical_match(
         match_id="HIST-PRICE-001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="OLD-PRICE-001",
         discrepancies=["price_mismatch"],
         resolution_reason=(
@@ -1976,7 +1976,7 @@ def test_price_mismatch_resolution_suggestion(
 
     seed_historical_match(
         match_id="HIST-PRICE-002",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
         invoice_number="OLD-PRICE-002",
         discrepancies=["price_mismatch"],
         resolution_reason=(
@@ -1986,7 +1986,7 @@ def test_price_mismatch_resolution_suggestion(
 
     seed_historical_match(
         match_id="HIST-PRICE-003",
-        supplier_id="SUP003",
+        supplier_id="SUP-00003",
         invoice_number="OLD-PRICE-003",
         discrepancies=["price_mismatch"],
         resolution_reason=(
@@ -2001,7 +2001,7 @@ def test_price_mismatch_resolution_suggestion(
 
     response = compliance_client.get(
         resolution_suggestion_url(
-            supplier_id="SUP001",
+            supplier_id="SUP-00001",
             invoice_number="INV1001",
         )
     )
@@ -2010,7 +2010,7 @@ def test_price_mismatch_resolution_suggestion(
 
     data = response.json()
 
-    assert data["supplier_id"] == "SUP001"
+    assert data["supplier_id"] == "SUP-00001"
     assert data["invoice_number"] == "INV1001"
 
     assert len(data["suggestions"]) == 1
@@ -2044,7 +2044,7 @@ def test_quantity_mismatch_resolution_suggestion(
 
     seed_historical_match(
         match_id="HIST-QTY-001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="OLD-QTY-001",
         discrepancies=["quantity_mismatch"],
         resolution_reason=(
@@ -2054,7 +2054,7 @@ def test_quantity_mismatch_resolution_suggestion(
 
     seed_historical_match(
         match_id="HIST-QTY-002",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
         invoice_number="OLD-QTY-002",
         discrepancies=["quantity_mismatch"],
         resolution_reason=(
@@ -2064,7 +2064,7 @@ def test_quantity_mismatch_resolution_suggestion(
 
     seed_historical_match(
         match_id="HIST-QTY-003",
-        supplier_id="SUP003",
+        supplier_id="SUP-00003",
         invoice_number="OLD-QTY-003",
         discrepancies=["quantity_mismatch"],
         resolution_reason=(
@@ -2075,7 +2075,7 @@ def test_quantity_mismatch_resolution_suggestion(
     prepare_exact_match()
 
     invoices[
-        ("SUP001", "INV1001")
+        ("SUP-00001", "INV1001")
     ]["items"][0]["quantity"] = 5
 
     match_response = procurement_client.post(
@@ -2126,7 +2126,7 @@ def test_multiple_discrepancies_get_multiple_suggestions(
 
     seed_historical_match(
         match_id="HIST-MULTI-001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="OLD-MULTI-001",
         discrepancies=["quantity_mismatch"],
         resolution_reason="Credit note issued.",
@@ -2134,7 +2134,7 @@ def test_multiple_discrepancies_get_multiple_suggestions(
 
     seed_historical_match(
         match_id="HIST-MULTI-002",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
         invoice_number="OLD-MULTI-002",
         discrepancies=["price_mismatch"],
         resolution_reason="Corrected invoice received.",
@@ -2143,7 +2143,7 @@ def test_multiple_discrepancies_get_multiple_suggestions(
     prepare_exact_match()
 
     invoice = invoices[
-        ("SUP001", "INV1001")
+        ("SUP-00001", "INV1001")
     ]
 
     invoice["items"][0]["quantity"] = 5
@@ -2243,10 +2243,10 @@ def test_unresolved_historical_case_is_ignored(
     """
 
     three_way_matches[
-        ("SUP001", "OLD-UNRESOLVED")
+        ("SUP-00001", "OLD-UNRESOLVED")
     ] = {
         "match_id": "HIST-UNRESOLVED-001",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "invoice_number": "OLD-UNRESOLVED",
         "status": "discrepancy",
         "lines": [],
@@ -2301,7 +2301,7 @@ def test_current_dispute_is_not_used_as_history(
     )
 
     current_match = three_way_matches[
-        ("SUP001", "INV1001")
+        ("SUP-00001", "INV1001")
     ]
 
     # Add a resolution reason to the current record while
@@ -2343,7 +2343,7 @@ def test_suggestion_is_read_only(
 
     seed_historical_match(
         match_id="HIST-READONLY-001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="OLD-READONLY-001",
         discrepancies=["price_mismatch"],
         resolution_reason=(
@@ -2356,7 +2356,7 @@ def test_suggestion_is_read_only(
     )
 
     before_status = three_way_matches[
-        ("SUP001", "INV1001")
+        ("SUP-00001", "INV1001")
     ]["status"]
 
     before_p2p_state = p2p_states["PO1001"]
@@ -2369,7 +2369,7 @@ def test_suggestion_is_read_only(
 
     assert (
         three_way_matches[
-            ("SUP001", "INV1001")
+            ("SUP-00001", "INV1001")
         ]["status"]
         == before_status
     )
@@ -2419,7 +2419,7 @@ def test_supplier_cannot_access_other_supplier_suggestion(
 
     seed_historical_match(
         match_id="HIST-CROSS-001",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
         invoice_number="OLD-CROSS-001",
         discrepancies=["price_mismatch"],
         resolution_reason=(
@@ -2427,18 +2427,18 @@ def test_supplier_cannot_access_other_supplier_suggestion(
         ),
     )
 
-    # Build a SUP002 current discrepancy.
+    # Build a SUP-00002 current discrepancy.
     prepare_exact_match(
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     invoices[
-        ("SUP002", "INV1001")
+        ("SUP-00002", "INV1001")
     ]["items"][0]["unit_price"] = 106.0
 
     response = procurement_client.post(
         match_url(
-            supplier_id="SUP002",
+            supplier_id="SUP-00002",
             invoice_number="INV1001",
         )
     )
@@ -2448,10 +2448,10 @@ def test_supplier_cannot_access_other_supplier_suggestion(
         "discrepancy"
     )
 
-    # SUP001 supplier tries to access SUP002.
+    # SUP-00001 supplier tries to access SUP-00002.
     response = supplier_client.get(
         resolution_suggestion_url(
-            supplier_id="SUP002",
+            supplier_id="SUP-00002",
             invoice_number="INV1001",
         )
     )
@@ -2468,7 +2468,7 @@ def test_unknown_resolution_suggestion_match_returns_404(
 ):
     response = compliance_client.get(
         resolution_suggestion_url(
-            supplier_id="SUP001",
+            supplier_id="SUP-00001",
             invoice_number="INV-NOT-FOUND",
         )
     )

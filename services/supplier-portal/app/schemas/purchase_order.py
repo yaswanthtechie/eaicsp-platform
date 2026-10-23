@@ -3,7 +3,7 @@ from typing import List
 
 from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime, date
-
+from app.schemas.ids import SUPPLIER_ID_PATTERN
 
 class PurchaseOrderStatus(str, Enum):
     draft = "draft"
@@ -31,7 +31,7 @@ class PurchaseOrderCreate(BaseModel):
         json_schema_extra={
             "example": {
                 "po_number": "PO1001",
-                "supplier_id": "SUP001",
+                "supplier_id": "SUP-00001",
                 "items": [
                     {
                         "item_code": "LAP001",
@@ -58,7 +58,7 @@ class PurchaseOrderCreate(BaseModel):
     )
 
     supplier_id: str = Field(
-        pattern=r"^[A-Za-z0-9_-]+$"
+        pattern=SUPPLIER_ID_PATTERN
     )
 
     items: List[PurchaseOrderItem] = Field(
@@ -71,14 +71,14 @@ class PurchaseOrderCreate(BaseModel):
     created_at: datetime
     expected_delivery: date
 
-
 class PurchaseOrderUpdate(BaseModel):
-    supplier_id: str | None = None
+    supplier_id: str | None = Field(
+        default=None,
+        pattern=SUPPLIER_ID_PATTERN,
+    )
     items: List[PurchaseOrderItem] | None = None
     total_amount: float | None = None
     expected_delivery: date | None = None
-
-
 class PurchaseOrderResponse(BaseModel):
     po_number: str
     supplier_id: str

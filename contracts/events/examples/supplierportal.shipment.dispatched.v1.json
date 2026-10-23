@@ -1,0 +1,16 @@
+{
+  "event_id": "f3a19d62-7c84-4b1e-9a56-2d7e8c4f0b13",
+  "event_type": "supplierportal.shipment.dispatched",
+  "event_version": 1,
+  "occurred_at": "2026-10-15T06:30:00Z",
+  "producer": "supplier-portal",
+  "payload": {
+    "shipment_id": "SHP-2026-000077",
+    "po_number": "PO-2026-000123",
+    "supplier_id": "SUP-00045",
+    "origin": "Supplier Warehouse, Bengaluru",
+    "destination_warehouse": "WH-BLR-01",
+    "carrier": "BlueDart",
+    "dispatched_at": "2026-10-15T06:30:00Z"
+  }
+}

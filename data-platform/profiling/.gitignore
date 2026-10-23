@@ -1,1 +1,9 @@
 data/*.csv
+
+logs/
+
+.env
+
+airflow.cfg
+airflow.db
+webserver_config.py

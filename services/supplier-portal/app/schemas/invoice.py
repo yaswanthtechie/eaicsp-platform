@@ -3,7 +3,7 @@ from typing import List
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
-
+from app.schemas.ids import SUPPLIER_ID_PATTERN
 
 # ============================================================
 # INVOICE STATUS
@@ -83,7 +83,7 @@ class InvoiceCreate(BaseModel):
         json_schema_extra={
             "example": {
                 "invoice_number": "INV1001",
-                "supplier_id": "SUP001",
+                "supplier_id": "SUP-00001",
                 "items": [
                     {
                         "po_number": "PO1001",
@@ -104,7 +104,7 @@ class InvoiceCreate(BaseModel):
     )
 
     supplier_id: str = Field(
-        pattern=r"^[A-Za-z0-9_-]+$"
+        pattern=SUPPLIER_ID_PATTERN
     )
 
     items: List[InvoiceLineItem] = Field(
