@@ -1,12 +1,12 @@
 from datetime import UTC, datetime
 
+import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import (
     HTTPAuthorizationCredentials,
     HTTPBearer,
     OAuth2PasswordBearer,
 )
-from jose import JWTError
 from sqlalchemy.orm import Session
 
 from app.core.permissions import PERMISSIONS, ROLE_PERMISSIONS
@@ -118,7 +118,7 @@ def get_current_user(
     except HTTPException:
         raise
 
-    except JWTError:
+    except jwt.InvalidTokenError:
         # Invalid signature, expired token, malformed token, etc.
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -230,6 +230,15 @@ ROLE_HIERARCHY = {
     },
 }
 
+
+def _effective_roles(user: User) -> set[str]:
+    """The user's role plus every role it inherits; empty if no role."""
+    role = user.role.name if user.role else None
+    if role is None:
+        return set()
+    return ROLE_HIERARCHY.get(role, {role})
+
+
 # ============================================================
 # Require ANY Role
 # ============================================================
@@ -240,12 +249,7 @@ def require_any_role(*allowed_roles):
     def dependency(
         user: User = Depends(get_current_user),
     ):
-        role = user.role.name if user.role else None
-
-        permissions = ROLE_HIERARCHY.get(
-            role,
-            {role} if role else set(),
-        )
+        permissions = _effective_roles(user)
 
         if not any(allowed_role in permissions for allowed_role in allowed_roles):
             raise HTTPException(
@@ -266,12 +270,7 @@ def require_all_roles(*required_roles):
     def dependency(
         user: User = Depends(get_current_user),
     ):
-        role = user.role.name if user.role else None
-
-        permissions = ROLE_HIERARCHY.get(
-            role,
-            {role} if role else set(),
-        )
+        permissions = _effective_roles(user)
 
         if not all(required_role in permissions for required_role in required_roles):
             raise HTTPException(
@@ -292,12 +291,7 @@ def require_role(*allowed_roles):
     def dependency(
         user: User = Depends(get_current_user),
     ):
-        role = user.role.name if user.role else None
-
-        permissions = ROLE_HIERARCHY.get(
-            role,
-            {role} if role else set(),
-        )
+        permissions = _effective_roles(user)
 
         if not any(allowed_role in permissions for allowed_role in allowed_roles):
             raise HTTPException(
