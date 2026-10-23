@@ -30,6 +30,20 @@ MODEL_FEATURES = (
     + CATEGORICAL_FEATURES
 )
 
+ETA_HISTORY_FEATURES = [
+    "historical_on_time_rate_carrier",
+    "historical_avg_transit_days_carrier",
+    "historical_on_time_rate_route",
+    "historical_avg_transit_days_route",
+    "historical_avg_transit_days_carrier_route",
+    "historical_on_time_rate_departure_season",
+]
+
+TRAINING_MODEL_FEATURES = (
+    NUMERIC_FEATURES
+    + ETA_HISTORY_FEATURES
+    + CATEGORICAL_FEATURES
+)
 
 def validate_columns(features):
     """Validate that all required columns are present."""
@@ -37,6 +51,7 @@ def validate_columns(features):
     required_columns = (
         [ID_COLUMN]
         + MODEL_FEATURES
+        + ETA_HISTORY_FEATURES
         + [TARGET_COLUMN]
     )
 

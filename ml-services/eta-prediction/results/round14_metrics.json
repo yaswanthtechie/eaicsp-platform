@@ -1,0 +1,18 @@
+{
+  "evaluation": {
+    "type": "chronological_test_period",
+    "nominal_coverage": 0.8
+  },
+  "inherited": {
+    "mae": 4.301151193151466,
+    "nominal_coverage": 0.8,
+    "actual_coverage": 0.9445804468982759,
+    "mean_interval_width": 20.39393906882957
+  },
+  "round14": {
+    "mae": 4.600042830636361,
+    "nominal_coverage": 0.8,
+    "actual_coverage": 0.9582790770352623,
+    "mean_interval_width": 22.9100011223687
+  }
+}

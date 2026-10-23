@@ -14,3 +14,7 @@ fastapi==0.128.2
 uvicorn==0.40.0
 httpx==0.28.1
 requests==2.34.2
+shap==0.53.0
+
+-e ../feature-lib
+holidays>=0.40
