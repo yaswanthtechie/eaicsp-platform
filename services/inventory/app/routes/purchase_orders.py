@@ -128,6 +128,7 @@ def approve_purchase_order_endpoint(
     "/{po_id}/receive",
     response_model=PurchaseOrderResponse,
     status_code=status.HTTP_200_OK,
+    deprecated=True,
 )
 def receive_purchase_order_endpoint(
     po_id: str,

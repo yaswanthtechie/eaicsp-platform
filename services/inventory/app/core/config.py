@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     COMPLIANCE_DLQ_TOPIC: str = "compliance.supplier.status_changed.dlq"
     COMPLIANCE_CONSUMER_INTERVAL_SECONDS: float = 1.0
 
+    # PO Acknowledged Consumer (Flow B)
+    PO_ACKNOWLEDGED_TOPIC: str = "supplierportal.po.acknowledged"
+    PO_ACKNOWLEDGED_CONSUMER_GROUP: str = "inventory-po-acknowledged-consumer"
+    PO_ACKNOWLEDGED_DLQ_TOPIC: str = "supplierportal.po.acknowledged.dlq"
+    PO_ACKNOWLEDGED_CONSUMER_INTERVAL_SECONDS: float = 1.0
+
     # Outbox Relay background worker
     ENABLE_OUTBOX_RELAY: bool = False
     OUTBOX_RELAY_INTERVAL_SECONDS: float = 2.0

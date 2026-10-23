@@ -435,94 +435,83 @@ def approve_purchase_order(
     return purchase_order
 
 
+class _LegacyReceiptItem:
+    def __init__(self, sku_id: str, quantity_received: int, unit_cost: float | None = None):
+        self.sku_id = sku_id
+        self.quantity_received = quantity_received
+        self.unit_cost = unit_cost
+
+
+class _LegacyReceiptData:
+    def __init__(self, po_id: str, warehouse_id: str, items: list, notes: str | None = None):
+        self.po_id = po_id
+        self.warehouse_id = warehouse_id
+        self.items = items
+        self.notes = notes
+
+
 def receive_purchase_order(
     db: Session,
     po_id: str,
 ):
     """
-    Receive a purchase order.
+    Receive a purchase order (legacy).
+    Delegates to record_goods_receipt with the PO's full quantity.
     """
-
     purchase_order = (
         db.query(PurchaseOrder)
-        .filter(
-            PurchaseOrder.po_id == po_id
-        )
+        .filter(PurchaseOrder.po_id == po_id)
         .with_for_update()
         .first()
     )
 
     if purchase_order is None:
-        raise LookupError(
-            "Purchase order not found"
-        )
+        raise LookupError("Purchase order not found")
 
     if purchase_order.status == "on_hold":
         raise ValueError(
             f"Cannot receive purchase order: PO is on hold ({purchase_order.hold_reason or 'compliance review'})"
         )
 
-    if purchase_order.status != "draft":
+    if purchase_order.status not in ("draft", "acknowledged"):
         raise ValueError(
             "Only draft purchase orders can be received"
         )
 
-    if (
-        purchase_order.approval_status
-        != "approved"
-    ):
+    if purchase_order.approval_status != "approved":
         raise ValueError(
             "Purchase order requires VP Operations approval"
         )
 
-    inventory = (
-        db.query(Inventory)
-        .filter(
-            Inventory.sku_id
-            == purchase_order.sku_id,
-            Inventory.warehouse_id
-            == purchase_order.warehouse_id,
-        )
-        .with_for_update()
-        .first()
-    )
-
-    if inventory is None:
-        raise ValueError(
-            "Inventory record not found for purchase order"
-        )
-
-    received_quantity = purchase_order.quantity
-
-    if received_quantity <= 0:
+    if purchase_order.quantity <= 0:
         raise ValueError(
             "Purchase order quantity must be greater than zero"
         )
 
-    inventory.quantity_on_hand += received_quantity
+    from app.services.goods_receipt_service import record_goods_receipt
 
-    inventory.version += 1
-
-    add_cost_layer(
-        db=db,
-        sku_id=inventory.sku_id,
-        warehouse_id=inventory.warehouse_id,
-        category=inventory.category,
-        quantity=received_quantity,
-        unit_cost=purchase_order.unit_cost,
+    receipt_data = _LegacyReceiptData(
+        po_id=purchase_order.po_id,
+        warehouse_id=purchase_order.warehouse_id,
+        items=[
+            _LegacyReceiptItem(
+                sku_id=purchase_order.sku_id,
+                quantity_received=purchase_order.quantity,
+                unit_cost=purchase_order.unit_cost,
+            )
+        ],
+        notes="Legacy PO receive endpoint",
     )
 
-    purchase_order.status = "received"
+    record_goods_receipt(
+        db=db,
+        data=receipt_data,
+        received_by="legacy_receive_endpoint",
+    )
 
     try:
         db.commit()
         db.refresh(purchase_order)
-        invalidate_inventory_cache(
-            inventory.sku_id,
-            inventory.warehouse_id,
-            version=inventory.version,
-        )
-
     except Exception:
         db.rollback()
         raise
