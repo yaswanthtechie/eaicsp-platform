@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-import app.models
+from app import models as _models  # noqa: F401 - registers every table on Base
 from app.core.logging_config import configure_logging
 from app.database import Base, engine
 from app.middleware.logging import log_requests

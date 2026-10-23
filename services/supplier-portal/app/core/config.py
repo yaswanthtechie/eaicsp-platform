@@ -59,7 +59,11 @@ class Settings(BaseSettings):
 
     # Durable Compliance State
     COMPLIANCE_DB_PATH: str = "data/compliance_state.db"
-
+    
+    # PostgreSQL - required, read from .env (no default credentials)
+    DATABASE_URL: str
+    
+    SUPPLIER_DB_SCHEMA: str = "supplier_portal"
 
     model_config = SettingsConfigDict(
         env_file=".env",

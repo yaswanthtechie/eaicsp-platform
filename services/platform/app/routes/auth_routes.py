@@ -1,9 +1,13 @@
 import logging
 from datetime import UTC, datetime, timedelta
 
+import jwt
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
+<<<<<<< HEAD
 import jwt
+=======
+>>>>>>> origin/develop
 from sqlalchemy.orm import Session
 
 from app.core.config import TRUST_PROXY
@@ -462,7 +466,7 @@ def verify_access_token(
     # include fine-grained permissions
     # -------------------------------------------------
     role = user.role.name if user.role else None
-    permissions = sorted(ROLE_PERMISSIONS.get(role, set()))
+    permissions = sorted(ROLE_PERMISSIONS.get(role, set())) if role else []
 
     response_data = {
         "valid": True,
