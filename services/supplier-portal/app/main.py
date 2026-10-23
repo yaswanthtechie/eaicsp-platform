@@ -4,6 +4,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.services.kafka_consumer_runner import kafka_consumer_runner
+from app.services.inv_po_approved_consumer_runner import (
+    inv_po_approved_consumer_runner,
+)
 
 from app.routes.supplier_onboarding import (
     router as supplier_onboarding_router,
@@ -12,6 +15,9 @@ from app.routes.supplier_contract import (
     router as supplier_contract_router,
 )
 from app.routes.purchase_order import router as purchase_order_router
+from app.routes.approved_purchase_orders import (
+    router as approved_purchase_orders_router,
+)
 from app.routes.shipment import router as shipment_router
 from app.routes.goods_receipt import router as goods_receipt_router
 from app.routes.invoice import router as invoice_router
@@ -32,18 +38,21 @@ from app.core.config import settings
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Start and stop the Supplier Portal Kafka consumer
-    with the FastAPI application lifecycle.
-    """
     if settings.KAFKA_ENABLED:
         kafka_consumer_runner.start()
+
+    if settings.PO_KAFKA_ENABLED:
+        inv_po_approved_consumer_runner.start()
 
     try:
         yield
     finally:
+        if settings.PO_KAFKA_ENABLED:
+            inv_po_approved_consumer_runner.stop()
+
         if settings.KAFKA_ENABLED:
             kafka_consumer_runner.stop()
+
 
 
 app = FastAPI(
@@ -69,6 +78,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(approved_purchase_orders_router)
 
 # Supplier Onboarding
 app.include_router(
@@ -155,6 +165,7 @@ def root():
     }
 
 
+
 @app.get("/health")
 def health():
     return {
@@ -162,6 +173,11 @@ def health():
         "kafka_consumer_alive": (
             kafka_consumer_runner.is_alive()
             if settings.KAFKA_ENABLED
+            else False
+        ),
+        "po_kafka_consumer_alive": (
+            inv_po_approved_consumer_runner.is_alive()
+            if settings.PO_KAFKA_ENABLED
             else False
         ),
     }

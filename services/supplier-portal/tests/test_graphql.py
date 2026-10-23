@@ -40,6 +40,9 @@ from app.schemas.events import (
 from app.services.supplier_compliance_service import (
     supplier_compliance_service,
 )
+from app.database import SessionLocal
+from app.models.po_mirror import POMirror
+from app.models.po_ack_outbox import POAckOutbox
 
 
 # ============================================================
@@ -367,6 +370,7 @@ def test_graphql_schema_exposes_required_query_fields(
 
     assert "purchaseOrder" in field_names
     assert "purchaseOrders" in field_names
+    assert "approvedPurchaseOrders" in field_names
     assert "invoice" in field_names
     assert "invoices" in field_names
     assert "documents" in field_names
@@ -404,6 +408,10 @@ def test_graphql_schema_exposes_acknowledge_mutation(
 
     assert (
         "acknowledgePurchaseOrder"
+        in field_names
+    )
+    assert (
+        "acknowledgeApprovedPurchaseOrder"
         in field_names
     )
 
@@ -476,6 +484,118 @@ def test_supplier_can_query_own_purchase_order(
     assert po["items"][0]["itemCode"] == "ITEM001"
     assert po["items"][0]["quantity"] == 2
     assert po["items"][0]["unitPrice"] == 1000
+
+def test_supplier_can_query_own_approved_purchase_orders(
+    supplier_client,
+):
+    seed_approved_po(
+        "PO-2026-000123",
+        "SUP001",
+    )
+    seed_approved_po(
+        "PO-2026-000124",
+        "SUP002",
+    )
+
+    set_compliance_status(
+        "SUP001",
+        SupplierComplianceStatus.cleared,
+    )
+
+    result = graphql(
+        supplier_client,
+        APPROVED_PURCHASE_ORDERS_QUERY,
+    )
+
+    assert "errors" not in result, result.get("errors")
+
+    pos = result["data"]["approvedPurchaseOrders"]
+
+    assert any(
+        po["poId"] == "PO-2026-000123"
+        and po["supplierId"] == "SUP001"
+        for po in pos
+    )
+
+    assert all(
+        po["supplierId"] == "SUP001"
+        for po in pos
+    )
+
+
+def test_supplier_b_can_query_own_approved_purchase_orders(
+    supplier_b_client,
+):
+    seed_approved_po(
+        "PO-2026-000125",
+        "SUP002",
+    )
+
+    set_compliance_status(
+        "SUP002",
+        SupplierComplianceStatus.cleared,
+    )
+
+    result = graphql(
+        supplier_b_client,
+        APPROVED_PURCHASE_ORDERS_QUERY,
+    )
+
+    assert "errors" not in result, result.get("errors")
+
+    pos = result["data"]["approvedPurchaseOrders"]
+
+    assert any(
+        po["poId"] == "PO-2026-000125"
+        and po["supplierId"] == "SUP002"
+        for po in pos
+    )
+
+    assert all(
+        po["supplierId"] == "SUP002"
+        for po in pos
+    )
+
+
+def test_supplier_without_supplier_id_cannot_query_approved_purchase_orders(
+    supplier_no_id_client,
+):
+    result = graphql(
+        supplier_no_id_client,
+        APPROVED_PURCHASE_ORDERS_QUERY,
+    )
+
+    assert "errors" in result
+    assert (
+        "Supplier identity is missing"
+        in result["errors"][0]["message"]
+    )
+
+
+def test_suspended_supplier_cannot_query_approved_purchase_orders(
+    supplier_client,
+):
+    seed_approved_po(
+        "PO-2026-000126",
+        "SUP001",
+    )
+
+    set_compliance_status(
+        "SUP001",
+        SupplierComplianceStatus.suspended,
+    )
+
+    result = graphql(
+        supplier_client,
+        APPROVED_PURCHASE_ORDERS_QUERY,
+    )
+
+    assert "errors" in result
+    assert (
+        "Supplier account is suspended due to compliance status"
+        in result["errors"][0]["message"]
+    )
+
 
 
 def test_query_unknown_purchase_order_returns_null(
@@ -1641,6 +1761,287 @@ def test_supplier_can_acknowledge_own_purchase_order(
     )
 
 
+def test_supplier_can_acknowledge_own_approved_purchase_order(
+    supplier_client,
+):
+    po_id = seed_approved_po(
+        "PO-2026-000127",
+        "SUP001",
+    )
+
+    set_compliance_status(
+        "SUP001",
+        SupplierComplianceStatus.cleared,
+    )
+
+    result = graphql(
+        supplier_client,
+        ACKNOWLEDGE_APPROVED_PO_MUTATION,
+        {"poId": po_id},
+    )
+
+    assert "errors" not in result, result.get("errors")
+
+    po = result["data"]["acknowledgeApprovedPurchaseOrder"]
+
+    assert po is not None
+    assert po["poId"] == po_id
+    assert po["supplierId"] == "SUP001"
+    assert po["status"] == "acknowledged"
+    assert po["acknowledgedAt"] is not None
+
+    db = SessionLocal()
+    try:
+        saved_po = db.query(POMirror).filter(
+            POMirror.po_id == po_id
+        ).one()
+
+        assert saved_po.status == "acknowledged"
+        assert saved_po.acknowledged_at is not None
+
+        outbox_events = db.query(POAckOutbox).filter(
+            POAckOutbox.message_key == po_id
+        ).all()
+
+        assert len(outbox_events) == 1
+        assert outbox_events[0].status == "pending"
+        assert (
+            outbox_events[0].payload["event_type"]
+            == "supplierportal.po.acknowledged"
+        )
+        assert (
+            outbox_events[0].payload["payload"]["po_id"]
+            == po_id
+        )
+    finally:
+        db.close()
+
+
+def test_acknowledge_unknown_approved_po_returns_null(
+    supplier_client,
+):
+    set_compliance_status(
+        "SUP001",
+        SupplierComplianceStatus.cleared,
+    )
+
+    result = graphql(
+        supplier_client,
+        ACKNOWLEDGE_APPROVED_PO_MUTATION,
+        {"poId": "PO-2026-999999"},
+    )
+
+    assert "errors" not in result
+    assert (
+        result["data"]["acknowledgeApprovedPurchaseOrder"]
+        is None
+    )
+
+
+def test_supplier_cannot_acknowledge_another_suppliers_approved_po(
+    supplier_client,
+):
+    po_id = seed_approved_po(
+        "PO-2026-000128",
+        "SUP002",
+    )
+
+    set_compliance_status(
+        "SUP001",
+        SupplierComplianceStatus.cleared,
+    )
+
+    result = graphql(
+        supplier_client,
+        ACKNOWLEDGE_APPROVED_PO_MUTATION,
+        {"poId": po_id},
+    )
+
+    assert "errors" not in result
+    assert (
+        result["data"]["acknowledgeApprovedPurchaseOrder"]
+        is None
+    )
+
+    db = SessionLocal()
+    try:
+        saved_po = db.query(POMirror).filter(
+            POMirror.po_id == po_id
+        ).one()
+
+        assert saved_po.status == "approved"
+        assert saved_po.acknowledged_at is None
+
+        assert db.query(POAckOutbox).filter(
+            POAckOutbox.message_key == po_id
+        ).count() == 0
+    finally:
+        db.close()
+
+
+def test_needs_review_supplier_cannot_acknowledge_approved_po(
+    supplier_client,
+):
+    po_id = seed_approved_po(
+        "PO-2026-000129",
+        "SUP001",
+    )
+
+    set_compliance_status(
+        "SUP001",
+        SupplierComplianceStatus.needs_review,
+    )
+
+    result = graphql(
+        supplier_client,
+        ACKNOWLEDGE_APPROVED_PO_MUTATION,
+        {"poId": po_id},
+    )
+
+    assert "errors" in result
+    assert (
+        "Supplier account is under compliance review"
+        in result["errors"][0]["message"]
+    )
+
+    db = SessionLocal()
+    try:
+        saved_po = db.query(POMirror).filter(
+            POMirror.po_id == po_id
+        ).one()
+
+        assert saved_po.status == "approved"
+        assert saved_po.acknowledged_at is None
+
+        assert db.query(POAckOutbox).filter(
+            POAckOutbox.message_key == po_id
+        ).count() == 0
+    finally:
+        db.close()
+
+
+def test_suspended_supplier_cannot_acknowledge_approved_po(
+    supplier_client,
+):
+    po_id = seed_approved_po(
+        "PO-2026-000130",
+        "SUP001",
+    )
+
+    set_compliance_status(
+        "SUP001",
+        SupplierComplianceStatus.suspended,
+    )
+
+    result = graphql(
+        supplier_client,
+        ACKNOWLEDGE_APPROVED_PO_MUTATION,
+        {"poId": po_id},
+    )
+
+    assert "errors" in result
+    assert (
+        "Supplier account is suspended due to compliance status"
+        in result["errors"][0]["message"]
+    )
+
+    db = SessionLocal()
+    try:
+        saved_po = db.query(POMirror).filter(
+            POMirror.po_id == po_id
+        ).one()
+
+        assert saved_po.status == "approved"
+        assert saved_po.acknowledged_at is None
+
+        assert db.query(POAckOutbox).filter(
+            POAckOutbox.message_key == po_id
+        ).count() == 0
+    finally:
+        db.close()
+
+
+def test_repeated_approved_po_acknowledgement_does_not_duplicate_outbox_event(
+    supplier_client,
+):
+    po_id = seed_approved_po(
+        "PO-2026-000131",
+        "SUP001",
+    )
+
+    set_compliance_status(
+        "SUP001",
+        SupplierComplianceStatus.cleared,
+    )
+
+    first_result = graphql(
+        supplier_client,
+        ACKNOWLEDGE_APPROVED_PO_MUTATION,
+        {"poId": po_id},
+    )
+
+    assert "errors" not in first_result, first_result.get("errors")
+    assert (
+        first_result["data"]["acknowledgeApprovedPurchaseOrder"]["status"]
+        == "acknowledged"
+    )
+
+    second_result = graphql(
+        supplier_client,
+        ACKNOWLEDGE_APPROVED_PO_MUTATION,
+        {"poId": po_id},
+    )
+
+    assert "errors" not in second_result, second_result.get("errors")
+    assert (
+        second_result["data"]["acknowledgeApprovedPurchaseOrder"]["status"]
+        == "acknowledged"
+    )
+
+    db = SessionLocal()
+    try:
+        assert db.query(POAckOutbox).filter(
+            POAckOutbox.message_key == po_id
+        ).count() == 1
+    finally:
+        db.close()
+
+
+def test_internal_user_cannot_acknowledge_approved_po(
+    procurement_client,
+):
+    po_id = seed_approved_po(
+        "PO-2026-000132",
+        "SUP001",
+    )
+
+    result = graphql(
+        procurement_client,
+        ACKNOWLEDGE_APPROVED_PO_MUTATION,
+        {"poId": po_id},
+    )
+
+    assert "errors" in result
+    assert (
+        "Only suppliers can acknowledge approved POs"
+        in result["errors"][0]["message"]
+    )
+
+    db = SessionLocal()
+    try:
+        saved_po = db.query(POMirror).filter(
+            POMirror.po_id == po_id
+        ).one()
+
+        assert saved_po.status == "approved"
+        assert saved_po.acknowledged_at is None
+
+        assert db.query(POAckOutbox).filter(
+            POAckOutbox.message_key == po_id
+        ).count() == 0
+    finally:
+        db.close()
+
 def test_acknowledge_unknown_purchase_order_returns_null(
     supplier_client,
 ):
@@ -1785,6 +2186,110 @@ def test_supplier_b_can_acknowledge_own_purchase_order(
         po["status"]
         == "ACKNOWLEDGED"
     )
+
+
+# ============================================================
+# 12. R15 APPROVED PURCHASE ORDERS
+# ============================================================
+
+APPROVED_PURCHASE_ORDERS_QUERY = """
+query ApprovedPurchaseOrders {
+    approvedPurchaseOrders {
+        poId
+        poNumber
+        supplierId
+        warehouseId
+        approvalStatus
+        approvedBy
+        totalAmount
+        currency
+        status
+        acknowledgedAt
+        lines {
+            lineNumber
+            skuId
+            quantity
+            unitCost
+            expectedCost
+        }
+    }
+}
+"""
+
+ACKNOWLEDGE_APPROVED_PO_MUTATION = """
+mutation AcknowledgeApprovedPurchaseOrder($poId: String!) {
+    acknowledgeApprovedPurchaseOrder(poId: $poId) {
+        poId
+        poNumber
+        supplierId
+        status
+        acknowledgedAt
+    }
+}
+"""
+
+def seed_approved_po(
+    po_id: str,
+    supplier_id: str = "SUP001",
+    status: str = "approved",
+):
+    """Create a DB-backed inventory-approved PO for GraphQL tests."""
+
+    db = SessionLocal()
+
+    try:
+        # Keep repeated test runs deterministic for this PO ID.
+        db.query(POAckOutbox).filter(
+            POAckOutbox.message_key == po_id
+        ).delete(synchronize_session=False)
+
+        db.query(POMirror).filter(
+            POMirror.po_id == po_id
+        ).delete(synchronize_session=False)
+
+        approved_at = datetime(
+            2026, 10, 21, 10, 0, tzinfo=timezone.utc
+        )
+
+        po = POMirror(
+            po_id=po_id,
+            event_id=str(uuid4()),
+            event_type="inventory.po.approved",
+            event_version=1,
+            occurred_at=approved_at,
+            trace_id=None,
+            po_number=f"NUM-{po_id}",
+            supplier_id=supplier_id,
+            warehouse_id="WH-BLR-01",
+            approval_status="approved",
+            approved_by="procurement-manager",
+            approved_at=approved_at,
+            total_amount=2000,
+            currency="INR",
+            expected_delivery_date=date(2026, 11, 1),
+            lines=[
+                {
+                    "line_number": 1,
+                    "sku_id": "SKU-000123",
+                    "quantity": 2,
+                    "unit_cost": 1000,
+                    "expected_cost": 2000,
+                }
+            ],
+            status=status,
+            acknowledged_at=None,
+        )
+
+        db.add(po)
+        db.commit()
+        return po_id
+
+    except Exception:
+        db.rollback()
+        raise
+
+    finally:
+        db.close()
 
 
 # ============================================================
