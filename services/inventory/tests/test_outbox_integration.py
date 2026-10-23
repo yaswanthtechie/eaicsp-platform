@@ -444,8 +444,16 @@ def test_real_producer_raises_when_broker_unreachable_and_event_is_kept(db_sessi
     )
     db_session.commit()
 
-    relay = OutboxRelay(publisher=KafkaEventPublisher(bootstrap_servers="localhost:1"))
-    published, failed = relay.relay_pending_events(db=db_session)
+    publisher = KafkaEventPublisher(bootstrap_servers="localhost:1")
+    relay = OutboxRelay(publisher=publisher)
+    try:
+        published, failed = relay.relay_pending_events(db=db_session)
+    finally:
+        try:
+            publisher._producer.purge()
+            publisher._producer.flush(0.1)
+        except Exception:
+            pass
 
     assert (published, failed) == (0, 1)
 

@@ -8,7 +8,6 @@ from app.models.outbox import Outbox
 from app.services.outbox_relay import OutboxRelay
 from tests.fakes import InMemoryKafkaPublisher
 from app.schemas.events import InventoryPOApprovedEvent
-from app.core.config import settings
 from app.main import app
 from app.models.inventory import Inventory
 from app.models.purchase_order import PurchaseOrder
@@ -16,42 +15,15 @@ from app.models.supplier import Supplier
 from tests.conftest import _as_user, seed_sales_history
 from app.services.purchase_order_service import (
     approve_purchase_order,
-    determine_approval_status,
     receive_purchase_order,
 )
-
-
-@pytest.mark.parametrize(
-    "expected_cost, expected_status",
-    [
-        (500.0, "approved"),
-        (1000.0, "approved"),              # exactly at threshold
-        (1000.01, "pending_vp_approval"),  # just above
-        (5000.0, "pending_vp_approval"),
-    ],
-)
-def test_determine_approval_status_uses_threshold(
-    monkeypatch,
-    expected_cost,
-    expected_status,
-):
-    monkeypatch.setattr(
-        settings,
-        "PO_AUTO_APPROVAL_THRESHOLD",
-        1000.0,
-    )
-
-    assert (
-        determine_approval_status(expected_cost)
-        == expected_status
-    )
 
 
 def _seed_reorderable_sku(db_session, unit_cost):
     db_session.add(
         Supplier(
-            supplier_id="SUP-APPROVAL",
-            sku_id="SKU-APPROVAL",
+            supplier_id="SUP-00901",
+            sku_id="SKU-000901",
             supplier_name="Approval Supplier",
             unit_cost=unit_cost,
             lead_time_days=5,
@@ -59,9 +31,9 @@ def _seed_reorderable_sku(db_session, unit_cost):
     )
     db_session.add(
         Inventory(
-            sku_id="SKU-APPROVAL",
+            sku_id="SKU-000901",
             product_name="Approval Widget",
-            warehouse_id="WH-APPROVAL",
+            warehouse_id="WH-BLR-01",
             category="Widgets",
             quantity_on_hand=5,
             lead_time_days=5,
@@ -73,8 +45,8 @@ def _seed_reorderable_sku(db_session, unit_cost):
 
     # 10/day demand -> reorder point 60 -> suggests 55 units
     seed_sales_history(
-        "SKU-APPROVAL",
-        "WH-APPROVAL",
+        "SKU-000901",
+        "WH-BLR-01",
         daily_quantity=10,
     )
 
@@ -84,11 +56,17 @@ def test_small_draft_po_is_auto_approved(client, db_session):
 
     response = client.post(
         "/api/v1/inventory/purchase-orders/draft",
-        json={"sku_id": "SKU-APPROVAL", "warehouse_id": "WH-APPROVAL"},
+        json={"sku_id": "SKU-000901", "warehouse_id": "WH-BLR-01"},
     )
 
     assert response.status_code == 201, response.text
-    assert response.json()["approval_status"] == "approved"
+    po_id = response.json()["po_id"]
+    assert response.json()["approval_status"] == "pending_vp_approval"
+
+    app.dependency_overrides[verify_token] = _as_user("procurement_manager")
+    approved = client.post(f"/api/v1/inventory/purchase-orders/{po_id}/approve")
+    assert approved.status_code == 200
+    assert approved.json()["approval_status"] == "approved"
 
 
 def test_large_draft_po_requires_vp_approval(client, db_session):
@@ -96,7 +74,7 @@ def test_large_draft_po_requires_vp_approval(client, db_session):
 
     response = client.post(
         "/api/v1/inventory/purchase-orders/draft",
-        json={"sku_id": "SKU-APPROVAL", "warehouse_id": "WH-APPROVAL"},
+        json={"sku_id": "SKU-000901", "warehouse_id": "WH-BLR-01"},
     )
 
     assert response.status_code == 201, response.text
@@ -115,7 +93,7 @@ def test_approval_requires_procurement_manager(client, db_session, role):
 
     po_id = client.post(
         "/api/v1/inventory/purchase-orders/draft",
-        json={"sku_id": "SKU-APPROVAL", "warehouse_id": "WH-APPROVAL"},
+        json={"sku_id": "SKU-000901", "warehouse_id": "WH-BLR-01"},
     ).json()["po_id"]
 
     app.dependency_overrides[verify_token] = _as_user(role)
@@ -136,18 +114,27 @@ def test_approving_missing_po_returns_404(client):
     app.dependency_overrides[verify_token] = _as_user("procurement_manager")
 
     response = client.post(
-        "/api/v1/inventory/purchase-orders/PO-DOES-NOT-EXIST/approve"
+        "/api/v1/inventory/purchase-orders/PO-2026-999999/approve"
     )
 
     assert response.status_code == 404
 
 
+def test_approve_without_user_id_returns_401(client, db_session):
+    async def _no_user_id():
+        return {"valid": True, "role": "procurement_manager", "permissions": []}
+
+    app.dependency_overrides[verify_token] = _no_user_id
+    response = client.post("/api/v1/inventory/purchase-orders/PO-2026-999999/approve")
+    assert response.status_code == 401
+
+
 def test_vp_approval_changes_status(db_session):
     po = PurchaseOrder(
-        po_id="PO-TEST-VP",
-        sku_id="SKU-TEST-003",
-        warehouse_id="WH001",
-        supplier_id="SUP003",
+        po_id="PO-2026-900001",
+        sku_id="SKU-000903",
+        warehouse_id="WH-BLR-01",
+        supplier_id="SUP-00901",
         quantity=100,
         unit_cost=50.0,
         expected_cost=5000.0,
@@ -160,7 +147,8 @@ def test_vp_approval_changes_status(db_session):
 
     approved_po = approve_purchase_order(
         db=db_session,
-        po_id="PO-TEST-VP",
+        po_id="PO-2026-900001",
+        approved_by="7",
     )
 
     assert approved_po.status == "draft"
@@ -171,10 +159,10 @@ def test_already_approved_po_cannot_be_approved_again(
     db_session,
 ):
     po = PurchaseOrder(
-        po_id="PO-TEST-ALREADY",
-        sku_id="SKU-TEST-004",
-        warehouse_id="WH001",
-        supplier_id="SUP004",
+        po_id="PO-2026-900002",
+        sku_id="SKU-000904",
+        warehouse_id="WH-BLR-01",
+        supplier_id="SUP-00901",
         quantity=5,
         unit_cost=50.0,
         expected_cost=250.0,
@@ -188,7 +176,8 @@ def test_already_approved_po_cannot_be_approved_again(
     try:
         approve_purchase_order(
             db=db_session,
-            po_id="PO-TEST-ALREADY",
+            po_id="PO-2026-900002",
+            approved_by="7",
         )
         assert False, (
             "Expected ValueError for already approved PO"
@@ -196,17 +185,17 @@ def test_already_approved_po_cannot_be_approved_again(
 
     except ValueError as exc:
         assert (
-            "does not require VP Operations approval"
+            "is not awaiting approval"
             in str(exc)
         )
 
 
 def test_pending_po_cannot_be_received(db_session):
     po = PurchaseOrder(
-        po_id="PO-TEST-PENDING",
-        sku_id="SKU-TEST-005",
-        warehouse_id="WH001",
-        supplier_id="SUP005",
+        po_id="PO-2026-900003",
+        sku_id="SKU-000905",
+        warehouse_id="WH-BLR-01",
+        supplier_id="SUP-00901",
         quantity=100,
         unit_cost=50.0,
         expected_cost=5000.0,
@@ -220,7 +209,7 @@ def test_pending_po_cannot_be_received(db_session):
     try:
         receive_purchase_order(
             db=db_session,
-            po_id="PO-TEST-PENDING",
+            po_id="PO-2026-900003",
         )
         assert False, (
             "Expected ValueError for pending approval PO"
@@ -232,6 +221,7 @@ def test_pending_po_cannot_be_received(db_session):
             in str(exc)
         )
 
+
 def test_approve_po_publishes_inventory_po_approved_event(client, db_session):
     """
     Done-when:
@@ -239,11 +229,10 @@ def test_approve_po_publishes_inventory_po_approved_event(client, db_session):
     2. Event written through outbox, matching the contract exactly
     3. Test: approve, then the outbox relay publishes exactly one event
     """
-    user_uuid = "3f2b8c1e-7a4d-4e9b-9c2f-1d5e6a7b8c90"
     app.dependency_overrides[verify_token] = lambda: {
         "valid": True,
         "role": "procurement_manager",
-        "user_id": user_uuid,
+        "user_id": 7,
         "email": "pm@example.com",
         "permissions": ["supplier:read", "supplier:write"],
     }
@@ -309,7 +298,7 @@ def test_approve_po_publishes_inventory_po_approved_event(client, db_session):
     assert event.event_type == "inventory.po.approved"
     assert event.event_version == 1
     assert event.producer == "inventory-service"
-    assert str(event.payload.approved_by) == user_uuid
+    assert event.payload.approved_by == "7"
     assert event.payload.approval_status == "approved"
     assert event.payload.total_amount == 45000.0
     assert len(event.payload.lines) == 1
@@ -320,4 +309,3 @@ def test_approve_po_publishes_inventory_po_approved_event(client, db_session):
     db_session.refresh(outbox_entry)
     assert outbox_entry.status == "PUBLISHED"
     assert outbox_entry.published_at is not None
-
