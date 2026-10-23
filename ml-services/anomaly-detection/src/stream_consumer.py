@@ -14,6 +14,7 @@ Invalid messages are logged and skipped. Duplicate or late readings are
 skipped before scoring. Readings from sensors missing from the sensor
 config are counted and skipped, so every event has a canonical
 warehouse_id (contract: contracts/events/iot.anomaly.detected.v1.json).
+A sensor map is required: the consumer never emits an event without one.
 
 Run:
     python -m src.stream_consumer --idle-exit 30 --flush-open-episodes --events-log output\\stream_events.jsonl
@@ -31,10 +32,10 @@ from pathlib import Path
 
 from .auto_threshold import SignificanceThresholdTuner, robust_scale
 from .episode_detector import EpisodeDetector
+from .sensor_config import CONFIG_PATH, load_sensors, sensor_map as build_sensor_map
 from .stream_events import EVENT_TYPE, event_key
 from .stream_model import load_stream_model
 from .stream_processor import StreamProcessor
-from .sensor_config import CONFIG_PATH, load_sensors, sensor_map as build_sensor_map
 from .stream_simulator import STEP, reading_from_json
 
 
@@ -291,7 +292,12 @@ class MultiPublisher:
             publisher.close()
 
 
-def build_processor(settings, model, writer, publisher, sensor_map=None):
+def build_processor(settings, model, writer, publisher, sensor_map):
+
+    if not sensor_map:
+        raise ValueError(
+            "sensor_map is required: every event needs a canonical warehouse_id."
+        )
 
     tuner = SignificanceThresholdTuner(
         model.calibration_scores, percentile=PERCENTILE
@@ -311,10 +317,11 @@ def build_processor(settings, model, writer, publisher, sensor_map=None):
 
 def run(
     settings,
+    *,
+    sensor_map,
     events_log=None,
     idle_exit=None,
     flush_open_episodes=False,
-    sensor_map=None,
 ):
 
     from confluent_kafka import Consumer, KafkaError, KafkaException
@@ -339,7 +346,9 @@ def run(
 
     publisher = MultiPublisher(*publishers)
 
-    processor = build_processor(settings, model, writer, publisher, sensor_map)
+    processor = build_processor(
+        settings, model, writer, publisher, sensor_map=sensor_map
+    )
 
     consumer = Consumer(
         {
@@ -461,10 +470,10 @@ def main(argv=None):
 
     run(
         settings,
+        sensor_map=sensor_map,
         events_log=args.events_log,
         idle_exit=args.idle_exit,
         flush_open_episodes=args.flush_open_episodes,
-        sensor_map=sensor_map,
     )
 
 

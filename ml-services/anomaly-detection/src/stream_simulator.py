@@ -3,9 +3,10 @@ Warehouse sensor stream simulator.
 
 Sensors share one normal distribution, 5-minute steps. Each sensor gets 6
 injected episodes (4 multi-reading, 1 mild single reading, 1 severe single
-reading) AFTER a clean warm-up. Sensors come from SENSOR_IDS (Round 14
-default) or from config/sensors.json (python -m src.sensor_config), which
-is generated from the shared seed warehouses.
+reading) AFTER a clean warm-up. The CLI uses config/sensors.json (python -m
+src.sensor_config), generated from the shared seed warehouses. SENSOR_IDS is
+only the default for build_stream() in unit tests and the in-memory
+evaluation.
 
 Amplitudes and seeds are fixed design constants. They were not tuned on any
 detection result. Held-out kinds (gradual_drift, flatline) are for reporting
@@ -20,6 +21,8 @@ from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pandas as pd
+
+from .sensor_config import CONFIG_PATH, load_sensors
 
 
 FEATURES = ["temperature", "humidity", "door_open", "power"]
@@ -302,19 +305,14 @@ def main(argv=None):
     parser.add_argument("--delay-ms", type=float, default=0.0)
     parser.add_argument(
         "--sensors-config",
-        default=None,
+        default=str(CONFIG_PATH),
         help="config/sensors.json from python -m src.sensor_config",
     )
     parser.add_argument("--n-per-sensor", type=int, default=N_PER_SENSOR)
     parser.add_argument("--warmup", type=int, default=WARMUP)
     args = parser.parse_args(argv)
 
-    sensor_ids = SENSOR_IDS
-
-    if args.sensors_config:
-        from .sensor_config import load_sensors
-
-        sensor_ids = [s["sensor_id"] for s in load_sensors(args.sensors_config)]
+    sensor_ids = [s["sensor_id"] for s in load_sensors(args.sensors_config)]
 
     readings, episodes = build_stream(
         sensor_ids=sensor_ids,

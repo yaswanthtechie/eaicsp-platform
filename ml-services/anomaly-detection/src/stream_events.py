@@ -4,6 +4,9 @@ iot.anomaly.detected.v1.json).
 
 Pure logic: no Kafka, no InfluxDB, no pydantic.
 
+Envelope field names follow the inventory-service schema; event_version is
+the integer 1, like every other platform event.
+
 occurred_at is the wall-clock time the event was created.
 Simulated/sensor time lives only in the payload.
 
@@ -24,7 +27,7 @@ import uuid
 
 EVENT_TYPE = "iot.anomaly.detected"
 PRODUCER = "anomaly-detection-service"
-EVENT_VERSION = "1.0"
+EVENT_VERSION = 1
 
 CLOSED_BY_VALUES = ("quiet", "shutdown")
 DIRECTION_VALUES = ("high", "low")

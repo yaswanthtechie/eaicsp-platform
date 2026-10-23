@@ -100,3 +100,23 @@ def test_committed_config_covers_the_six_seed_warehouses():
 
     assert {s["warehouse_id"] for s in sensors} == SIX
     assert len(sensors) == len(SIX) * SENSORS_PER_WAREHOUSE
+
+
+def test_simulator_defaults_to_seed_sensors(capsys):
+
+    from src.stream_simulator import main as simulator_main
+
+    simulator_main(["--n-per-sensor", "1500"])
+
+    out = capsys.readouterr().out
+
+    assert "sensors: 12 " in out
+    assert "wh1-" not in out
+
+
+def test_build_processor_requires_sensor_map():
+
+    from src.stream_consumer import build_processor
+
+    with pytest.raises(ValueError):
+        build_processor({}, model=None, writer=None, publisher=None, sensor_map=None)
