@@ -1,0 +1,523 @@
+openapi: 3.1.0
+
+info:
+  title: Supply Chain Analytics KPIs API
+  version: 1.0.0
+  description: >
+    Contract-first specification for retrieving aggregated supply chain Key Performance
+    Indicators (KPIs) for the Executive Live Dashboard (Flow C: Live Control Tower).
+    The Gateway BFF aggregates precomputed marts from ClickHouse (fill rate, stockouts,
+    open purchase orders, on-time delivery) and caches the payload in Redis under the
+    `live_kpis` key with a 300-second TTL.
+
+    Blueprint reference: docs/architecture/integration-blueprint.md (Sections 4 & 6).
+    Issue reference: Closes #217 (Associated downstream implementation: Issue #220 [R15-M4]).
+
+servers:
+  - url: /
+    description: API Gateway BFF Root
+
+paths:
+  /api/v1/analytics/kpis:
+    get:
+      operationId: getAnalyticsKpis
+      summary: Get aggregated headline supply chain KPIs
+      description: >
+        Returns headline supply chain performance metrics across four core dimensions:
+        Order Fill Rate, Inventory Stockouts by Warehouse, Open Purchase Orders, and
+        Logistics On-Time Delivery. Responses are cached in Redis (`live_kpis`) to protect
+        downstream analytical stores.
+      tags:
+        - Analytics
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: warehouse_id
+          in: query
+          required: false
+          description: >
+            Filter metrics to a specific canonical warehouse (e.g. WH-BLR-01).
+            When omitted, returns platform-wide aggregated metrics across all warehouses.
+          schema:
+            type: string
+            pattern: "^WH-[A-Z]{3}-\\d{2}$"
+            example: "WH-BLR-01"
+
+        - name: category
+          in: query
+          required: false
+          description: Filter metrics by product merchandise category (e.g. Electronics, Perishables).
+          schema:
+            type: string
+            example: "Electronics"
+
+        - name: start_date
+          in: query
+          required: false
+          description: >
+            Start date of the observation window (YYYY-MM-DD).
+            Defaults to 30 days prior to end_date if omitted.
+          schema:
+            type: string
+            format: date
+            example: "2026-09-15"
+
+        - name: end_date
+          in: query
+          required: false
+          description: >
+            End date of the observation window (YYYY-MM-DD).
+            Defaults to the current date if omitted.
+          schema:
+            type: string
+            format: date
+            example: "2026-10-15"
+
+        - name: window_days
+          in: query
+          required: false
+          description: Rolling window in days for time-windowed metrics (fill rate, on-time delivery).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 30
+            example: 30
+
+        - name: force_refresh
+          in: query
+          required: false
+          description: >
+            If true, bypasses the Redis `live_kpis` cache and forces direct re-aggregation
+            from ClickHouse analytical marts.
+          schema:
+            type: boolean
+            default: false
+            example: false
+
+      responses:
+        "200":
+          description: Headline KPIs aggregated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KpiDashboardResponse"
+              example:
+                contract_version: "v1"
+                generated_at: "2026-10-15T10:30:00Z"
+                cached: true
+                cache_ttl_seconds: 285
+                filters_applied:
+                  warehouse_id: null
+                  category: null
+                  start_date: "2026-09-15"
+                  end_date: "2026-10-15"
+                  window_days: 30
+                kpis:
+                  fill_rate:
+                    current_rate: 94.8
+                    target_rate: 95.0
+                    total_lines_ordered: 12500
+                    lines_fulfilled: 11850
+                    status: "warning"
+                    trend: "up"
+                    change_percentage: 1.2
+                  stockouts:
+                    total_stockouts: 14
+                    critical_skus: 5
+                    at_risk_skus: 28
+                    status: "warning"
+                    trend: "improving"
+                    by_warehouse:
+                      - warehouse_id: "WH-BLR-01"
+                        stockout_count: 3
+                        at_risk_count: 6
+                        total_skus: 500
+                      - warehouse_id: "WH-BOM-01"
+                        stockout_count: 2
+                        at_risk_count: 5
+                        total_skus: 500
+                      - warehouse_id: "WH-DEL-01"
+                        stockout_count: 4
+                        at_risk_count: 7
+                        total_skus: 500
+                      - warehouse_id: "WH-HYD-01"
+                        stockout_count: 2
+                        at_risk_count: 4
+                        total_skus: 500
+                      - warehouse_id: "WH-MAA-01"
+                        stockout_count: 1
+                        at_risk_count: 3
+                        total_skus: 500
+                      - warehouse_id: "WH-CCU-01"
+                        stockout_count: 2
+                        at_risk_count: 3
+                        total_skus: 500
+                  open_purchase_orders:
+                    total_open_orders: 42
+                    total_value_usd: 385400.0
+                    pending_approval: 8
+                    by_status:
+                      draft: 8
+                      approved: 12
+                      acknowledged: 14
+                      in_transit: 8
+                  on_time_delivery:
+                    current_rate: 92.4
+                    target_rate: 95.0
+                    total_shipments: 340
+                    delivered_on_time: 314
+                    delayed: 26
+                    status: "warning"
+                    trend: "up"
+                    change_percentage: 0.8
+
+        "400":
+          description: Invalid query parameters or date range format
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error_code: "INVALID_PARAMETER"
+                message: "Invalid warehouse_id format 'WH-1'. Expected format: WH-XXX-NN (e.g. WH-BLR-01)."
+                details:
+                  parameter: "warehouse_id"
+                  expected_pattern: "^WH-[A-Z]{3}-\\d{2}$"
+
+        "401":
+          description: Authentication required or token invalid/expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error_code: "UNAUTHORIZED"
+                message: "Authentication token is missing, invalid, or expired."
+
+        "403":
+          description: Forbidden - User lacks required RBAC role permissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error_code: "FORBIDDEN"
+                message: "User role 'guest' lacks required permissions for KPI analytics access."
+
+        "500":
+          description: Internal server error during KPI aggregation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error_code: "INTERNAL_SERVER_ERROR"
+                message: "Unexpected error aggregating supply chain KPIs from downstream analytical marts."
+
+        "503":
+          description: Downstream dependency (ClickHouse or Redis) unreachable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error_code: "SERVICE_UNAVAILABLE"
+                message: "Downstream analytical store (ClickHouse) is temporarily unavailable."
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Platform-issued JWT bearer token. Validated by Gateway BFF against the
+        Platform Service `/verify` endpoint.
+        Allowed roles: ceo, vp_operations, platform_admin, procurement_manager,
+        logistics_manager, warehouse_manager, inventory_planner, demand_planner,
+        analyst, risk_analyst. Other roles receive 403.
+
+  schemas:
+    KpiDashboardResponse:
+      type: object
+      required:
+        - contract_version
+        - generated_at
+        - cached
+        - filters_applied
+        - kpis
+      properties:
+        contract_version:
+          type: string
+          enum: ["v1"]
+          description: API contract version tag.
+        generated_at:
+          type: string
+          format: date-time
+          description: UTC timestamp when the KPI payload was aggregated or retrieved from cache.
+        cached:
+          type: boolean
+          description: True if the response was served from the Redis `live_kpis` cache.
+        cache_ttl_seconds:
+          type: [integer, "null"]
+          description: Remaining time-to-live in seconds for cached data (null if cache bypass or cold miss).
+        filters_applied:
+          $ref: "#/components/schemas/AppliedFilters"
+        kpis:
+          $ref: "#/components/schemas/KpiSummary"
+
+    AppliedFilters:
+      type: object
+      required:
+        - window_days
+      properties:
+        warehouse_id:
+          type: [string, "null"]
+          description: Canonical warehouse ID filter applied, or null if platform-wide.
+        category:
+          type: [string, "null"]
+          description: Product category filter applied, or null if all categories.
+        start_date:
+          type: [string, "null"]
+          format: date
+          description: Start date of observation window.
+        end_date:
+          type: [string, "null"]
+          format: date
+          description: End date of observation window.
+        window_days:
+          type: integer
+          description: Number of days in the rolling observation window.
+
+    KpiSummary:
+      type: object
+      required:
+        - fill_rate
+        - stockouts
+        - open_purchase_orders
+        - on_time_delivery
+      properties:
+        fill_rate:
+          $ref: "#/components/schemas/FillRateKpi"
+        stockouts:
+          $ref: "#/components/schemas/StockoutsKpi"
+        open_purchase_orders:
+          $ref: "#/components/schemas/OpenPurchaseOrdersKpi"
+        on_time_delivery:
+          $ref: "#/components/schemas/OnTimeDeliveryKpi"
+
+    FillRateKpi:
+      type: object
+      description: Order line fulfillment performance over the rolling observation window.
+      required:
+        - current_rate
+        - target_rate
+        - total_lines_ordered
+        - lines_fulfilled
+        - status
+        - trend
+      properties:
+        current_rate:
+          type: number
+          minimum: 0.0
+          maximum: 100.0
+          description: Percentage of ordered lines fulfilled on initial delivery (0.0 to 100.0).
+        target_rate:
+          type: number
+          minimum: 0.0
+          maximum: 100.0
+          description: Operational target fill rate percentage (e.g. 95.0%).
+        total_lines_ordered:
+          type: integer
+          minimum: 0
+          description: Total number of purchase order line items ordered within window.
+        lines_fulfilled:
+          type: integer
+          minimum: 0
+          description: Total number of order line items fulfilled in full without delay.
+        status:
+          type: string
+          enum: ["on_target", "warning", "critical"]
+          description: Operational status relative to target.
+        trend:
+          type: string
+          enum: ["up", "down", "stable"]
+          description: Directional movement compared to previous equivalent window.
+        change_percentage:
+          type: [number, "null"]
+          description: Absolute change in percentage points compared to prior period.
+
+    StockoutsKpi:
+      type: object
+      description: Current physical inventory stockout and depletion risk metrics.
+      required:
+        - total_stockouts
+        - critical_skus
+        - at_risk_skus
+        - status
+        - trend
+        - by_warehouse
+      properties:
+        total_stockouts:
+          type: integer
+          minimum: 0
+          description: Count of distinct SKUs with quantity_on_hand == 0 across monitored facilities.
+        critical_skus:
+          type: integer
+          minimum: 0
+          description: Count of high-velocity SKUs currently out of stock.
+        at_risk_skus:
+          type: integer
+          minimum: 0
+          description: Count of SKUs where quantity_on_hand is below safety stock or reorder point.
+        status:
+          type: string
+          enum: ["normal", "warning", "critical"]
+          description: Severity assessment of overall stock health.
+        trend:
+          type: string
+          enum: ["improving", "worsening", "stable"]
+          description: Movement in stockout counts relative to prior period.
+        by_warehouse:
+          type: array
+          description: Breakdown of stockouts per canonical warehouse.
+          items:
+            $ref: "#/components/schemas/WarehouseStockoutSummary"
+
+    WarehouseStockoutSummary:
+      type: object
+      required:
+        - warehouse_id
+        - stockout_count
+        - at_risk_count
+        - total_skus
+      properties:
+        warehouse_id:
+          type: string
+          pattern: "^WH-[A-Z]{3}-\\d{2}$"
+          description: Canonical Warehouse ID (e.g. WH-BLR-01).
+        stockout_count:
+          type: integer
+          minimum: 0
+          description: Number of SKUs with 0 stock in this warehouse.
+        at_risk_count:
+          type: integer
+          minimum: 0
+          description: Number of SKUs below reorder point in this warehouse.
+        total_skus:
+          type: integer
+          minimum: 0
+          description: Total number of active catalog SKUs stocked in this warehouse.
+
+    OpenPurchaseOrdersKpi:
+      type: object
+      description: Volume and financial exposure of active replenishment purchase orders.
+      required:
+        - total_open_orders
+        - total_value_usd
+        - pending_approval
+        - by_status
+      properties:
+        total_open_orders:
+          type: integer
+          minimum: 0
+          description: Total count of non-completed purchase orders (draft, approved, acknowledged, in_transit).
+        total_value_usd:
+          type: number
+          minimum: 0.0
+          description: Aggregate monetary value in USD of all open purchase orders.
+        pending_approval:
+          type: integer
+          minimum: 0
+          description: Count of draft purchase orders currently awaiting manager approval.
+        by_status:
+          $ref: "#/components/schemas/PoStatusBreakdown"
+
+    PoStatusBreakdown:
+      type: object
+      description: Count of open purchase orders segmented by workflow lifecycle status.
+      required:
+        - draft
+        - approved
+        - acknowledged
+        - in_transit
+      properties:
+        draft:
+          type: integer
+          minimum: 0
+          description: Newly created orders awaiting procurement manager approval.
+        approved:
+          type: integer
+          minimum: 0
+          description: Approved orders dispatched to Supplier Portal but not yet acknowledged.
+        acknowledged:
+          type: integer
+          minimum: 0
+          description: Orders acknowledged and accepted by the supplier.
+        in_transit:
+          type: integer
+          minimum: 0
+          description: Orders with active shipments dispatched by the supplier.
+
+    OnTimeDeliveryKpi:
+      type: object
+      description: Carrier and supplier fulfillment punctuality over the observation window.
+      required:
+        - current_rate
+        - target_rate
+        - total_shipments
+        - delivered_on_time
+        - delayed
+        - status
+        - trend
+      properties:
+        current_rate:
+          type: number
+          minimum: 0.0
+          maximum: 100.0
+          description: Percentage of shipments delivered on or before the committed delivery date.
+        target_rate:
+          type: number
+          minimum: 0.0
+          maximum: 100.0
+          description: Target on-time delivery percentage (e.g. 95.0%).
+        total_shipments:
+          type: integer
+          minimum: 0
+          description: Total completed shipments evaluated within the window.
+        delivered_on_time:
+          type: integer
+          minimum: 0
+          description: Shipments delivered on or before the promised delivery window.
+        delayed:
+          type: integer
+          minimum: 0
+          description: Shipments that arrived past the committed delivery date.
+        status:
+          type: string
+          enum: ["on_target", "warning", "critical"]
+          description: Operational health rating against target OTD.
+        trend:
+          type: string
+          enum: ["up", "down", "stable"]
+          description: Directional trend compared to prior period.
+        change_percentage:
+          type: [number, "null"]
+          description: Change in percentage points relative to prior period.
+
+    ErrorResponse:
+      type: object
+      required:
+        - error_code
+        - message
+      properties:
+        error_code:
+          type: string
+          description: Machine-readable uppercase error token (e.g. INVALID_PARAMETER).
+        message:
+          type: string
+          description: Human-readable error description.
+        details:
+          type: [object, "null"]
+          description: Optional structured context or validation field error list.
