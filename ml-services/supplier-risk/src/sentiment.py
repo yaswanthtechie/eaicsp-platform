@@ -4,15 +4,8 @@ Sentiment analysis module using HuggingFace FinBERT.
 
 from typing import Any, Dict, Final, Optional
 
-try:
-    # pyrefly: ignore [missing-import]
-    from transformers import pipeline
-except ModuleNotFoundError as exc:
-    raise ModuleNotFoundError(
-        "Missing dependency 'transformers'.\n"
-        "Install project dependencies using:\n"
-        "python -m pip install -r requirements.txt"
-    ) from exc
+# Global pipeline instance (loaded only once)
+_nlp_pipeline: Optional[Any] = None
 
 
 from src.config import MODEL_NAME
@@ -33,6 +26,15 @@ def init_model() -> None:
 
     if _nlp_pipeline is not None:
         return
+
+    try:
+        from transformers import pipeline
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "Missing dependency 'transformers'.\n"
+            "Install project dependencies using:\n"
+            "python -m pip install -r requirements.txt"
+        ) from exc
 
     _nlp_pipeline = pipeline(
         task="text-classification",
