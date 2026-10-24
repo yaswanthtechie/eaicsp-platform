@@ -25,6 +25,7 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 
 from app.core.config import settings
@@ -33,6 +34,21 @@ from app.middleware.ratelimit import limiter
 from app.services.cache import cache_service
 from app.services.circuit_breaker import circuit_breaker_manager
 from app.services.metrics import metrics_collector, normalize_route
+
+
+@pytest.fixture(autouse=True)
+def mock_dashboard_health():
+    """Mock downstream health check calls during dashboard metric tests."""
+    health_data = {
+        "inventory": "UP",
+        "shipments": "UP",
+        "compliance": "UP",
+        "purchase-orders": "UP",
+        "auth": "UP",
+        "supplier-risk": "UP",
+    }
+    with patch("app.routes.dashboard.get_system_health", new=AsyncMock(return_value=health_data)):
+        yield
 
 
 @pytest.fixture(autouse=True)

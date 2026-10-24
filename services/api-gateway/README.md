@@ -714,6 +714,247 @@ slows the dashboard by up to 3s. Caching health results is a planned improvement
 
 ---
 
+## Round 14 — Centralized Logging with ELK
+
+### Milestone Status
+
+| Milestone | Status | Details |
+|---|---|---|
+| **M1 Structured JSON Logging** | **Complete** | Every gateway access log is emitted as a single valid JSON line via `app/middleware/logging.py`, containing `@timestamp`, `level`, `service.name`, `http.method`, `route`, `http.status_code`, `latency_ms`, `request_id`, and `trace_id`. |
+| **M2 Security & Redaction Tests** | **Complete** | Automated suite (`tests/test_structured_logging.py`, 22/22 passed; `pytest -m "not integration"`: 375 passed, 2 skipped) validates JSON validity, required field typing, token/header redaction, cookie protection, error responses, and W3C trace correlation. |
+| M3 Local ELK Stack | Done | docker-compose.elk.yml + filebeat.yml; a gateway log line found in Elasticsearch by request ID: [elk_correlation.json](docs/evidence/round14/elk_correlation.json) |
+| M4 Kibana Saved Objects | Done | Exported from Kibana: kibana/exports/saved_objects.ndjson; import result: [kibana_import.json](docs/evidence/round14/kibana_import.json); dashboard: [kibana_dashboard.png](docs/evidence/round14/kibana_dashboard.png) |
+| M5 Observability Correlation | Done | One 503 followed by request ID / trace ID: [Grafana](docs/evidence/round14/loop_1_grafana_error.png) → [Jaeger](docs/evidence/round14/loop_2_jaeger_trace.png) → [Kibana](docs/evidence/round14/loop_3_kibana_logs.png) |
+
+### ELK Architecture and Log Flow
+
+```
++---------------------------------------------------------------------------------------------+
+|                                        API GATEWAY                                          |
+|                                                                                             |
+|  Incoming Request ---> TracingMiddleware ---> RequestIDMiddleware ---> LoggingMiddleware    |
+|                             |                      |                         |              |
+|                      (W3C Trace ID)          (X-Request-ID)           (Single JSON Line)    |
+|                             |                      |                         |              |
+|                             v                      v                         v              |
+|                        Jaeger OTLP           Downstream Header         logs/access.log      |
+|                      (:4318 / :16686)          Propagation                   |              |
++------------------------------------------------------------------------------|--------------+
+                                                                               | (file harvesting)
+                                                                               v
+                                                                     +-------------------+
+                                                                     |     Filebeat      |
+                                                                     |     (v8.15.1)     |
+                                                                     +-------------------+
+                                                                               |
+                                                                               | (Elasticsearch Bulk API)
+                                                                               v
+                                                                     +-------------------+
+                                                                     |   Elasticsearch   |
+                                                                     |     (v8.15.1)     |
+                                                                     | (:19200 localhost) |
+                                                                     +-------------------+
+                                                                               |
+                                                                               | (Data View gateway-logs-*)
+                                                                               v
+                                                                     +-------------------+
+                                                                     |      Kibana       |
+                                                                     |     (v8.15.1)     |
+                                                                     | (:15601 localhost) |
+                                                                     +-------------------+
+```
+
+### JSON Log Schema
+
+Every request emits a JSON line with the following fields:
+
+```json
+{
+  "@timestamp": "2026-10-09T10:15:30.123Z",
+  "level": "INFO",
+  "service.name": "api-gateway",
+  "http.method": "GET",
+  "route": "/api/v1/inventory",
+  "http.status_code": 200,
+  "latency_ms": 14.52,
+  "request_id": "c1f7a83d-926e-4402-9908-7264a7c5dfa2",
+  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736"
+}
+```
+
+- `@timestamp`: UTC ISO-8601 timestamp with millisecond precision.
+- `level`: `"INFO"` (< 400), `"WARN"` (4xx), or `"ERROR"` (>= 500 / unhandled exception).
+- `service.name`: Fixed gateway identity (`api-gateway`), protecting against client header spoofing.
+- `http.method`: Uppercase HTTP method (`GET`, `POST`, `PUT`, etc.).
+- `route`: Bounded route template or normalized path (e.g. `/api/v1/inventory`, `/health`, `/`), preventing cardinality explosion.
+- `http.status_code`: Final HTTP status code (accurate even on unhandled server crashes).
+- `latency_ms`: Execution duration in milliseconds rounded to 2 decimal places.
+- `request_id`: Preserved from incoming `X-Request-ID` or generated UUID.
+- `trace_id`: 32-character lowercase hex string from active OpenTelemetry span, or `null` if tracing is inactive.
+
+### Security and Redaction Guarantees
+
+1. **Header Redaction**: `Authorization`, `Proxy-Authorization`, and `Cookie` headers are strictly forbidden from access log outputs.
+2. **Bearer Token Protection**: JWT tokens and credentials never appear in captured logs, stderr, stdout, or harvest files.
+3. **Query Parameter Privacy**: Routes are normalized to bounded route templates or base paths; query parameters (passwords, tokens, API keys) are completely stripped and excluded.
+4. **Body Privacy**: Request and response payloads are never logged.
+5. **Identity Isolation**: Client-supplied headers like `X-Service-Name` or `Service-Name` cannot alter the server-side `service.name` identity.
+
+### Local ELK Stack Operations
+
+#### Start the ELK Stack
+
+```powershell
+# From services/api-gateway/
+docker compose -f docker-compose.elk.yml up -d
+```
+
+Services exposed on localhost:
+- **Elasticsearch**: [http://127.0.0.1:19200](http://127.0.0.1:19200)
+- **Kibana**: [http://127.0.0.1:15601](http://127.0.0.1:15601)
+- **Filebeat**: Harvests `logs/access.log` and ships directly to Elasticsearch.
+
+#### Stop the ELK Stack
+
+```powershell
+docker compose -f docker-compose.elk.yml down
+# Or down with volumes to clean up data:
+docker compose -f docker-compose.elk.yml down -v
+```
+
+#### Local Development Settings (Zero-Secret Mode)
+
+In accordance with local development requirements:
+- `xpack.security.enabled=false`: Disables Elasticsearch authentication and self-signed TLS certificates for zero-secret local operation. No credentials, tokens, or `.env` secrets need to be committed.
+  This is for local development only; ports are bound to 127.0.0.1. Never use this compose file outside a laptop.
+- In production deployments, Elasticsearch security and TLS must be re-enabled with proper certificates and role-based credentials.
+- Container resources are constrained with `mem_limit` to prevent runaway memory consumption on developer laptops.
+
+### Importing Kibana Saved Objects
+
+Kibana saved objects are committed under `kibana/exports/saved_objects.ndjson`.
+
+#### Option A: Web UI Import
+1. Navigate to Kibana: [http://127.0.0.1:15601](http://127.0.0.1:15601)
+2. Go to **Management** -> **Stack Management** -> **Saved Objects** (or `/app/management/kibana/objects`).
+3. Click **Import** in the top right.
+4. Select `services/api-gateway/kibana/exports/saved_objects.ndjson`.
+5. Check "Automatically overwrite conflicts" and click **Import**.
+
+#### Option B: Automated CLI / API Import
+```powershell
+curl -X POST "http://localhost:15601/api/saved_objects/_import?overwrite=true" `
+  -H "kbn-xsrf: true" `
+  --form file=@kibana/exports/saved_objects.ndjson
+```
+
+The exported objects include:
+1. **Data View (`gateway-logs-view`)**: Matches `gateway-logs-*` with `@timestamp` time filter.
+2. **Saved Search (`gateway-logs-by-request-id`)**: Pre-configured column view (`@timestamp`, `level`, `service.name`, `http.method`, `route`, `http.status_code`, `latency_ms`, `request_id`, `trace_id`) for single `request_id` investigation.
+3. **Errors Over Time Visualization**: Error count and rate segmented by status code.
+4. **Slow Routes Visualization**: Table ranking routes by p95 and average latency.
+5. **Latency Percentiles**: Visual trends for p50, p95, and p99 response times.
+6. **Log Level Distribution**: Donut breakdown of INFO, WARN, and ERROR log records.
+7. **Unified Dashboard (`gateway-centralized-logging-dashboard`)**: Complete observability cockpit.
+
+### How to Search Logs in Kibana
+
+#### Find every log line for one request
+
+In Kibana → Discover → Gateway Logs by Request ID, set the query to:
+```kuery
+request_id : "<your-request-id>"
+```
+Or search by trace:
+```kuery
+trace_id : "<32-hex-trace-id>"
+```
+Direct link template:
+http://127.0.0.1:15601/app/discover#/view/1e6adbaa-1f7b-426c-bad0-d483bfff6c5c?_a=(query:(language:kuery,query:'request_id:"<id>"'))
+
+python scripts/verify_elk_correlation.py --path <route> prints the Kibana link and the Jaeger link for a fresh request.
+
+#### Search by Request ID
+In Kibana Discover or using the saved search:
+```kuery
+request_id : "c1f7a83d-926e-4402-9908-7264a7c5dfa2"
+```
+
+#### Search by Trace ID
+```kuery
+trace_id : "4bf92f3577b34da6a3ce929d0e0e4736"
+```
+
+#### Search for Errors on a Route
+```kuery
+route : "/api/v1/inventory" and http.status_code >= 400
+```
+
+### End-to-End Error Investigation Guide
+
+To reproduce an end-to-end investigation linking Metrics -> Trace -> Logs:
+
+1. **Generate a Correlated Error Request**:
+   ```powershell
+   $REQ_ID = "investigate-" + [guid]::NewGuid().ToString()
+   $TRACE_ID = (New-Guid).ToString("N")
+   $SPAN_ID = (New-Guid).ToString("N").Substring(0, 16)
+
+   curl -i "http://127.0.0.1:8000/api/v1/inventory/error" `
+     -H "X-Request-ID: $REQ_ID" `
+     -H "traceparent: 00-$TRACE_ID-$SPAN_ID-01"
+   ```
+
+2. **Step 1: Identify in Grafana (Metrics)**:
+   - Open Grafana at [http://127.0.0.1:3000](http://127.0.0.1:3000).
+   - In the API Gateway Dashboard, observe the spike in **Error Rate** and increment in `gateway_errors_total{route="/api/v1/inventory"}`.
+
+3. **Step 2: Locate in Jaeger (Distributed Traces)**:
+   - Open Jaeger UI at [http://127.0.0.1:16686](http://127.0.0.1:16686).
+   - Search for trace ID `$TRACE_ID` or look for service `api-gateway` with error tags.
+   - Inspect the gateway span (`gateway GET /api/v1/inventory`) showing `StatusCode.ERROR` and `gateway.request_id = $REQ_ID`.
+
+4. **Step 3: Pinpoint in Kibana (Structured Logs)**:
+   - Open Kibana at [http://127.0.0.1:15601](http://127.0.0.1:15601).
+   - Navigate to Discover, select **API Gateway Logs**, and enter query `request_id : "$REQ_ID"`.
+   - The JSON record appears with exact status 500, error level, latency, and matching `trace_id`.
+
+### Running Tests
+
+#### Run Structured Logging Test Suite
+```powershell
+.venv\Scripts\pytest.exe tests/test_structured_logging.py -v
+```
+
+#### Run Full Gateway Test Suite
+```powershell
+.venv\Scripts\pytest.exe -q
+```
+
+---
+
+## Known Limitations
+
+1. **In-Memory Rate Limiter Scope**:
+   `InMemoryRateLimiter` maintains rate limit counters in the local memory of a single API Gateway process. In a multi-replica or clustered deployment, rate limit state is not shared across instances; a distributed store (e.g. Redis) should be used for clustered rate limiting.
+
+2. **In-Memory Circuit Breaker Scope**:
+   Circuit breaker state (CLOSED / OPEN / HALF-OPEN) is tracked per gateway instance. A downstream service outage trips the breaker independently for each gateway worker.
+
+3. **Trusted Proxy Single-Hop Forwarding**:
+   `get_real_ip()` trusts `X-Forwarded-For` only when the immediate peer IP matches `TRUSTED_PROXIES`. Multi-hop chained proxy setups require explicit CIDR / list configuration.
+
+4. **Unauthenticated Request Fallback**:
+   Requests without a valid JWT or with an invalid/expired token fall back to IP-based rate limiting using the default unauthenticated quota (60 req/min). They do not receive privileged role quotas.
+
+5. **`LOAD_TEST_MODE` Server-Side Bypass**:
+   `LOAD_TEST_MODE` disables rate limiting for performance testing. It is strictly a server-side setting and logs a warning on activation. It must remain `False` in production environments.
+
+6. **Local ELK Stack Memory Requirements**:
+   Elasticsearch and Kibana require at least 2 GB of dedicated memory to run reliably. On development machines with 8 GB total system RAM and concurrent services (e.g. Airflow worker/scheduler/webserver, PostgreSQL, MongoDB, Redis, Prometheus, Grafana, Jaeger), WSL2 memory limits can become saturated. In such resource-constrained environments, stop non-essential background service containers before running the local ELK stack.
+
+---
+
 ## Author
 
 EAICSP Platform -- Mahendher
