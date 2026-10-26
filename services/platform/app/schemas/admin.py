@@ -29,7 +29,7 @@ class ActiveSessionResponse(BaseModel):
     session_id: int
     user_id: int
     email: str
-    created_at: str
+    created_at: str | None = None
     expires_at: str
 
 

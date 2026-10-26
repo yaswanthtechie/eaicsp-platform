@@ -83,11 +83,11 @@ def test_compliance_internal_check_request_contract():
     Proves that request payload matches the required contract.
     """
     req = ComplianceCheckContractRequest(
-        supplier_id="SUP-001",
+        supplier_id="SUP-00001",
         supplier_name="Global Fasteners Inc",
         country="India",
     )
-    assert req.supplier_id == "SUP-001"
+    assert req.supplier_id == "SUP-00001"
     assert req.supplier_name == "Global Fasteners Inc"
     assert req.country == "India"
 
@@ -264,7 +264,7 @@ def test_inventory_po_approved_rejects_non_canonical_ids():
 
     # Invalid PO ID format
     bad_data = json.loads(json.dumps(data))
-    bad_data["payload"]["po_id"] = "PO-123"  # missing year and 6 digits
+    bad_data["payload"]["po_id"] = "PO-123"  # noncanonical-ok  # missing year and 6 digits
     with pytest.raises(pydantic.ValidationError):
         InventoryPOApprovedEvent.model_validate(bad_data)
     with pytest.raises(jsonschema.ValidationError):
@@ -272,7 +272,7 @@ def test_inventory_po_approved_rejects_non_canonical_ids():
 
     # Invalid SKU ID format
     bad_sku_data = json.loads(json.dumps(data))
-    bad_sku_data["payload"]["lines"][0]["sku_id"] = "SKU-1"
+    bad_sku_data["payload"]["lines"][0]["sku_id"] = "SKU-1"  # noncanonical-ok
     with pytest.raises(pydantic.ValidationError):
         InventoryPOApprovedEvent.model_validate(bad_sku_data)
     with pytest.raises(jsonschema.ValidationError):
@@ -323,7 +323,7 @@ def test_inventory_goods_received_rejects_non_canonical_ids():
         data = json.load(f)
 
     bad_data = json.loads(json.dumps(data))
-    bad_data["payload"]["receipt_id"] = "GR-001"
+    bad_data["payload"]["receipt_id"] = "GR-001"  # noncanonical-ok
     with pytest.raises(pydantic.ValidationError):
         InventoryGoodsReceivedEvent.model_validate(bad_data)
     with pytest.raises(jsonschema.ValidationError):

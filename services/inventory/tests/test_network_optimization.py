@@ -13,7 +13,7 @@ def test_network_optimization_aggregates_child_demand(
     db_session,
 ):
     central = Inventory(
-        sku_id="SKU-NET-001",
+        sku_id="SKU-000501",
         warehouse_id="WH-CENTRAL",
         product_name="Network Product",
         category="Test",
@@ -27,7 +27,7 @@ def test_network_optimization_aggregates_child_demand(
     )
 
     regional = Inventory(
-        sku_id="SKU-NET-001",
+        sku_id="SKU-000501",
         warehouse_id="WH-REGIONAL",
         product_name="Network Product",
         category="Test",
@@ -41,7 +41,7 @@ def test_network_optimization_aggregates_child_demand(
     )
 
     local = Inventory(
-        sku_id="SKU-NET-001",
+        sku_id="SKU-000501",
         warehouse_id="WH-LOCAL",
         product_name="Network Product",
         category="Test",
@@ -71,7 +71,7 @@ def test_network_optimization_aggregates_child_demand(
 
         db_session.add(
             SalesHistory(
-                sku_id="SKU-NET-001",
+                sku_id="SKU-000501",
                 warehouse_id="WH-CENTRAL",
                 sale_date=sale_date,
                 quantity_sold=2,
@@ -80,7 +80,7 @@ def test_network_optimization_aggregates_child_demand(
 
         db_session.add(
             SalesHistory(
-                sku_id="SKU-NET-001",
+                sku_id="SKU-000501",
                 warehouse_id="WH-REGIONAL",
                 sale_date=sale_date,
                 quantity_sold=3,
@@ -89,7 +89,7 @@ def test_network_optimization_aggregates_child_demand(
 
         db_session.add(
             SalesHistory(
-                sku_id="SKU-NET-001",
+                sku_id="SKU-000501",
                 warehouse_id="WH-LOCAL",
                 sale_date=sale_date,
                 quantity_sold=5,
@@ -160,8 +160,8 @@ def test_network_optimization_detects_hierarchy_cycle(
     db_session,
 ):
     first = Inventory(
-        sku_id="SKU-CYCLE",
-        warehouse_id="WH001",
+        sku_id="SKU-000099",
+        warehouse_id="WH-BLR-01",
         product_name="Cycle Product",
         category="Test",
         quantity_on_hand=100,
@@ -169,13 +169,13 @@ def test_network_optimization_detects_hierarchy_cycle(
         lead_time_days=2,
         safety_stock=10,
         warehouse_type="regional",
-        parent_warehouse_id="WH002",
+        parent_warehouse_id="WH-DEL-01",
         version=1,
     )
 
     second = Inventory(
-        sku_id="SKU-CYCLE",
-        warehouse_id="WH002",
+        sku_id="SKU-000099",
+        warehouse_id="WH-DEL-01",
         product_name="Cycle Product",
         category="Test",
         quantity_on_hand=100,
@@ -183,7 +183,7 @@ def test_network_optimization_detects_hierarchy_cycle(
         lead_time_days=2,
         safety_stock=10,
         warehouse_type="central",
-        parent_warehouse_id="WH001",
+        parent_warehouse_id="WH-BLR-01",
         version=1,
     )
 

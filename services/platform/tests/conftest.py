@@ -1,28 +1,36 @@
 import os
+import secrets
+
+from dotenv import load_dotenv
+
+# A developer's .env wins; the random values below only fill the gaps.
+load_dotenv()
 
 # These must be set BEFORE any `app.*` import, because
 # app/core/config.py reads os.environ at import time.
+os.environ["SECRET_KEY"] = "test-secret-key-for-unit-tests-only-0123456789"
 
-os.environ["SECRET_KEY"] = "test-secret-key"
-# Use a dedicated test database so running the suite never
-# touches (or seeds, or deletes rows from) a real dev database.
-os.environ["DATABASE_URL"] = "sqlite:///./test_platform.db"
+# Tests always use a dedicated database, never the developer's DATABASE_URL.
+os.environ["DATABASE_URL"] = os.environ.get(
+    "TEST_DATABASE_URL",
+    "sqlite:///./test_platform.db",
+)
 
-# Seed credentials for the test database. These are test fixtures only --
-# the real deployment supplies them from the environment (see .env.example).
-TEST_SEED_PASSWORDS = {
-    "CEO_PASSWORD": "ceocompany@123",
-    "VP_OPERATIONS_PASSWORD": "vpoperations@123",
-    "PROCUREMENT_MANAGER_PASSWORD": "procurement@123",
-    "LOGISTICS_MANAGER_PASSWORD": "logistics@123",
-    "COMPLIANCE_OFFICER_PASSWORD": "compliance@123",
-    "WAREHOUSE_MANAGER_PASSWORD": "warehouse@123",
-    "ANALYST_PASSWORD": "analyst@1234",
-    "SUPPLIER_PASSWORD": "supplier@123",
-}
+# Seed credentials for the test database: random per run, never committed.
+# setdefault lets CI (or a developer) supply their own values instead.
+SEED_PASSWORD_KEYS = (
+    "CEO_PASSWORD",
+    "VP_OPERATIONS_PASSWORD",
+    "PROCUREMENT_MANAGER_PASSWORD",
+    "LOGISTICS_MANAGER_PASSWORD",
+    "COMPLIANCE_OFFICER_PASSWORD",
+    "WAREHOUSE_MANAGER_PASSWORD",
+    "ANALYST_PASSWORD",
+    "SUPPLIER_PASSWORD",
+)
 
-for _key, _value in TEST_SEED_PASSWORDS.items():
-    os.environ.setdefault(_key, _value)
+for _key in SEED_PASSWORD_KEYS:
+    os.environ.setdefault(_key, f"Test-{secrets.token_hex(8)}@1")
 
 # ============================================================
 # PYTEST / APPLICATION IMPORTS

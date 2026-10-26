@@ -221,7 +221,7 @@ def test_login_success():
         "/api/v1/auth/login",
         data={
             "username": "ceo@company.com",
-            "password": "ceocompany@123",
+            "password": os.environ["CEO_PASSWORD"],
         },
     )
 
@@ -1468,7 +1468,7 @@ def test_login_success_clears_failed_attempt_counter():
         "/api/v1/auth/login",
         data={
             "username": "ceo@company.com",
-            "password": "ceocompany@123",
+            "password": os.environ["CEO_PASSWORD"],
         },
     )
 

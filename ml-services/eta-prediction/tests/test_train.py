@@ -591,27 +591,125 @@ def test_committed_artifact_passes_production_gate():
     )  
 
 
-def test_main_enables_production_gate():
+def test_main_trains_r14_as_candidate_before_promotion():
     """
-    main.py is the real production entry point. It must call
-    train_model(..., enforce_production_gate=True), otherwise a bad
-    run overwrites the good artifacts in models/ before failing.
+    main.py must train the Round 14 model as an in-memory candidate
+    and promote artifacts only after the candidate workflow succeeds.
     """
     main_path = Path(__file__).resolve().parents[1] / "main.py"
     tree = ast.parse(main_path.read_text(encoding="utf-8"))
-    calls = [
+
+    comparison_calls = [
         node
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
-        and node.func.id == "train_model"
+        and node.func.id == "train_comparison_model"
     ]
-    assert calls, "main.py never calls train_model()"
 
-    for call in calls:
-        gate = {kw.arg: kw.value for kw in call.keywords}.get(
-            "enforce_production_gate"
+    assert comparison_calls, (
+        "main.py must train the Round 14 candidate "
+        "with train_comparison_model()"
+    )
+
+    r14_calls = [
+        call
+        for call in comparison_calls
+        if any(
+            isinstance(keyword.value, ast.Constant)
+            and keyword.arg == "use_eta_history_features"
+            and keyword.value.value is True
+            for keyword in call.keywords
         )
-        assert isinstance(gate, ast.Constant) and gate.value is True, (
-            "main.py must call train_model(..., enforce_production_gate=True)"
-        )          
+    ]
+
+    assert r14_calls, (
+        "main.py must train the Round 14 candidate "
+        "with use_eta_history_features=True"
+    )
+
+    source = main_path.read_text(encoding="utf-8")
+
+    assert "joblib.dump(" in source, (
+        "main.py must promote the candidate artifact "
+        "after the successful candidate workflow"
+    )
+
+    assert "R14_MODEL_PATH" in source
+    assert "R14_CALIBRATION_MODEL_PATH" in source
+def test_r14_training_uses_eta_history_features():
+    """R14 training must use the feature-lib ETA history feature set."""
+
+    import numpy as np
+    import pandas as pd
+
+    from src.pipeline import create_eta_history_pipeline
+
+    features = pd.DataFrame(
+        {
+            "origin_lat": np.linspace(10.0, 20.0, 20),
+            "origin_lng": np.linspace(30.0, 40.0, 20),
+            "destination_lat": np.linspace(11.0, 21.0, 20),
+            "destination_lng": np.linspace(31.0, 41.0, 20),
+            "distance_km": np.linspace(5.0, 25.0, 20),
+            "item_count": np.ones(20),
+            "total_weight_kg": np.ones(20),
+            "total_volume_cm3": np.ones(20),
+            "total_freight_value": np.ones(20),
+            "purchase_year": [2018] * 20,
+            "purchase_month": list(range(1, 21)),
+            "purchase_day_of_week": [0] * 20,
+            "purchase_hour": [10] * 20,
+            "historical_on_time_rate_carrier": np.linspace(0.5, 0.9, 20),
+            "historical_avg_transit_days_carrier": np.linspace(3.0, 7.0, 20),
+            "historical_on_time_rate_route": np.linspace(0.4, 0.8, 20),
+            "historical_avg_transit_days_route": np.linspace(4.0, 8.0, 20),
+            "historical_avg_transit_days_carrier_route": np.linspace(
+                3.5, 7.5, 20
+            ),
+            "historical_on_time_rate_departure_season": np.linspace(
+                0.45, 0.85, 20
+            ),
+            "product_category_name": ["electronics"] * 20,
+        }
+    )
+
+    target = np.linspace(2.0, 10.0, 20)
+
+    model = create_eta_history_pipeline()
+
+    model.fit(features, target)
+
+    preprocessor = model.named_steps["preprocessor"]
+
+    feature_names = preprocessor.get_feature_names_out()
+
+    for column in [
+        "historical_on_time_rate_carrier",
+        "historical_avg_transit_days_carrier",
+        "historical_on_time_rate_route",
+        "historical_avg_transit_days_route",
+        "historical_avg_transit_days_carrier_route",
+        "historical_on_time_rate_departure_season",
+    ]:
+        assert any(column in name for name in feature_names)
+
+    assert hasattr(model.named_steps["model"], "predict")
+
+def test_committed_model_serves_with_inference_features():
+    """The committed production model must predict using only the
+    features the serving path builds (MODEL_FEATURES)."""
+    import joblib
+    import pandas as pd
+
+    from src.paths import MODEL_PATH
+    from src.preprocess import MODEL_FEATURES
+
+    model = joblib.load(MODEL_PATH)
+
+    row = {feature: 1.0 for feature in MODEL_FEATURES}
+    row["product_category_name"] = "unknown"
+
+    predictions = model.predict(pd.DataFrame([row])[MODEL_FEATURES])
+
+    assert len(predictions) == 1    

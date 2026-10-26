@@ -128,9 +128,9 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
-          description: Filter by supplier ID (e.g. SUP001)
+          description: Filter by supplier ID (e.g. SUP-00045)
           title: Supplier Id
-        description: Filter by supplier ID (e.g. SUP001)
+        description: Filter by supplier ID (e.g. SUP-00045)
       - name: status
         in: query
         required: false

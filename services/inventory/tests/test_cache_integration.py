@@ -33,27 +33,27 @@ def clean_cache():
 
 def test_cache_set_and_get():
     """Verify basic set, get, and TTL functionality."""
-    data = {"sku_id": "SKU-C1", "warehouse_id": "WH-1", "quantity_on_hand": 50}
-    set_cached_inventory("SKU-C1", "WH-1", data)
+    data = {"sku_id": "SKU-000901", "warehouse_id": "WH-BLR-01", "quantity_on_hand": 50}
+    set_cached_inventory("SKU-000901", "WH-BLR-01", data)
 
-    cached = get_cached_inventory("SKU-C1", "WH-1")
+    cached = get_cached_inventory("SKU-000901", "WH-BLR-01")
     assert cached is not None
-    assert cached["sku_id"] == "SKU-C1"
+    assert cached["sku_id"] == "SKU-000901"
     assert cached["quantity_on_hand"] == 50
 
 
 def test_cache_invalidation_specific_and_all():
     """Verify that invalidating an item removes both item and collection cache."""
-    set_cached_inventory("SKU-C1", "WH-1", {"sku_id": "SKU-C1"})
-    set_cached_all_inventory([{"sku_id": "SKU-C1"}])
+    set_cached_inventory("SKU-000901", "WH-BLR-01", {"sku_id": "SKU-000901"})
+    set_cached_all_inventory([{"sku_id": "SKU-000901"}])
 
-    assert get_cached_inventory("SKU-C1", "WH-1") is not None
+    assert get_cached_inventory("SKU-000901", "WH-BLR-01") is not None
     assert get_cached_all_inventory() is not None
 
     # Invalidate specific item
-    invalidate_inventory_cache("SKU-C1", "WH-1")
+    invalidate_inventory_cache("SKU-000901", "WH-BLR-01")
 
-    assert get_cached_inventory("SKU-C1", "WH-1") is None
+    assert get_cached_inventory("SKU-000901", "WH-BLR-01") is None
     assert get_cached_all_inventory() is None
 
 
@@ -66,11 +66,11 @@ def test_get_inventory_populates_cache(client, db_session):
     Verify that calling GET /api/v1/inventory/{sku}/{wh} populates the Redis cache.
     Subsequent reads should be served from cache.
     """
-    seed_sales_history("SKU-CACHE-1", "WH-1", daily_quantity=5)
+    seed_sales_history("SKU-000902", "WH-BLR-01", daily_quantity=5)
 
     item = Inventory(
-        sku_id="SKU-CACHE-1",
-        warehouse_id="WH-1",
+        sku_id="SKU-000902",
+        warehouse_id="WH-BLR-01",
         product_name="Cached Item",
         category="Electronics",
         quantity_on_hand=80,
@@ -82,22 +82,22 @@ def test_get_inventory_populates_cache(client, db_session):
     db_session.commit()
 
     # 1. Cache is initially empty
-    assert get_cached_inventory("SKU-CACHE-1", "WH-1") is None
+    assert get_cached_inventory("SKU-000902", "WH-BLR-01") is None
 
     # 2. First GET request (Cache Miss -> DB Query -> Populates Cache)
-    resp1 = client.get("/api/v1/inventory/SKU-CACHE-1/WH-1")
+    resp1 = client.get("/api/v1/inventory/SKU-000902/WH-BLR-01")
     assert resp1.status_code == 200
     data1 = resp1.json()
     assert data1["quantity_on_hand"] == 80
 
     # 3. Cache is now populated!
-    cached_val = get_cached_inventory("SKU-CACHE-1", "WH-1")
+    cached_val = get_cached_inventory("SKU-000902", "WH-BLR-01")
     assert cached_val is not None
-    assert cached_val["sku_id"] == "SKU-CACHE-1"
+    assert cached_val["sku_id"] == "SKU-000902"
     assert cached_val["quantity_on_hand"] == 80
 
     # 4. Second GET request (Hot Read Cache Hit)
-    resp2 = client.get("/api/v1/inventory/SKU-CACHE-1/WH-1")
+    resp2 = client.get("/api/v1/inventory/SKU-000902/WH-BLR-01")
     assert resp2.status_code == 200
     assert resp2.json()["quantity_on_hand"] == 80
 
@@ -111,7 +111,7 @@ def test_update_inventory_invalidates_cache(client, db_session):
     Verify that updating inventory (PUT) invalidates the cache so
     subsequent reads return the fresh data.
     """
-    seed_sales_history("SKU-CACHE-UPD", "WH-1", daily_quantity=5)
+    seed_sales_history("SKU-CACHE-UPD", "WH-BLR-01", daily_quantity=5)
 
     # Create initial inventory with cost layer
     client.post(
@@ -119,7 +119,7 @@ def test_update_inventory_invalidates_cache(client, db_session):
         json={
             "sku_id": "SKU-CACHE-UPD",
             "product_name": "Update Cache Item",
-            "warehouse_id": "WH-1",
+            "warehouse_id": "WH-BLR-01",
             "quantity_on_hand": 50,
             "lead_time_days": 4,
             "safety_stock": 10,
@@ -128,13 +128,13 @@ def test_update_inventory_invalidates_cache(client, db_session):
     )
 
     # Warm cache
-    resp1 = client.get("/api/v1/inventory/SKU-CACHE-UPD/WH-1")
+    resp1 = client.get("/api/v1/inventory/SKU-CACHE-UPD/WH-BLR-01")
     assert resp1.status_code == 200
-    assert get_cached_inventory("SKU-CACHE-UPD", "WH-1") is not None
+    assert get_cached_inventory("SKU-CACHE-UPD", "WH-BLR-01") is not None
 
     # Update item
     update_resp = client.put(
-        "/api/v1/inventory/SKU-CACHE-UPD/WH-1",
+        "/api/v1/inventory/SKU-CACHE-UPD/WH-BLR-01",
         json={
             "quantity_on_hand": 30,
             "version": resp1.json()["version"],
@@ -143,10 +143,10 @@ def test_update_inventory_invalidates_cache(client, db_session):
     assert update_resp.status_code == 200
 
     # Cache must be invalidated!
-    assert get_cached_inventory("SKU-CACHE-UPD", "WH-1") is None
+    assert get_cached_inventory("SKU-CACHE-UPD", "WH-BLR-01") is None
 
     # Fresh read retrieves updated state and re-populates cache
-    resp2 = client.get("/api/v1/inventory/SKU-CACHE-UPD/WH-1")
+    resp2 = client.get("/api/v1/inventory/SKU-CACHE-UPD/WH-BLR-01")
     assert resp2.status_code == 200
     assert resp2.json()["quantity_on_hand"] == 30
     assert resp2.json()["version"] == 2
@@ -156,14 +156,14 @@ def test_decrement_inventory_invalidates_cache(client, db_session):
     """
     Verify that stock decrement (/decrement) invalidates the cache.
     """
-    seed_sales_history("SKU-CACHE-DEC", "WH-1", daily_quantity=2)
+    seed_sales_history("SKU-CACHE-DEC", "WH-BLR-01", daily_quantity=2)
 
     client.post(
         "/api/v1/inventory/",
         json={
             "sku_id": "SKU-CACHE-DEC",
             "product_name": "Decrement Cache Item",
-            "warehouse_id": "WH-1",
+            "warehouse_id": "WH-BLR-01",
             "quantity_on_hand": 40,
             "lead_time_days": 4,
             "safety_stock": 10,
@@ -172,21 +172,21 @@ def test_decrement_inventory_invalidates_cache(client, db_session):
     )
 
     # Warm cache
-    client.get("/api/v1/inventory/SKU-CACHE-DEC/WH-1")
-    assert get_cached_inventory("SKU-CACHE-DEC", "WH-1") is not None
+    client.get("/api/v1/inventory/SKU-CACHE-DEC/WH-BLR-01")
+    assert get_cached_inventory("SKU-CACHE-DEC", "WH-BLR-01") is not None
 
     # Decrement
     dec_resp = client.post(
         "/api/v1/inventory/decrement",
-        params={"sku_id": "SKU-CACHE-DEC", "warehouse_id": "WH-1", "quantity": 10},
+        params={"sku_id": "SKU-CACHE-DEC", "warehouse_id": "WH-BLR-01", "quantity": 10},
     )
     assert dec_resp.status_code == 200
 
     # Cache invalidated
-    assert get_cached_inventory("SKU-CACHE-DEC", "WH-1") is None
+    assert get_cached_inventory("SKU-CACHE-DEC", "WH-BLR-01") is None
 
     # Fresh read
-    get_resp = client.get("/api/v1/inventory/SKU-CACHE-DEC/WH-1")
+    get_resp = client.get("/api/v1/inventory/SKU-CACHE-DEC/WH-BLR-01")
     assert get_resp.json()["quantity_on_hand"] == 30
 
 
@@ -194,14 +194,14 @@ def test_delete_inventory_invalidates_cache(client, db_session):
     """
     Verify that deleting an inventory item invalidates its cache.
     """
-    seed_sales_history("SKU-CACHE-DEL", "WH-1", daily_quantity=2)
+    seed_sales_history("SKU-CACHE-DEL", "WH-BLR-01", daily_quantity=2)
 
     client.post(
         "/api/v1/inventory/",
         json={
             "sku_id": "SKU-CACHE-DEL",
             "product_name": "Delete Cache Item",
-            "warehouse_id": "WH-1",
+            "warehouse_id": "WH-BLR-01",
             "quantity_on_hand": 20,
             "lead_time_days": 4,
             "safety_stock": 5,
@@ -209,15 +209,15 @@ def test_delete_inventory_invalidates_cache(client, db_session):
     )
 
     # Warm cache
-    client.get("/api/v1/inventory/SKU-CACHE-DEL/WH-1")
-    assert get_cached_inventory("SKU-CACHE-DEL", "WH-1") is not None
+    client.get("/api/v1/inventory/SKU-CACHE-DEL/WH-BLR-01")
+    assert get_cached_inventory("SKU-CACHE-DEL", "WH-BLR-01") is not None
 
     # Delete
-    del_resp = client.delete("/api/v1/inventory/SKU-CACHE-DEL/WH-1")
+    del_resp = client.delete("/api/v1/inventory/SKU-CACHE-DEL/WH-BLR-01")
     assert del_resp.status_code == 200
 
     # Cache must be empty
-    assert get_cached_inventory("SKU-CACHE-DEL", "WH-1") is None
+    assert get_cached_inventory("SKU-CACHE-DEL", "WH-BLR-01") is None
 
 
 def test_get_all_inventory_cache_and_invalidation(client, db_session):
@@ -225,14 +225,14 @@ def test_get_all_inventory_cache_and_invalidation(client, db_session):
     Verify that GET /api/v1/inventory/ caches the collection and
     creating a new item invalidates the collection cache.
     """
-    seed_sales_history("SKU-ALL-1", "WH-1", daily_quantity=1)
+    seed_sales_history("SKU-000903", "WH-BLR-01", daily_quantity=1)
 
     client.post(
         "/api/v1/inventory/",
         json={
-            "sku_id": "SKU-ALL-1",
+            "sku_id": "SKU-000903",
             "product_name": "All 1",
-            "warehouse_id": "WH-1",
+            "warehouse_id": "WH-BLR-01",
             "quantity_on_hand": 10,
             "lead_time_days": 2,
             "safety_stock": 2,
@@ -246,13 +246,13 @@ def test_get_all_inventory_cache_and_invalidation(client, db_session):
     assert get_cached_all_inventory() is not None
 
     # Create new item
-    seed_sales_history("SKU-ALL-2", "WH-1", daily_quantity=1)
+    seed_sales_history("SKU-000904", "WH-BLR-01", daily_quantity=1)
     client.post(
         "/api/v1/inventory/",
         json={
-            "sku_id": "SKU-ALL-2",
+            "sku_id": "SKU-000904",
             "product_name": "All 2",
-            "warehouse_id": "WH-1",
+            "warehouse_id": "WH-BLR-01",
             "quantity_on_hand": 20,
             "lead_time_days": 2,
             "safety_stock": 2,
@@ -265,8 +265,8 @@ def test_get_all_inventory_cache_and_invalidation(client, db_session):
     # Next GET / has both items
     resp2 = client.get("/api/v1/inventory/")
     sku_list = [item["sku_id"] for item in resp2.json()]
-    assert "SKU-ALL-1" in sku_list
-    assert "SKU-ALL-2" in sku_list
+    assert "SKU-000903" in sku_list
+    assert "SKU-000904" in sku_list
 
 
 # ============================================================================
@@ -279,11 +279,11 @@ def test_cache_graceful_degradation_on_redis_error(client, db_session):
     If Redis fails or times out, the service must fail open (graceful degradation)
     and serve requests directly from PostgreSQL without 500 errors.
     """
-    seed_sales_history("SKU-RESILIENT", "WH-1", daily_quantity=2)
+    seed_sales_history("SKU-RESILIENT", "WH-BLR-01", daily_quantity=2)
 
     item = Inventory(
         sku_id="SKU-RESILIENT",
-        warehouse_id="WH-1",
+        warehouse_id="WH-BLR-01",
         product_name="Resilient Item",
         category="Hardware",
         quantity_on_hand=75,
@@ -296,7 +296,7 @@ def test_cache_graceful_degradation_on_redis_error(client, db_session):
 
     # Simulate Redis throwing an exception on get() and set()
     with patch.object(cache, "get", side_effect=Exception("Redis connection timed out")):
-        resp = client.get("/api/v1/inventory/SKU-RESILIENT/WH-1")
+        resp = client.get("/api/v1/inventory/SKU-RESILIENT/WH-BLR-01")
         # Request MUST succeed from DB!
         assert resp.status_code == 200
         assert resp.json()["quantity_on_hand"] == 75
@@ -364,10 +364,10 @@ def test_read_latency_benchmark_with_and_without_cache(client, db_session):
     """
     import time
 
-    seed_sales_history("SKU-PERF", "WH-1", daily_quantity=2)
+    seed_sales_history("SKU-PERF", "WH-BLR-01", daily_quantity=2)
     item = Inventory(
         sku_id="SKU-PERF",
-        warehouse_id="WH-1",
+        warehouse_id="WH-BLR-01",
         product_name="Perf Item",
         category="Hardware",
         quantity_on_hand=100,
@@ -385,19 +385,19 @@ def test_read_latency_benchmark_with_and_without_cache(client, db_session):
     for _ in range(iterations):
         cache.clear()
         t0 = time.perf_counter()
-        resp = client.get("/api/v1/inventory/SKU-PERF/WH-1")
+        resp = client.get("/api/v1/inventory/SKU-PERF/WH-BLR-01")
         t1 = time.perf_counter()
         assert resp.status_code == 200
         db_durations.append(t1 - t0)
 
     # 2. Warm cache
-    client.get("/api/v1/inventory/SKU-PERF/WH-1")
+    client.get("/api/v1/inventory/SKU-PERF/WH-BLR-01")
 
     # 3. Cached reads (measuring Redis cache hit latency)
     cache_durations = []
     for _ in range(iterations):
         t0 = time.perf_counter()
-        resp = client.get("/api/v1/inventory/SKU-PERF/WH-1")
+        resp = client.get("/api/v1/inventory/SKU-PERF/WH-BLR-01")
         t1 = time.perf_counter()
         assert resp.status_code == 200
         cache_durations.append(t1 - t0)
@@ -590,19 +590,19 @@ def _get_with_concurrent_write(client, monkeypatch, sku, concurrent_write):
         return row
 
     monkeypatch.setattr(routes, "get_inventory", get_then_concurrent_write)
-    resp = client.get(f"/api/v1/inventory/{sku}/WH-1")
+    resp = client.get(f"/api/v1/inventory/{sku}/WH-BLR-01")
     monkeypatch.setattr(routes, "get_inventory", real_get_inventory)
     assert resp.status_code == 200
 
 
 def test_read_overlapping_a_sale_never_caches_the_old_quantity(client, db_session, monkeypatch):
-    seed_sales_history("SKU-SALE-RACE", "WH-1", daily_quantity=5)
+    seed_sales_history("SKU-SALE-RACE", "WH-BLR-01", daily_quantity=5)
     client.post(
         "/api/v1/inventory/",
         json={
             "sku_id": "SKU-SALE-RACE",
             "product_name": "Sale Race",
-            "warehouse_id": "WH-1",
+            "warehouse_id": "WH-BLR-01",
             "quantity_on_hand": 50,
             "lead_time_days": 4,
             "safety_stock": 10,
@@ -613,14 +613,14 @@ def test_read_overlapping_a_sale_never_caches_the_old_quantity(client, db_sessio
     def concurrent_sale():
         resp = client.post(
             "/api/v1/inventory/decrement",
-            params={"sku_id": "SKU-SALE-RACE", "warehouse_id": "WH-1", "quantity": 40},
+            params={"sku_id": "SKU-SALE-RACE", "warehouse_id": "WH-BLR-01", "quantity": 40},
         )
         assert resp.status_code == 200
 
     _get_with_concurrent_write(client, monkeypatch, "SKU-SALE-RACE", concurrent_sale)
 
     # The very next read, with no waiting for the delayed delete.
-    assert client.get("/api/v1/inventory/SKU-SALE-RACE/WH-1").json()["quantity_on_hand"] == 10
+    assert client.get("/api/v1/inventory/SKU-SALE-RACE/WH-BLR-01").json()["quantity_on_hand"] == 10
 
 
 def test_bulk_invalidation_keeps_the_list_generation_counter():

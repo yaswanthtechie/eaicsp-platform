@@ -168,7 +168,7 @@ def receive_purchase_order_endpoint(
 )
 def list_purchase_orders_endpoint(
     po_id: str | None = Query(None, description="Filter by purchase order ID (e.g. PO-2026-000123)"),
-    supplier_id: str | None = Query(None, description="Filter by supplier ID (e.g. SUP001)"),
+    supplier_id: str | None = Query(None, description="Filter by supplier ID (e.g. SUP-00045)"),
     status_filter: str | None = Query(None, alias="status", description="Filter by status (e.g. draft, on_hold, received)"),
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
