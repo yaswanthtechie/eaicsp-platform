@@ -13,6 +13,22 @@ interface MockSocket {
 describe("useWebSocket", () => {
   let sockets: MockSocket[];
 
+  const stockLowEvent = {
+    event_id: "b9c51ff8-45e0-40e1-95eb-3fa5bf237075",
+    event_type: "inventory.stock.low",
+    event_version: "1.0",
+    occurred_at: "2026-10-15T10:14:22.481203+00:00",
+    producer: "inventory-service",
+    payload: {
+      sku_id: "SKU-000123",
+      warehouse_id: "WH-BLR-01",
+      quantity_on_hand: 8,
+      reorder_point: 35,
+      safety_stock: 15,
+      avg_daily_demand: 4.5,
+    },
+  };
+
   beforeEach(() => {
     vi.useFakeTimers();
 
@@ -84,14 +100,14 @@ describe("useWebSocket", () => {
     );
 
     const event = {
-      event_id: "EVENT001",
+      event_id: "b9c51ff8-45e0-40e1-95eb-3fa5bf237075",
       event_type: "inventory.stock.low",
       event_version: 1,
       occurred_at: "2026-08-24T10:00:00Z",
       producer: "inventory-service",
       payload: {
-        sku_id: "SKU001",
-        warehouse_id: "WH001",
+        sku_id: "SKU-000123",
+        warehouse_id: "WH-BLR-01",
         quantity_on_hand: 5,
         reorder_point: 10,
         safety_stock: 3,
@@ -107,7 +123,7 @@ describe("useWebSocket", () => {
 
     expect(onMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: "EVENT001",
+        id: "b9c51ff8-45e0-40e1-95eb-3fa5bf237075",
         type: "low-stock",
         severity: "warning",
         timestamp: "2026-08-24T10:00:00Z",
@@ -299,5 +315,58 @@ describe("useWebSocket", () => {
     unmount();
 
     expect(sockets[0].close).toHaveBeenCalled();
+  });
+
+  it("ignores a duplicate event_id", () => {
+    const onMessage = vi.fn();
+
+    renderHook(() =>
+      useWebSocket({ url: "ws://localhost:8080", onMessage }),
+    );
+
+    act(() => {
+      sockets[0].onmessage?.({ data: JSON.stringify(stockLowEvent) });
+      sockets[0].onmessage?.({ data: JSON.stringify(stockLowEvent) });
+    });
+
+    expect(onMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts an event with trace_id null", () => {
+    const onMessage = vi.fn();
+
+    renderHook(() =>
+      useWebSocket({ url: "ws://localhost:8080", onMessage }),
+    );
+
+    act(() => {
+      sockets[0].onmessage?.({
+        data: JSON.stringify({ ...stockLowEvent, trace_id: null }),
+      });
+    });
+
+    expect(onMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: stockLowEvent.event_id }),
+    );
+  });
+
+  it("ignores an envelope missing required fields", () => {
+    const onMessage = vi.fn();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    renderHook(() =>
+      useWebSocket({ url: "ws://localhost:8080", onMessage }),
+    );
+
+    const missingProducer = {
+       ...stockLowEvent,
+       producer: undefined,
+    };
+
+    act(() => {
+      sockets[0].onmessage?.({ data: JSON.stringify(missingProducer) });
+    });
+
+    expect(onMessage).not.toHaveBeenCalled();
   });
 });

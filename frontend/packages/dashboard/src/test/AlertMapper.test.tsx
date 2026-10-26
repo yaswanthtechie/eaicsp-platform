@@ -5,7 +5,7 @@ import type { AnalyticsEventEnvelope } from "../types/forecast";
 function createEvent(
   event_type: string,
   payload: Record<string, unknown>,
-  event_id = "event-001",
+  event_id = "3f6c1d2e-8a4b-4c7e-9b1a-5d2e7f0a9c31",
 ): AnalyticsEventEnvelope {
   return {
     event_id,
@@ -72,11 +72,10 @@ describe("mapAnalyticsEventToAlert", () => {
   it("maps supplierrisk.score.changed from the new tier", () => {
     const result = mapAnalyticsEventToAlert(
       createEvent("supplierrisk.score.changed", {
-        supplier_id: "SUP-00023",
+        supplier: "SUP-00023",
         previous_tier: "low",
         new_tier: "high",
         risk_score: 82,
-        severity: "warning",
       }),
     );
 
@@ -87,7 +86,7 @@ describe("mapAnalyticsEventToAlert", () => {
   it("maps eta.shipment.predicted high_risk to warning", () => {
     const result = mapAnalyticsEventToAlert(
       createEvent("eta.shipment.predicted", {
-        shipment_id: "SHIP-001",
+        shipment_id: "SHP-2026-000077",
         eta_days: 4,
         delay_risk: "high_risk",
         message: "Shipment may arrive later than scheduled",
@@ -101,7 +100,7 @@ describe("mapAnalyticsEventToAlert", () => {
   it("maps forecast.batch.completed SUCCESS to success", () => {
     const result = mapAnalyticsEventToAlert(
       createEvent("forecast.batch.completed", {
-        run_id: "FORECAST-001",
+        run_id: "BATCH-20261015-01",
         status: "SUCCESS",
       }),
     );
@@ -113,7 +112,7 @@ describe("mapAnalyticsEventToAlert", () => {
   it("maps data.pipeline.completed to success even with rejected rows", () => {
     const result = mapAnalyticsEventToAlert(
       createEvent("data.pipeline.completed", {
-        run_id: "PIPELINE-001",
+        run_id: 1042,
         status: "SUCCESS",
         rows_rejected: 2,
       }),
@@ -136,10 +135,9 @@ describe("mapAnalyticsEventToAlert", () => {
       createEvent(
         "inventory.stock.low",
         { sku_id: "SKU-000001", quantity_on_hand: 0 },
-        "event-custom-123",
       ),
     );
 
-    expect(result?.id).toBe("event-custom-123");
+    expect(result?.id).toBe("3f6c1d2e-8a4b-4c7e-9b1a-5d2e7f0a9c31");
   });
 });

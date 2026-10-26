@@ -57,7 +57,9 @@ function isAnalyticsEvent(value: unknown): value is AnalyticsEventEnvelope {
     typeof value.occurred_at === "string" &&
     typeof value.producer === "string" &&
     isRecord(value.payload) &&
-    (value.trace_id === undefined || typeof value.trace_id === "string")
+    (value.trace_id === undefined ||
+      value.trace_id === null ||
+      typeof value.trace_id === "string")
   );
 }
 

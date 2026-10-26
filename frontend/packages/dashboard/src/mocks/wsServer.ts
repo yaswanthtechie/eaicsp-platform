@@ -56,9 +56,24 @@ const analyticsEvents: Omit<AnalyticsEventEnvelope, "event_id" | "occurred_at">[
       severe: true,
       closed_by: "quiet",
       top_features: [
-        { feature: "temperature", contribution: 0.8412, shap_value: 0.071234, direction: "high" },
-        { feature: "power", contribution: 0.1201, shap_value: 0.01017, direction: "high" },
-        { feature: "humidity", contribution: 0.0387, shap_value: 0.003277, direction: "high" },
+        {
+          feature: "temperature",
+          contribution: 0.8412,
+          shap_value: 0.071234,
+          direction: "high",
+        },
+        {
+          feature: "power",
+          contribution: 0.1201,
+          shap_value: 0.01017,
+          direction: "high",
+        },
+        {
+          feature: "humidity",
+          contribution: 0.0387,
+          shap_value: 0.003277,
+          direction: "high",
+        },
       ],
       model_version: "stream-1.0",
     },
@@ -144,7 +159,7 @@ const analyticsEvents: Omit<AnalyticsEventEnvelope, "event_id" | "occurred_at">[
       duration_seconds: 184.2,
       pipeline_name: "sales_etl_pipeline",
       message:
-        "Sales ETL pipeline run #1042 completed successfully: 12,450 rows loaded to ClickHouse in 184.2s.",
+        "Sales ETL pipeline run id 1042 completed successfully: 12,450 rows loaded to ClickHouse in 184.2s.",
     },
   },
 ];

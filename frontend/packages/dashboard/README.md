@@ -1212,17 +1212,10 @@ npm run test:e2e
 
 Test verification completed successfully.
 
-<<<<<<< HEAD
-* Vitest: 21 test files, 176/176 tests passed
+* Vitest: 22 test files, 184/184 tests passed
 * Playwright Dashboard E2E: 4/4 tests passed
 * Authentication E2E: 14/14 passed with valid credentials.
-* Total: 193 tests passed across the three reported test groups.
-=======
-* Vitest: 20 test files, 155/155 tests passed
-* Playwright Dashboard E2E: 4/4 tests passed
-* Authentication E2E: 14/14 passed with valid credentials.
-* Total: 173 tests passed across the three reported test groups.
->>>>>>> 934e98d (feat(dashboard): support all six WebSocket alert event types)
+* Total: 202 tests passed across the three reported test groups.
 
 The authentication tests are run separately using
 npm run test:e2e:auth.

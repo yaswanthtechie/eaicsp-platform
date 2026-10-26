@@ -85,6 +85,10 @@ export default function AlertsPanel({
       return "warning";
     }
 
+    if (severity === "success") {
+      return "success";
+    }
+
     return "info";
   };
 
@@ -214,7 +218,7 @@ export default function AlertsPanel({
             style={{
               marginTop: space.md,
               background: colors.primary,
-              color: colors.text,
+              color: colors.bg,
               border: "none",
               borderRadius: radius.sm,
               padding: `${space.sm}px ${space.md}px`,
