@@ -225,3 +225,20 @@ def test_successful_batch_clears_failure_count(
     dead_letter.clear_failures("some_file.csv")
 
     assert "some_file.csv" not in dead_letter._load_counts()
+def test_zero_quantity_rows_are_kept_and_negative_rows_dropped(tmp_path, monkeypatch):
+    monkeypatch.setattr(dead_letter, "COUNTS_FILE", tmp_path / "counts.json")
+    dead_letter.COUNTS_FILE.write_text("{}")
+
+    df = _make_inventory_df(30, quantity_values=[0, 0] + [5] * 27 + [-1])
+    batch_file = tmp_path / "inventory.csv"
+    batch_file.write_text("placeholder")
+
+    result = quality_gate_generic(
+        [{"data": df, "file_path": batch_file}],
+        INVENTORY_CONFIG,
+    )
+
+    kept = result[0]["data"]["quantity_on_hand"].tolist()
+    assert kept.count(0) == 2
+    assert -1 not in kept
+    assert result[0]["report"]["rows_dropped"] == 1
