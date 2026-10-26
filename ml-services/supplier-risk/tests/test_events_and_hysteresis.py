@@ -63,12 +63,12 @@ from src.hysteresis import (
 def test_event_envelope_fields_and_utc_timestamp():
     """Verify event envelope has standard fields and timezone-aware UTC ISO timestamp."""
     event = build_score_changed_event(
-        supplier="Acme Corp",
+        supplier="ALPHA SANCTIONS CORP",
         previous_tier="low",
         new_tier="medium",
         risk_score=64.5,
         supporting_articles=[
-            {"headline": "Acme faces labor strike", "date": "2026-02-01", "score": 65.0}
+            {"headline": "Alpha sanctions headline", "date": "2026-02-01", "score": 65.0}
         ],
     )
 
@@ -89,7 +89,8 @@ def test_event_envelope_fields_and_utc_timestamp():
 
     # Payload fields
     payload = event["payload"]
-    assert payload["supplier"] == "Acme Corp"
+    assert payload["supplier"] == "ALPHA SANCTIONS CORP"
+    assert payload["supplier_id"] == "SUP-00007"
     assert payload["previous_tier"] == "low"
     assert payload["new_tier"] == "medium"
     assert payload["risk_score"] == 64.5
@@ -154,11 +155,11 @@ def test_upward_and_downward_tier_transitions():
     tracker = SupplierHysteresisTracker(config=HysteresisConfig(min_evidence=2))
 
     # 1. Start in Low
-    tracker.set_state("Alpha", tier="low", score=40.0)
+    tracker.set_state("ALPHA SANCTIONS CORP", tier="low", score=40.0)
 
     # 2. Upward transition: Low -> Medium (score 65.0 >= enter_medium 62.0)
     ev_up = tracker.process_update(
-        supplier="Alpha",
+        supplier="ALPHA SANCTIONS CORP",
         risk_score=65.0,
         supporting_articles=[
             {"headline": "Article 1", "date": "2026-01-10", "score": 64.0},
@@ -169,11 +170,11 @@ def test_upward_and_downward_tier_transitions():
     assert ev_up["payload"]["previous_tier"] == "low"
     assert ev_up["payload"]["new_tier"] == "medium"
     assert ev_up["payload"]["risk_score"] == 65.0
-    assert tracker.get_state("Alpha").accepted_tier == "medium"
+    assert tracker.get_state("ALPHA SANCTIONS CORP").accepted_tier == "medium"
 
     # 3. Upward transition: Medium -> High (score 76.0 >= enter_high 74.0)
     ev_high = tracker.process_update(
-        supplier="Alpha",
+        supplier="ALPHA SANCTIONS CORP",
         risk_score=76.0,
         supporting_articles=[
             {"headline": "Lawsuit filed", "date": "2026-01-15", "score": 75.0},
@@ -186,7 +187,7 @@ def test_upward_and_downward_tier_transitions():
 
     # 4. Downward transition: High -> Medium (score 68.0 < exit_high 70.0)
     ev_down_med = tracker.process_update(
-        supplier="Alpha",
+        supplier="ALPHA SANCTIONS CORP",
         risk_score=68.0,
         supporting_articles=[
             {"headline": "Recall resolved", "date": "2026-01-22", "score": 67.0},
@@ -199,7 +200,7 @@ def test_upward_and_downward_tier_transitions():
 
     # 5. Downward transition: Medium -> Low (score 55.0 < exit_medium 58.0)
     ev_down_low = tracker.process_update(
-        supplier="Alpha",
+        supplier="ALPHA SANCTIONS CORP",
         risk_score=55.0,
         supporting_articles=[
             {"headline": "Profitable quarter", "date": "2026-01-29", "score": 54.0},
@@ -209,7 +210,7 @@ def test_upward_and_downward_tier_transitions():
     assert ev_down_low is not None
     assert ev_down_low["payload"]["previous_tier"] == "medium"
     assert ev_down_low["payload"]["new_tier"] == "low"
-    assert tracker.get_state("Alpha").accepted_tier == "low"
+    assert tracker.get_state("ALPHA SANCTIONS CORP").accepted_tier == "low"
 
 
 def test_scores_oscillating_around_boundaries_do_not_cause_repeated_events():
@@ -225,7 +226,7 @@ def test_scores_oscillating_around_boundaries_do_not_cause_repeated_events():
     )
 
     # Establish supplier in Medium
-    tracker.set_state("Beta", tier="medium", score=65.0)
+    tracker.set_state("ALPHA SANCTIONS CORP", tier="medium", score=65.0)
 
     articles = [
         {"headline": "News 1", "date": "2026-02-01", "score": 76.0},
@@ -237,27 +238,27 @@ def test_scores_oscillating_around_boundaries_do_not_cause_repeated_events():
     # In hysteresis (deadband [58.0, 62.0)), all these remain Medium!
     oscillations_low_med = [59.5, 60.5, 58.5, 61.5, 59.0]
     for score in oscillations_low_med:
-        ev = tracker.process_update(supplier="Beta", risk_score=score, supporting_articles=articles)
+        ev = tracker.process_update(supplier="ALPHA SANCTIONS CORP", risk_score=score, supporting_articles=articles)
         assert ev is None, f"Expected no event for oscillating score {score} in deadband"
-        assert tracker.get_state("Beta").accepted_tier == "medium"
+        assert tracker.get_state("ALPHA SANCTIONS CORP").accepted_tier == "medium"
 
     # Move to High
     ev_high = tracker.process_update(
-        supplier="Beta",
+        supplier="ALPHA SANCTIONS CORP",
         risk_score=75.0,
         supporting_articles=articles,
     )
     assert ev_high is not None
-    assert tracker.get_state("Beta").accepted_tier == "high"
+    assert tracker.get_state("ALPHA SANCTIONS CORP").accepted_tier == "high"
 
     # Oscillate around 72 boundary: 71.5, 72.5, 70.5, 73.0, 71.0
     # In baseline, each crossing of 72.0 would flip between Medium and High.
     # In hysteresis (deadband [70.0, 74.0)), all these remain High!
     oscillations_med_high = [71.5, 72.5, 70.5, 73.0, 71.0]
     for score in oscillations_med_high:
-        ev = tracker.process_update(supplier="Beta", risk_score=score, supporting_articles=articles)
+        ev = tracker.process_update(supplier="ALPHA SANCTIONS CORP", risk_score=score, supporting_articles=articles)
         assert ev is None, f"Expected no event for oscillating score {score} near 72 boundary"
-        assert tracker.get_state("Beta").accepted_tier == "high"
+        assert tracker.get_state("ALPHA SANCTIONS CORP").accepted_tier == "high"
 
 
 def test_exact_threshold_behavior():
@@ -319,11 +320,11 @@ def test_insufficient_evidence_blocks_transition():
 def test_sufficient_evidence_allows_transition():
     """Verify transition is accepted once corroborating evidence reaches min_evidence."""
     tracker = SupplierHysteresisTracker(config=HysteresisConfig(min_evidence=3))
-    tracker.set_state("Delta", tier="low", score=30.0)
+    tracker.set_state("ALPHA SANCTIONS CORP", tier="low", score=30.0)
 
     # 3 articles provided for score 80.0
     ev = tracker.process_update(
-        supplier="Delta",
+        supplier="ALPHA SANCTIONS CORP",
         risk_score=80.0,
         supporting_articles=[
             {"headline": "Investigation 1", "date": "2026-03-01", "score": 74.0},
@@ -335,7 +336,7 @@ def test_sufficient_evidence_allows_transition():
     assert ev["payload"]["previous_tier"] == "low"
     assert ev["payload"]["new_tier"] == "high"
     assert ev["payload"]["evidence_count"] == 3
-    assert tracker.get_state("Delta").accepted_tier == "high"
+    assert tracker.get_state("ALPHA SANCTIONS CORP").accepted_tier == "high"
 
 
 # ------------------------------------------------------------------
@@ -347,12 +348,12 @@ def test_state_isolation_between_suppliers():
     """Verify updates to one supplier do not impact any other supplier's state."""
     tracker = SupplierHysteresisTracker(config=HysteresisConfig(min_evidence=2))
 
-    tracker.set_state("Supplier X", tier="low", score=40.0)
-    tracker.set_state("Supplier Y", tier="medium", score=65.0)
+    tracker.set_state("ALPHA SANCTIONS CORP", tier="low", score=40.0)
+    tracker.set_state("TEST UN ENTITY 01", tier="medium", score=65.0)
 
-    # Transition Supplier X to High
+    # Transition ALPHA SANCTIONS CORP to High
     tracker.process_update(
-        supplier="Supplier X",
+        supplier="ALPHA SANCTIONS CORP",
         risk_score=85.0,
         supporting_articles=[
             {"headline": "A", "date": "2026-01-01", "score": 85.0},
@@ -360,13 +361,13 @@ def test_state_isolation_between_suppliers():
         ],
     )
 
-    state_x = tracker.get_state("Supplier X")
-    state_y = tracker.get_state("Supplier Y")
+    state_x = tracker.get_state("ALPHA SANCTIONS CORP")
+    state_y = tracker.get_state("TEST UN ENTITY 01")
 
     assert state_x.accepted_tier == "high"
     assert state_x.transition_count == 1
 
-    # Supplier Y must remain completely untouched
+    # TEST UN ENTITY 01 must remain completely untouched
     assert state_y.accepted_tier == "medium"
     assert state_y.transition_count == 0
     assert state_y.last_score == 65.0
@@ -382,9 +383,9 @@ def test_in_memory_and_mock_kafka_publishers():
     in_memory = InMemoryEventPublisher()
     tracker = SupplierHysteresisTracker(publisher=in_memory)
 
-    tracker.set_state("PublisherTest", tier="low", score=40.0)
+    tracker.set_state("ALPHA SANCTIONS CORP", tier="low", score=40.0)
     ev = tracker.process_update(
-        supplier="PublisherTest",
+        supplier="ALPHA SANCTIONS CORP",
         risk_score=75.0,
         supporting_articles=[
             {"headline": "H1", "date": "2026-01-01", "score": 75.0},
@@ -567,8 +568,13 @@ def test_historical_comparison_deterministic(tmp_path):
     """Verify historical replay produces deterministic metrics and generates valid report."""
     from src.historical_comparison import generate_markdown_report, run_historical_comparison
 
-    # Run replay using default dataset
-    results = run_historical_comparison()
+    # Mock canonical supplier ID resolution for the 25 historical test suppliers
+    with patch(
+        "src.supplier_mapping.resolve_canonical_supplier_id",
+        side_effect=lambda name: f"SUP-{abs(hash(name)) % 50000 + 1:05d}",
+    ):
+        # Run replay using default dataset
+        results = run_historical_comparison()
 
     assert results["total_suppliers"] == 25
     assert results["total_articles"] == 300
@@ -602,8 +608,12 @@ def test_historical_comparison_cached_and_uncached_identical():
     """
     from src.historical_comparison import run_historical_comparison
 
-    cached_res = run_historical_comparison(use_cache=True)
-    uncached_res = run_historical_comparison(use_cache=False)
+    with patch(
+        "src.supplier_mapping.resolve_canonical_supplier_id",
+        side_effect=lambda name: f"SUP-{abs(hash(name)) % 50000 + 1:05d}",
+    ):
+        cached_res = run_historical_comparison(use_cache=True)
+        uncached_res = run_historical_comparison(use_cache=False)
 
     # 1. Top-level replay counts
     assert cached_res["total_suppliers"] == uncached_res["total_suppliers"] == 25
@@ -731,21 +741,21 @@ def _articles(*scores):
 def test_tracker_boundaries_end_to_end(start_tier, score, expected_tier):
     """Same boundaries as test_exact_threshold_behavior, but through process_update."""
     tracker = SupplierHysteresisTracker(config=HysteresisConfig(min_evidence=1))
-    tracker.set_state("Edge", tier=start_tier, score=65.0)
+    tracker.set_state("ALPHA SANCTIONS CORP", tier=start_tier, score=65.0)
     # One article far on the side of the move, so evidence never blocks it
     rank = {"low": 0, "medium": 1, "high": 2}
     article_score = 99.0 if rank[expected_tier] > rank[start_tier] else 1.0
-    tracker.process_update(supplier="Edge", risk_score=score, supporting_articles=_articles(article_score))
-    assert tracker.get_state("Edge").accepted_tier == expected_tier
+    tracker.process_update(supplier="ALPHA SANCTIONS CORP", risk_score=score, supporting_articles=_articles(article_score))
+    assert tracker.get_state("ALPHA SANCTIONS CORP").accepted_tier == expected_tier
 
 
 def test_raw_score_is_compared_before_rounding():
     """61.996 rounds to 62.00 for display but must not cross the 62.0 enter threshold."""
     tracker = SupplierHysteresisTracker(config=HysteresisConfig(min_evidence=1))
-    tracker.set_state("Round", tier="low", score=50.0)
-    ev = tracker.process_update(supplier="Round", risk_score=61.996, supporting_articles=_articles(70.0))
+    tracker.set_state("ALPHA SANCTIONS CORP", tier="low", score=50.0)
+    ev = tracker.process_update(supplier="ALPHA SANCTIONS CORP", risk_score=61.996, supporting_articles=_articles(70.0))
     assert ev is None
-    assert tracker.get_state("Round").accepted_tier == "low"
+    assert tracker.get_state("ALPHA SANCTIONS CORP").accepted_tier == "low"
 
 
 @pytest.mark.parametrize("bad_score", [None, float("nan"), float("inf"), "70", True])
@@ -760,16 +770,16 @@ def test_replay_skips_weeks_without_score():
     from src.historical_comparison import _replay_with_tracker
 
     timeline = {
-        "Gap Co": [
+        "ALPHA SANCTIONS CORP": [
             {"score": 40.0, "supporting_articles": _articles(40.0, 41.0)},
             {"score": None, "supporting_articles": []},
             {"score": 80.0, "supporting_articles": _articles(80.0, 85.0)},
         ]
     }
     dates = ["2026-01-05", "2026-01-12", "2026-01-19"]
-    out = _replay_with_tracker(timeline, dates, ["Gap Co"], HysteresisConfig())
+    out = _replay_with_tracker(timeline, dates, ["ALPHA SANCTIONS CORP"], HysteresisConfig())
     assert out["total"] == 1
-    assert out["events"]["Gap Co"][0]["payload"]["new_tier"] == "high"
+    assert out["events"]["ALPHA SANCTIONS CORP"][0]["payload"]["new_tier"] == "high"
 
 
 class _FlakyPublisher(InMemoryEventPublisher):
@@ -787,25 +797,25 @@ class _FlakyPublisher(InMemoryEventPublisher):
 def test_failed_publish_does_not_commit_transition_and_retries():
     publisher = _FlakyPublisher(fail_times=1)
     tracker = SupplierHysteresisTracker(config=HysteresisConfig(), publisher=publisher)
-    tracker.set_state("Retry", tier="low", score=40.0)
+    tracker.set_state("ALPHA SANCTIONS CORP", tier="low", score=40.0)
 
-    first = tracker.process_update(supplier="Retry", risk_score=80.0, supporting_articles=_articles(80.0, 82.0))
+    first = tracker.process_update(supplier="ALPHA SANCTIONS CORP", risk_score=80.0, supporting_articles=_articles(80.0, 82.0))
     assert first is None
-    assert tracker.get_state("Retry").accepted_tier == "low", "Tier must not advance when publish fails"
+    assert tracker.get_state("ALPHA SANCTIONS CORP").accepted_tier == "low", "Tier must not advance when publish fails"
 
-    second = tracker.process_update(supplier="Retry", risk_score=81.0, supporting_articles=_articles(80.0, 82.0))
+    second = tracker.process_update(supplier="ALPHA SANCTIONS CORP", risk_score=81.0, supporting_articles=_articles(80.0, 82.0))
     assert second is not None
-    assert tracker.get_state("Retry").accepted_tier == "high"
+    assert tracker.get_state("ALPHA SANCTIONS CORP").accepted_tier == "high"
     assert publisher.count() == 1
 
 
 def test_articles_pointing_the_other_way_are_not_evidence():
     """A drop to low cannot be 'supported' by high-risk headlines (the Boeing case in review)."""
     tracker = SupplierHysteresisTracker(config=HysteresisConfig(min_evidence=2))
-    tracker.set_state("Boeing", tier="medium", score=63.66)
+    tracker.set_state("ALPHA SANCTIONS CORP", tier="medium", score=63.66)
 
     ev = tracker.process_update(
-        supplier="Boeing",
+        supplier="ALPHA SANCTIONS CORP",
         risk_score=54.51,
         supporting_articles=[
             {"headline": "Boeing faces new lawsuit", "date": "2026-01-05", "score": 63.66},
@@ -813,15 +823,15 @@ def test_articles_pointing_the_other_way_are_not_evidence():
         ],
     )
     assert ev is None, "Only 1 of 2 articles is below the 58.0 exit threshold"
-    assert tracker.get_state("Boeing").accepted_tier == "medium"
+    assert tracker.get_state("ALPHA SANCTIONS CORP").accepted_tier == "medium"
 
 
 def test_event_payload_carries_ranked_top_articles_and_reasoned_explanation():
     tracker = SupplierHysteresisTracker(config=HysteresisConfig(min_evidence=2, top_articles=2))
-    tracker.set_state("Rank", tier="medium", score=65.0)
+    tracker.set_state("ALPHA SANCTIONS CORP", tier="medium", score=65.0)
 
     ev = tracker.process_update(
-        supplier="Rank",
+        supplier="ALPHA SANCTIONS CORP",
         risk_score=78.0,
         supporting_articles=[
             {"headline": "Mild", "date": "2026-03-01", "score": 60.0},
@@ -840,18 +850,18 @@ def test_event_payload_carries_ranked_top_articles_and_reasoned_explanation():
 
 def test_initial_tier_waits_for_min_evidence():
     tracker = SupplierHysteresisTracker(config=HysteresisConfig(min_evidence=2))
-    assert tracker.process_update(supplier="New", risk_score=80.0, supporting_articles=_articles(80.0)) is None
-    assert tracker.get_state("New").accepted_tier is None
+    assert tracker.process_update(supplier="ALPHA SANCTIONS CORP", risk_score=80.0, supporting_articles=_articles(80.0)) is None
+    assert tracker.get_state("ALPHA SANCTIONS CORP").accepted_tier is None
 
-    assert tracker.process_update(supplier="New", risk_score=80.0, supporting_articles=_articles(80.0, 81.0)) is None
-    assert tracker.get_state("New").accepted_tier == "high"
+    assert tracker.process_update(supplier="ALPHA SANCTIONS CORP", risk_score=80.0, supporting_articles=_articles(80.0, 81.0)) is None
+    assert tracker.get_state("ALPHA SANCTIONS CORP").accepted_tier == "high"
 
 
 def test_naive_datetime_is_treated_as_utc():
     tracker = SupplierHysteresisTracker(config=HysteresisConfig(min_evidence=1))
-    tracker.set_state("Clock", tier="low", score=40.0)
+    tracker.set_state("ALPHA SANCTIONS CORP", tier="low", score=40.0)
     ev = tracker.process_update(
-        supplier="Clock",
+        supplier="ALPHA SANCTIONS CORP",
         risk_score=80.0,
         supporting_articles=_articles(80.0),
         occurred_at=datetime(2026, 3, 1, 12, 0),
@@ -876,10 +886,10 @@ def test_history_is_bounded():
     from src.hysteresis import HISTORY_MAXLEN
 
     tracker = SupplierHysteresisTracker(config=HysteresisConfig(min_evidence=5))
-    tracker.set_state("Noisy", tier="low", score=40.0)
+    tracker.set_state("ALPHA SANCTIONS CORP", tier="low", score=40.0)
     for _ in range(HISTORY_MAXLEN + 50):
-        tracker.process_update(supplier="Noisy", risk_score=80.0, supporting_articles=_articles(80.0))
-    assert len(tracker.get_state("Noisy").history) == HISTORY_MAXLEN
+        tracker.process_update(supplier="ALPHA SANCTIONS CORP", risk_score=80.0, supporting_articles=_articles(80.0))
+    assert len(tracker.get_state("ALPHA SANCTIONS CORP").history) == HISTORY_MAXLEN
 
 
 def test_event_carries_canonical_supplier_id():
