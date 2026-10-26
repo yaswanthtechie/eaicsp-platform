@@ -27,7 +27,7 @@ The raw JWT is never used directly as a Redis key.
 
 import hashlib
 import json
-from typing import Any
+from typing import Any, cast
 
 import redis
 
@@ -148,7 +148,7 @@ class TokenCache:
 
         try:
             key = self._make_key(token)
-            raw_value = client.get(key)
+            raw_value = cast(str | None, client.get(key))
 
             if raw_value is None:
                 return None
@@ -287,7 +287,7 @@ class TokenCache:
             # associated user_id.
             # ----------------------------------------------------
 
-            raw_value = client.get(token_key)
+            raw_value = cast(str | None, client.get(token_key))
 
             if raw_value is not None:
                 try:
@@ -348,7 +348,7 @@ class TokenCache:
             # Get all cached token keys belonging to this user.
             # ----------------------------------------------------
 
-            token_keys = client.smembers(user_key)
+            token_keys = cast(set[str], client.smembers(user_key))
 
             if token_keys:
                 client.delete(*token_keys)

@@ -1,2 +1,30 @@
 # Created by the test suite (DATABASE_URL in tests/conftest.py)
 test_platform.db
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# Python environments
+.venv/
+.venv-*/
+venv/
+fresh-venv/
+
+# Python generated files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Coverage and test artifacts
+.coverage
+coverage.xml
+htmlcov/
+platform.db
+platform_http_test.db
+# Logs
+logs/
+*.log

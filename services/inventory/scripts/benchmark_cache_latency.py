@@ -66,8 +66,8 @@ def run_benchmark(iterations: int = 100):
     print("-" * 70)
 
     db = SessionLocal()
-    sku_id = "SKU-BENCH-001"
-    warehouse_id = "WH-BENCH-001"
+    sku_id = "SKU-000801"
+    warehouse_id = "WH-BLR-01"
 
     try:
         item = seed_benchmark_item(db, sku_id=sku_id, warehouse_id=warehouse_id)

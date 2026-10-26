@@ -1,9 +1,9 @@
 import logging
 from datetime import UTC, datetime, timedelta
 
+import jwt
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
-from jose import JWTError
 from sqlalchemy.orm import Session
 
 from app.core.config import TRUST_PROXY
@@ -115,7 +115,7 @@ def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
     try:
         payload = decode_token(body.refresh_token)
 
-    except JWTError:
+    except jwt.InvalidTokenError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",
@@ -410,7 +410,7 @@ def verify_access_token(
     except HTTPException:
         raise
 
-    except JWTError:
+    except jwt.InvalidTokenError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
@@ -462,7 +462,7 @@ def verify_access_token(
     # include fine-grained permissions
     # -------------------------------------------------
     role = user.role.name if user.role else None
-    permissions = sorted(ROLE_PERMISSIONS.get(role, set()))
+    permissions = sorted(ROLE_PERMISSIONS.get(role, set())) if role else []
 
     response_data = {
         "valid": True,

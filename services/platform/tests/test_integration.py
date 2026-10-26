@@ -20,17 +20,17 @@ VERIFY_URL = f"{BASE_URL}{API_PREFIX}/auth/verify"
 TEST_USERS = {
     "supplier": {
         "email": "supplier@company.com",
-        "password": "supplier@123",
+        "password": os.environ["SUPPLIER_PASSWORD"],
         "role": "supplier",
     },
     "warehouse_manager": {
         "email": "warehousemanager@company.com",
-        "password": "warehouse@123",
+        "password": os.environ["WAREHOUSE_MANAGER_PASSWORD"],
         "role": "warehouse_manager",
     },
     "vp_operations": {
         "email": "vpoperations@company.com",
-        "password": "vpoperations@123",
+        "password": os.environ["VP_OPERATIONS_PASSWORD"],
         "role": "vp_operations",
     },
 }

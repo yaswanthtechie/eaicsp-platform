@@ -132,7 +132,9 @@ def test_mlflow_tracking_lifecycle(
         # -----------------------------------------------------
         # 6. Log model parameters
         # -----------------------------------------------------
-        log_parameters(pipeline)
+        log_parameters(
+            pipeline
+        )
 
         # -----------------------------------------------------
         # 7. Verify parameters
@@ -204,6 +206,12 @@ def test_mlflow_tracking_lifecycle(
         # -----------------------------------------------------
         # 10. Log evaluation metrics
         # -----------------------------------------------------
+        # Interval coverage is calculated separately from
+        # evaluate_model() using prediction interval calibration.
+        # Provide representative coverage here so the MLflow
+        # logging lifecycle test covers the new metric.
+        results["interval_coverage"] = 0.80
+
         log_metrics(
             results
         )
@@ -217,6 +225,17 @@ def test_mlflow_tracking_lifecycle(
 
         assert expected_metrics.issubset(
             run_data.metrics.keys()
+        )
+
+        assert (
+            "interval_coverage"
+            in run_data.metrics
+        )
+
+        assert np.isfinite(
+            run_data.metrics[
+                "interval_coverage"
+            ]
         )
 
         for metric_name in expected_metrics:

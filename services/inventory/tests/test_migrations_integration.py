@@ -76,10 +76,10 @@ def test_alembic_upgrade_head_inserts_po_on_empty_database():
     # Insert a PO using the model
     with Session(test_engine) as session:
         po = PurchaseOrder(
-            po_id="PO-MIGRATE-INT-1",
-            sku_id="SKU-INT-1",
-            warehouse_id="WH-INT-1",
-            supplier_id="SUP-INT-1",
+            po_id="PO-2026-000002",
+            sku_id="SKU-000002",
+            warehouse_id="WH-BLR-01",
+            supplier_id="SUP-00002",
             quantity=100,
             unit_cost=12.50,
             expected_cost=1250.00,
@@ -90,7 +90,7 @@ def test_alembic_upgrade_head_inserts_po_on_empty_database():
         session.add(po)
         session.commit()
 
-        queried = session.query(PurchaseOrder).filter_by(po_id="PO-MIGRATE-INT-1").first()
+        queried = session.query(PurchaseOrder).filter_by(po_id="PO-2026-000002").first()
         assert queried is not None
         assert queried.approval_status == "pending_vp_approval"
 

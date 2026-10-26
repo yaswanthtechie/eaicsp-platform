@@ -1,5 +1,6 @@
 import csv
 import io
+import os
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -22,9 +23,15 @@ from app.services.rate_limit_service import (
 
 client = TestClient(app)
 
-ANALYST = {"username": "analyst@company.com", "password": "analyst@1234"}
-CEO = {"username": "ceo@company.com", "password": "ceocompany@123"}
-SUPPLIER = {"username": "supplier@company.com", "password": "supplier@123"}
+ANALYST = {
+    "username": "analyst@company.com",
+    "password": os.environ["ANALYST_PASSWORD"],
+}
+CEO = {"username": "ceo@company.com", "password": os.environ["CEO_PASSWORD"]}
+SUPPLIER = {
+    "username": "supplier@company.com",
+    "password": os.environ["SUPPLIER_PASSWORD"],
+}
 
 
 def _token(creds):
@@ -197,7 +204,7 @@ def test_sso_disabled_by_default():
 def test_sso_refuses_blank_secret(monkeypatch):
     monkeypatch.setattr(app_config, "MOCK_SSO_ENABLED", True)
     monkeypatch.setattr(app_config, "MOCK_SSO_SECRET", "")
-    from jose import jwt
+    import jwt
 
     forged = jwt.encode(
         {
@@ -207,7 +214,7 @@ def test_sso_refuses_blank_secret(monkeypatch):
             "email": "ceo@company.com",
             "exp": 9999999999,
         },
-        "",
+        "attacker-test-key",
         algorithm="HS256",
     )
     r = client.post(
