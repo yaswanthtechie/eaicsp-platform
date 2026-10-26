@@ -1,4 +1,4 @@
-﻿openapi: 3.1.0
+openapi: 3.1.0
 info:
   title: Supplier Risk Score API
   version: 1.0.0
@@ -12,8 +12,22 @@ paths:
       description: >-
         Returns the latest computed risk score, risk tier, top contributing
         factors, supporting evidence articles, and computation timestamp.
-        When no recent evidence is available, score and tier may be null.
+
+        1. **No evidence:** For a known supplier with no recent evidence, return
+        HTTP 200 with `score: null`, `tier: null`, and empty `top_factors` and
+        `top_evidence_articles` arrays. Null means “no evidence,” not zero risk.
+        Do not return `score: 0` or `tier: Low` for this case.
+
+        2. **Supplier Portal behavior:** During onboarding, callers should use a
+        2-second timeout. On timeout, HTTP 503, or any 5xx, show “risk
+        unavailable” and do not block onboarding.
+
+        3. **Tier mapping:** This endpoint uses `Low`, `Medium`, `High`,
+        `Critical`. The `supplierrisk.score.changed` event uses lowercase `low`,
+        `medium`, `high`, with `Critical` mapping to `high`.
       security:
+        - serviceKey: []
+          callerService: []
         - bearerAuth: []
       parameters:
         - name: supplier_id
@@ -31,37 +45,77 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SupplierRiskScoreResponse'
-              example:
-                score: 78.5
-                tier: High
-                top_factors:
-                  - factor: insolvency
-                    category: Financial
-                    weight: 45
-                    description: Insolvency-related adverse media.
-                  - factor: investigation
-                    category: Reputational
-                    weight: 25
-                    description: Investigation-related adverse media.
-                top_evidence_articles:
-                  - headline: >-
-                      Regulators launch an investigation into supplier
-                      accounting practices.
-                    date: '2026-10-14'
-                    sentiment: negative
+              examples:
+                scored:
+                  value:
+                    supplier_id: SUP-00045
                     score: 78.5
-                    signals:
-                      - keyword: investigation
+                    tier: High
+                    top_factors:
+                      - factor: insolvency
+                        category: Financial
+                        weight: 45
+                        description: Insolvency-related adverse media.
+                      - factor: investigation
+                        category: Reputational
                         weight: 25
-                computed_at: '2026-10-15T10:30:00Z'
+                        description: Investigation-related adverse media.
+                    top_evidence_articles:
+                      - headline: >-
+                          Regulators launch an investigation into supplier
+                          accounting practices.
+                        date: '2026-10-14'
+                        sentiment: negative
+                        score: 65.0
+                        signals:
+                          - keyword: investigation
+                            weight: 25
+                    computed_at: '2026-10-15T10:30:00Z'
+                no_evidence:
+                  summary: Known supplier with no recent evidence
+                  value:
+                    supplier_id: SUP-00012
+                    score: null
+                    tier: null
+                    top_factors: []
+                    top_evidence_articles: []
+                    computed_at: '2026-10-15T10:30:00Z'
         '401':
           description: Missing or invalid authentication credentials.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: UNAUTHORIZED
+                message: Missing or invalid authentication credentials.
         '404':
           description: Supplier was not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: SUPPLIER_NOT_FOUND
+                message: Supplier SUP-00999 was not found.
         '422':
           description: Invalid supplier identifier.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: INVALID_SUPPLIER_ID
+                message: The supplier identifier is invalid.
         '503':
           description: Supplier risk score is temporarily unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: RISK_UNAVAILABLE
+                message: The supplier risk score is temporarily unavailable.
 
 components:
   securitySchemes:
@@ -69,17 +123,36 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+      description: Platform-issued user JWT (dashboard / human callers).
+    serviceKey:
+      type: apiKey
+      in: header
+      name: X-Service-Key
+      description: >-
+        Shared service key for service-to-service calls. Same pattern as
+        compliance /internal-check. Must be sent together with X-Caller-Service.
+    callerService:
+      type: apiKey
+      in: header
+      name: X-Caller-Service
+      description: Name of the calling service, e.g. supplier-portal.
 
   schemas:
     SupplierRiskScoreResponse:
       type: object
       required:
+        - supplier_id
         - score
         - tier
         - top_factors
         - top_evidence_articles
         - computed_at
       properties:
+        supplier_id:
+          type: string
+          pattern: '^SUP-[0-9]{5}$'
+          description: Canonical supplier identifier, echoed from the path.
+          example: SUP-00045
         score:
           type:
             - number
@@ -135,8 +208,12 @@ components:
             - Operational
             - Reputational
             - Security
-            - Legal
-          description: Risk category.
+          description: >-
+            Risk category, fixed per signal keyword.
+            Financial: bankruptcy, insolvency, default, restructuring, layoff, downgrade.
+            Operational: strike, recall, disruption, shortage, delays, shutdown, outage.
+            Reputational: fraud, investigation, lawsuit.
+            Security: sanction, cyberattack.
         weight:
           type: number
           description: Configured signal weight.
@@ -158,9 +235,11 @@ components:
           type: string
           description: Supporting news headline.
         date:
-          type: string
+          type:
+            - string
+            - 'null'
           format: date
-          description: Article publication date.
+          description: Article publication date; null when the source has no date.
         sentiment:
           type: string
           enum:
@@ -170,7 +249,11 @@ components:
           description: Article sentiment classification.
         score:
           type: number
-          description: Risk score associated with this evidence article.
+          minimum: 0
+          maximum: 100
+          description: >-
+            Risk score of this single article (0 to 100): sentiment penalty plus
+            the weights of its detected signals, capped at 100.
         signals:
           type: array
           items:
@@ -188,3 +271,16 @@ components:
         weight:
           type: number
           description: Configured weight of the detected keyword.
+
+    ErrorResponse:
+      type: object
+      required:
+        - error_code
+        - message
+      properties:
+        error_code:
+          type: string
+          description: Machine-readable uppercase error token, e.g. SUPPLIER_NOT_FOUND.
+        message:
+          type: string
+          description: Human-readable error description.
