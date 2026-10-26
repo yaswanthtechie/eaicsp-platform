@@ -18,7 +18,7 @@ def test_approval_status_migration_is_idempotent(tmp_path):
         ))
         connection.execute(text(
             "INSERT INTO purchase_orders VALUES "
-            "('PO-OLD', 'SKU1', 'WH1', 'SUP1', 10, 5.0, 50.0, 'draft', "
+            "('PO-OLD', 'SKU1', 'WH1', 'SUP1', 10, 5.0, 50.0, 'draft', "  # noncanonical-ok
             "'2026-09-01 00:00:00')"
         ))
 
@@ -70,10 +70,10 @@ def test_alembic_upgrade_head_creates_matching_schema_and_allows_po_insert(tmp_p
 
     with Session(test_engine) as session:
         po = PurchaseOrder(
-            po_id="PO-TEST-001",
-            sku_id="SKU-1",
-            warehouse_id="WH-1",
-            supplier_id="SUP-1",
+            po_id="PO-2026-000001",
+            sku_id="SKU-000001",
+            warehouse_id="WH-BLR-01",
+            supplier_id="SUP-00001",
             quantity=10,
             unit_cost=15.0,
             expected_cost=150.0,
@@ -86,10 +86,9 @@ def test_alembic_upgrade_head_creates_matching_schema_and_allows_po_insert(tmp_p
         session.add(po)
         session.commit()
 
-        queried = session.query(PurchaseOrder).filter_by(po_id="PO-TEST-001").first()
+        queried = session.query(PurchaseOrder).filter_by(po_id="PO-2026-000001").first()
         assert queried is not None
         assert queried.approval_status == "pending_vp_approval"
         assert queried.status == "on_hold"
         assert queried.hold_reason == "Supplier moved to BLOCK"
         assert queried.hold_source == "compliance"
-

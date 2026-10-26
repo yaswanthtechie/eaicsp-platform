@@ -17,17 +17,39 @@ export interface InventoryItem {
   avg_daily_demand: number;
 }
 
+export type AlertType =
+  | "low-stock"
+  | "forecast-change"
+  | "system"
+  | "cold-chain-anomaly"
+  | "supplier-risk-change"
+  | "shipment-eta-update"
+  | "forecast-batch-completed"
+  | "data-pipeline-completed";
+
+export type AlertSeverity = "critical" | "warning" | "info" | "success";
 export interface AlertMessage {
   id: string;
-  type: "low-stock" | "forecast-change" | "system";
-  severity: "error" | "warning" | "info";
+  type: AlertType;
+  severity: AlertSeverity;
   message: string;
   timestamp: string; // ISO 8601 timestamp
+  title?: string;
 }
 
 export interface InventoryUpdate {
   type: "inventory_update";
   item: InventoryItem;
+}
+
+export interface AnalyticsEventEnvelope {
+  event_id: string;
+  event_type: string;
+  event_version: string | number;
+  occurred_at: string;
+  producer: string;
+  payload: Record<string, unknown>;
+  trace_id?: string | null;
 }
 
 export type WebSocketMessage = AlertMessage | InventoryUpdate;

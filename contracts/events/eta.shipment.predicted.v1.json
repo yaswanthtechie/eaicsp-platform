@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eaicsp.platform/contracts/events/eta.shipment.predicted.v1.json",
+  "title": "eta.shipment.predicted",
+  "description": "One event per ETA prediction for a dispatched shipment. Published by the eta-prediction service to the Kafka topic named after event_type (eta.shipment.predicted), partition key = payload.shipment_id, so all predictions for one shipment stay in order. Delivery is at-least-once. A shipment can be re-predicted, which publishes a new event with a new event_id: consumers de-duplicate on event_id and keep the prediction with the latest payload.predicted_at per shipment_id.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "event_version",
+    "occurred_at",
+    "producer",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "description": "UUID v4, unique per published event."
+    },
+    "event_type": {
+      "const": "eta.shipment.predicted"
+    },
+    "event_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC time the event was published."
+    },
+    "producer": {
+      "const": "eta-prediction"
+    },
+    "trace_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Optional distributed trace id."
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "shipment_id",
+        "po_number",
+        "eta_days",
+        "confidence_low",
+        "confidence_high",
+        "model_version",
+        "predicted_at"
+      ],
+      "properties": {
+        "shipment_id": {
+          "type": "string",
+          "pattern": "^SHP-[0-9]{4}-[0-9]{6}$",
+          "description": "Canonical shipment id, taken from supplierportal.shipment.dispatched."
+        },
+        "po_number": {
+          "type": "string",
+          "pattern": "^PO-[0-9]{4}-[0-9]{6}$",
+          "description": "Canonical PO number, taken from supplierportal.shipment.dispatched."
+        },
+        "eta_days": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Predicted calendar days from dispatched_at to delivery."
+        },
+        "confidence_low": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Lower bound of the 80% prediction interval, in days from dispatched_at. Must be <= confidence_high. eta_days is NOT required to lie inside [confidence_low, confidence_high]: the interval is calibrated asymmetrically from out-of-sample residuals."
+        },
+        "confidence_high": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Upper bound of the 80% prediction interval, in days from dispatched_at."
+        },
+        "model_version": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "MLflow registered model name and version that produced the prediction, e.g. eta_pipeline/3."
+        },
+        "predicted_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "UTC time the prediction was made. Latest predicted_at per shipment_id wins."
+        },
+        "top_features": {
+          "type": "array",
+          "maxItems": 5,
+          "description": "Optional SHAP explanation of this prediction, ordered by absolute shap_value, largest first.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "feature",
+              "shap_value"
+            ],
+            "properties": {
+              "feature": {
+                "type": "string",
+                "minLength": 1
+              },
+              "shap_value": {
+                "type": "number",
+                "description": "Signed contribution in days; positive pushes the ETA later."
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

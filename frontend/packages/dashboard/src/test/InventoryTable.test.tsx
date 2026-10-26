@@ -50,11 +50,11 @@ describe("InventoryTable", () => {
 
     fireEvent.change(searchInput, {
       target: {
-        value: "SKU001",
+        value: "SKU-000001",
       },
     });
 
-    expect(searchInput).toHaveValue("SKU001");
+    expect(searchInput).toHaveValue("SKU-000001");
   });
 
   it("filters low stock items", () => {

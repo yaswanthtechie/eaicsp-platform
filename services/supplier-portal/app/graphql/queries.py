@@ -26,6 +26,8 @@ from app.graphql.types import (
     SupplierDocumentConnectionType,
     SupplierDocumentEdgeType,
     SupplierDocumentType,
+    ApprovedPOLineType,
+    ApprovedPurchaseOrderType,
 )
 
 from app.schemas.invoice import InvoiceStatus
@@ -44,6 +46,10 @@ from app.services.supplier_onboarding_service import (
     list_supplier_documents,
     supplier_documents,
 )
+from decimal import Decimal
+
+from app.database import SessionLocal
+from app.models.po_mirror import POMirror
 
 
 # ============================================================
@@ -488,7 +494,39 @@ def _get_authorized_documents(
         for document in documents
     ]
 
+def _to_approved_purchase_order_type(
+    po: POMirror,
+) -> ApprovedPurchaseOrderType:
+    """Convert a mirrored, inventory-approved PO to GraphQL."""
 
+    return ApprovedPurchaseOrderType(
+        po_id=po.po_id,
+        po_number=po.po_number,
+        supplier_id=po.supplier_id,
+        warehouse_id=po.warehouse_id,
+        approval_status=po.approval_status,
+        approved_by=po.approved_by,
+        approved_at=po.approved_at,
+        total_amount=float(
+            po.total_amount
+            if isinstance(po.total_amount, Decimal)
+            else Decimal(str(po.total_amount))
+        ),
+        currency=po.currency,
+        expected_delivery_date=po.expected_delivery_date,
+        lines=[
+            ApprovedPOLineType(
+                line_number=line["line_number"],
+                sku_id=line["sku_id"],
+                quantity=line["quantity"],
+                unit_cost=float(line["unit_cost"]),
+                expected_cost=float(line["expected_cost"]),
+            )
+            for line in (po.lines or [])
+        ],
+        status=po.status,
+        acknowledged_at=po.acknowledged_at,
+    )
 # ============================================================
 # GRAPHQL QUERY ROOT
 # ============================================================
@@ -500,6 +538,48 @@ class Query:
     # ========================================================
     # SINGLE PURCHASE ORDER
     # ========================================================
+    @strawberry.field
+    def approved_purchase_orders(
+        self,
+        info: Info,
+    ) -> list[ApprovedPurchaseOrderType]:
+        user = info.context["user"]
+
+        # Keep R14 compliance restrictions.
+        require_graphql_view_access(user)
+
+        db = SessionLocal()
+        try:
+            query = db.query(POMirror)
+
+            # Filter by authenticated supplier BEFORE returning results.
+            if user.get("role") == "supplier":
+                supplier_id = user.get("supplier_id")
+
+                if (
+                    not isinstance(supplier_id, str)
+                    or not supplier_id.strip()
+                ):
+                    raise PermissionError(
+                        "Supplier identity is missing"
+                    )
+
+                query = query.filter(
+                    POMirror.supplier_id == supplier_id.strip()
+                )
+
+            records = (
+                query
+                .order_by(POMirror.approved_at.desc())
+                .all()
+            )
+
+            return [
+                _to_approved_purchase_order_type(po)
+                for po in records
+            ]
+        finally:
+            db.close()
 
     @strawberry.field
     def purchase_order(

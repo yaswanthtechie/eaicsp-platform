@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
-
+from feature_lib import add_eta_features
 from .paths import PROCESSED_DATA_DIR
+from .preprocess import ETA_HISTORY_FEATURES
 
 
 TARGET_COLUMN = "delivery_days"
@@ -478,7 +479,41 @@ def build_eta_features(datasets):
     features = _add_distance(
         features
     )
+    # Historical ETA features.
+    #
+    # Olist does not provide a separate carrier field, so seller_id
+    # is used as the carrier proxy. The route is represented by
+    # seller_state -> customer_state.
+    #
+    # add_eta_features() performs the historical as-of join and
+    # uses only outcomes strictly before the current departure time.
+    features["scheduled_pickup_date"] = (
+        features["order_purchase_timestamp"]
+    )
 
+    features["actual_delivery_date"] = (
+        orders.set_index("order_id")
+        .loc[features["order_id"], "order_delivered_customer_date"]
+        .to_numpy()
+    )
+
+    features["expected_delivery_date"] = (
+        orders.set_index("order_id")
+        .loc[features["order_id"], "order_estimated_delivery_date"]
+        .to_numpy()
+    )
+
+    features["carrier_name"] = (
+        features["seller_id"].astype("string")
+    )
+
+    features["route_id"] = (
+        features["seller_state"].astype("string")
+        + "->"
+        + features["customer_state"].astype("string")
+    )
+
+    features = add_eta_features(features)
     # Purchase-time features.
     purchase_time = features[
         "order_purchase_timestamp"
@@ -521,6 +556,7 @@ def build_eta_features(datasets):
         "total_volume_cm3",
         "total_freight_value",
         "product_category_name",
+        *ETA_HISTORY_FEATURES,
         TARGET_COLUMN,
     ]
 
