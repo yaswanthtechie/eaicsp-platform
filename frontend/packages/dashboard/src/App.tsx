@@ -248,8 +248,9 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
     connected,
     isConnecting,
     failed,
+    retryConnection,
   } = useWebSocket({
-    url: "ws://localhost:8080",
+    url: import.meta.env.VITE_ALERTS_WS_URL // "ws://localhost:8080",
     onMessage: handleMessage,
     autoReconnect: true,
     maxRetries: 5,
@@ -702,6 +703,7 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
               isConnecting={isConnecting}
               failed={failed}
               onRemove={removeAlert}
+              onRetry={retryConnection}
             />
           </ErrorBoundary>
         </div>
