@@ -87,7 +87,7 @@
         "approved_by": {
           "type": "string",
           "minLength": 1,
-          "description": "Platform user ID of the approver, from the auth token's user_id (stringified). 'system' for auto-approved POs."
+          "description": "Platform user ID of the approver, from the auth token's user_id (stringified)."
         },
         "approved_at": {
           "type": "string",

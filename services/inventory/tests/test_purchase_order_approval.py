@@ -51,8 +51,8 @@ def _seed_reorderable_sku(db_session, unit_cost):
     )
 
 
-def test_small_draft_po_is_auto_approved(client, db_session):
-    _seed_reorderable_sku(db_session, unit_cost=1.0)   # 55 x 1 = 55
+def test_draft_po_awaits_procurement_approval(client, db_session):
+    _seed_reorderable_sku(db_session, unit_cost=1.0)   # small PO: no auto-approval any more.
 
     response = client.post(
         "/api/v1/inventory/purchase-orders/draft",
@@ -69,7 +69,7 @@ def test_small_draft_po_is_auto_approved(client, db_session):
     assert approved.json()["approval_status"] == "approved"
 
 
-def test_large_draft_po_requires_vp_approval(client, db_session):
+def test_large_draft_po_awaits_procurement_approval(client, db_session):
     _seed_reorderable_sku(db_session, unit_cost=100.0)  # 55 x 100 = 5500
 
     response = client.post(
@@ -217,7 +217,7 @@ def test_pending_po_cannot_be_received(db_session):
 
     except ValueError as exc:
         assert (
-            "requires VP Operations approval"
+            "must be approved by a procurement manager"
             in str(exc)
         )
 

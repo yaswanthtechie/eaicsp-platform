@@ -374,6 +374,7 @@ def _record_po_approved(
     approved_at = datetime.now(UTC)
     payload = POApprovedPayload(
         po_id=purchase_order.po_id,
+        po_number=purchase_order.po_id,
         supplier_id=purchase_order.supplier_id,
         warehouse_id=purchase_order.warehouse_id,
         approval_status="approved",
@@ -404,7 +405,7 @@ def _record_po_approved(
 def approve_purchase_order(
     db: Session,
     po_id: str,
-    approved_by: str,
+    approved_by: str = "system",
 ):
     """
     Approve a purchase order and emit an inventory.po.approved outbox event
@@ -445,9 +446,8 @@ def approve_purchase_order(
 
     purchase_order.approval_status = "approved"
 
-    _record_po_approved(db, purchase_order, approved_by=approved_by)
-
     try:
+        _record_po_approved(db, purchase_order, approved_by=approved_by)
         db.commit()
         db.refresh(purchase_order)
 
@@ -495,7 +495,7 @@ def receive_purchase_order(
         != "approved"
     ):
         raise ValueError(
-            "Purchase order requires VP Operations approval"
+            "Purchase order must be approved by a procurement manager before it can be received"
         )
 
     inventory = (

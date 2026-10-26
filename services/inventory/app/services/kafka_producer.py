@@ -119,10 +119,11 @@ class KafkaEventPublisher:
         remaining = self._producer.flush(timeout=5.0)
 
         if remaining > 0:
+            # Drop undelivered messages so a late ack can't publish them after the outbox retries.
             try:
                 self._producer.purge()
             except Exception:
-                pass
+                logger.warning("Failed to purge undelivered Kafka messages", exc_info=True)
             raise KafkaBrokerError(
                 f"Kafka did not acknowledge {remaining} message(s) within 5s"
             )
