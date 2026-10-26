@@ -39,6 +39,7 @@ def test_readings_reach_influx_and_one_event_per_episode(tmp_path):
 
     run(
         settings,
+        sensor_map={sensor: "WH-BLR-01"},
         events_log=str(events_log),
         idle_exit=10,
         flush_open_episodes=True,
@@ -63,6 +64,7 @@ def test_readings_reach_influx_and_one_event_per_episode(tmp_path):
             flux,
             params={"p_bucket": settings["influx_bucket"], "p_sensor": sensor},
         )
+
         stored = sum(rec.get_value() for t in tables for rec in t.records)
 
     assert stored == len(readings)

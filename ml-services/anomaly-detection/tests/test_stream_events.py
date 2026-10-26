@@ -58,7 +58,7 @@ def test_envelope_fields_match_inventory_schema():
 
     assert event["event_type"] == EVENT_TYPE == "iot.anomaly.detected"
     assert event["producer"] == PRODUCER
-    assert event["event_version"] == EVENT_VERSION == "1.0"
+    assert event["event_version"] == EVENT_VERSION == 1
     assert event["trace_id"] is None
 
 
