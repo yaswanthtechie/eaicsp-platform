@@ -250,7 +250,7 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
     failed,
     retryConnection,
   } = useWebSocket({
-    url: import.meta.env.VITE_ALERTS_WS_URL ?? "ws://localhost:8080",
+    url: import.meta.env.VITE_ALERTS_WS_URL // "ws://localhost:8080",
     onMessage: handleMessage,
     autoReconnect: true,
     maxRetries: 5,
