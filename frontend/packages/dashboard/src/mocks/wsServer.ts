@@ -6,12 +6,12 @@ const alerts: Omit<AlertMessage, "id" | "timestamp">[] = [
   {
     type: "low-stock",
     severity: "error",
-    message: "SKU007 (Chocolates) quantity below threshold",
+    message: "SKU-000007 (Chocolates) quantity below threshold",
   },
   {
     type: "low-stock",
     severity: "warning",
-    message: "SKU012 (Shampoo) reorder needed",
+    message: "SKU-000012 (Shampoo) reorder needed",
   },
   {
     type: "forecast-change",
@@ -26,7 +26,7 @@ const alerts: Omit<AlertMessage, "id" | "timestamp">[] = [
   {
     type: "low-stock",
     severity: "warning",
-    message: "SKU014 (Detergent) reorder needed",
+    message: "SKU-000014 (Detergent) reorder needed",
   },
   {
     type: "system",
@@ -36,7 +36,7 @@ const alerts: Omit<AlertMessage, "id" | "timestamp">[] = [
   {
     type: "low-stock",
     severity: "warning",
-    message: "SKU009 (Biscuits) quantity below threshold",
+    message: "SKU-000009 (Biscuits) quantity below threshold",
   },
   {
     type: "system",
@@ -47,7 +47,7 @@ const alerts: Omit<AlertMessage, "id" | "timestamp">[] = [
   {
     type: "low-stock",
     severity: "error",
-    message: "SKU004 (Cooking Oil) quantity below threshold",
+    message: "SKU-000004 (Cooking Oil) quantity below threshold",
   }
 ];
 
@@ -93,10 +93,10 @@ export function startMockWebSocketServer() {
       const quantityOnHand = 30 + Math.floor(Math.random() * 41);
 
       const inventoryItem : InventoryItem = {
-        sku_id: "SKU017",
+        sku_id: "SKU-000017",
         product_name: "Rice",
         category: "Food",
-        warehouse_id: "WH004",
+        warehouse_id: "WH-HYD-01",
         quantity_on_hand: quantityOnHand,
         reorder_point: 50,
         needs_reorder: quantityOnHand < 50,
