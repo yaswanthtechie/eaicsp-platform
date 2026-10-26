@@ -15,9 +15,19 @@ This handover documents the current implementation, how to run the service and i
 - Internal service-to-service authentication uses the `X-Caller-Service` and `X-Service-Key` headers.
 - The endpoint accepts supplier details and returns a compliance decision.
 - The internal check returns a structured response containing `supplier_id`, `company_name`, `country`, `cleared`, `decision`, and `reason`.
-- An authenticated request for `SUP-001` returned HTTP `200 OK` with decision `CLEAR` during manual verification on 22 October 2026.
+- An authenticated request for `SUP-00001` returned HTTP `200 OK` with decision `CLEAR` during manual verification on 22 October 2026.
 - Requests without the required authentication headers are rejected with HTTP `401 Unauthorized`.
 - Internal compliance-check logging and SLA monitoring startup messages were observed during local execution.
+- Clean-venv test run on 23 October 2026: **332 passed, 3 deselected**.
+- `tests/test_contract.py` (the `/internal-check` contract test): **4 passed**.
+
+### Broken / known issues
+
+- **EU sanctions list has no working download URL.** `eu.xml` is required for live screening, but `EU_DOWNLOAD_URL` is empty because the EU endpoint needs an access token we do not have (the tokenless URL returns `403 Forbidden`). With `USE_FIXTURES=false`, startup logs `Skipping eu.xml: no download URL configured.` and every `/internal-check` call returns **503 Compliance service unavailable**. This blocks #209: the three sanctioned seed suppliers `SUP-00007`, `SUP-00023`, and `SUP-00045` cannot be screened live.
+- **Workaround for local work only:** `USE_FIXTURES=true` screens against bundled samples in `app/data/fixtures/` (`ofac_sample.csv`, `un_sample.xml`, `eu_sample.xml`). These are not real sanctions lists; a `CLEAR` result only proves the API works, not that a supplier is clean.
+- **No service keys out of the box.** `INTERNAL_SERVICE_KEYS` is empty in `.env.example`. Every caller receives `401` until real keys are configured in `.env`; this is deliberate fail-closed behavior.
+- **Not in the shared environment yet.** `infra/docker-compose.yml` creates the Compliance DB user but does not run the Compliance Service. This is pending with Ajith (#208).
+- **Minor:** `datetime.utcnow()` deprecation warnings occur in tests; `tests/test_contract.py` uses the non-canonical ID `SUP-CONTRACT-001`.
 
 ## 3. API Contract
 
@@ -36,7 +46,7 @@ This handover documents the current implementation, how to run the service and i
 
 ```json
 {
-  "supplier_id": "SUP-001",
+  "supplier_id": "SUP-00001",
   "supplier_name": "ABC Supplies",
   "country": "India"
 }
@@ -46,7 +56,7 @@ This handover documents the current implementation, how to run the service and i
 
 ```json
 {
-  "supplier_id": "SUP-001",
+  "supplier_id": "SUP-00001",
   "company_name": "ABC Supplies",
   "country": "India",
   "cleared": true,
@@ -73,7 +83,7 @@ Requests with missing or invalid service authentication return HTTP `401 Unautho
 
 - Python version supported by the repository and its dependency files.
 - Git.
-- Access to the EAICSC repository.
+- Access to the EAICSP repository.
 - Required environment variables configured in `.env`.
 - PostgreSQL and Kafka, if required by the selected configuration and test suite.
 - Network access to any external screening data sources required by the selected configuration.
@@ -123,14 +133,20 @@ python -m venv .venv
 
 ### Install dependencies
 
-Use the dependency file tracked by the repository. For example, if the service provides `requirements.txt`:
-
 ```powershell
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-If the repository uses a different dependency manager or lockfile, follow the repository's documented installation procedure instead.
+### Configure `.env`
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Then edit `.env`:
+- `INTERNAL_SERVICE_KEYS=supplier-portal:<your-local-key>,inventory-service:<another-local-key>` (choose your own values; callers send the same values in `X-Service-Key`).
+- For local work without the EU list, set `USE_FIXTURES=true` (see Broken / known issues).
 
 ### Start the service
 
@@ -155,8 +171,16 @@ Run commands from `services/compliance` with the virtual environment activated.
 
 ```powershell
 python -m pytest -q
+# 332 passed, 3 deselected
 
-332 passed, 3 deselected, 11 warnings in 69.75s (0:01:09)
+python -m pytest -q tests/test_contract.py
+# 4 passed
+```
+
+Unit tests need no `.env`, Postgres or Kafka. Tests marked integration (deselected by default) need `docker-compose.dev.yml` or live sanctions downloads:
+
+```powershell
+python -m pytest -m integration -q
 ```
 
 ### Clean-environment verification
@@ -188,7 +212,7 @@ response = httpx.post(
         "X-Service-Key": "<configured-local-secret>",
     },
     json={
-        "supplier_id": "SUP-001",
+        "supplier_id": "SUP-00001",
         "supplier_name": "ABC Supplies",
         "country": "India",
     },
@@ -211,8 +235,8 @@ A successful manual request alone does not establish that all automated tests pa
 
 Before the handover is considered complete, verify and document:
 
-- [ ] Internal-check contract test passes.
-- [ ] Missing and invalid internal service credentials are rejected.
+- [x] Internal-check contract test passes.
+- [x] Missing and invalid internal service credentials are rejected.
 - [ ] `CLEAR`, `BLOCK`, and `REVIEW` decisions match the API contract.
 - [ ] Invalid request bodies return the expected validation response.
 - [ ] Required database and Kafka integrations work in the intended environment.
@@ -240,8 +264,8 @@ Do not overwrite shared credentials or change shared infrastructure without coor
 ## 11. Handover Completion Checklist
 
 - [ ] `HANDOVER.md` reviewed and committed.
-- [ ] Full test suite green from a clean virtual environment.
-- [ ] Internal-check contract test green.
+- [x] Full test suite green from a clean virtual environment.
+- [x] Internal-check contract test green.
 - [ ] Known issues and untested items documented accurately.
 - [ ] Pull request opened against the intended base branch.
 
