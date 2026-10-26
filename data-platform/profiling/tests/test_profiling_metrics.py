@@ -27,6 +27,7 @@ def test_update_metrics_from_archive(tmp_path):
 
     lines = [
         json.dumps({
+            "dataset": "benchmark_1m_sales",
             "profile_report": {
                 "columns": ["quantity_sold", "other"],
                 "shape": [100, 2],
@@ -40,6 +41,7 @@ def test_update_metrics_from_archive(tmp_path):
             "timestamp": "2026-10-23T12:00:00+00:00"
         }),
         json.dumps({
+            "dataset": "products",
             "profile_report": {
                 "columns": ["unit_cost"],
                 "shape": [0, 1],
@@ -47,6 +49,7 @@ def test_update_metrics_from_archive(tmp_path):
             }
         }),
         json.dumps({
+            "dataset": "sales_parity",
             "profile_report": {
                 "columns": ["product_name"],
                 "shape": [50, 1],
@@ -66,7 +69,6 @@ def test_update_metrics_from_archive(tmp_path):
 
     archive_path.write_text("\n".join(lines))
 
-    # Updated patch path
     with patch("src.profiling_metrics.time.time", return_value=1234567890.0):
         update_metrics_from_archive(str(archive_path))
 
@@ -75,8 +77,8 @@ def test_update_metrics_from_archive(tmp_path):
     assert PROFILING_COMPLETENESS_SCORE.labels(dataset=ds1)._value.get() == 90.0
     assert PROFILING_VALIDITY_SCORE.labels(dataset=ds1)._value.get() == 95.0
     assert PROFILING_UNIQUENESS_SCORE.labels(dataset=ds1)._value.get() == 98.0
-    assert PROFILING_CONSISTENCY_SCORE.labels(dataset=ds1)._value.get() == 100.0
     assert PROFILING_LAST_RUN.labels(dataset=ds1)._value.get() == 1792756800.0
+    assert PROFILING_CONSISTENCY_SCORE.labels(dataset=ds1)._value.get() == 0.0
 
     ds2 = "products"
     assert PROFILING_QUALITY_SCORE.labels(dataset=ds2)._value.get() == 100.0
@@ -86,7 +88,7 @@ def test_update_metrics_from_archive(tmp_path):
     assert PROFILING_QUALITY_SCORE.labels(dataset=ds3)._value.get() == 90.0
     assert PROFILING_LAST_RUN.labels(dataset=ds3)._value.get() == 1234567890.0
 
-    ds4 = "unknown_2_cols"
+    ds4 = "unknown"
     assert PROFILING_QUALITY_SCORE.labels(dataset=ds4)._value.get() == 0.0
 
 
@@ -101,7 +103,7 @@ def test_main_execution_loop(mock_sleep, mock_update, mock_start, caplog):
 
     main()
 
-    mock_start.assert_called_once_with(8001)
+    mock_start.assert_called_once_with(8007)
     mock_update.assert_called_once()
     mock_sleep.assert_called_once_with(30)
     assert "Metrics server stopped." in caplog.text

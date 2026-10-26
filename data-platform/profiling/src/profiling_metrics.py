@@ -46,7 +46,7 @@ PROFILING_LAST_RUN = Gauge(
 
 DEFAULT_ARCHIVE_PATH = Path(__file__).resolve().parent.parent / "reports" / "audit_archive.jsonl"
 
-def update_metrics_from_archive(archive_path="reports/audit_archive.jsonl"):
+def update_metrics_from_archive(archive_path= None):
     """Reads the latest profiling runs and updates Prometheus Gauges."""
     path = Path(archive_path) if archive_path else DEFAULT_ARCHIVE_PATH
     if not path.exists():

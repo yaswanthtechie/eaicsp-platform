@@ -1204,7 +1204,7 @@ docker exec -it airflow-tester python dags/profiling_dag.py
 
 # Prometheus Metrics Exporter (Round 14)
 
-The profiling platform now includes a dedicated continuous metrics server (`src/profiling_metrics.py`) running on port 8001, transitioning the tool into a fully observable pipeline component.
+The profiling platform now includes a dedicated continuous metrics server (`src/profiling_metrics.py`) running on port 8007, transitioning the tool into a fully observable pipeline component.
 
 Rather than running profiling jobs in a vacuum, the exporter continuously reads the scheduled outputs from the Airflow `audit_archive.jsonl` file and translates the raw JSON profiles into standard Prometheus gauges. 
 
@@ -1222,5 +1222,5 @@ Profiling metrics follow the same profiling_* naming prefix as validation's vali
 ## How to run
 ```bash
 python src\profiling_metrics.py
-# Access metrics at: http://localhost:8001/metrics
+# Access metrics at: http://localhost:8007/metrics
 ```
