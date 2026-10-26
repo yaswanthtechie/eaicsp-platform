@@ -11,6 +11,22 @@ info:
     `live_kpis` key with a 300-second TTL.
 
     Blueprint reference: docs/architecture/integration-blueprint.md (Sections 4 & 6).
+
+    Data sources (contracts/clickhouse/README.md, PR #267): `kpi_metrics` provides
+    `fill_rate.current_rate`, `stockouts.total_stockouts`, `open_purchase_orders.total_open_orders`
+    and `on_time_delivery.current_rate`. `transport_performance` provides total_shipments,
+    delivered_on_time and delayed. `inventory_snapshots` provides by_warehouse.stockout_count
+    and total_skus. All other KPI fields are PROPOSED: they have no agreed source table
+    yet and must be confirmed with the data platform owner before the UI relies on them.
+
+    Review note: These fields must be agreed with Vivek before Chandhu builds widgets:
+    - `lines_fulfilled`
+    - `at_risk_skus`
+    - `total_value_usd`
+    - `by_status`
+    - `target_rate`
+    - `trend`
+
     Issue reference: Closes #217 (Associated downstream implementation: Issue #220 [R15-M4]).
 
 servers:
@@ -38,6 +54,8 @@ paths:
           description: >
             Filter metrics to a specific canonical warehouse (e.g. WH-BLR-01).
             When omitted, returns platform-wide aggregated metrics across all warehouses.
+            ClickHouse `kpi_metrics` stores all-warehouse or all-category totals using the empty string `''`.
+            The BFF returns `null` in the API response for these all-up totals, rather than exposing the empty string.
           schema:
             type: string
             pattern: "^WH-[A-Z]{3}-\\d{2}$"
@@ -46,7 +64,11 @@ paths:
         - name: category
           in: query
           required: false
-          description: Filter metrics by product merchandise category (e.g. Electronics, Perishables).
+          description: >
+            Filter metrics by product merchandise category (e.g. Electronics, Perishables).
+            When omitted, returns metrics across all merchandise categories.
+            ClickHouse `kpi_metrics` stores all-warehouse or all-category totals using the empty string `''`.
+            The BFF returns `null` in the API response for these all-up totals, rather than exposing the empty string.
           schema:
             type: string
             example: "Electronics"
@@ -233,7 +255,9 @@ components:
       bearerFormat: JWT
       description: >
         Platform-issued JWT bearer token. Validated by Gateway BFF against the
-        Platform Service `/verify` endpoint.
+        Platform Service `/verify` endpoint. The `/verify` call has a 2-second
+        timeout; requests are rejected with HTTP 503 if Platform is unreachable
+        (fail closed).
         Allowed roles: ceo, vp_operations, platform_admin, procurement_manager,
         logistics_manager, warehouse_manager, inventory_planner, demand_planner,
         analyst, risk_analyst. Other roles receive 403.
@@ -274,10 +298,14 @@ components:
       properties:
         warehouse_id:
           type: [string, "null"]
-          description: Canonical warehouse ID filter applied, or null if platform-wide.
+          description: >
+            Canonical warehouse ID filter applied, or null if platform-wide.
+            ClickHouse stores the all-warehouse value as an empty string ('') and the BFF returns it as null.
         category:
           type: [string, "null"]
-          description: Product category filter applied, or null if all categories.
+          description: >
+            Product category filter applied, or null if all categories.
+            ClickHouse stores the all-category value as an empty string ('') and the BFF returns it as null.
         start_date:
           type: [string, "null"]
           format: date

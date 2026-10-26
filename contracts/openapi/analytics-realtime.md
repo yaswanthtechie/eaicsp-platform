@@ -78,6 +78,7 @@ To accommodate browser clients while enforcing Platform authentication (Blueprin
 **Authentication Validation Rule:**
 - The Gateway BFF extracts the bearer JWT and validates signature, expiry, and permissions against the Platform service (`/verify` endpoint).
 - If the token is missing, expired, or invalid, the Gateway immediately terminates the connection with WebSocket close code `4401` (`Unauthorized`) or rejects the handshake with HTTP `401 Unauthorized`.
+- The `/verify` call has a 2-second timeout. If Platform is unreachable or times out, the Gateway fails closed: it rejects the handshake with HTTP `503` or closes the connection with code `1013` (`Try Again Later`). It never lets an unverified client through.
 - Allowed RBAC roles (values from `services/platform/app/schemas/user.py` `Role`): `ceo`, `vp_operations`, `platform_admin`, `procurement_manager`, `logistics_manager`, `warehouse_manager`, `inventory_planner`, `demand_planner`, `analyst`, `risk_analyst`. Any other role gets close code `4403`.
 
 ### 2.3 Message Framing & Serialization
@@ -100,7 +101,8 @@ Clients must implement the exponential backoff reconnection behavior established
 6. **Client-Side Deduplication (Idempotency):**
    - Each event carries a globally unique `event_id` (UUID v4).
    - Reconnections may redeliver recent events buffered during transient network disconnects.
-   - The UI must maintain a rolling de-duplication cache of the last 100 seen `event_id`s and ignore duplicates.
+   - The UI maintains a rolling de-duplication cache of the last 100 seen dedup keys and ignores duplicates.
+   - The dedup key is `event_id` for all events except `iot.anomaly.detected`, which uses `payload.episode_id`.
 
 ### 2.5 WebSocket Close Codes
 
@@ -109,6 +111,7 @@ Clients must implement the exponential backoff reconnection behavior established
 | `1000` | Normal Closure | Clean disconnect initiated by user or page navigation | Do not reconnect |
 | `1001` | Going Away | Server restart or container rollover | Reconnect with backoff |
 | `1006` | Abnormal Closure | TCP connection dropped without close frame | Reconnect with backoff |
+| `1013` | Try Again Later | Platform `/verify` unavailable (auth could not be checked) | Reconnect with backoff |
 | `4401` | Unauthorized | Missing, invalid, or expired authentication token | Refresh JWT and reconnect |
 | `4403` | Forbidden | Authenticated user lacks permission to view live feed | Halt reconnection; show error |
 | `4429` | Rate Limited | Exceeded per-user concurrent connection limit | Wait 60s before retry |
@@ -117,7 +120,7 @@ Clients must implement the exponential backoff reconnection behavior established
 
 - **Consumer group:** `api-gateway-bff` (its own group; does not share with any other service).
 - **Validation:** Each message must parse as JSON, have all required envelope fields, a known `event_type`, and major `event_version` 1. Anything else is published to `<topic>.dlq` (e.g. `inventory.stock.low.dlq`) with the error reason, its offset is committed, and it is **never** forwarded to WebSocket clients. The BFF does not crash on a bad message.
-- **Dedup:** Messages whose `event_id` was already broadcast are dropped before broadcast.
+- **Dedup:** Messages whose dedup key was already broadcast are dropped before broadcast. The dedup key is `event_id` for all events except `iot.anomaly.detected`, which uses `payload.episode_id`.
 - **Offset commit:** After the message is broadcast / added to the reconnect buffer.
 
 ---
@@ -132,10 +135,10 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 |:---|:---|:---|:---|
 | `event_id` | `string` | **Yes** | Globally unique identifier (UUID v4) for the event. Used for client deduplication. |
 | `event_type` | `string` | **Yes** | Dot-delimited canonical event name matching the Kafka topic (e.g. `inventory.stock.low`). |
-| `event_version` | `string \| integer` | **Yes** | Schema version as sent by the producer. Currently `"1.0"` (inventory, anomaly) or `1` (supplier-risk, etl). Clients compare major version only: treat `1`, `"1"`, `"1.0"` as v1. The BFF forwards it unchanged. |
+| `event_version` | `integer` | **Yes** | Schema version number (integer `1`). Every current producer sends integer `1`. Additive, backward-compatible changes keep version `1`. Clients must ignore unknown fields. The BFF forwards the value unchanged. |
 | `occurred_at` | `string` | **Yes** | UTC ISO-8601 with offset, either `Z` or `+00:00` (e.g. `2026-10-15T10:14:22Z` or `2026-10-15T10:14:22.481203+00:00`). Parse with `new Date()`, not string matching. |
 | `producer` | `string` | **Yes** | Canonical service identifier producing the message (e.g. `inventory-service`, `supplier-risk-service`). |
-| `trace_id` | `string` | *No* | Distributed trace identifier (W3C TraceContext / OpenTelemetry) for cross-service correlation. |
+| `trace_id` | `string \| null` | *No* | Distributed trace identifier (W3C TraceContext / OpenTelemetry). May be absent or `null`. |
 | `payload` | `object` | **Yes** | Event-specific domain payload conforming to the event schema below. |
 
 > The BFF forwards the producer's envelope **unchanged**. It does not rename, retype or add envelope fields.
@@ -145,6 +148,7 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 ## 4. Event Specifications & JSON Examples
 
 ### 4.1 Event 1: `inventory.stock.low`
+
 
 - **Producer:** `inventory-service` (Inventory Service, Balaji)
 - **Status:** **Confirmed in repository** (`services/inventory/docs/events.md`, `services/inventory/app/services/inventory_service.py`)
@@ -161,7 +165,7 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 | `reorder_point` | `integer` | **Yes** | Units (pieces) | Calculated replenishment threshold triggering reorder workflow. |
 | `safety_stock` | `integer` | **Yes** | Units (pieces) | Buffer stock reserved for demand volatility. |
 | `avg_daily_demand` | `number` | **Yes** | Units / day | Rolling 30-day average daily consumption rate. |
-| `message` | `string` | *No* (Proposed) | Human-readable text | Summary description ready for display on the alert card. |
+| `message` | `string` | *No* (Proposed, **not sent today**) | Human-readable text | Not emitted by `inventory_service.py` yet. Clients build the card text from the fields above. |
 
 #### Realistic JSON Example
 
@@ -169,7 +173,7 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 {
   "event_id": "b9c51ff8-45e0-40e1-95eb-3fa5bf237075",
   "event_type": "inventory.stock.low",
-  "event_version": "1.0",
+  "event_version": 1,
   "occurred_at": "2026-10-15T10:14:22.481203+00:00",
   "producer": "inventory-service",
   "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
@@ -179,8 +183,7 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
     "quantity_on_hand": 8,
     "reorder_point": 35,
     "safety_stock": 15,
-    "avg_daily_demand": 4.5,
-    "message": "Stock for SKU-000123 in WH-BLR-01 dropped to 8 units (Reorder Point: 35, Safety Stock: 15)."
+    "avg_daily_demand": 4.5
   }
 }
 ```
@@ -190,10 +193,10 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 ### 4.2 Event 2: `iot.anomaly.detected`
 
 - **Producer:** `anomaly-detection-service` (Kalyani)
-- **Status:** **Contract owned by producer**: `contracts/events/iot.anomaly.detected.v1.json` (PR #258). This section mirrors it; if they differ, the producer contract wins.
+- **Status:** **Contract owned by producer**: `contracts/events/iot.anomaly.detected.v1.json` (merged in PR #258). The example below is copied from `contracts/events/examples/iot.anomaly.detected.v1.json`. If they differ, the producer contract wins.
 - **Trigger:** One event per detected anomaly episode on a warehouse sensor.
 - **Routing Key:** `{sensor_id}` (e.g. `WH-BLR-01-S1`)
-- **Dedup key:** `payload.episode_id` (or `event_id`)
+- **Dedup key:** `payload.episode_id`, **not** `event_id`. A crash replay re-publishes the same episode with a new `event_id`. `episode_id` is opaque: compare it as a string, never rebuild or reformat it.
 
 #### Payload Fields
 
@@ -220,21 +223,21 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 {
   "event_id": "3f6c1d2e-8a4b-4c7e-9b1a-5d2e7f0a9c31",
   "event_type": "iot.anomaly.detected",
-  "event_version": "1.0",
-  "occurred_at": "2026-10-15T10:46:12Z",
   "producer": "anomaly-detection-service",
+  "occurred_at": "2026-10-15T10:46:12.418532+00:00",
+  "event_version": 1,
   "trace_id": null,
   "payload": {
-    "episode_id": "WH-BLR-01-S1|2026-10-15T10:05:00Z",
+    "episode_id": "WH-BLR-01-S1|2026-10-15T10:05:00+00:00",
     "sensor_id": "WH-BLR-01-S1",
     "warehouse_id": "WH-BLR-01",
     "severity": "high",
     "message": "Temperature unusually high at WH-BLR-01 (sensor WH-BLR-01-S1): 6 abnormal readings between 10:05 and 10:30 UTC.",
-    "window_start": "2026-10-15T10:05:00Z",
-    "window_end": "2026-10-15T10:30:00Z",
-    "first_flag_time": "2026-10-15T10:05:00Z",
-    "confirmed_time": "2026-10-15T10:05:00Z",
-    "peak_time": "2026-10-15T10:20:00Z",
+    "window_start": "2026-10-15T10:05:00+00:00",
+    "window_end": "2026-10-15T10:30:00+00:00",
+    "first_flag_time": "2026-10-15T10:05:00+00:00",
+    "confirmed_time": "2026-10-15T10:05:00+00:00",
+    "peak_time": "2026-10-15T10:20:00+00:00",
     "peak_score": 0.0825,
     "threshold": -0.0782,
     "n_flagged": 6,
@@ -255,15 +258,16 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 ### 4.3 Event 3: `supplierrisk.score.changed`
 
 - **Producer:** `supplier-risk-service` (Supplier Risk Service, Mahendhar)
-- **Status:** **Confirmed in repository** (`ml-services/supplier-risk/src/events.py`, commit `77f774b`)
+- **Status:** **Confirmed in repository** (`ml-services/supplier-risk/src/events.py`; `supplier_id` and the `supplier_id` routing key land with PR #251)
 - **Trigger:** Published when a supplier's risk score crosses a hysteresis boundary tier, transitioning between standardized operational tiers (`low`, `medium`, `high`).
-- **Routing Key:** `{supplier}` (e.g. `SUP-00045`)
+- **Routing Key:** `{supplier_id}` (e.g. `SUP-00031`)
 
 #### Payload Fields
 
 | Field Name | Type | Required | Units / Meaning | Description |
 |:---|:---|:---|:---|:---|
-| `supplier` | `string` | **Yes** | Canonical Supplier ID | Format `SUP-` + 5 digits (e.g. `SUP-00045`). |
+| `supplier` | `string` | **Yes** | Display name | Supplier name for the alert card (e.g. `Apex Industries Pvt Ltd`). Not an ID: never filter or link on it. |
+| `supplier_id` | `string` | **Yes** | Canonical Supplier ID | Format `SUP-` + 5 digits (e.g. `SUP-00031`). Use this for filtering and drilldown links. Added in PR #251. |
 | `previous_tier` | `string` | **Yes** | Standard tier enum | Previous classification: `"low"`, `"medium"`, or `"high"`. |
 | `new_tier` | `string` | **Yes** | Standard tier enum | Updated classification: `"low"`, `"medium"`, or `"high"`. |
 | `risk_score` | `number` | **Yes** | Score (0.0 to 100.0) | Continuous composite risk index (higher score = greater risk). |
@@ -281,7 +285,8 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
   "occurred_at": "2026-10-15T10:22:10.118342+00:00",
   "producer": "supplier-risk-service",
   "payload": {
-    "supplier": "SUP-00045",
+    "supplier": "Apex Industries Pvt Ltd",
+    "supplier_id": "SUP-00031",
     "previous_tier": "low",
     "new_tier": "high",
     "risk_score": 78.5,
@@ -294,7 +299,7 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
         "score": 0.88
       },
       {
-        "headline": "Supplier SUP-00045 audit reveals cross-border compliance breach",
+        "headline": "Apex Industries audit reveals cross-border compliance breach",
         "date": "2026-10-15",
         "score": 0.79
       }
@@ -307,10 +312,11 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 
 ### 4.4 Event 4: `eta.shipment.predicted`
 
-- **Producer:** `eta-prediction-service` (Logistics ETA Model, Harish)
-- **Status:** **Proposed event contract** (API model confirmed in `ml-services/eta-prediction/src/api.py` and `services/supplier-portal/app/schemas/shipment.py`; event payload proposed per Issue #234).
+- **Producer:** `eta-prediction` (Logistics ETA Model, Harish)
+- **Status:** **Contract owned by producer**: `contracts/events/eta.shipment.predicted.v1.json` (merged in PR #270). The example below is copied from `contracts/events/examples/eta.shipment.predicted.v1.json`. If they differ, the producer contract wins.
 - **Trigger:** Published when the ETA prediction model generates a refreshed delivery transit estimate for an in-transit or newly dispatched supplier shipment.
 - **Routing Key:** `{shipment_id}` (e.g. `SHP-2026-000077`)
+- **Dedup key:** `event_id`. Latest `payload.predicted_at` per `shipment_id` wins.
 
 #### Payload Fields
 
@@ -318,42 +324,44 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 |:---|:---|:---|:---|:---|
 | `shipment_id` | `string` | **Yes** | Canonical Shipment ID | Format `SHP-` + year + 6 digits (e.g. `SHP-2026-000077`). |
 | `po_number` | `string` | **Yes** | Canonical PO ID | Format `PO-` + year + 6 digits (e.g. `PO-2026-000123`). Associated order. |
-| `carrier` | `string` | **Yes** | Carrier name | Logistics service carrier (e.g. `"DHL Express"`). |
-| `origin` | `string` | **Yes** | Location / City code | Origin shipping depot or city code (e.g. `"BOM"`). |
-| `destination` | `string` | **Yes** | Canonical Warehouse ID | Destination facility (e.g. `WH-BLR-01`). |
-| `eta_days` | `number` | **Yes** | Transit duration (days)| Point estimate of remaining transit time in decimal days (e.g. `3.4`). |
-| `confidence_low` | `number` | **Yes** | Lower bound (days) | Lower 80% confidence interval bound in days (e.g. `2.8`). |
-| `confidence_high` | `number` | **Yes** | Upper bound (days) | Upper 80% confidence interval bound in days (e.g. `4.2`). |
-| `predicted_delivery_date` | `string` | **Yes** | UTC ISO-8601 | Estimated arrival date and time (`YYYY-MM-DDTHH:MM:SSZ`). |
-| `model_version` | `string` | **Yes** | Model release tag | Identifier for ML model generating the prediction (e.g. `xgboost-eta-v1.4`). |
-| `predicted_at` | `string` | **Yes** | UTC ISO-8601 | Timestamp when prediction inference executed. |
-| `delay_risk` | `string` | *No* (Proposed) | Enum | Delay classification: `"on_time"`, `"moderate_risk"`, or `"high_risk"`. |
-| `message` | `string` | *No* (Proposed) | Human-readable text | Summary description of shipment ETA status. |
+| `eta_days` | `number` | **Yes** | Transit duration (days)| Predicted calendar days from dispatched_at to delivery (e.g. `5.2`). Minimum 0. |
+| `confidence_low` | `number` | **Yes** | Lower bound (days) | Lower 80% prediction interval bound in days from dispatched_at (e.g. `4.1`). |
+| `confidence_high` | `number` | **Yes** | Upper bound (days) | Upper 80% prediction interval bound in days from dispatched_at (e.g. `7.3`). |
+| `model_version` | `string` | **Yes** | Model release tag | MLflow registered model name and version, e.g. `eta_pipeline/3`. |
+| `predicted_at` | `string` | **Yes** | UTC ISO-8601 | UTC date-time when prediction inference executed. |
+| `top_features` | `array[object]` | *No* | SHAP explanations | Optional list of up to 5 `{feature, shap_value}` objects explaining prediction. |
 
 #### Realistic JSON Example
 
 ```json
 {
-  "event_id": "3f81e9b4-6a02-4c28-98e3-057b98d361c4",
+  "event_id": "8b2e4c17-5d3a-4f69-b8e1-0a7c9d2f6e45",
   "event_type": "eta.shipment.predicted",
   "event_version": 1,
-  "occurred_at": "2026-10-15T10:25:00Z",
-  "producer": "eta-prediction-service",
-  "trace_id": "7b0a8811cf55447ea1266850cda91204",
+  "occurred_at": "2026-10-15T06:31:05Z",
+  "producer": "eta-prediction",
   "payload": {
     "shipment_id": "SHP-2026-000077",
     "po_number": "PO-2026-000123",
-    "carrier": "DHL Express",
-    "origin": "BOM",
-    "destination": "WH-BLR-01",
-    "eta_days": 3.4,
-    "confidence_low": 2.8,
-    "confidence_high": 4.2,
-    "predicted_delivery_date": "2026-10-18T16:00:00Z",
-    "model_version": "xgboost-eta-v1.4",
-    "predicted_at": "2026-10-15T10:24:58Z",
-    "delay_risk": "on_time",
-    "message": "Shipment SHP-2026-000077 (PO-2026-000123 via DHL Express) predicted to arrive on 2026-10-18T16:00:00Z (ETA: 3.4 days)."
+    "eta_days": 5.2,
+    "confidence_low": 4.1,
+    "confidence_high": 7.3,
+    "model_version": "eta_pipeline/3",
+    "predicted_at": "2026-10-15T06:31:04Z",
+    "top_features": [
+      {
+        "feature": "distance_km",
+        "shap_value": 1.84
+      },
+      {
+        "feature": "total_weight_kg",
+        "shap_value": 0.42
+      },
+      {
+        "feature": "purchase_month",
+        "shap_value": -0.31
+      }
+    ]
   }
 }
 ```
@@ -483,7 +491,7 @@ To ensure the alerts panel renders uniformly across the six event types, the tab
 | `forecast.batch.completed` | **Forecast Batch Done** | Success (Green) / Info (Blue) | Trend / Chart | Refresh demand forecast chart view for updated horizon |
 | `data.pipeline.completed` | **Data Ingestion Sync** | Success (Green) | Database / Refresh | Refresh live KPI snapshot widgets |
 
-### UI severity (derived by the client; producers are not asked to add fields)
+#### UI severity (derived by the client; producers are not asked to add fields)
 
 | Event | Rule to UI severity (`info` / `success` / `warning` / `critical`) |
 |:---|:---|
@@ -503,7 +511,7 @@ To ensure the alerts panel renders uniformly across the six event types, the tab
 | `inventory.stock.low` | Inventory | **Confirmed** | Outbox relay in `services/inventory` |
 | `iot.anomaly.detected` | Anomaly Detection | **Producer contract** | contracts/events/iot.anomaly.detected.v1.json (PR #258) |
 | `supplierrisk.score.changed` | Supplier Risk | **Confirmed** | Hysteresis publisher in `ml-services/supplier-risk/src/events.py` |
-| `eta.shipment.predicted` | ETA Prediction | **Proposed Event Shape** | Model in `ml-services/eta-prediction`; Issue #234 (Harish) |
+| `eta.shipment.predicted` | ETA Prediction | **Producer contract** | `contracts/events/eta.shipment.predicted.v1.json` (PR #270) |
 | `forecast.batch.completed` | Demand Forecast | **Proposed Event Shape** | Serving API proposed in PR #241; Issue #228 (Uday) |
 | `data.pipeline.completed` | ETL Pipeline | **Confirmed** | Outbox publisher in `data-platform/etl/etl/src/kafka_events.py` |
 
