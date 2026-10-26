@@ -50,6 +50,7 @@ app = FastAPI(
 
 
 @app.get("/health")
+@app.get("/root", include_in_schema=False)  # deprecated alias, remove next round
 def health():
     return {
         "status": "ok",

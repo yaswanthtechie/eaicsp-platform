@@ -96,3 +96,29 @@ from PowerShell.
 Application ports: Gateway 8000, Inventory 8001, Logistics 8002, Compliance 8003, Supplier Portal 8004, Platform 8005.
 
 The Logistics service currently uses in-memory shipment storage; shipment records are not durable across restarts. The `e2e` target remains intentionally failing until a cross-service E2E suite is implemented.
+
+## Reset behavior
+
+- `make reset` recreates containers but **keeps** data.
+- `make reset-data` deletes all volumes and starts clean. This permanently deletes stored data.
+
+### After `make up`: ClickHouse tables (from Vivek, #267)
+
+Run once ClickHouse is healthy:
+
+```powershell
+python data-platform/etl/clickhouse/apply_ddl.py
+```
+
+### Not in compose yet
+
+- Supplier Risk (8006)
+- Forecast serving (R15-A3)
+- ETA model service
+- Gateway BFF
+
+Added as each card lands.
+
+### Known gap: service API keys
+
+Platform's `service_api_keys` table starts empty, so service-to-service calls, including Inventory's internal Compliance check, may fail until the required service API keys are configured.

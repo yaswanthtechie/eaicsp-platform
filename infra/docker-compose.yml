@@ -214,10 +214,9 @@ services:
 
   platform:
     build:
-      context: ..
-      dockerfile: services/platform/Dockerfile
+      context: ../services/platform
     environment:
-      SECRET_KEY: ${SECRET_KEY}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required in .env}
       DATABASE_URL: postgresql+psycopg2://platform_user:${PLATFORM_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
@@ -242,8 +241,7 @@ services:
 
   compliance:
     build:
-      context: ..
-      dockerfile: services/compliance/Dockerfile
+      context: ../services/compliance
     environment:
       DATABASE_URL: postgresql+psycopg://compliance_user:${COMPLIANCE_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
       PLATFORM_AUTH_URL: http://platform:8005
@@ -297,12 +295,11 @@ services:
 
   logistics:
     build:
-      context: ..
-      dockerfile: services/logistics/Dockerfile
+      context: ../services/logistics
     ports:
       - "8002:8002"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/', timeout=3)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health', timeout=3)"]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -312,9 +309,10 @@ services:
 
   supplier-portal:
     build:
-      context: ..
-      dockerfile: services/supplier-portal/Dockerfile
+      context: ../services/supplier-portal
     environment:
+      DATABASE_URL: postgresql+psycopg://supplier_portal_user:${SUPPLIER_PORTAL_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      SUPPLIER_DB_SCHEMA: supplier_portal
       PLATFORM_AUTH_URL: http://platform:8005
       COMPLIANCE_SERVICE_URL: http://compliance:8003
       MINIO_ENDPOINT: minio:9000
@@ -328,6 +326,8 @@ services:
     ports:
       - "8004:8004"
     depends_on:
+      postgres:
+        condition: service_healthy
       minio:
         condition: service_healthy
       kafka:
@@ -347,23 +347,21 @@ services:
 
   api-gateway:
     build:
-      context: ..
-      dockerfile: services/api-gateway/Dockerfile
+      context: ../services/api-gateway
     environment:
-      SECRET_KEY: ${SECRET_KEY}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required in .env}
       PLATFORM_SERVICE_URL: http://platform:8005
       INVENTORY_SERVICE_URL: http://inventory:8001
       SHIPMENTS_SERVICE_URL: http://logistics:8002
       COMPLIANCE_SERVICE_URL: http://compliance:8003
-      PURCHASE_ORDERS_SERVICE_URL: http://inventory:8001
-      SUPPLIER_RISK_SERVICE_URL: http://compliance:8003
+      PURCHASE_ORDERS_SERVICE_URL: http://supplier-portal:8004
     ports:
       - "8000:8000"
     depends_on:
       platform:
         condition: service_healthy
       inventory:
-        condition: service_started
+        condition: service_healthy
       logistics:
         condition: service_healthy
       compliance:
@@ -371,7 +369,7 @@ services:
       supplier-portal:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/', timeout=3)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
       interval: 15s
       timeout: 5s
       retries: 10

@@ -1,11 +1,11 @@
-﻿COMPOSE = docker compose --env-file .env -f infra/docker-compose.yml
+COMPOSE = docker compose --env-file .env -f infra/docker-compose.yml
 FULL_COMPOSE = $(COMPOSE) --profile full
 LOW_MEMORY_COMPOSE = $(COMPOSE) -f infra/docker-compose.low-memory.yml
 
 STORES = postgres kafka redis clickhouse mongodb minio influxdb mlflow
 APP_SERVICES = platform compliance inventory logistics supplier-portal api-gateway
 
-.PHONY: up down up-low-memory down-low-memory buckets seed e2e logs ps reset
+.PHONY: up down up-low-memory down-low-memory buckets seed e2e logs ps reset reset-data
 
 # Start infrastructure, create buckets, then start applications.
 up:
@@ -41,6 +41,11 @@ ps:
 # Recreate containers while preserving named volumes and stored data.
 reset:
 	$(MAKE) down
+	$(MAKE) up
+
+# Stop everything and DELETE all volumes (databases, Kafka, MinIO). Then start fresh.
+reset-data:
+	$(FULL_COMPOSE) down -v
 	$(MAKE) up
 
 # Placeholder until the cross-service E2E suite exists.

@@ -51,11 +51,7 @@ def _inventory(**overrides):
 def test_app_imports_and_exposes_routes():
     from app.main import app
 
-    paths = {
-        route.path
-        for route in app.routes
-        if hasattr(route, "methods")
-    }
+    paths = set(app.openapi()["paths"])
 
     assert "/api/v1/inventory" in paths
     assert "/api/v1/inventory/purchase-orders/draft" in paths
