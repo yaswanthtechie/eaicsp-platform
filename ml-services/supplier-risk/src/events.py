@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
-import hashlib
 import json
 import logging
 import re
@@ -28,6 +27,10 @@ DEFAULT_PRODUCER: str = "supplier-risk-service"
 
 # Valid 3-tier operational event classifications
 VALID_EVENT_TIERS: Set[str] = {"low", "medium", "high"}
+
+
+class UnresolvedSupplierError(ValueError):
+    """The supplier is not in the seed mapping, so it has no canonical supplier_id."""
 
 
 def map_tier_to_event_tier(tier: str) -> str:
@@ -218,28 +221,12 @@ def build_score_changed_event(
     if supplier_id is not None:
         actual_supplier_id = validate_canonical_supplier_id(supplier_id)
     else:
-        if is_canonical_supplier_id(clean_supplier):
-            actual_supplier_id = clean_supplier.upper()
-        else:
-            resolved = resolve_canonical_supplier_id(clean_supplier)
-            if resolved:
-                actual_supplier_id = resolved
-            else:
-                # Deterministic fallback for test suppliers (e.g. 'Acme Corp', 'Rank', etc.)
-                test_known = {
-                    "acme corp": "SUP-00001",
-                    "rank": "SUP-00002",
-                    "new": "SUP-00003",
-                    "clock": "SUP-00004",
-                    "noisy": "SUP-00005",
-                    "boeing": "SUP-00019",
-                    "tesla": "SUP-00021",
-                }
-                actual_supplier_id = test_known.get(clean_supplier.lower())
-                if not actual_supplier_id:
-                    # Deterministic canonical ID for test fixtures and unseeded suppliers
-                    h = int(hashlib.md5(clean_supplier.lower().encode("utf-8")).hexdigest()[:8], 16)
-                    actual_supplier_id = f"SUP-{(h % 50000) + 1:05d}"
+        actual_supplier_id = resolve_canonical_supplier_id(clean_supplier)
+        if not actual_supplier_id:
+            raise UnresolvedSupplierError(
+                f"Supplier '{clean_supplier}' is not in the seed supplier mapping; "
+                "refusing to publish an event without a canonical supplier_id."
+            )
 
     clean_articles = format_supporting_articles(supporting_articles)
     actual_evidence_count = (
