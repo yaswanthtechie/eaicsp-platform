@@ -7,3 +7,6 @@ logs/
 airflow.cfg
 airflow.db
 webserver_config.py
+reports/*.jsonl
+reports/*.html
+reports/*.txt
