@@ -1,0 +1,9 @@
+{
+  "all_six": 4.600042830636361,
+  "without_historical_on_time_rate_carrier": 4.549018684730268,
+  "without_historical_avg_transit_days_carrier": 4.83850262461184,
+  "without_historical_on_time_rate_route": 4.50543357075063,
+  "without_historical_avg_transit_days_route": 4.71876375893592,
+  "without_historical_avg_transit_days_carrier_route": 4.713325650305221,
+  "without_historical_on_time_rate_departure_season": 4.410304740144674
+}

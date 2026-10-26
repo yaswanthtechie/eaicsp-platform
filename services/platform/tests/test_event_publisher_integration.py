@@ -73,6 +73,9 @@ def test_publish_platform_user_locked_event_to_kafka():
                 "user_id": test_user_id,
             },
         )
+        assert published_event is not None, (
+            "publish_event returned None; check Kafka publisher logs"
+        )
 
         # ----------------------------------------------------
         # 3. Read event from Kafka

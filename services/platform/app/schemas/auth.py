@@ -44,7 +44,7 @@ class PasswordResetConfirm(BaseModel):
 class SessionResponse(BaseModel):
     id: int
     user_id: int
-    created_at: str
+    created_at: str | None = None
     expires_at: str
     is_revoked: bool
 

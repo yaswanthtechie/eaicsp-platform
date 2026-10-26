@@ -50,7 +50,7 @@ http://127.0.0.1:8005
 | Uvicorn     | ASGI server                     |
 | PostgreSQL  | Production database             |
 | SQLite      | Local development/demo database |
-| python-jose | JWT creation and verification   |
+| PyJWT       | JWT creation and verification   |
 | Passlib     | Password hashing utilities      |
 | BCrypt      | Secure password hashing         |
 | Pytest      | Automated testing               |
@@ -60,79 +60,98 @@ http://127.0.0.1:8005
 # Project Structure
 
 ```text
-app/
-├── main.py
-├── database.py
-├── seed.py
+eaicsp-platform/
+├── .github/
+│   └── workflows/
+│       └── platform-ci.yml          # Round 14: CI pipeline
 │
-├── routes/
-│   ├── auth_routes.py
-│   ├── user_routes.py
-│   └── admin_routes.py
+├── docs/
+│   ├── architecture/
+│   │   └── integration-blueprint.md
+│   └── ci-template.md               # Reusable CI documentation
 │
-├── schemas/
-│   ├── auth.py
-│   ├── user.py
-│   └── admin.py
 ├── services/
-│   ├── auth_service.py
-│   ├── audit_service.py
-│   ├── email_service.py
-│   ├── audit_export_service.py
-│   ├── mfa_service.py
-│   ├── rate_limit_service.py
-│   ├── sso_service.py
-│   ├── abuse_dashboard_service.py
+│   └── platform/
+│       ├── app/
+│       │   ├── main.py
+│       │   ├── database.py
+│       │   ├── seed.py
+│       │   │
+│       │   ├── routes/
+│       │   │   ├── auth_routes.py
+│       │   │   ├── user_routes.py
+│       │   │   └── admin_routes.py
+│       │   │
+│       │   ├── schemas/
+│       │   │   ├── auth.py
+│       │   │   ├── user.py
+│       │   │   └── admin.py
+│       │   │
+│       │   ├── services/
+│       │   │   ├── auth_service.py
+│       │   │   ├── audit_service.py
+│       │   │   ├── email_service.py
+│       │   │   ├── audit_export_service.py
+│       │   │   ├── mfa_service.py
+│       │   │   ├── rate_limit_service.py
+│       │   │   ├── sso_service.py
+│       │   │   └── abuse_dashboard_service.py
+│       │   │
+│       │   ├── core/
+│       │   │   ├── config.py
+│       │   │   ├── security.py
+│       │   │   ├── dependencies.py
+│       │   │   ├── password_validator.py
+│       │   │   ├── service_auth.py
+│       │   │   ├── token_cache.py
+│       │   │   ├── permissions.py
+│       │   │   └── verify_rate_limiter.py
+│       │   │
+│       │   ├── models/
+│       │   │   ├── auth_audit_logs.py
+│       │   │   ├── abuse_event.py
+│       │   │   ├── password_reset_tokens.py
+│       │   │   ├── failed_login_attempts.py
+│       │   │   ├── refresh_token.py
+│       │   │   ├── roles.py
+│       │   │   ├── users.py
+│       │   │   ├── role_change_history.py
+│       │   │   └── service_api_keys.py
+│       │   │
+│       │   └── middleware/
+│       │       └── logging.py
+│       │
+│       ├── tests/
+│       │   ├── fixtures/
+│       │   │   ├── role_hierarchy_v1.json
+│       │   │   └── permissions_v1.json
+│       │   ├── conftest.py
+│       │   ├── test_auth.py
+│       │   ├── test_integration.py
+│       │   ├── test_security.py
+│       │   ├── test_rbac_snapshot.py
+│       │   ├── test_roles_and_permissions.py
+│       │   ├── test_new_roles_assignable.py
+│       │   ├── test_readme_permission_matrix.py
+│       │   ├── test_event_publisher_integration.py
+│       │   ├── test_event_publisher.py
+│       │   ├── test_logging_config.py
+│       │   ├── test_redis_auth_state.py
+│       │   ├── test_verify_load.py
+│       │   └── test_two_instance_revocation.py
+│       │
+│       ├── scripts/
+│       │   ├── load_test_verify.py
+│       │   ├── dump_permissions.py
+│       │   └── two_instance_revocation_check.py
+│       │
+│       ├── requirements.txt
+│       ├── pyproject.toml            # Ruff, Mypy and pytest config
+│       ├── Dockerfile
+│       ├── .env.example
+│       └── README.md
 │
-├── core/
-│   ├── config.py
-│   ├── security.py
-│   ├── dependencies.py
-│   ├── password_validator.py
-│   ├── service_auth.py
-│   ├── token_cache.py
-│   ├── permissions.py
-│   ├── verify_rate_limiter.py
-│
-├── models/
-│   ├── auth_audit_logs.py
-│   ├── abuse_event.py
-│   ├── password_reset_tokens.py
-│   ├── failed_login_attempts.py
-│   ├── refresh_token.py
-│   ├── roles.py
-│   ├── users.py
-│   ├── role_change_history.py
-│   └── service_api_keys.py
-│
-└── middleware/
-    └── logging.py
-
-tests/
-├── fixtures/
-│   ├──role_hierarchy_v1.json
-│   ├──permissions_v1.json
-├── test_auth.py
-├── conftest.py
-├── test_integration.py
-├── test_security.py
-├── test_rbac_snapshot.py
-├── test_roles_and_permissions.py
-├── test_new_roles_assignable.py
-├── test_readme_permission_matrix.py
-├── test_event_publisher_integration.py
-├── test_event_publisher.py
-├── test_logging_config.py
-├── test_redis_auth_state.py
-├── test_verify_load.py
-├── test_two_instance_revocation.py
-
-
-scripts/
-├── load_test_verify.py
-├── dump_permissions.py
-├── two_instance_revocation_check.py
-
+└── docker-compose.dev.yml
 ```
 ---
 
@@ -244,6 +263,17 @@ service_api_keys
 abuse_event
 ```
 ---
+### Database Schema Migrations
+
+The Platform Service currently uses SQLAlchemy's `Base.metadata.create_all()` to create database tables. This creates tables that do not already exist, but it does **not** modify existing tables when model definitions change.
+
+For example, changing `RefreshToken.created_at` to `nullable=True` in the SQLAlchemy model does not automatically update an existing database column. Existing databases may require an explicit schema migration to keep their structure aligned with the models.
+
+**Current limitation:** The Platform Service does not currently have a configured Alembic migration workflow.
+
+**Future improvement:** Introduce Alembic to manage schema changes through versioned migration scripts. Before applying migrations to an existing database, back up the data and test the migration against a representative database.
+
+Until migrations are implemented, model changes that affect existing database schemas must be reviewed carefully. Updating a model alone does not guarantee that an existing database schema has been updated.
 
 ---
 
@@ -1740,7 +1770,6 @@ The default configuration excludes integration tests:
 addopts = "-m 'not integration'"
 ```
 
-
 ## Running the Dev Stack
 
 Run these commands from the `services/platform/` directory.
@@ -1770,83 +1799,6 @@ python scripts/two_instance_revocation_check.py
 ```
 
 **M1 completion evidence:** Save the successful proof-script output and include it in the README and pull request. Mark M1 complete only after the script passes.
-
-### Pending: First CI Pipeline for the Platform Service
-
-The GitHub Actions CI pipeline has not yet been implemented. It is planned as a reusable template for future services, initially scoped to the Platform Service.
-
-The planned workflow will:
-
-- Run only for pull requests that modify files under `services/platform/**`.
-- Run Ruff linting and mypy type checking on at least `app/core` and `app/services`.
-- Scan source code with Bandit and dependencies with pip-audit.
-- Run unit tests using `pytest -m "not integration"` and report coverage.
-- Run integration tests against a Redis service container.
-- Build the Docker image and scan it with Trivy, failing on critical vulnerabilities.
-
-These CI pipeline tasks remain pending and should be marked complete only after implementation and successful validation.
-
-## Code Quality and Validation
-
-The Platform Service uses Ruff for Python linting and code formatting, and pytest for automated testing.
-
-Run the following commands from the `services/platform/` directory.
-
-### Ruff Linting
-
-Check for lint issues:
-
-```powershell
-python -m ruff check .
-```
-
-Automatically fix supported lint issues:
-
-```powershell
-python -m ruff check . --fix
-```
-
-**Validation result:** All checks passed.
-
-### Ruff Formatting
-
-Check whether Python files are formatted correctly:
-
-```powershell
-python -m ruff format --check .
-```
-
-Format Python files:
-
-```powershell
-python -m ruff format .
-```
-
-### Automated Tests
-
-Run the default test suite:
-
-```powershell
-python -m pytest -q
-```
-
-Run integration tests separately when Redis, Kafka, and the required service environment are available:
-
-```powershell
-python -m pytest -m integration -rs
-```
-
-### Git Diff Validation
-
-Check for whitespace errors:
-
-```powershell
-git diff --check
-```
-Confirm that linting and formatting checks pass and that the test results are successful before committing changes. Review the Git diff to ensure formatting changes have not introduced unintended application behavior changes.
-
-These checks document the R14 linting and formatting cleanup. No application behavior changes are intended.
----
 
 ## End-to-End Service Flow
 
@@ -2001,33 +1953,34 @@ Issue Service Key
 
 # Setup
 
-Install dependencies:
+From `services/platform`:
 
-Unit tests — run without requiring the Platform Service to be running.
-Integration tests — make real HTTP requests to the running Platform Service on port 8005.
-Run the default test suite
 ```bash
-pip install -r requirements.txt
+python -m venv .venv
+.venv\Scripts\activate            # Windows
+pip install -r requirements-dev.txt   # runtime + test + CI tools
 ```
 
-Start the service:
+Unit tests (no Docker needed):
 
 ```bash
+pytest -q
+```
+
+Integration tests (need Redis and Kafka):
+
+```bash
+docker compose -f docker-compose.dev.yml up -d redis kafka
+pytest -o addopts= -m integration tests/test_two_instance_revocation.py tests/test_event_publisher_integration.py tests/test_account_lock_event_integration.py
+```
+
+The HTTP integration tests (`tests/test_integration.py`) also need the API running on port 8005 with a seeded database:
+
+```bash
+python -m app.seed
 uvicorn app.main:app --host 127.0.0.1 --port 8005
+pytest -o addopts= -m integration tests/test_integration.py
 ```
-
-Open Swagger:
-
-```text
-http://127.0.0.1:8005/docs
-```
-
-Open ReDoc:
-
-```text
-http://127.0.0.1:8005/redoc
-```
----
 
 # Startup Flow
 
@@ -3704,5 +3657,46 @@ publish_event(event_type, payload)
 for cross-service events and the same structured logging conventions for
 consistent request tracing and operational monitoring.
 
-Other services are not required to migrate their existing logging or event
-publishing during Round 12+13.
+
+# Round 14: CI pipeline (status)
+
+**Workflow:** `.github/workflows/platform-ci.yml`. It runs only on PRs that touch `services/platform/**` or the workflow itself.
+
+| Job | What it runs | Status |
+|---|---|---|
+| Lint, type check, security, unit tests | `ruff check .`, `ruff format --check .`, `mypy app`, `bandit -r app -ll`, `pip-audit -r requirements.txt`, `pytest -m "not integration"` with coverage (fails under 85%) | Done |
+| Redis + Kafka integration | Redis and Kafka service containers; cross-instance revocation + Kafka event tests | Done |
+| HTTP integration | Seeds a DB with CI-generated passwords, starts the API, runs `tests/test_integration.py` | Done |
+| Docker + Trivy | Builds the image (layer cache), Trivy fails on CRITICAL, ignoring vulnerabilities with no fix available | Done |
+
+**Latest green run:** [run 39740566650](https://github.com/yaswanthtechie/eaicsp-platform/actions/runs/39740566650)
+**Deliberate-failure checks:** [lint failure](https://github.com/yaswanthtechie/eaicsp-platform/actions/runs/39730800033), [test failure](https://github.com/yaswanthtechie/eaicsp-platform/actions/runs/39732243873)
+
+**Not done / known limits**
+- Trivy ignores vulnerabilities with no fix available (`ignore-unfixed: true`)
+- No deploy step; CI only
+
+**Adopting for another service:** see `docs/ci-template.md`.
+
+**Run the same checks locally** (from `services/platform`):
+
+```bash
+python -m ruff check .
+python -m ruff format --check .
+python -m mypy --config-file pyproject.toml app
+python -m bandit -r app -ll
+python -m pip_audit -r requirements.txt
+python -m pytest -o addopts= -m "not integration" --cov=app --cov-fail-under=85
+```
+
+### Evidence — Readable CI Failures
+
+The Platform Service CI workflow was tested with temporary, intentional failures to verify that GitHub Actions reports useful diagnostics.
+
+| Validation | Expected result | Evidence |
+|---|---|---|
+| Intentional Ruff lint failure | CI identifies the linting issue and fails the job | [Ruff failure run](https://github.com/yaswanthtechie/eaicsp-platform/actions/runs/39730800033) |
+| Intentional unit-test failure | CI identifies the failing test and reports the assertion or traceback | [Unit-test failure run](https://github.com/yaswanthtechie/eaicsp-platform/actions/runs/39732243873) |
+| Pull request validation | Review the workflow checks and final validation status | [PR #247 checks](https://github.com/yaswanthtechie/eaicsp-platform/pull/247/checks) |
+
+The deliberate lint and unit-test failures were temporary verification changes and were reverted after their respective runs. The final pull-request checks should be confirmed green before merging.

@@ -1,12 +1,16 @@
 """
 Warehouse sensor stream simulator.
 
-Three sensors, 5-minute steps, one shared normal distribution.
-Each sensor gets 6 injected episodes (4 multi-reading, 1 mild
-single reading, 1 severe single reading) AFTER a clean warm-up.
+Sensors share one normal distribution, 5-minute steps. Each sensor gets 6
+injected episodes (4 multi-reading, 1 mild single reading, 1 severe single
+reading) AFTER a clean warm-up. The CLI uses config/sensors.json (python -m
+src.sensor_config), generated from the shared seed warehouses. SENSOR_IDS is
+only the default for build_stream() in unit tests and the in-memory
+evaluation.
 
-Amplitudes and seeds are fixed design constants. They were not tuned
-on any detection result.
+Amplitudes and seeds are fixed design constants. They were not tuned on any
+detection result. Held-out kinds (gradual_drift, flatline) are for reporting
+only.
 """
 
 import argparse
@@ -17,6 +21,8 @@ from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pandas as pd
+
+from .sensor_config import CONFIG_PATH, load_sensors
 
 
 FEATURES = ["temperature", "humidity", "door_open", "power"]
@@ -62,6 +68,7 @@ KIND_ORDER = [
     "single_severe",
     "combined",
 ]
+
 # Held-out patterns: used ONLY for reporting, never to choose a setting.
 HELDOUT_KINDS = {
     "gradual_drift": {"length": (24, 36), "ramp": {"temperature": 8.0}},
@@ -296,11 +303,27 @@ def main(argv=None):
         default=os.environ.get("KAFKA_READINGS_TOPIC", "iot.sensor.reading"),
     )
     parser.add_argument("--delay-ms", type=float, default=0.0)
+    parser.add_argument(
+        "--sensors-config",
+        default=str(CONFIG_PATH),
+        help="config/sensors.json from python -m src.sensor_config",
+    )
+    parser.add_argument("--n-per-sensor", type=int, default=N_PER_SENSOR)
+    parser.add_argument("--warmup", type=int, default=WARMUP)
     args = parser.parse_args(argv)
 
-    readings, episodes = build_stream()
+    sensor_ids = [s["sensor_id"] for s in load_sensors(args.sensors_config)]
 
-    print(f"readings: {len(readings)}  injected episodes: {len(episodes)}")
+    readings, episodes = build_stream(
+        sensor_ids=sensor_ids,
+        n_per_sensor=args.n_per_sensor,
+        warmup=args.warmup,
+    )
+
+    print(
+        f"sensors: {len(sensor_ids)}  readings: {len(readings)}  "
+        f"injected episodes: {len(episodes)}"
+    )
 
     for ep in episodes:
         print(

@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from app.schemas.events import POApprovedLineItem, POApprovedPayload
 
@@ -6,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.compliance_event import SupplierComplianceState
 from app.models.inventory import Inventory
+from app.models.product import Product
 from app.models.purchase_order import PurchaseOrder
 from app.models.supplier import Supplier
 
@@ -43,10 +45,35 @@ def generate_po_id(db: Session) -> str:
     return f"{prefix}{next_number:06d}"
 
 
+@dataclass(frozen=True)
+class SupplierChoice:
+    supplier_id: str
+    supplier_name: str
+    unit_cost: float
+    lead_time_days: int
+
+
 def select_supplier(
     db: Session,
     sku_id: str,
 ):
+    # Seeded catalog: each product names its supplier and unit cost (skus.csv).
+    product = db.query(Product).filter(Product.sku_id == sku_id).first()
+    if product is not None and product.supplier_id:
+        supplier = (
+            db.query(Supplier)
+            .filter(Supplier.supplier_id == product.supplier_id)
+            .first()
+        )
+        if supplier is not None:
+            return SupplierChoice(
+                supplier_id=supplier.supplier_id,
+                supplier_name=supplier.supplier_name,
+                unit_cost=product.unit_cost,
+                lead_time_days=supplier.lead_time_days,
+            )
+
+    # No catalog entry: fall back to per-SKU supplier rows, cheapest first.
     suppliers = (
         db.query(Supplier)
         .filter(

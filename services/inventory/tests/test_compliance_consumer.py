@@ -36,7 +36,7 @@ def seed_supplier(db_session, supplier_id: str, name: str | None = None) -> None
 
 def make_event(
     event_id: str = "evt-test-1",
-    supplier_id: str = "SUP-TEST-1",
+    supplier_id: str = "SUP-00010",
     new_status: str = "BLOCK",
     old_status: str = "CLEAR",
     reason: str = "Sanctions match detected",
@@ -76,7 +76,7 @@ def seed_po(
     po = PurchaseOrder(
         po_id=po_id,
         sku_id=f"SKU-{po_id}",
-        warehouse_id="WH-1",
+        warehouse_id="WH-BLR-01",
         supplier_id=supplier_id,
         quantity=10,
         unit_cost=15.0,
@@ -134,21 +134,21 @@ def test_po_held_when_supplier_blocked(db_session):
     When supplier moves to blocked: every open draft PO for that supplier
     must be put on hold with the reason recorded.
     """
-    po1 = seed_po(db_session, "PO-BLK-1", "SUP-BLK-1", status="draft")
-    po2 = seed_po(db_session, "PO-BLK-2", "SUP-BLK-1", status="draft")
+    po1 = seed_po(db_session, "PO-2026-000011", "SUP-00011", status="draft")
+    po2 = seed_po(db_session, "PO-2026-000012", "SUP-00011", status="draft")
     po_other = seed_po(db_session, "PO-OTHER", "SUP-OTHER", status="draft")
-    po_received = seed_po(db_session, "PO-RCV", "SUP-BLK-1", status="received")
+    po_received = seed_po(db_session, "PO-RCV", "SUP-00011", status="received")
 
     event = make_event(
         event_id="EVT-BLK-1",
-        supplier_id="SUP-BLK-1",
+        supplier_id="SUP-00011",
         new_status="BLOCK",
         reason="OFAC SDN match",
     )
 
     result = process_compliance_event(db_session, event)
     assert result.status == "PROCESSED"
-    assert set(result.affected_pos) == {"PO-BLK-1", "PO-BLK-2"}
+    assert set(result.affected_pos) == {"PO-2026-000011", "PO-2026-000012"}
 
     # Refresh records
     db_session.refresh(po1)
@@ -177,11 +177,11 @@ def test_po_held_when_supplier_needs_review(db_session):
     """
     When supplier moves to 'needs review': draft POs put on hold.
     """
-    po = seed_po(db_session, "PO-REV-1", "SUP-REV-1", status="draft")
+    po = seed_po(db_session, "PO-2026-000015", "SUP-00015", status="draft")
 
     event = make_event(
         event_id="EVT-REV-1",
-        supplier_id="SUP-REV-1",
+        supplier_id="SUP-00015",
         new_status="needs review",
         reason="Fuzzy match on PEP list",
     )
@@ -199,19 +199,19 @@ def test_po_released_to_draft_when_supplier_cleared(db_session):
     """
     When supplier cleared again: held POs with hold_source='compliance' are released back to draft.
     """
-    po1 = seed_po(db_session, "PO-CLR-1", "SUP-CLR-1", status="on_hold", hold_reason="Previous sanction", hold_source="compliance")
-    po2 = seed_po(db_session, "PO-CLR-2", "SUP-CLR-1", status="on_hold", hold_reason="Previous sanction", hold_source="compliance")
+    po1 = seed_po(db_session, "PO-2026-000013", "SUP-00013", status="on_hold", hold_reason="Previous sanction", hold_source="compliance")
+    po2 = seed_po(db_session, "PO-2026-000014", "SUP-00013", status="on_hold", hold_reason="Previous sanction", hold_source="compliance")
 
     event = make_event(
         event_id="EVT-CLR-1",
-        supplier_id="SUP-CLR-1",
+        supplier_id="SUP-00013",
         new_status="CLEAR",
         reason="False positive cleared by compliance officer",
     )
 
     result = process_compliance_event(db_session, event)
     assert result.status == "PROCESSED"
-    assert set(result.affected_pos) == {"PO-CLR-1", "PO-CLR-2"}
+    assert set(result.affected_pos) == {"PO-2026-000013", "PO-2026-000014"}
 
     db_session.refresh(po1)
     db_session.refresh(po2)
@@ -334,7 +334,7 @@ def test_out_of_order_events_cleared_before_older_blocked_does_not_block(db_sess
     Out-of-order events: if "cleared" arrives before an older "blocked",
     don't end up blocked. Use occurred_at to decide.
     """
-    po = seed_po(db_session, "PO-ORDER-1", "SUP-ORDER-1", status="on_hold", hold_reason="Under investigation", hold_source="compliance")
+    po = seed_po(db_session, "PO-2026-000018", "SUP-00018", status="on_hold", hold_reason="Under investigation", hold_source="compliance")
 
     t_earlier = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
     t_later = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
@@ -342,7 +342,7 @@ def test_out_of_order_events_cleared_before_older_blocked_does_not_block(db_sess
     # Newer event: Supplier was CLEARED at t_later (1 hour ago)
     evt_cleared = make_event(
         event_id="EVT-CLEARED-NEWER",
-        supplier_id="SUP-ORDER-1",
+        supplier_id="SUP-00018",
         new_status="CLEAR",
         occurred_at=t_later,
         reason="Cleared after thorough review",
@@ -356,14 +356,14 @@ def test_out_of_order_events_cleared_before_older_blocked_does_not_block(db_sess
     assert po.hold_reason is None
 
     # Supplier compliance state recorded at t_later
-    state = db_session.query(SupplierComplianceState).filter_by(supplier_id="SUP-ORDER-1").first()
+    state = db_session.query(SupplierComplianceState).filter_by(supplier_id="SUP-00018").first()
     assert state is not None
     assert state.last_status == "CLEAR"
 
     # Older event: Arrives out-of-order! Supplier was BLOCKED at t_earlier (2 hours ago)
     evt_blocked_older = make_event(
         event_id="EVT-BLOCKED-OLDER",
-        supplier_id="SUP-ORDER-1",
+        supplier_id="SUP-00018",
         new_status="BLOCK",
         occurred_at=t_earlier,
         reason="Initial sanctions hit",
@@ -570,14 +570,14 @@ def test_get_and_list_purchase_order_endpoints(client, db_session):
     API test: GET /api/v1/inventory/purchase-orders and GET /{po_id} return
     PO details including hold_reason when on hold.
     """
-    seed_po(db_session, "PO-EP-1", "SUP-EP-1", status="on_hold", hold_reason="Sanctions review")
-    seed_po(db_session, "PO-EP-2", "SUP-EP-1", status="draft")
+    seed_po(db_session, "PO-2026-000021", "SUP-00021", status="on_hold", hold_reason="Sanctions review")
+    seed_po(db_session, "PO-2026-000022", "SUP-00021", status="draft")
 
     # 1. Get by ID
-    resp = client.get("/api/v1/inventory/purchase-orders/PO-EP-1")
+    resp = client.get("/api/v1/inventory/purchase-orders/PO-2026-000021")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["po_id"] == "PO-EP-1"
+    assert data["po_id"] == "PO-2026-000021"
     assert data["status"] == "on_hold"
     assert data["hold_reason"] == "Sanctions review"
 
@@ -594,8 +594,8 @@ def test_get_and_list_purchase_order_endpoints(client, db_session):
 # ============================================================================
 
 def test_real_producer_event_holds_pos(db_session):
-    seed_po(db_session, "PO-REAL", "SUP001")
-    seed_supplier(db_session, "SUP001", name="supplier sup001 ")
+    seed_supplier(db_session, "SUP-00001", name="supplier sup001 ")
+    seed_po(db_session, "PO-REAL", "SUP-00001")
     event = {   # copied from build_supplier_status_changed_event() in services/compliance
         "event_id": "real-1", "event_type": "compliance.supplier.status_changed", "event_version": 1,
         "occurred_at": datetime.now(UTC).isoformat(), "producer": "compliance-service",
@@ -611,10 +611,10 @@ def test_real_producer_event_holds_pos(db_session):
 def test_transient_db_error_is_retried_not_skipped(db_session, monkeypatch):
     import app.services.compliance_consumer as cc
     monkeypatch.setattr(cc.time, "sleep", lambda s: None)
-    seed_po(db_session, "PO-T1", "SUP-T1")
-    seed_po(db_session, "PO-T2", "SUP-T2")
-    m1 = FakeKafkaMessage(json.dumps(make_event(event_id="E1", supplier_id="SUP-T1")), offset=1)
-    m2 = FakeKafkaMessage(json.dumps(make_event(event_id="E2", supplier_id="SUP-T2")), offset=2)
+    seed_po(db_session, "PO-2026-000019", "SUP-00019")
+    seed_po(db_session, "PO-2026-000020", "SUP-00020")
+    m1 = FakeKafkaMessage(json.dumps(make_event(event_id="E1", supplier_id="SUP-00019")), offset=1)
+    m2 = FakeKafkaMessage(json.dumps(make_event(event_id="E2", supplier_id="SUP-00020")), offset=2)
     consumer = FakeKafkaConsumer([m1, m2])
     worker = ComplianceConsumerWorker(consumer=consumer, dlq_publisher=InMemoryKafkaPublisher(),
                                       db_session_factory=lambda: db_session)
@@ -635,7 +635,7 @@ def test_transient_db_error_is_retried_not_skipped(db_session, monkeypatch):
     assert consumer.seeks == [(0, 1)]
     assert [m.offset() for m in consumer.committed_messages] == [1, 2]
     db_session.expire_all()
-    assert db_session.get(PurchaseOrder, "PO-T1").status == "on_hold"   # E1 was NOT lost
+    assert db_session.get(PurchaseOrder, "PO-2026-000019").status == "on_hold"   # E1 was NOT lost
 
 
 def test_dlq_down_does_not_commit_and_retries(db_session, monkeypatch):
@@ -688,7 +688,7 @@ def test_unknown_supplier_is_recorded_and_not_retried(db_session):
 
 def test_simulate_endpoint_is_gone(client):
     response = client.post("/api/v1/inventory/purchase-orders/compliance-events/simulate",
-                           json={"supplier_id": "SUP001", "new_status": "CLEAR"})
+                           json={"supplier_id": "SUP-00001", "new_status": "CLEAR"})
     assert response.status_code in (404, 405)
 
 
@@ -700,14 +700,14 @@ def test_block_does_not_overwrite_other_source_hold(db_session):
     po = seed_po(
         db_session,
         "PO-FIN-HOLD",
-        "SUP-FIN-1",
+        "SUP-00017",
         status="on_hold",
         hold_reason="Finance budget audit",
         hold_source="finance",
     )
     event = make_event(
         event_id="EVT-BLOCK-FIN",
-        supplier_id="SUP-FIN-1",
+        supplier_id="SUP-00017",
         new_status="BLOCK",
         reason="Sanctions match",
     )
@@ -729,7 +729,7 @@ def test_repeated_transient_failure_routes_to_dlq_after_max_retries(db_session, 
     monkeypatch.setattr(cc.time, "sleep", lambda s: None)
 
     msg = FakeKafkaMessage(
-        json.dumps(make_event(event_id="EVT-PERMA-FAIL", supplier_id="SUP-FAIL-1")),
+        json.dumps(make_event(event_id="EVT-PERMA-FAIL", supplier_id="SUP-00016")),
         offset=42,
     )
     consumer = FakeKafkaConsumer([msg])
