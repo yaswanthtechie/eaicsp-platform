@@ -1,4 +1,5 @@
 import logging
+from pydantic import ValidationError
 
 from fastapi import (
     APIRouter,
@@ -102,25 +103,43 @@ def approve_purchase_order_endpoint(
     po_id: str,
     db: Session = Depends(get_db),
     auth=Depends(
-        require_roles("vp_operations")
+        require_roles("procurement_manager")
     ),
 ):
+    user_id = auth.get("user_id") if isinstance(auth, dict) else None
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication token has no user_id",
+        )
     try:
         return approve_purchase_order(
             db=db,
             po_id=po_id,
+            approved_by=str(user_id),
         )
-
     except LookupError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         ) from exc
-
+    except ValidationError as exc:
+        # Must come before ValueError: ValidationError subclasses it.
+        logger.exception("PO %s does not match the inventory.po.approved contract", po_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Purchase order data does not match the event contract",
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
+        ) from exc
+    except Exception as exc:
+        logger.exception("Unexpected error approving purchase order %s", po_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to approve purchase order",
         ) from exc
 
 
@@ -161,8 +180,8 @@ def receive_purchase_order_endpoint(
     status_code=status.HTTP_200_OK,
 )
 def list_purchase_orders_endpoint(
-    po_id: str | None = Query(None, description="Filter by purchase order ID (e.g. PO-7F78FAE0)"),
-    supplier_id: str | None = Query(None, description="Filter by supplier ID (e.g. SUP001)"),
+    po_id: str | None = Query(None, description="Filter by purchase order ID (e.g. PO-2026-000123)"),
+    supplier_id: str | None = Query(None, description="Filter by supplier ID (e.g. SUP-00045)"),
     status_filter: str | None = Query(None, alias="status", description="Filter by status (e.g. draft, on_hold, received)"),
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
@@ -203,7 +222,7 @@ def get_purchase_order_endpoint(
         ) from exc
 
 
-@router.api_route("/{rest_of_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+@router.api_route("/{rest_of_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"], include_in_schema=False)
 def purchase_orders_catch_all(rest_of_path: str):
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 

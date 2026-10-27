@@ -1,0 +1,257 @@
+openapi: 3.1.0
+
+info:
+  title: Demand Forecast Serving API
+  version: 1.0.0
+  description: >
+    Contract for serving daily SKU demand forecasts to Inventory (Flow A,
+    blueprint section 4). Each point includes prediction bounds; the response
+    includes model metadata. Called service-to-service with a service API key.
+
+servers:
+  - url: http://localhost:8007
+    description: Local, forecast service called directly (the gateway does not forward X-API-Key)
+
+security:
+  - ServiceApiKey: []
+
+paths:
+  /api/v1/demand/forecast/{sku_id}:
+    get:
+      operationId: getDemandForecast
+      summary: Get a daily demand forecast for a SKU at a warehouse
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          description: Canonical SKU ID (blueprint section 2)
+          schema:
+            $ref: "#/components/schemas/SkuId"
+
+        - name: warehouse_id
+          in: query
+          required: true
+          description: Canonical warehouse ID (blueprint section 2)
+          schema:
+            $ref: "#/components/schemas/WarehouseId"
+
+        - name: horizon
+          in: query
+          required: false
+          description: Number of days to forecast, starting tomorrow
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 90
+            default: 30
+
+      responses:
+        "200":
+          description: Daily forecast generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForecastResponse"
+              example:
+                contract_version: v1
+                sku_id: SKU-000123
+                warehouse_id: WH-BLR-01
+                granularity: daily
+                horizon: 3
+                interval_level: 0.8
+                model_version: R5
+                generated_at: "2026-10-15T06:00:00Z"
+                forecast:
+                  - date: "2026-10-16"
+                    predicted: 42.0
+                    lower_bound: 31.0
+                    upper_bound: 53.0
+                  - date: "2026-10-17"
+                    predicted: 39.5
+                    lower_bound: 28.0
+                    upper_bound: 51.0
+                  - date: "2026-10-18"
+                    predicted: 44.0
+                    lower_bound: 32.5
+                    upper_bound: 55.5
+                explanation:
+                  top_drivers:
+                    - feature: lag_7
+                      contribution: 6.2
+                    - feature: day_of_week
+                      contribution: -2.1
+
+        "400":
+          description: Invalid request parameters (bad ID format, horizon out of range)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error_code: INVALID_PARAMETER
+                message: "horizon must be between 1 and 90"
+
+        "401":
+          description: Missing or invalid service API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error_code: UNAUTHORIZED
+                message: "Missing or invalid API key"
+
+        "404":
+          description: SKU/warehouse unknown, or no forecast available yet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                unknown_sku:
+                  value:
+                    error_code: SKU_NOT_FOUND
+                    message: "SKU-000999 does not exist"
+                no_forecast:
+                  value:
+                    error_code: FORECAST_NOT_AVAILABLE
+                    message: "No forecast for SKU-000123 at WH-BLR-01"
+
+        "503":
+          description: >
+            Model unavailable. Caller falls back to a 28-day moving average and
+            marks the recommendation forecast_source=fallback (blueprint section 4).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error_code: MODEL_UNAVAILABLE
+                message: "Forecast model is not loaded"
+
+components:
+  securitySchemes:
+    ServiceApiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Service API key issued by Platform (platform.api_keys). Not a user JWT.
+
+  schemas:
+    SkuId:
+      type: string
+      pattern: "^SKU-[0-9]{6}$"
+      examples: ["SKU-000123"]
+
+    WarehouseId:
+      type: string
+      pattern: "^WH-[A-Z]{3}-[0-9]{2}$"
+      examples: ["WH-BLR-01"]
+
+    ForecastResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - contract_version
+        - sku_id
+        - warehouse_id
+        - granularity
+        - horizon
+        - interval_level
+        - model_version
+        - generated_at
+        - forecast
+      properties:
+        contract_version:
+          type: string
+          const: v1
+        sku_id:
+          $ref: "#/components/schemas/SkuId"
+        warehouse_id:
+          $ref: "#/components/schemas/WarehouseId"
+        granularity:
+          type: string
+          const: daily
+        horizon:
+          type: integer
+          minimum: 1
+          maximum: 90
+          description: Echo of the requested horizon; forecast has exactly this many points
+        interval_level:
+          type: number
+          const: 0.8
+          description: Prediction interval coverage (80 percent, from the 10th to 90th percentiles)
+        model_version:
+          type: string
+          minLength: 1
+          description: Version of the MLflow "Production" model that produced this forecast
+        generated_at:
+          type: string
+          format: date-time
+        forecast:
+          type: array
+          minItems: 1
+          maxItems: 90
+          items:
+            $ref: "#/components/schemas/ForecastPoint"
+        explanation:
+          $ref: "#/components/schemas/Explanation"
+
+    ForecastPoint:
+      type: object
+      additionalProperties: false
+      required:
+        - date
+        - predicted
+        - lower_bound
+        - upper_bound
+      properties:
+        date:
+          type: string
+          format: date
+        predicted:
+          type: number
+          minimum: 0
+        lower_bound:
+          type: number
+          minimum: 0
+        upper_bound:
+          type: number
+          minimum: 0
+      description: >
+        Each point must satisfy lower_bound <= predicted <= upper_bound.
+        Dates are consecutive days, unique and ascending.
+
+    Explanation:
+      type: object
+      additionalProperties: false
+      description: Why the model predicted this (e.g. SHAP contributions)
+      properties:
+        top_drivers:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [feature, contribution]
+            properties:
+              feature:
+                type: string
+              contribution:
+                type: number
+
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error_code, message]
+      properties:
+        error_code:
+          type: string
+          enum:
+            - INVALID_PARAMETER
+            - UNAUTHORIZED
+            - SKU_NOT_FOUND
+            - WAREHOUSE_NOT_FOUND
+            - FORECAST_NOT_AVAILABLE
+            - MODEL_UNAVAILABLE
+        message:
+          type: string

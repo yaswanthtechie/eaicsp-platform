@@ -1087,4 +1087,140 @@ The test suite covers:
 * SVG
 * YAML
 
-````
+# Round 12–13 Enhancements: Production Platform Integration
+
+## 1. SQL Pushdown Profiling (Milestone 1)
+
+The profiling architecture now supports a dual-engine design, introducing a PostgreSQL pushdown engine to complement the in-memory Pandas profiler.
+
+Instead of loading entire datasets into Python memory, the `PostgresPushdownProfiler` generates optimized SQLAlchemy Core queries to perform computations directly inside the database. 
+
+The SQL pushdown engine computes:
+* Total row counts and null rates
+* Unique value counts (`COUNT DISTINCT`)
+* Descriptive statistics (`MIN`, `MAX`, `AVG`, `STDDEV_SAMP`)
+* Exact quantiles (using PostgreSQL's `percentile_cont`)
+* Outlier counts using filtered IQR boundaries
+
+This drastically reduces the Python memory footprint when profiling large tables (1,000,000+ rows) while returning the exact same `ProfileReport` JSON structure for downstream compatibility.
+
+## 2. Airflow Scheduled Profiling (Milestone 2)
+
+Profiling is now fully automated via an Apache Airflow DAG (`scheduled_data_profiling`). 
+
+Using the Airflow TaskFlow API, the DAG dynamically maps over a configurable list of target tables. For each table, it:
+* Connects to the target database.
+* Executes the SQL pushdown profiler to analyze the table in place.
+* Appends the generated report directly into the persistent `AuditArchive` (`reports/audit_archive.jsonl`).
+
+This transitions the profiler from a manual CLI/API tool into a scheduled observability pipeline capable of running unattended on a daily cadence.
+
+## 3. Evidently Drift Detection Integration (Milestone 3)
+
+The custom data drift detection logic was cross-checked and integrated alongside **Evidently** (`DataDriftPreset`), introducing rigorous statistical distance metrics to the platform.
+
+While the custom drift detector uses heuristic thresholds (e.g., 10 percentage-point absolute differences or standard deviation boundaries), Evidently applies advanced statistical tests (like the Wasserstein distance) to evaluate dataset drift.
+
+The cross-check capability highlights the strengths of both approaches:
+* **Statistical Shape Changes:** Evidently successfully detects changes in distribution variance even when the mean remains identical, catching drift that simple boundary heuristics miss.
+* **Proportion & Null Shifts:** The custom tool allows for strict, hardcoded business-logic thresholds (e.g., explicit null-injection alerts) that standard statistical presets might overlook if the underlying distribution shape of the remaining data stays intact.
+
+## Milestone 3: Evidently cross-check (results from `python cross_check_evidently.py`)
+
+### No-drift pair (two independent samples, same distribution)
+| Column | custom | Evidently | Agree? | custom_reasons |evidently_detail|
+|---|---|---|---|-----------------|---|
+quantity_sold|no drift|no drift|True|                 |Drift score is 0.04. The drift detection method is Wasserstein distance (normed). The drift threshold is 0.10.
+sku_id|no drift|no drift|True|                 |Drift score is 0.02. The drift detection method is Jensen-Shannon distance. The drift threshold is 0.10.
+unit_price|no drift|no drift|True|                 |Drift score is 0.02. The drift detection method is Wasserstein distance (normed). The drift threshold is 0.10.
+warehouse_id|no drift|no drift|True|                 |Drift score is 0.01. The drift detection method is Jensen-Shannon distance. The drift threshold is 0.10.
+
+
+
+### Deliberate-drift pair
+| Column | custom | evidently | agree | custom_reasons | evidently_detail |
+|---|---|---|---|---|---|
+quantity_sold|no drift|drift|False||Drift score is 2.43. The drift detection method is Wasserstein distance (normed). The drift threshold is 0.10.
+sku_id|drift|no drift|False|Null rate changed by 12.0 percentage points|Drift score is 0.01. The drift detection method is Jensen-Shannon distance. The drift threshold is 0.10.
+unit_price|drift|drift|True|Mean shifted by more than 1 standard deviation|Drift score is 1.47. The drift detection method is Wasserstein distance (normed). The drift threshold is 0.10.
+warehouse_id|drift|drift|True|Significant categorical proportion change|Drift score is 0.12. The drift detection method is Jensen-Shannon distance. The drift threshold is 0.10.
+
+### Why the two tools disagree
+
+**`quantity_sold`: Evidently caught drift that ours missed.**
+We changed only the spread (std 10 to 40) and kept the mean at 50. Our detector flags a
+numeric column when the mean moves by more than 1 standard deviation, so a variance-only
+change is invisible to it. Evidently's normed Wasserstein distance compares the whole
+distribution, so it scored 2.43 against a 0.10 threshold. This is a real gap in our
+detector: it would miss, for example, a sensor that starts producing noisier readings
+around the same average.
+
+**`sku_id`: ours caught drift that Evidently missed.**
+We set 12% of `sku_id` values to null at random. Our detector checks the null rate
+directly (+12.0 percentage points). Evidently's Jensen-Shannon test compares the
+distribution of the values that are present, and random nulls don't change that
+distribution, so it scored 0.01 and reported no drift. For data quality, a sudden jump
+in missing values matters, so this is a case where our explicit null check adds
+something Evidently's drift preset does not.
+
+**Agreements:** both tools flagged `unit_price` (mean shift of +30, about 1.5 std) and
+`warehouse_id` (proportions changed). On the no-drift pair (two independent samples
+from the same distribution), both tools reported no drift on all four columns, so
+neither produced a false positive.
+
+**Takeaway:** neither tool covers everything. Ours misses shape and variance changes,
+and Evidently's default preset misses null-rate changes. Running both, or adding a
+distribution test to ours, gives better coverage.
+
+
+## Round 12-13: status
+- M1 SQL pushdown: done. Parity check passes on 1M rows; timings in `results/pushdown_benchmark.json` (table below).
+- M2 Airflow DAG: done. Runs locally via `dag.test()` inside `airflow-tester`; load test in `tests/test_dag_loads.py`.
+- M3 Evidently cross-check: done. Evidently caught a variance-only change on `quantity_sold` that ours missed; ours caught a 12% null injection on `sku_id` that Evidently missed. Details below.
+- Not done / known limits: pushdown returns no correlations / sparklines / insights; memory is Python-heap only (tracemalloc).
+
+### M1 benchmark (1,000,000 rows, from `results/pushdown_benchmark.json`)
+| Mode | Time    | Peak Python memory | Parity |
+|---|---------|---|--|
+| pandas (read_sql + profile) | 31.69 s | 363.6 MB | 0 mismatches |
+| SQL pushdown | 5.97 s  | 0.2 MB | 0 mismatches |
+
+Note: pandas mode runs the full `profile()`, including correlations, sparklines and
+insights, which pushdown does not compute. So part of the time difference is extra
+work, not just where the work runs. Memory is the Python heap only (tracemalloc);
+Postgres's own memory is not counted.
+
+## How to run
+```text
+cp .env.example .env                                   # fill in a password
+docker compose -f docker-compose.dev.yml up -d
+python seed_db.py                                      # creates the products table
+pytest -m "not integration" -q                         # no Docker needed
+pytest -m integration -q                               # needs the container
+python benchmark_pushdown.py                           # writes results/pushdown_benchmark.json
+python cross_check_evidently.py                        # writes results/evidently_comparison_*.csv
+docker exec -it airflow-tester python dags/profiling_dag.py
+```
+
+# Prometheus Metrics Exporter (Round 14)
+
+The profiling platform now includes a dedicated continuous metrics server (`src/profiling_metrics.py`) running on port 8007, transitioning the tool into a fully observable pipeline component.
+
+Rather than running profiling jobs in a vacuum, the exporter continuously reads the scheduled outputs from the Airflow `audit_archive.jsonl` file and translates the raw JSON profiles into standard Prometheus gauges. 
+
+It dynamically infers the dataset names and mathematically calculates sub-scores to expose the following metrics:
+* `profiling_quality_score` (Overall aggregated score)
+* `profiling_completeness_score` (Derived from null rates)
+* `profiling_validity_score` (Derived from outlier bounds)
+* `profiling_uniqueness_score` (Derived from duplicate rows)
+* `profiling_consistency_score`
+* `profiling_last_run_timestamp`
+
+**Observability Alignment:** 
+Profiling metrics follow the same profiling_* naming prefix as validation's validation_* metrics for a consistent Grafana namespace. Note: validation's metrics are currently global (unlabeled), while profiling's are labeled by dataset. They don't yet share identical label dimensions.
+
+## How to run
+```bash
+python src\profiling_metrics.py
+# Access metrics at: http://localhost:8007/metrics
+```

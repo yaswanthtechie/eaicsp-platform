@@ -1,4 +1,11 @@
 import os
+import tempfile
+
+# Tests must never write into logs/access.log (Filebeat ships that file to Kibana).
+os.environ.setdefault(
+    "GATEWAY_ACCESS_LOG_PATH",
+    os.path.join(tempfile.mkdtemp(prefix="gateway-test-logs-"), "access.log"),
+)
 
 # Must happen at IMPORT time, before any `app` import: pytest loads
 # tests/conftest.py (which imports app and builds Settings()) before any
@@ -11,6 +18,14 @@ os.environ.setdefault(
 # Prevent locust from monkey-patching socket/threading in pytest runs
 os.environ.setdefault("LOCUST_SKIP_MONKEY_PATCH", "1")
 os.environ.setdefault("METRICS_BEARER_TOKEN", "test-metrics-bearer-token")
+
+# Prevent OpenTelemetry from attempting network connections to unavailable localhost:4318 during tests
+os.environ.setdefault("OTEL_TRACES_EXPORTER", "none")
+os.environ.setdefault("OTEL_METRICS_EXPORTER", "none")
+os.environ.setdefault("OTEL_LOGS_EXPORTER", "none")
+os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = ""
+os.environ["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] = ""
+os.environ["OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"] = ""
 
 import pytest  # noqa: E402
 
@@ -53,6 +68,9 @@ def isolate_tracing():
         reset_prometheus_metrics()
     except Exception:
         pass
+
+    # Ensure OTLPSpanExporter never binds to a live socket during test runs
+    tracing_module.OTLPSpanExporter = None
 
     if tracing_module._tracer_provider is None and not tracing_module._tracing_configured:
         from opentelemetry.sdk.trace import TracerProvider

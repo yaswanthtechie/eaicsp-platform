@@ -83,11 +83,11 @@ def test_compliance_internal_check_request_contract():
     Proves that request payload matches the required contract.
     """
     req = ComplianceCheckContractRequest(
-        supplier_id="SUP-001",
+        supplier_id="SUP-00001",
         supplier_name="Global Fasteners Inc",
         country="India",
     )
-    assert req.supplier_id == "SUP-001"
+    assert req.supplier_id == "SUP-00001"
     assert req.supplier_name == "Global Fasteners Inc"
     assert req.country == "India"
 
@@ -138,11 +138,27 @@ def test_compliance_internal_check_invalid_decision_fails_contract():
 # 3. Geethika's Compliance Event Contract: compliance.supplier.status_changed
 # ============================================================================
 
+import json
+import re
+from pathlib import Path
+import jsonschema
+from jsonschema import Draft202012Validator
+import pydantic
+import yaml
+
+
+def _validate(schema, data):
+    Draft202012Validator(schema, format_checker=Draft202012Validator.FORMAT_CHECKER).validate(data)
+
+
 from app.schemas.events import (
     ComplianceSupplierStatusChangedEvent,
     ComplianceSupplierStatusChangedPayload,
     DeadLetterEnvelope,
+    InventoryPOApprovedEvent,
+    InventoryGoodsReceivedEvent,
 )
+
 
 
 def test_compliance_status_changed_event_contract_shape():
@@ -195,3 +211,262 @@ def test_compliance_dlq_message_contract_shape():
     assert dlq.topic == "compliance.supplier.status_changed"
     assert dlq.error == "Unparseable JSON"
     assert dlq.failed_at is not None
+
+
+# ============================================================================
+# 4. Round 15: Inventory Contracts & Stub Endpoints
+# ============================================================================
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def test_inventory_po_approved_example_contract():
+    """
+    Validates that the realistic seed example in contracts/events/examples/inventory.po.approved.v1.json
+    strictly conforms to the JSON Schema (Draft 2020-12) and the InventoryPOApprovedEvent Pydantic model.
+    """
+    schema_path = REPO_ROOT / "contracts" / "events" / "inventory.po.approved.v1.json"
+    example_path = REPO_ROOT / "contracts" / "events" / "examples" / "inventory.po.approved.v1.json"
+    assert schema_path.exists(), f"Missing contract schema file at {schema_path}"
+    assert example_path.exists(), f"Missing contract example file at {example_path}"
+
+    with open(schema_path, "r", encoding="utf-8") as f:
+        schema = json.load(f)
+    with open(example_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    # 1. JSON Schema validation
+    _validate(schema, data)
+
+    # 2. Pydantic model validation
+    event = InventoryPOApprovedEvent.model_validate(data)
+    assert event.event_type == "inventory.po.approved"
+    assert event.event_version == 1
+    assert event.producer == "inventory-service"
+    assert event.payload.po_id == "PO-2026-000123"
+    assert event.payload.supplier_id == "SUP-00045"
+    assert event.payload.warehouse_id == "WH-BLR-01"
+    assert event.payload.approval_status == "approved"
+    assert len(event.payload.lines) >= 1
+    assert event.payload.lines[0].sku_id == "SKU-000123"
+
+
+def test_inventory_po_approved_rejects_non_canonical_ids():
+    """
+    Ensures that non-canonical IDs (violating blueprint Section 2) fail validation.
+    """
+    schema_path = REPO_ROOT / "contracts" / "events" / "inventory.po.approved.v1.json"
+    example_path = REPO_ROOT / "contracts" / "events" / "examples" / "inventory.po.approved.v1.json"
+    with open(schema_path, "r", encoding="utf-8") as f:
+        schema = json.load(f)
+    with open(example_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    # Invalid PO ID format
+    bad_data = json.loads(json.dumps(data))
+    bad_data["payload"]["po_id"] = "PO-123"  # noncanonical-ok  # missing year and 6 digits
+    with pytest.raises(pydantic.ValidationError):
+        InventoryPOApprovedEvent.model_validate(bad_data)
+    with pytest.raises(jsonschema.ValidationError):
+        _validate(schema, bad_data)
+
+    # Invalid SKU ID format
+    bad_sku_data = json.loads(json.dumps(data))
+    bad_sku_data["payload"]["lines"][0]["sku_id"] = "SKU-1"  # noncanonical-ok
+    with pytest.raises(pydantic.ValidationError):
+        InventoryPOApprovedEvent.model_validate(bad_sku_data)
+    with pytest.raises(jsonschema.ValidationError):
+        _validate(schema, bad_sku_data)
+
+
+def test_inventory_goods_received_example_contract():
+    """
+    Validates that the realistic seed example in contracts/events/examples/inventory.goods.received.v1.json
+    strictly conforms to the JSON Schema (Draft 2020-12) and the InventoryGoodsReceivedEvent Pydantic model.
+    """
+    schema_path = REPO_ROOT / "contracts" / "events" / "inventory.goods.received.v1.json"
+    example_path = REPO_ROOT / "contracts" / "events" / "examples" / "inventory.goods.received.v1.json"
+    assert schema_path.exists(), f"Missing contract schema file at {schema_path}"
+    assert example_path.exists(), f"Missing contract example file at {example_path}"
+
+    with open(schema_path, "r", encoding="utf-8") as f:
+        schema = json.load(f)
+    with open(example_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    # 1. JSON Schema validation
+    _validate(schema, data)
+
+    # 2. Pydantic model validation
+    event = InventoryGoodsReceivedEvent.model_validate(data)
+    assert event.event_type == "inventory.goods.received"
+    assert event.event_version == 1
+    assert event.producer == "inventory-service"
+    assert event.payload.receipt_id == "GR-2026-000077"
+    assert event.payload.po_id == "PO-2026-000123"
+    assert event.payload.supplier_id == "SUP-00045"
+    assert event.payload.warehouse_id == "WH-BLR-01"
+    assert event.payload.status == "received"
+    assert len(event.payload.items) >= 1
+    assert event.payload.items[0].sku_id == "SKU-000123"
+
+
+def test_inventory_goods_received_rejects_non_canonical_ids():
+    """
+    Ensures that non-canonical receipt IDs fail validation.
+    """
+    schema_path = REPO_ROOT / "contracts" / "events" / "inventory.goods.received.v1.json"
+    example_path = REPO_ROOT / "contracts" / "events" / "examples" / "inventory.goods.received.v1.json"
+    with open(schema_path, "r", encoding="utf-8") as f:
+        schema = json.load(f)
+    with open(example_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    bad_data = json.loads(json.dumps(data))
+    bad_data["payload"]["receipt_id"] = "GR-001"  # noncanonical-ok
+    with pytest.raises(pydantic.ValidationError):
+        InventoryGoodsReceivedEvent.model_validate(bad_data)
+    with pytest.raises(jsonschema.ValidationError):
+        _validate(schema, bad_data)
+
+
+def test_optimization_recommendations_unauthenticated(client_raw):
+    """
+    Contract test: GET /api/v1/inventory/optimization/recommendations returns 401 when unauthenticated.
+    """
+    resp = client_raw.get("/api/v1/inventory/optimization/recommendations")
+    assert resp.status_code == 401
+
+
+def test_optimization_recommendations_endpoint_501(client):
+    """
+    Contract test: GET /api/v1/inventory/optimization/recommendations returns 501 Not Implemented
+    when called with required permission (Flow A stub).
+    """
+    resp = client.get("/api/v1/inventory/optimization/recommendations")
+    assert resp.status_code == 501
+    assert "under construction" in resp.json()["detail"].lower()
+
+
+def test_goods_receipts_unauthenticated(client_raw):
+    """
+    Contract test: POST /api/v1/inventory/goods-receipts returns 401 when unauthenticated.
+    """
+    payload = {
+        "po_id": "PO-2026-000123",
+        "warehouse_id": "WH-BLR-01",
+        "received_by": "warehouse.manager@company.com",
+        "items": [
+            {
+                "sku_id": "SKU-000123",
+                "quantity_received": 100,
+                "unit_cost": 450.0,
+            }
+        ],
+        "notes": "Full shipment received",
+    }
+    resp = client_raw.post("/api/v1/inventory/goods-receipts", json=payload)
+    assert resp.status_code == 401
+
+
+def test_goods_receipts_endpoint_501(client):
+    """
+    Contract test: POST /api/v1/inventory/goods-receipts returns 501 Not Implemented
+    when called with required permission (Flow B stub).
+    """
+    payload = {
+        "po_id": "PO-2026-000123",
+        "warehouse_id": "WH-BLR-01",
+        "received_by": "warehouse.manager@company.com",
+        "items": [
+            {
+                "sku_id": "SKU-000123",
+                "quantity_received": 100,
+                "unit_cost": 450.0,
+            }
+        ],
+        "notes": "Full shipment received",
+    }
+    resp = client.post("/api/v1/inventory/goods-receipts", json=payload)
+    assert resp.status_code == 501
+    assert "under construction" in resp.json()["detail"].lower()
+
+
+def test_goods_receipts_forbidden_without_write_permission():
+    """
+    Contract test: POST /api/v1/inventory/goods-receipts returns 403 when authenticated user lacks inventory:write.
+    """
+    from app.main import app
+    from app.core.auth import verify_token
+    from tests.conftest import _as_user
+    from fastapi.testclient import TestClient
+
+    app.dependency_overrides[verify_token] = _as_user("analyst")  # analyst only has inventory:read
+
+    payload = {
+        "po_id": "PO-2026-000123",
+        "warehouse_id": "WH-BLR-01",
+        "received_by": "analyst@example.com",
+        "items": [
+            {
+                "sku_id": "SKU-000123",
+                "quantity_received": 10,
+            }
+        ],
+    }
+
+    try:
+        with TestClient(app) as test_client:
+            resp = test_client.post("/api/v1/inventory/goods-receipts", json=payload)
+            assert resp.status_code == 403
+            assert "insufficient permissions" in resp.json()["detail"].lower()
+    finally:
+        app.dependency_overrides.clear()
+
+
+
+
+def test_openapi_contract_contains_round15_endpoints():
+    """
+    Validates that contracts/openapi/inventory.yaml is present, valid YAML,
+    and documents the two Round 15 endpoints.
+    """
+    spec_path = REPO_ROOT / "contracts" / "openapi" / "inventory.yaml"
+    assert spec_path.exists(), f"OpenAPI contract missing at {spec_path}"
+
+    with open(spec_path, "r", encoding="utf-8") as f:
+        spec = yaml.safe_load(f)
+
+    paths = spec.get("paths", {})
+    assert "/api/v1/inventory/optimization/recommendations" in paths
+    assert "get" in paths["/api/v1/inventory/optimization/recommendations"]
+
+    assert "/api/v1/inventory/goods-receipts" in paths
+    assert "post" in paths["/api/v1/inventory/goods-receipts"]
+
+def test_outbox_envelope_matches_po_approved_contract(db_session):
+    """The envelope record_event() really writes must satisfy the published schema."""
+    from app.services.outbox_service import record_event
+    schema = json.loads((REPO_ROOT / "contracts/events/inventory.po.approved.v1.json").read_text(encoding="utf-8"))
+    example = json.loads((REPO_ROOT / "contracts/events/examples/inventory.po.approved.v1.json").read_text(encoding="utf-8"))
+    entry = record_event(
+        db=db_session,
+        event_type="inventory.po.approved",
+        aggregate_type="purchase_order",
+        aggregate_id=example["payload"]["po_id"],
+        payload=example["payload"],
+    )
+    _validate(schema, json.loads(entry.payload))
+
+
+def test_generated_po_id_is_canonical(db_session):
+    from app.services.purchase_order_service import generate_po_id
+    assert re.fullmatch(r"PO-\d{4}-\d{6}", generate_po_id(db_session))
+
+
+def test_openapi_contract_matches_app():
+    """Fails if someone changes a route without re-exporting contracts/openapi/inventory.yaml."""
+    from app.main import app
+    spec = yaml.safe_load((REPO_ROOT / "contracts/openapi/inventory.yaml").read_text(encoding="utf-8"))
+    assert spec == json.loads(json.dumps(app.openapi()))
+

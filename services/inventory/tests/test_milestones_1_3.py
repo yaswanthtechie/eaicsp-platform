@@ -7,6 +7,7 @@ from app.models.inventory_cost_layer import InventoryCostLayer
 from app.models.supplier import Supplier
 
 from tests.conftest import seed_sales_history
+from app.services.purchase_order_service import approve_purchase_order
 
 
 # ============================================================
@@ -22,7 +23,7 @@ def test_m1_create_inventory_hierarchy(
     Create a central -> regional -> local warehouse hierarchy.
     """
 
-    sku = "SKU-M1-HIERARCHY"
+    sku = "SKU-000102"
 
     central = {
         "sku_id": sku,
@@ -92,7 +93,7 @@ def test_m1_reorder_plan_contains_transfer_suggestion(
     transferring stock from another warehouse.
     """
 
-    sku = "SKU-M1-TRANSFER"
+    sku = "SKU-000104"
 
     source = Inventory(
         sku_id=sku,
@@ -172,7 +173,7 @@ def test_m1_fulfill_shortage_from_parent_warehouse(
     from its parent warehouse when stock is available.
     """
 
-    sku = "SKU-M1-FULFILL"
+    sku = "SKU-000101"
 
     parent = Inventory(
         sku_id=sku,
@@ -242,7 +243,7 @@ def test_m1_fulfill_rejects_invalid_quantity(client):
     response = client.post(
         "/api/v1/inventory/multi-echelon/fulfill",
         params={
-            "sku_id": "SKU-M1-INVALID",
+            "sku_id": "SKU-000103",
             "warehouse_id": "WH-LOCAL",
             "required_quantity": 0,
         },
@@ -265,11 +266,11 @@ def test_m2_automatic_draft_po_selects_lowest_cost_supplier(
     for the requested SKU.
     """
 
-    sku = "SKU-M2-SUPPLIER"
+    sku = "SKU-000204"
 
     inventory = Inventory(
         sku_id=sku,
-        warehouse_id="WH-M2",
+        warehouse_id="WH-BLR-01",
         product_name="M2 Product",
         category="Electronics",
         quantity_on_hand=1,
@@ -280,7 +281,7 @@ def test_m2_automatic_draft_po_selects_lowest_cost_supplier(
     )
 
     expensive_supplier = Supplier(
-        supplier_id="SUP-M2-EXPENSIVE",
+        supplier_id="SUP-00203",
         sku_id=sku,
         supplier_name="Expensive Supplier",
         unit_cost=100.0,
@@ -288,7 +289,7 @@ def test_m2_automatic_draft_po_selects_lowest_cost_supplier(
     )
 
     cheap_supplier = Supplier(
-        supplier_id="SUP-M2-CHEAP",
+        supplier_id="SUP-00201",
         sku_id=sku,
         supplier_name="Cheap Supplier",
         unit_cost=50.0,
@@ -307,7 +308,7 @@ def test_m2_automatic_draft_po_selects_lowest_cost_supplier(
 
     seed_sales_history(
         sku_id=sku,
-        warehouse_id="WH-M2",
+        warehouse_id="WH-BLR-01",
         daily_quantity=10,
         days=30,
     )
@@ -316,7 +317,7 @@ def test_m2_automatic_draft_po_selects_lowest_cost_supplier(
         "/api/v1/inventory/purchase-orders/draft",
         json={
             "sku_id": sku,
-            "warehouse_id": "WH-M2",
+            "warehouse_id": "WH-BLR-01",
         },
     )
 
@@ -324,7 +325,7 @@ def test_m2_automatic_draft_po_selects_lowest_cost_supplier(
 
     data = response.json()
 
-    assert data["supplier_id"] == "SUP-M2-CHEAP"
+    assert data["supplier_id"] == "SUP-00201"
     assert data["unit_cost"] == 50.0
 
 
@@ -338,11 +339,11 @@ def test_m2_automatic_po_contains_expected_cost(
         suggested quantity * supplier unit cost
     """
 
-    sku = "SKU-M2-COST"
+    sku = "SKU-000201"
 
     inventory = Inventory(
         sku_id=sku,
-        warehouse_id="WH-M2-COST",
+        warehouse_id="WH-BOM-01",
         product_name="Cost Product",
         category="Electronics",
         quantity_on_hand=1,
@@ -353,7 +354,7 @@ def test_m2_automatic_po_contains_expected_cost(
     )
 
     supplier = Supplier(
-        supplier_id="SUP-M2-COST",
+        supplier_id="SUP-00202",
         sku_id=sku,
         supplier_name="Cost Supplier",
         unit_cost=25.0,
@@ -371,7 +372,7 @@ def test_m2_automatic_po_contains_expected_cost(
 
     seed_sales_history(
         sku_id=sku,
-        warehouse_id="WH-M2-COST",
+        warehouse_id="WH-BOM-01",
         daily_quantity=10,
         days=30,
     )
@@ -380,7 +381,7 @@ def test_m2_automatic_po_contains_expected_cost(
         "/api/v1/inventory/purchase-orders/draft",
         json={
             "sku_id": sku,
-            "warehouse_id": "WH-M2-COST",
+            "warehouse_id": "WH-BOM-01",
         },
     )
 
@@ -401,7 +402,7 @@ def test_m2_automatic_po_fails_when_inventory_not_found(
     response = client.post(
         "/api/v1/inventory/purchase-orders/draft",
         json={
-            "sku_id": "SKU-M2-NOT-FOUND",
+            "sku_id": "SKU-000203",
             "warehouse_id": "WH-MISSING",
         },
     )
@@ -413,11 +414,11 @@ def test_m2_automatic_po_fails_when_no_supplier_exists(
     client,
     db_session,
 ):
-    sku = "SKU-M2-NO-SUPPLIER"
+    sku = "SKU-000202"
 
     inventory = Inventory(
         sku_id=sku,
-        warehouse_id="WH-M2-NO-SUP",
+        warehouse_id="WH-DEL-01",
         product_name="No Supplier Product",
         category="Electronics",
         quantity_on_hand=1,
@@ -433,7 +434,7 @@ def test_m2_automatic_po_fails_when_no_supplier_exists(
 
     seed_sales_history(
         sku_id=sku,
-        warehouse_id="WH-M2-NO-SUP",
+        warehouse_id="WH-DEL-01",
         daily_quantity=10,
         days=30,
     )
@@ -442,7 +443,7 @@ def test_m2_automatic_po_fails_when_no_supplier_exists(
         "/api/v1/inventory/purchase-orders/draft",
         json={
             "sku_id": sku,
-            "warehouse_id": "WH-M2-NO-SUP",
+            "warehouse_id": "WH-DEL-01",
         },
     )
 
@@ -505,11 +506,11 @@ def test_m3_fifo_inventory_valuation(
         = 1100
     """
 
-    sku = "SKU-M3-FIFO"
+    sku = "SKU-000301"
 
     inventory = Inventory(
         sku_id=sku,
-        warehouse_id="WH-M3-FIFO",
+        warehouse_id="WH-BLR-01",
         product_name="FIFO Product",
         category="Electronics",
         quantity_on_hand=80,
@@ -526,7 +527,7 @@ def test_m3_fifo_inventory_valuation(
     add_m3_cost_layer(
         db_session,
         sku,
-        "WH-M3-FIFO",
+        "WH-BLR-01",
         50,
         10.0,
     )
@@ -534,7 +535,7 @@ def test_m3_fifo_inventory_valuation(
     add_m3_cost_layer(
         db_session,
         sku,
-        "WH-M3-FIFO",
+        "WH-BLR-01",
         50,
         20.0,
     )
@@ -572,11 +573,11 @@ def test_m3_weighted_average_inventory_valuation(
         80 * 15 = 1200
     """
 
-    sku = "SKU-M3-WA"
+    sku = "SKU-000302"
 
     inventory = Inventory(
         sku_id=sku,
-        warehouse_id="WH-M3-WA",
+        warehouse_id="WH-BOM-01",
         product_name="Weighted Average Product",
         category="Electronics",
         quantity_on_hand=80,
@@ -593,7 +594,7 @@ def test_m3_weighted_average_inventory_valuation(
     add_m3_cost_layer(
         db_session,
         sku,
-        "WH-M3-WA",
+        "WH-BOM-01",
         50,
         10.0,
     )
@@ -601,7 +602,7 @@ def test_m3_weighted_average_inventory_valuation(
     add_m3_cost_layer(
         db_session,
         sku,
-        "WH-M3-WA",
+        "WH-BOM-01",
         50,
         20.0,
     )
@@ -639,8 +640,8 @@ def test_m3_inventory_value_grouped_by_warehouse_and_category(
     """
 
     inventory_1 = Inventory(
-        sku_id="SKU-M3-GROUP-1",
-        warehouse_id="WH-M3-GROUP",
+        sku_id="SKU-000303",
+        warehouse_id="WH-DEL-01",
         product_name="Product 1",
         category="Electronics",
         quantity_on_hand=10,
@@ -651,8 +652,8 @@ def test_m3_inventory_value_grouped_by_warehouse_and_category(
     )
 
     inventory_2 = Inventory(
-        sku_id="SKU-M3-GROUP-2",
-        warehouse_id="WH-M3-GROUP",
+        sku_id="SKU-000304",
+        warehouse_id="WH-DEL-01",
         product_name="Product 2",
         category="Electronics",
         quantity_on_hand=10,
@@ -673,16 +674,16 @@ def test_m3_inventory_value_grouped_by_warehouse_and_category(
 
     add_m3_cost_layer(
         db_session,
-        "SKU-M3-GROUP-1",
-        "WH-M3-GROUP",
+        "SKU-000303",
+        "WH-DEL-01",
         10,
         100.0,
     )
 
     add_m3_cost_layer(
         db_session,
-        "SKU-M3-GROUP-2",
-        "WH-M3-GROUP",
+        "SKU-000304",
+        "WH-DEL-01",
         10,
         200.0,
     )
@@ -705,7 +706,7 @@ def test_m3_inventory_value_grouped_by_warehouse_and_category(
     for item in data["report"]:
         if (
             item["warehouse_id"]
-            == "WH-M3-GROUP"
+            == "WH-DEL-01"
             and item["category"]
             == "Electronics"
         ):
@@ -721,11 +722,11 @@ def test_m3_zero_inventory_is_excluded_from_report(
     client,
     db_session,
 ):
-    sku = "SKU-M3-ZERO"
+    sku = "SKU-000305"
 
     inventory = Inventory(
         sku_id=sku,
-        warehouse_id="WH-M3-ZERO",
+        warehouse_id="WH-HYD-01",
         product_name="Zero Product",
         category="Electronics",
         quantity_on_hand=0,
@@ -755,7 +756,7 @@ def test_m3_zero_inventory_is_excluded_from_report(
     for item in data["report"]:
         assert not (
             item["warehouse_id"]
-            == "WH-M3-ZERO"
+            == "WH-HYD-01"
         )
 
 
@@ -790,8 +791,8 @@ def test_m3_receive_purchase_order_creates_cost_layer(
     4. Change PO status to received.
     """
 
-    sku = "SKU-M3-PO-RECEIVE"
-    warehouse = "WH-M3-RECEIVE"
+    sku = "SKU-000306"
+    warehouse = "WH-CCU-01"
 
     inventory = Inventory(
         sku_id=sku,
@@ -806,7 +807,7 @@ def test_m3_receive_purchase_order_creates_cost_layer(
     )
 
     supplier = Supplier(
-        supplier_id="SUP-M3-RECEIVE",
+        supplier_id="SUP-00301",
         sku_id=sku,
         supplier_name="M3 Supplier",
         unit_cost=25.0,
@@ -844,6 +845,8 @@ def test_m3_receive_purchase_order_creates_cost_layer(
     po_id = draft_data["po_id"]
     po_quantity = draft_data["quantity"]
     po_unit_cost = draft_data["unit_cost"]
+
+    approve_purchase_order(db=db_session, po_id=po_id, approved_by="7")
 
     receive_response = client.post(
         f"/api/v1/inventory/purchase-orders/{po_id}/receive"
@@ -904,8 +907,8 @@ def test_m3_receive_purchase_order_updates_inventory_value(
     be included in FIFO valuation.
     """
 
-    sku = "SKU-M3-PO-VALUE"
-    warehouse = "WH-M3-PO-VALUE"
+    sku = "SKU-000307"
+    warehouse = "WH-MAA-01"
 
     inventory = Inventory(
         sku_id=sku,
@@ -920,7 +923,7 @@ def test_m3_receive_purchase_order_updates_inventory_value(
     )
 
     supplier = Supplier(
-        supplier_id="SUP-M3-PO-VALUE",
+        supplier_id="SUP-00302",
         sku_id=sku,
         supplier_name="Value Supplier",
         unit_cost=20.0,
@@ -966,6 +969,8 @@ def test_m3_receive_purchase_order_updates_inventory_value(
     po_id = draft_data["po_id"]
     po_quantity = draft_data["quantity"]
 
+    approve_purchase_order(db=db_session, po_id=po_id, approved_by="7")
+
     receive_response = client.post(
         f"/api/v1/inventory/purchase-orders/{po_id}/receive"
     )
@@ -1002,8 +1007,8 @@ def test_m3_cannot_receive_purchase_order_twice(
     A received PO cannot be received again.
     """
 
-    sku = "SKU-M3-PO-DUPLICATE"
-    warehouse = "WH-M3-PO-DUPLICATE"
+    sku = "SKU-000308"
+    warehouse = "WH-BLR-01"
 
     inventory = Inventory(
         sku_id=sku,
@@ -1018,7 +1023,7 @@ def test_m3_cannot_receive_purchase_order_twice(
     )
 
     supplier = Supplier(
-        supplier_id="SUP-M3-DUPLICATE",
+        supplier_id="SUP-00303",
         sku_id=sku,
         supplier_name="Duplicate Supplier",
         unit_cost=30.0,
@@ -1052,6 +1057,8 @@ def test_m3_cannot_receive_purchase_order_twice(
     assert draft_response.status_code == 201
 
     po_id = draft_response.json()["po_id"]
+
+    approve_purchase_order(db=db_session, po_id=po_id, approved_by="7")
 
     first_receive = client.post(
         f"/api/v1/inventory/purchase-orders/{po_id}/receive"

@@ -26,7 +26,7 @@ SUPPLIER_USER = {
     "email": "supplier@company.com",
     "full_name": "Supplier User",
     "role": "supplier",
-    "supplier_id": "SUP001",
+    "supplier_id": "SUP-00001",
     "is_active": True,
 }
 
@@ -37,7 +37,7 @@ SUPPLIER_B_USER = {
     "email": "supplierb@example.com",
     "full_name": "Supplier B",
     "role": "supplier",
-    "supplier_id": "SUP002",
+    "supplier_id": "SUP-00002",
     "is_active": True,
 }
 
@@ -69,7 +69,7 @@ PROCUREMENT_USER = {
 # ============================================================
 
 SUPPLIER_A_REGISTRATION = {
-    "supplier_id": "SUP001",
+    "supplier_id": "SUP-00001",
     "company_name": "ABC Supplies Pvt Ltd",
     "contact_name": "Ravi Kumar",
     "email": "ravi@abcsupplies.com",
@@ -85,7 +85,7 @@ SUPPLIER_A_REGISTRATION = {
 
 
 SUPPLIER_B_REGISTRATION = {
-    "supplier_id": "SUP002",
+    "supplier_id": "SUP-00002",
     "company_name": "XYZ Supplies Pvt Ltd",
     "contact_name": "Suresh Kumar",
     "email": "suresh@xyzsupplies.com",
@@ -312,7 +312,7 @@ def register_supplier_b(procurement_client):
 
 def submit_all_required_documents(
     supplier_client,
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
 ):
     """
     Submit all required supplier documents.
@@ -335,7 +335,7 @@ def submit_all_required_documents(
 def complete_verification(
     procurement_client,
     supplier_client,
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
 ):
     """
     Register supplier, upload all documents,
@@ -344,7 +344,7 @@ def complete_verification(
 
     registration = (
         SUPPLIER_A_REGISTRATION
-        if supplier_id == "SUP001"
+        if supplier_id == "SUP-00001"
         else SUPPLIER_B_REGISTRATION
     )
 
@@ -372,7 +372,7 @@ def complete_verification(
 def complete_approval(
     procurement_client,
     supplier_client,
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
 ):
     """
     Register supplier, upload documents,
@@ -410,7 +410,7 @@ def test_register_supplier(procurement_client):
 
     data = response.json()
 
-    assert data["supplier_id"] == "SUP001"
+    assert data["supplier_id"] == "SUP-00001"
 
     assert data["company_name"] == (
         "ABC Supplies Pvt Ltd"
@@ -467,7 +467,7 @@ def test_supplier_can_view_own_details(
     assert register_response.status_code == 201
 
     response = supplier_client.get(
-        "/api/v1/suppliers/SUP001"
+        "/api/v1/suppliers/SUP-00001"
     )
 
     # GET endpoint -> 200
@@ -475,7 +475,7 @@ def test_supplier_can_view_own_details(
 
     data = response.json()
 
-    assert data["supplier_id"] == "SUP001"
+    assert data["supplier_id"] == "SUP-00001"
 
     assert data["status"] == (
         "pending_documents"
@@ -505,7 +505,7 @@ def test_supplier_cannot_view_other_supplier(
     )
 
     response = supplier_client.get(
-        "/api/v1/suppliers/SUP002"
+        "/api/v1/suppliers/SUP-00002"
     )
 
     assert response.status_code == 403
@@ -532,7 +532,7 @@ def test_supplier_can_upload_own_document(
 
     response = upload_document(
         supplier_client,
-        "SUP001",
+        "SUP-00001",
         "gst_certificate",
     )
 
@@ -541,7 +541,7 @@ def test_supplier_can_upload_own_document(
 
     data = response.json()
 
-    assert data["supplier_id"] == "SUP001"
+    assert data["supplier_id"] == "SUP-00001"
 
     assert data["document_type"] == (
         "gst_certificate"
@@ -565,7 +565,7 @@ def test_document_upload_returns_502_when_minio_is_unreachable(
 
     response = upload_document(
         supplier_client,
-        "SUP001",
+        "SUP-00001",
         "gst_certificate",
     )
 
@@ -596,7 +596,7 @@ def test_supplier_cannot_upload_other_supplier_document(
 
     response = upload_document(
         supplier_client,
-        "SUP002",
+        "SUP-00002",
         "gst_certificate",
     )
 
@@ -624,7 +624,7 @@ def test_invalid_document_type_rejected(
 
     response = upload_document(
         supplier_client,
-        "SUP001",
+        "SUP-00001",
         "invalid_document",
     )
 
@@ -653,7 +653,7 @@ def test_empty_document_rejected(
 
     response = upload_empty_document(
         supplier_client,
-        "SUP001",
+        "SUP-00001",
         "gst_certificate",
     )
 
@@ -681,7 +681,7 @@ def test_duplicate_document_rejected(
 
     first_response = upload_document(
         supplier_client,
-        "SUP001",
+        "SUP-00001",
         "gst_certificate",
     )
 
@@ -689,7 +689,7 @@ def test_duplicate_document_rejected(
 
     second_response = upload_document(
         supplier_client,
-        "SUP001",
+        "SUP-00001",
         "gst_certificate",
     )
 
@@ -721,7 +721,7 @@ def test_status_changes_after_all_documents_submitted(
     )
 
     response = supplier_client.get(
-        "/api/v1/suppliers/SUP001/status"
+        "/api/v1/suppliers/SUP-00001/status"
     )
 
     # GET -> 200
@@ -761,14 +761,14 @@ def test_supplier_can_list_own_documents(
 
     upload_response = upload_document(
         supplier_client,
-        "SUP001",
+        "SUP-00001",
         "gst_certificate",
     )
 
     assert upload_response.status_code == 201
 
     response = supplier_client.get(
-        "/api/v1/suppliers/SUP001/documents"
+        "/api/v1/suppliers/SUP-00001/documents"
     )
 
     # GET -> 200
@@ -779,7 +779,7 @@ def test_supplier_can_list_own_documents(
     assert len(documents) == 1
 
     assert documents[0]["supplier_id"] == (
-        "SUP001"
+        "SUP-00001"
     )
 
     assert documents[0]["document_type"] == (
@@ -810,7 +810,7 @@ def test_supplier_cannot_list_other_supplier_documents(
     )
 
     response = supplier_client.get(
-        "/api/v1/suppliers/SUP002/documents"
+        "/api/v1/suppliers/SUP-00002/documents"
     )
 
     assert response.status_code == 403
@@ -832,14 +832,14 @@ def test_supplier_can_view_own_status(
     )
 
     response = supplier_client.get(
-        "/api/v1/suppliers/SUP001/status"
+        "/api/v1/suppliers/SUP-00001/status"
     )
 
     assert response.status_code == 200
 
     data = response.json()
 
-    assert data["supplier_id"] == "SUP001"
+    assert data["supplier_id"] == "SUP-00001"
 
     assert data["status"] == (
         "pending_documents"
@@ -877,7 +877,7 @@ def test_supplier_cannot_view_other_supplier_status(
     )
 
     response = supplier_client.get(
-        "/api/v1/suppliers/SUP002/status"
+        "/api/v1/suppliers/SUP-00002/status"
     )
 
     assert response.status_code == 403
@@ -903,7 +903,7 @@ def test_procurement_manager_can_verify_supplier(
     )
 
     response = procurement_client.post(
-        "/api/v1/suppliers/SUP001/verify"
+        "/api/v1/suppliers/SUP-00001/verify"
     )
 
     # POST verify -> 201
@@ -911,7 +911,7 @@ def test_procurement_manager_can_verify_supplier(
 
     data = response.json()
 
-    assert data["supplier_id"] == "SUP001"
+    assert data["supplier_id"] == "SUP-00001"
 
     assert data["status"] == "verified"
 
@@ -940,7 +940,7 @@ def test_supplier_cannot_verify(
     )
 
     response = supplier_client.post(
-        "/api/v1/suppliers/SUP001/verify"
+        "/api/v1/suppliers/SUP-00001/verify"
     )
 
     assert response.status_code == 403
@@ -961,7 +961,7 @@ def test_verification_requires_all_documents(
     )
 
     response = procurement_client.post(
-        "/api/v1/suppliers/SUP001/verify"
+        "/api/v1/suppliers/SUP-00001/verify"
     )
 
     assert response.status_code == 400
@@ -986,7 +986,7 @@ def test_procurement_manager_can_approve_supplier(
     )
 
     response = procurement_client.post(
-        "/api/v1/suppliers/SUP001/approve",
+        "/api/v1/suppliers/SUP-00001/approve",
         json={
             "reason": (
                 "Supplier documents and "
@@ -1000,7 +1000,7 @@ def test_procurement_manager_can_approve_supplier(
 
     data = response.json()
 
-    assert data["supplier_id"] == "SUP001"
+    assert data["supplier_id"] == "SUP-00001"
 
     assert data["status"] == "approved"
 
@@ -1026,7 +1026,7 @@ def test_supplier_cannot_approve(
     )
 
     response = supplier_client.post(
-        "/api/v1/suppliers/SUP001/approve",
+        "/api/v1/suppliers/SUP-00001/approve",
         json={
             "reason": "Not authorized",
         },
@@ -1049,7 +1049,7 @@ def test_procurement_manager_can_activate_supplier(
     )
 
     response = procurement_client.post(
-        "/api/v1/suppliers/SUP001/activate"
+        "/api/v1/suppliers/SUP-00001/activate"
     )
 
     # POST activate -> 201
@@ -1057,7 +1057,7 @@ def test_procurement_manager_can_activate_supplier(
 
     data = response.json()
 
-    assert data["supplier_id"] == "SUP001"
+    assert data["supplier_id"] == "SUP-00001"
 
     assert data["status"] == "active"
 
@@ -1078,7 +1078,7 @@ def test_supplier_cannot_activate(
     )
 
     response = supplier_client.post(
-        "/api/v1/suppliers/SUP001/activate"
+        "/api/v1/suppliers/SUP-00001/activate"
     )
 
     assert response.status_code == 403
@@ -1099,7 +1099,7 @@ def test_cannot_approve_before_verification(
     )
 
     response = procurement_client.post(
-        "/api/v1/suppliers/SUP001/approve",
+        "/api/v1/suppliers/SUP-00001/approve",
         json={
             "reason": "Premature approval",
         },
@@ -1128,7 +1128,7 @@ def test_cannot_activate_before_approval(
     )
 
     response = procurement_client.post(
-        "/api/v1/suppliers/SUP001/activate"
+        "/api/v1/suppliers/SUP-00001/activate"
     )
 
     assert response.status_code == 400
@@ -1153,13 +1153,13 @@ def test_active_supplier_cannot_be_activated_again(
     )
 
     first_activation = procurement_client.post(
-        "/api/v1/suppliers/SUP001/activate"
+        "/api/v1/suppliers/SUP-00001/activate"
     )
 
     assert first_activation.status_code == 201
 
     second_activation = procurement_client.post(
-        "/api/v1/suppliers/SUP001/activate"
+        "/api/v1/suppliers/SUP-00001/activate"
     )
 
     assert second_activation.status_code == 400
@@ -1181,7 +1181,7 @@ def test_supplier_can_view_own_history(
     )
 
     response = supplier_client.get(
-        "/api/v1/suppliers/SUP001/history"
+        "/api/v1/suppliers/SUP-00001/history"
     )
 
     assert response.status_code == 200
@@ -1191,7 +1191,7 @@ def test_supplier_can_view_own_history(
     assert len(history) == 1
 
     assert history[0]["supplier_id"] == (
-        "SUP001"
+        "SUP-00001"
     )
 
     assert history[0]["from_status"] is None
@@ -1224,7 +1224,7 @@ def test_supplier_cannot_view_other_supplier_history(
     )
 
     response = supplier_client.get(
-        "/api/v1/suppliers/SUP002/history"
+        "/api/v1/suppliers/SUP-00002/history"
     )
 
     assert response.status_code == 403
@@ -1268,8 +1268,8 @@ def test_procurement_manager_can_list_suppliers(
     }
 
     assert supplier_ids == {
-        "SUP001",
-        "SUP002",
+        "SUP-00001",
+        "SUP-00002",
     }
 
 
@@ -1303,7 +1303,7 @@ def test_supplier_without_supplier_id_is_rejected(
     supplier_no_id_client,
 ):
     response = supplier_no_id_client.get(
-        "/api/v1/suppliers/SUP001"
+        "/api/v1/suppliers/SUP-00001"
     )
 
     assert response.status_code == 403
@@ -1345,7 +1345,7 @@ def test_complete_supplier_onboarding_workflow(
     )
 
     status_response = supplier_client.get(
-        "/api/v1/suppliers/SUP001/status"
+        "/api/v1/suppliers/SUP-00001/status"
     )
 
     # GET -> 200
@@ -1361,7 +1361,7 @@ def test_complete_supplier_onboarding_workflow(
     # --------------------------------------------------------
 
     verify_response = procurement_client.post(
-        "/api/v1/suppliers/SUP001/verify"
+        "/api/v1/suppliers/SUP-00001/verify"
     )
 
     # POST -> 201
@@ -1382,7 +1382,7 @@ def test_complete_supplier_onboarding_workflow(
     # --------------------------------------------------------
 
     approve_response = procurement_client.post(
-        "/api/v1/suppliers/SUP001/approve",
+        "/api/v1/suppliers/SUP-00001/approve",
         json={
             "reason": (
                 "Verification completed successfully"
@@ -1403,7 +1403,7 @@ def test_complete_supplier_onboarding_workflow(
     # --------------------------------------------------------
 
     activate_response = procurement_client.post(
-        "/api/v1/suppliers/SUP001/activate"
+        "/api/v1/suppliers/SUP-00001/activate"
     )
 
     # POST -> 201
@@ -1419,7 +1419,7 @@ def test_complete_supplier_onboarding_workflow(
     # --------------------------------------------------------
 
     final_status = supplier_client.get(
-        "/api/v1/suppliers/SUP001/status"
+        "/api/v1/suppliers/SUP-00001/status"
     )
 
     # GET -> 200
@@ -1435,7 +1435,7 @@ def test_complete_supplier_onboarding_workflow(
     # --------------------------------------------------------
 
     history_response = supplier_client.get(
-        "/api/v1/suppliers/SUP001/history"
+        "/api/v1/suppliers/SUP-00001/history"
     )
 
     # GET -> 200
@@ -1474,14 +1474,14 @@ def test_supplier_b_can_view_own_details(
     )
 
     response = supplier_b_client.get(
-        "/api/v1/suppliers/SUP002"
+        "/api/v1/suppliers/SUP-00002"
     )
 
     assert response.status_code == 200
 
     data = response.json()
 
-    assert data["supplier_id"] == "SUP002"
+    assert data["supplier_id"] == "SUP-00002"
 
 
 # ============================================================
@@ -1500,7 +1500,7 @@ def test_supplier_without_supplier_id_cannot_view_documents(
     )
 
     response = supplier_no_id_client.get(
-        "/api/v1/suppliers/SUP001/documents"
+        "/api/v1/suppliers/SUP-00001/documents"
     )
 
     assert response.status_code == 403
@@ -1526,7 +1526,7 @@ def test_supplier_without_supplier_id_cannot_view_status(
     )
 
     response = supplier_no_id_client.get(
-        "/api/v1/suppliers/SUP001/status"
+        "/api/v1/suppliers/SUP-00001/status"
     )
 
     assert response.status_code == 403
@@ -1552,7 +1552,7 @@ def test_supplier_without_supplier_id_cannot_view_history(
     )
 
     response = supplier_no_id_client.get(
-        "/api/v1/suppliers/SUP001/history"
+        "/api/v1/suppliers/SUP-00001/history"
     )
 
     assert response.status_code == 403
@@ -1633,12 +1633,12 @@ def test_procurement_manager_can_view_supplier_details(
     )
 
     response = procurement_client.get(
-        "/api/v1/suppliers/SUP001"
+        "/api/v1/suppliers/SUP-00001"
     )
 
     assert response.status_code == 200
 
-    assert response.json()["supplier_id"] == "SUP001"
+    assert response.json()["supplier_id"] == "SUP-00001"
 
 
 # ============================================================
@@ -1656,12 +1656,12 @@ def test_procurement_manager_can_view_supplier_status(
     )
 
     response = procurement_client.get(
-        "/api/v1/suppliers/SUP001/status"
+        "/api/v1/suppliers/SUP-00001/status"
     )
 
     assert response.status_code == 200
 
-    assert response.json()["supplier_id"] == "SUP001"
+    assert response.json()["supplier_id"] == "SUP-00001"
 
 
 # ============================================================
@@ -1679,7 +1679,7 @@ def test_procurement_manager_can_view_supplier_history(
     )
 
     response = procurement_client.get(
-        "/api/v1/suppliers/SUP001/history"
+        "/api/v1/suppliers/SUP-00001/history"
     )
 
     assert response.status_code == 200
@@ -1688,7 +1688,7 @@ def test_procurement_manager_can_view_supplier_history(
 
     assert len(history) == 1
 
-    assert history[0]["supplier_id"] == "SUP001"
+    assert history[0]["supplier_id"] == "SUP-00001"
 
 
 # ============================================================
@@ -1709,14 +1709,14 @@ def test_procurement_manager_can_view_supplier_documents(
     assert (
         upload_document(
             supplier_client,
-            "SUP001",
+            "SUP-00001",
             "gst_certificate",
         ).status_code
         == 201
     )
 
     response = procurement_client.get(
-        "/api/v1/suppliers/SUP001/documents"
+        "/api/v1/suppliers/SUP-00001/documents"
     )
 
     assert response.status_code == 200
@@ -1725,7 +1725,7 @@ def test_procurement_manager_can_view_supplier_documents(
 
     assert len(documents) == 1
 
-    assert documents[0]["supplier_id"] == "SUP001"
+    assert documents[0]["supplier_id"] == "SUP-00001"
 
 # ============================================================
 # 8A. UNSUPPORTED DOCUMENT FILE TYPE
@@ -1743,7 +1743,7 @@ def test_unsupported_document_file_type_rejected(
     )
 
     response = supplier_client.post(
-        "/api/v1/suppliers/SUP001/documents",
+        "/api/v1/suppliers/SUP-00001/documents",
         data={
             "document_type": "gst_certificate",
         },
@@ -1781,7 +1781,7 @@ def test_document_extension_must_match_file_type(
     )
 
     response = supplier_client.post(
-        "/api/v1/suppliers/SUP001/documents",
+        "/api/v1/suppliers/SUP-00001/documents",
         data={
             "document_type": "gst_certificate",
         },
@@ -1823,7 +1823,7 @@ def test_document_larger_than_10_mb_rejected(
     )
 
     response = supplier_client.post(
-        "/api/v1/suppliers/SUP001/documents",
+        "/api/v1/suppliers/SUP-00001/documents",
         data={
             "document_type": "gst_certificate",
         },
@@ -1857,17 +1857,17 @@ def test_activation_allows_supplier_after_compliance_clear(
     )
 
     response = procurement_client.post(
-        "/api/v1/suppliers/SUP001/activate"
+        "/api/v1/suppliers/SUP-00001/activate"
     )
 
     assert response.status_code == 201
 
     data = response.json()
 
-    assert data["supplier_id"] == "SUP001"
+    assert data["supplier_id"] == "SUP-00001"
     assert data["status"] == "active"
 
-    assert suppliers["SUP001"]["status"] == "active"
+    assert suppliers["SUP-00001"]["status"] == "active"
 
 
 # ============================================================
@@ -1901,7 +1901,7 @@ def test_activation_blocked_when_compliance_returns_block(
     )
 
     response = procurement_client.post(
-        "/api/v1/suppliers/SUP001/activate"
+        "/api/v1/suppliers/SUP-00001/activate"
     )
 
     assert response.status_code == 409
@@ -1912,7 +1912,7 @@ def test_activation_blocked_when_compliance_returns_block(
     assert "Supplier matched a sanctions record." in detail
 
     # Supplier must remain APPROVED.
-    assert suppliers["SUP001"]["status"] == "approved"
+    assert suppliers["SUP-00001"]["status"] == "approved"
 
 
 # ============================================================
@@ -1946,7 +1946,7 @@ def test_activation_blocked_when_compliance_returns_review(
     )
 
     response = procurement_client.post(
-        "/api/v1/suppliers/SUP001/activate"
+        "/api/v1/suppliers/SUP-00001/activate"
     )
 
     assert response.status_code == 409
@@ -1957,7 +1957,7 @@ def test_activation_blocked_when_compliance_returns_review(
     assert "manual compliance review" in detail
 
     # Supplier must remain APPROVED.
-    assert suppliers["SUP001"]["status"] == "approved"
+    assert suppliers["SUP-00001"]["status"] == "approved"
 
 
 # ============================================================
@@ -1989,7 +1989,7 @@ def test_activation_returns_503_when_compliance_unavailable(
     )
 
     response = procurement_client.post(
-        "/api/v1/suppliers/SUP001/activate"
+        "/api/v1/suppliers/SUP-00001/activate"
     )
 
     assert response.status_code == 503
@@ -2000,7 +2000,7 @@ def test_activation_returns_503_when_compliance_unavailable(
 
     # Fail-closed:
     # supplier must remain APPROVED.
-    assert suppliers["SUP001"]["status"] == "approved"
+    assert suppliers["SUP-00001"]["status"] == "approved"
 
 
 # ============================================================
@@ -2032,7 +2032,7 @@ def test_activation_returns_502_when_compliance_returns_error(
     )
 
     response = procurement_client.post(
-        "/api/v1/suppliers/SUP001/activate"
+        "/api/v1/suppliers/SUP-00001/activate"
     )
 
     assert response.status_code == 502
@@ -2042,7 +2042,7 @@ def test_activation_returns_502_when_compliance_returns_error(
     )
 
     # Supplier must remain APPROVED.
-    assert suppliers["SUP001"]["status"] == "approved"
+    assert suppliers["SUP-00001"]["status"] == "approved"
 
 
 # ============================================================
@@ -2082,13 +2082,13 @@ def test_activation_sends_correct_supplier_data_to_compliance(
     )
 
     response = procurement_client.post(
-        "/api/v1/suppliers/SUP001/activate"
+        "/api/v1/suppliers/SUP-00001/activate"
     )
 
     assert response.status_code == 201
 
     assert captured == {
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "supplier_name": "ABC Supplies Pvt Ltd",
         "country": "India",
     }
@@ -2108,7 +2108,7 @@ def test_compliance_is_checked_before_supplier_becomes_active(
         supplier_client,
     )
 
-    assert suppliers["SUP001"]["status"] == "approved"
+    assert suppliers["SUP-00001"]["status"] == "approved"
 
     observed_status = {}
 
@@ -2118,7 +2118,7 @@ def test_compliance_is_checked_before_supplier_becomes_active(
         country,
     ):
         observed_status["before_compliance"] = (
-            suppliers["SUP001"]["status"]
+            suppliers["SUP-00001"]["status"]
         )
 
         return {
@@ -2133,7 +2133,7 @@ def test_compliance_is_checked_before_supplier_becomes_active(
     )
 
     response = procurement_client.post(
-        "/api/v1/suppliers/SUP001/activate"
+        "/api/v1/suppliers/SUP-00001/activate"
     )
 
     assert response.status_code == 201
@@ -2142,7 +2142,7 @@ def test_compliance_is_checked_before_supplier_becomes_active(
         "approved"
     )
 
-    assert suppliers["SUP001"]["status"] == "active"
+    assert suppliers["SUP-00001"]["status"] == "active"
 
 # ============================================================
 # 20H. FAILED COMPLIANCE DOES NOT CREATE ACTIVE HISTORY
@@ -2175,14 +2175,14 @@ def test_failed_compliance_does_not_create_active_history(
     )
 
     response = procurement_client.post(
-        "/api/v1/suppliers/SUP001/activate"
+        "/api/v1/suppliers/SUP-00001/activate"
     )
 
     assert response.status_code == 409
 
-    assert suppliers["SUP001"]["status"] == "approved"
+    assert suppliers["SUP-00001"]["status"] == "approved"
 
-    history = supplier_onboarding_history["SUP001"]
+    history = supplier_onboarding_history["SUP-00001"]
 
     statuses = [
         item["to_status"]
@@ -2227,7 +2227,7 @@ def test_unapproved_supplier_is_rejected_before_compliance_is_called(
     )
 
     response = procurement_client.post(
-        "/api/v1/suppliers/SUP001/activate"
+        "/api/v1/suppliers/SUP-00001/activate"
     )
 
     # The real reason (wrong state), not a 503.

@@ -2241,4 +2241,77 @@ python -m src.intermittent_demand
 
 python -m src.cold_start
 
+## Round 14: Business Backtest — Does a Better Forecast Save Money?
+
+### The question
+
+Forecast accuracy metrics such as MAE and MAPE do not directly tell us how much inventory a business needs. This backtest evaluates the operational impact of demand forecasts by comparing the stock required to achieve a target fill rate, inventory held, and estimated holding-cost savings.
+
+### How the replay works
+
+The simulation replays historical demand day by day:
+
+1. **Orders arrive:** Previously placed replenishment orders that have reached their arrival date are received.
+2. **Today's order is decided:** The inventory policy uses the forecast available from the previous day, rather than future information, to determine the replenishment quantity.
+3. **Demand is served:** Actual demand is served from available inventory, and unmet demand is recorded as lost sales.
+4. **The process repeats:** Inventory and replenishment decisions are updated as the replay advances through the historical series.
+
+The order-up-to level is based on forecast demand over the supplier lead time, adjusted by the empirical 95th percentile of past actual-to-forecast demand ratios. The ratio uses past observations only, making this an empirical prediction-interval adjustment rather than a fixed safety-stock multiplier.
+
+Models are refitted every 7 days. Ensemble weights are selected walk-forward using historical forecast performance, without using the evaluation period to select weights.
+
+### Assumptions
+
+- Target fill rate: **98%**.
+- Default supplier lead time: **7 days**; 3-day and 14-day lead times are also tested.
+- Assumed unit value: **10**. The dataset does not contain actual product prices.
+- Annual inventory holding-cost rate: **20%** of assumed inventory value.
+- Lost-sales margin assumption: **3 per unmet unit**.
+- Ensemble and baseline approaches are evaluated using the same fill-rate target when comparing inventory requirements.
+
+These are simulation assumptions, not measured company costs or actual product prices.
+
+### Volume tiers and limitations
+
+The aggregate, fast-, medium-, and slow-moving tiers are **thinned copies of one aggregate demand series, not real individual SKUs**. They provide a sensitivity analysis across different demand volumes and should not be interpreted as evidence that the model performs identically across real products.
+
+### Results
+
+The regenerated results below are from `reports/business_value/summary.md`. Stock saved compares the ensemble with the best naive baseline at the same fill-rate target.
+
+| Volume tier | Stock needed: ensemble | Best naive (stock) | Stock saved | Holding cost saved over 1,108 days | Verdict |
+|---|---:|---|---:|---:|---|
+| Aggregate (~34,000/day) | 12,561.8 | 28-day average (16,953.8) | **26%** | 26,665 | The ensemble pays off |
+| Fast movers (~200/day) | 84.6 | 28-day average (106.0) | **20%** | 130 | The ensemble pays off |
+| Medium movers (~30/day) | 25.3 | 28-day average (28.1) | 10% | 17 | Forecasting helps, but the ensemble adds nothing over Prophet alone |
+| Slow movers (~5/day) | 13.5 | 28-day average (15.5) | 13% | 12 | Forecasting helps, but the ensemble adds nothing over Prophet alone |
+
+## In plain English
+
+- Aggregate (~34,000/day): the fixed 50/50 blend requires about 3.3% less inventory than the tuned-weight ensemble in the regenerated robustness results.
+- Fast movers (~200/day): the fixed 50/50 blend requires about 3.2% less inventory on average than the tuned-weight ensemble across three seeds; results vary by seed.
+- Medium movers (~30/day): tuned ensemble and 50/50 blend are nearly tied; both require slightly less inventory than Prophet on average in the regenerated robustness results.
+- Slow movers (~5/day): the tuned ensemble requires slightly less inventory than Prophet on average, while the fixed 50/50 blend requires more.
+
+These are simulated volume tiers created by binomial thinning of one aggregate series, not real individual SKUs. Differences across three seeds are small in some tiers, so treat them as directional evidence rather than proof of universal superiority.
+### How to interpret the results
+
+- Compare inventory requirements at the **same fill rate**. A forecast that requires less stock at a fixed fill-rate target is more inventory-efficient under the simulation assumptions.
+- Stockout days at a fixed safety setting can make a better forecast appear worse because different approaches may achieve different fill rates. Those stockout-day counts are not directly comparable unless the fill-rate target is also controlled.
+- Holding-cost savings are estimates based on the assumed unit value and annual holding-cost rate. They are not actual financial savings.
+- The aggregate and volume-tier results are based on one demand series. Validation on real SKU-level demand and actual product costs is required before drawing operational conclusions.
+
+### Re-running and validating the backtest
+
+From `ml-services/demand-forecast/prophet/`, the following commands were used to validate the changes and inspect the generated report:
+
+```powershell
+python -m pytest tests/test_inventory_sim.py -q
+python -m pytest -m "not integration" -q
+Get-Content .\reports\business_value\summary.md
+```
+
+The latest reported non-integration test run completed with **169 passed, 191 warnings** in 197.98 seconds.
+
+The generated summary is written to `reports/business_value/summary.md` and should be regenerated from the latest backtest CSVs and `assumptions.json`, rather than edited manually. The commands above validate the tests and inspect the summary; they do not, by themselves, regenerate the experiment outputs. Use the actual experiment-generation commands from the project workflow when rerunning the backtest.
 

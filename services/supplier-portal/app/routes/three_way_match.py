@@ -238,11 +238,11 @@ def get_match(
     #
     # This prevents an existence leak:
     #
-    # SUP002 -> SUP001/INV1  => 403
-    # SUP002 -> SUP001/NOPE => 403
+    # SUP-00002 -> SUP-00001/INV1  => 403
+    # SUP-00002 -> SUP-00001/NOPE => 403
     #
-    # The application never reveals whether the SUP001
-    # resource exists to SUP002.
+    # The application never reveals whether the SUP-00001
+    # resource exists to SUP-00002.
     check_supplier_access(
         supplier_id=supplier_id,
         user=user,

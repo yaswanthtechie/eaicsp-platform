@@ -13,6 +13,7 @@ database, so it never touches your dev data.
 """
 
 import os
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -23,7 +24,7 @@ import httpx
 
 SERVICE_DIR = Path(__file__).resolve().parent.parent
 PORTS = (8105, 8106)
-PASSWORD = "TwoInstance!Check2026"
+PASSWORD = f"Tw0-{secrets.token_hex(8)}!"
 SEED_ROLES = (
     "CEO",
     "VP_OPERATIONS",

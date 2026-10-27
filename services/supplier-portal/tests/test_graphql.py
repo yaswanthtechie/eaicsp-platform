@@ -1,4 +1,4 @@
-"""
+﻿"""
 GraphQL API tests for the Supplier Portal.
 
 Covers:
@@ -40,6 +40,9 @@ from app.schemas.events import (
 from app.services.supplier_compliance_service import (
     supplier_compliance_service,
 )
+from app.database import SessionLocal
+from app.models.po_mirror import POMirror
+from app.models.po_ack_outbox import POAckOutbox
 
 
 # ============================================================
@@ -69,7 +72,7 @@ def graphql(
 # TEST DATA HELPERS
 # ============================================================
 
-def seed_supplier(supplier_id: str = "SUP001") -> dict:
+def seed_supplier(supplier_id: str = "SUP-00001") -> dict:
     supplier = {
         "supplier_id": supplier_id,
         "company_name": f"Test Supplier {supplier_id}",
@@ -300,7 +303,7 @@ def clean_graphql_data(tmp_path):
         supplier_documents.clear()
 
         # Default authenticated supplier used by supplier_client.
-        seed_supplier("SUP001")
+        seed_supplier("SUP-00001")
 
         yield
 
@@ -367,6 +370,7 @@ def test_graphql_schema_exposes_required_query_fields(
 
     assert "purchaseOrder" in field_names
     assert "purchaseOrders" in field_names
+    assert "approvedPurchaseOrders" in field_names
     assert "invoice" in field_names
     assert "invoices" in field_names
     assert "documents" in field_names
@@ -404,6 +408,10 @@ def test_graphql_schema_exposes_acknowledge_mutation(
 
     assert (
         "acknowledgePurchaseOrder"
+        in field_names
+    )
+    assert (
+        "acknowledgeApprovedPurchaseOrder"
         in field_names
     )
 
@@ -451,7 +459,7 @@ def test_supplier_can_query_own_purchase_order(
 ):
     seed_po(
         "PO-GQL-001",
-        "SUP001",
+        "SUP-00001",
     )
 
     result = graphql(
@@ -468,7 +476,7 @@ def test_supplier_can_query_own_purchase_order(
 
     assert po is not None
     assert po["poNumber"] == "PO-GQL-001"
-    assert po["supplierId"] == "SUP001"
+    assert po["supplierId"] == "SUP-00001"
     assert po["status"] == "DRAFT"
     assert po["totalAmount"] == 2000
 
@@ -476,6 +484,118 @@ def test_supplier_can_query_own_purchase_order(
     assert po["items"][0]["itemCode"] == "ITEM001"
     assert po["items"][0]["quantity"] == 2
     assert po["items"][0]["unitPrice"] == 1000
+
+def test_supplier_can_query_own_approved_purchase_orders(
+    supplier_client,
+):
+    seed_approved_po(
+        "PO-2026-000123",
+        "SUP-00001",
+    )
+    seed_approved_po(
+        "PO-2026-000124",
+        "SUP-00002",
+    )
+
+    set_compliance_status(
+        "SUP-00001",
+        SupplierComplianceStatus.cleared,
+    )
+
+    result = graphql(
+        supplier_client,
+        APPROVED_PURCHASE_ORDERS_QUERY,
+    )
+
+    assert "errors" not in result, result.get("errors")
+
+    pos = result["data"]["approvedPurchaseOrders"]
+
+    assert any(
+        po["poId"] == "PO-2026-000123"
+        and po["supplierId"] == "SUP-00001"
+        for po in pos
+    )
+
+    assert all(
+        po["supplierId"] == "SUP-00001"
+        for po in pos
+    )
+
+
+def test_supplier_b_can_query_own_approved_purchase_orders(
+    supplier_b_client,
+):
+    seed_approved_po(
+        "PO-2026-000125",
+        "SUP-00002",
+    )
+
+    set_compliance_status(
+        "SUP-00002",
+        SupplierComplianceStatus.cleared,
+    )
+
+    result = graphql(
+        supplier_b_client,
+        APPROVED_PURCHASE_ORDERS_QUERY,
+    )
+
+    assert "errors" not in result, result.get("errors")
+
+    pos = result["data"]["approvedPurchaseOrders"]
+
+    assert any(
+        po["poId"] == "PO-2026-000125"
+        and po["supplierId"] == "SUP-00002"
+        for po in pos
+    )
+
+    assert all(
+        po["supplierId"] == "SUP-00002"
+        for po in pos
+    )
+
+
+def test_supplier_without_supplier_id_cannot_query_approved_purchase_orders(
+    supplier_no_id_client,
+):
+    result = graphql(
+        supplier_no_id_client,
+        APPROVED_PURCHASE_ORDERS_QUERY,
+    )
+
+    assert "errors" in result
+    assert (
+        "Supplier identity is missing"
+        in result["errors"][0]["message"]
+    )
+
+
+def test_suspended_supplier_cannot_query_approved_purchase_orders(
+    supplier_client,
+):
+    seed_approved_po(
+        "PO-2026-000126",
+        "SUP-00001",
+    )
+
+    set_compliance_status(
+        "SUP-00001",
+        SupplierComplianceStatus.suspended,
+    )
+
+    result = graphql(
+        supplier_client,
+        APPROVED_PURCHASE_ORDERS_QUERY,
+    )
+
+    assert "errors" in result
+    assert (
+        "Supplier account is suspended due to compliance status"
+        in result["errors"][0]["message"]
+    )
+
 
 
 def test_query_unknown_purchase_order_returns_null(
@@ -502,7 +622,7 @@ def test_supplier_cannot_query_other_supplier_purchase_order(
 ):
     seed_po(
         "PO-SUP002-001",
-        "SUP002",
+        "SUP-00002",
     )
 
     result = graphql(
@@ -527,7 +647,7 @@ def test_supplier_b_can_query_own_purchase_order(
 ):
     seed_po(
         "PO-SUP002-001",
-        "SUP002",
+        "SUP-00002",
     )
 
     result = graphql(
@@ -544,7 +664,7 @@ def test_supplier_b_can_query_own_purchase_order(
 
     assert po is not None
     assert po["poNumber"] == "PO-SUP002-001"
-    assert po["supplierId"] == "SUP002"
+    assert po["supplierId"] == "SUP-00002"
 
 
 # ============================================================
@@ -584,15 +704,15 @@ def test_purchase_order_list_is_supplier_scoped(
 ):
     seed_po(
         "PO-SUP001-001",
-        "SUP001",
+        "SUP-00001",
     )
     seed_po(
         "PO-SUP001-002",
-        "SUP001",
+        "SUP-00001",
     )
     seed_po(
         "PO-SUP002-001",
-        "SUP002",
+        "SUP-00002",
     )
 
     result = graphql(
@@ -618,7 +738,7 @@ def test_purchase_order_list_is_supplier_scoped(
         for edge in edges
     }
 
-    assert supplier_ids == {"SUP001"}
+    assert supplier_ids == {"SUP-00001"}
 
 
 def test_purchase_order_list_does_not_leak_other_supplier(
@@ -626,11 +746,11 @@ def test_purchase_order_list_does_not_leak_other_supplier(
 ):
     seed_po(
         "PO-SUP001-001",
-        "SUP001",
+        "SUP-00001",
     )
     seed_po(
         "PO-SUP002-001",
-        "SUP002",
+        "SUP-00002",
     )
 
     result = graphql(
@@ -663,15 +783,15 @@ def test_purchase_order_cursor_pagination(
 ):
     seed_po(
         "PO-GQL-001",
-        "SUP001",
+        "SUP-00001",
     )
     seed_po(
         "PO-GQL-002",
-        "SUP001",
+        "SUP-00001",
     )
     seed_po(
         "PO-GQL-003",
-        "SUP001",
+        "SUP-00001",
     )
 
     first_page = graphql(
@@ -799,7 +919,7 @@ def test_supplier_can_query_own_invoice(
 ):
     seed_invoice(
         "INV-GQL-001",
-        "SUP001",
+        "SUP-00001",
     )
 
     result = graphql(
@@ -822,7 +942,7 @@ def test_supplier_can_query_own_invoice(
     )
     assert (
         invoice["supplierId"]
-        == "SUP001"
+        == "SUP-00001"
     )
     assert invoice["amount"] == 2000
     assert len(invoice["items"]) == 1
@@ -857,7 +977,7 @@ def test_supplier_cannot_query_other_supplier_invoice(
 ):
     seed_invoice(
         "INV-SUP002-001",
-        "SUP002",
+        "SUP-00002",
     )
 
     result = graphql(
@@ -882,12 +1002,12 @@ def test_supplier_cannot_query_other_supplier_invoice_even_when_both_exist(
 ):
     seed_invoice(
         "INV-SUP001-001",
-        "SUP001",
+        "SUP-00001",
     )
 
     seed_invoice(
         "INV-SUP002-001",
-        "SUP002",
+        "SUP-00002",
     )
 
     result = graphql(
@@ -912,7 +1032,7 @@ def test_supplier_b_can_query_own_invoice(
 ):
     seed_invoice(
         "INV-SUP002-001",
-        "SUP002",
+        "SUP-00002",
     )
 
     result = graphql(
@@ -935,7 +1055,7 @@ def test_supplier_b_can_query_own_invoice(
     )
     assert (
         invoice["supplierId"]
-        == "SUP002"
+        == "SUP-00002"
     )
 
 
@@ -976,15 +1096,15 @@ def test_invoice_list_is_supplier_scoped(
 ):
     seed_invoice(
         "INV-SUP001-001",
-        "SUP001",
+        "SUP-00001",
     )
     seed_invoice(
         "INV-SUP001-002",
-        "SUP001",
+        "SUP-00001",
     )
     seed_invoice(
         "INV-SUP002-001",
-        "SUP002",
+        "SUP-00002",
     )
 
     result = graphql(
@@ -1010,7 +1130,7 @@ def test_invoice_list_is_supplier_scoped(
         for edge in edges
     }
 
-    assert supplier_ids == {"SUP001"}
+    assert supplier_ids == {"SUP-00001"}
 
 
 def test_invoice_list_does_not_leak_other_supplier(
@@ -1018,11 +1138,11 @@ def test_invoice_list_does_not_leak_other_supplier(
 ):
     seed_invoice(
         "INV-SUP001-001",
-        "SUP001",
+        "SUP-00001",
     )
     seed_invoice(
         "INV-SUP002-001",
-        "SUP002",
+        "SUP-00002",
     )
 
     result = graphql(
@@ -1062,15 +1182,15 @@ def test_invoice_cursor_pagination(
 ):
     seed_invoice(
         "INV-GQL-001",
-        "SUP001",
+        "SUP-00001",
     )
     seed_invoice(
         "INV-GQL-002",
-        "SUP001",
+        "SUP-00001",
     )
     seed_invoice(
         "INV-GQL-003",
-        "SUP001",
+        "SUP-00001",
     )
 
     first_page = graphql(
@@ -1206,7 +1326,7 @@ def test_supplier_can_query_own_documents(
     supplier_client,
 ):
     seed_document(
-        "SUP001",
+        "SUP-00001",
         "DOC-GQL-001",
     )
 
@@ -1236,7 +1356,7 @@ def test_supplier_can_query_own_documents(
     )
     assert (
         document["supplierId"]
-        == "SUP001"
+        == "SUP-00001"
     )
     assert (
         document["documentType"]
@@ -1254,12 +1374,12 @@ def test_documents_do_not_leak_other_supplier(
     supplier_client,
 ):
     seed_document(
-        "SUP001",
+        "SUP-00001",
         "DOC-SUP001-001",
     )
 
     seed_document(
-        "SUP002",
+        "SUP-00002",
         "DOC-SUP002-001",
     )
 
@@ -1301,12 +1421,12 @@ def test_supplier_b_can_query_own_documents(
     supplier_b_client,
 ):
     seed_document(
-        "SUP002",
+        "SUP-00002",
         "DOC-SUP002-001",
     )
 
     seed_document(
-        "SUP001",
+        "SUP-00001",
         "DOC-SUP001-001",
     )
 
@@ -1330,7 +1450,7 @@ def test_supplier_b_can_query_own_documents(
 
     assert (
         edges[0]["node"]["supplierId"]
-        == "SUP002"
+        == "SUP-00002"
     )
 
 
@@ -1338,19 +1458,19 @@ def test_document_cursor_pagination(
     supplier_client,
 ):
     seed_document(
-        "SUP001",
+        "SUP-00001",
         "DOC-GQL-001",
         "pan_card",
     )
 
     seed_document(
-        "SUP001",
+        "SUP-00001",
         "DOC-GQL-002",
         "gst_certificate",
     )
 
     seed_document(
-        "SUP001",
+        "SUP-00001",
         "DOC-GQL-003",
         "bank_certificate",
     )
@@ -1457,7 +1577,7 @@ def test_supplier_without_supplier_id_cannot_query_purchase_orders(
 ):
     seed_po(
         "PO-SUP001-001",
-        "SUP001",
+        "SUP-00001",
     )
 
     result = graphql(
@@ -1480,7 +1600,7 @@ def test_supplier_without_supplier_id_cannot_query_single_purchase_order(
 ):
     seed_po(
         "PO-SUP001-SINGLE",
-        "SUP001",
+        "SUP-00001",
     )
 
     result = graphql(
@@ -1504,7 +1624,7 @@ def test_supplier_without_supplier_id_cannot_query_invoices(
 ):
     seed_invoice(
         "INV-SUP001-001",
-        "SUP001",
+        "SUP-00001",
     )
 
     result = graphql(
@@ -1527,7 +1647,7 @@ def test_supplier_without_supplier_id_cannot_query_single_invoice(
 ):
     seed_invoice(
         "INV-SUP001-SINGLE",
-        "SUP001",
+        "SUP-00001",
     )
 
     result = graphql(
@@ -1550,7 +1670,7 @@ def test_supplier_without_supplier_id_cannot_query_documents(
     supplier_no_id_client,
 ):
     seed_document(
-        "SUP001",
+        "SUP-00001",
         "DOC-SUP001-001",
     )
 
@@ -1596,7 +1716,7 @@ def test_supplier_can_acknowledge_own_purchase_order(
 ):
     seed_po(
         "PO-GQL-ACK-001",
-        "SUP001",
+        "SUP-00001",
         status=PurchaseOrderStatus.sent,
     )
 
@@ -1625,7 +1745,7 @@ def test_supplier_can_acknowledge_own_purchase_order(
 
     assert (
         po["supplierId"]
-        == "SUP001"
+        == "SUP-00001"
     )
 
     assert (
@@ -1640,6 +1760,287 @@ def test_supplier_can_acknowledge_own_purchase_order(
         == PurchaseOrderStatus.acknowledged
     )
 
+
+def test_supplier_can_acknowledge_own_approved_purchase_order(
+    supplier_client,
+):
+    po_id = seed_approved_po(
+        "PO-2026-000127",
+        "SUP-00001",
+    )
+
+    set_compliance_status(
+        "SUP-00001",
+        SupplierComplianceStatus.cleared,
+    )
+
+    result = graphql(
+        supplier_client,
+        ACKNOWLEDGE_APPROVED_PO_MUTATION,
+        {"poId": po_id},
+    )
+
+    assert "errors" not in result, result.get("errors")
+
+    po = result["data"]["acknowledgeApprovedPurchaseOrder"]
+
+    assert po is not None
+    assert po["poId"] == po_id
+    assert po["supplierId"] == "SUP-00001"
+    assert po["status"] == "acknowledged"
+    assert po["acknowledgedAt"] is not None
+
+    db = SessionLocal()
+    try:
+        saved_po = db.query(POMirror).filter(
+            POMirror.po_id == po_id
+        ).one()
+
+        assert saved_po.status == "acknowledged"
+        assert saved_po.acknowledged_at is not None
+
+        outbox_events = db.query(POAckOutbox).filter(
+            POAckOutbox.message_key == po_id
+        ).all()
+
+        assert len(outbox_events) == 1
+        assert outbox_events[0].status == "pending"
+        assert (
+            outbox_events[0].payload["event_type"]
+            == "supplierportal.po.acknowledged"
+        )
+        assert (
+            outbox_events[0].payload["payload"]["po_number"]
+            == po_id
+        )
+    finally:
+        db.close()
+
+
+def test_acknowledge_unknown_approved_po_returns_null(
+    supplier_client,
+):
+    set_compliance_status(
+        "SUP-00001",
+        SupplierComplianceStatus.cleared,
+    )
+
+    result = graphql(
+        supplier_client,
+        ACKNOWLEDGE_APPROVED_PO_MUTATION,
+        {"poId": "PO-2026-999999"},
+    )
+
+    assert "errors" not in result
+    assert (
+        result["data"]["acknowledgeApprovedPurchaseOrder"]
+        is None
+    )
+
+
+def test_supplier_cannot_acknowledge_another_suppliers_approved_po(
+    supplier_client,
+):
+    po_id = seed_approved_po(
+        "PO-2026-000128",
+        "SUP-00002",
+    )
+
+    set_compliance_status(
+        "SUP-00001",
+        SupplierComplianceStatus.cleared,
+    )
+
+    result = graphql(
+        supplier_client,
+        ACKNOWLEDGE_APPROVED_PO_MUTATION,
+        {"poId": po_id},
+    )
+
+    assert "errors" not in result
+    assert (
+        result["data"]["acknowledgeApprovedPurchaseOrder"]
+        is None
+    )
+
+    db = SessionLocal()
+    try:
+        saved_po = db.query(POMirror).filter(
+            POMirror.po_id == po_id
+        ).one()
+
+        assert saved_po.status == "approved"
+        assert saved_po.acknowledged_at is None
+
+        assert db.query(POAckOutbox).filter(
+            POAckOutbox.message_key == po_id
+        ).count() == 0
+    finally:
+        db.close()
+
+
+def test_needs_review_supplier_cannot_acknowledge_approved_po(
+    supplier_client,
+):
+    po_id = seed_approved_po(
+        "PO-2026-000129",
+        "SUP-00001",
+    )
+
+    set_compliance_status(
+        "SUP-00001",
+        SupplierComplianceStatus.needs_review,
+    )
+
+    result = graphql(
+        supplier_client,
+        ACKNOWLEDGE_APPROVED_PO_MUTATION,
+        {"poId": po_id},
+    )
+
+    assert "errors" in result
+    assert (
+        "Supplier account is under compliance review"
+        in result["errors"][0]["message"]
+    )
+
+    db = SessionLocal()
+    try:
+        saved_po = db.query(POMirror).filter(
+            POMirror.po_id == po_id
+        ).one()
+
+        assert saved_po.status == "approved"
+        assert saved_po.acknowledged_at is None
+
+        assert db.query(POAckOutbox).filter(
+            POAckOutbox.message_key == po_id
+        ).count() == 0
+    finally:
+        db.close()
+
+
+def test_suspended_supplier_cannot_acknowledge_approved_po(
+    supplier_client,
+):
+    po_id = seed_approved_po(
+        "PO-2026-000130",
+        "SUP-00001",
+    )
+
+    set_compliance_status(
+        "SUP-00001",
+        SupplierComplianceStatus.suspended,
+    )
+
+    result = graphql(
+        supplier_client,
+        ACKNOWLEDGE_APPROVED_PO_MUTATION,
+        {"poId": po_id},
+    )
+
+    assert "errors" in result
+    assert (
+        "Supplier account is suspended due to compliance status"
+        in result["errors"][0]["message"]
+    )
+
+    db = SessionLocal()
+    try:
+        saved_po = db.query(POMirror).filter(
+            POMirror.po_id == po_id
+        ).one()
+
+        assert saved_po.status == "approved"
+        assert saved_po.acknowledged_at is None
+
+        assert db.query(POAckOutbox).filter(
+            POAckOutbox.message_key == po_id
+        ).count() == 0
+    finally:
+        db.close()
+
+
+def test_repeated_approved_po_acknowledgement_does_not_duplicate_outbox_event(
+    supplier_client,
+):
+    po_id = seed_approved_po(
+        "PO-2026-000131",
+        "SUP-00001",
+    )
+
+    set_compliance_status(
+        "SUP-00001",
+        SupplierComplianceStatus.cleared,
+    )
+
+    first_result = graphql(
+        supplier_client,
+        ACKNOWLEDGE_APPROVED_PO_MUTATION,
+        {"poId": po_id},
+    )
+
+    assert "errors" not in first_result, first_result.get("errors")
+    assert (
+        first_result["data"]["acknowledgeApprovedPurchaseOrder"]["status"]
+        == "acknowledged"
+    )
+
+    second_result = graphql(
+        supplier_client,
+        ACKNOWLEDGE_APPROVED_PO_MUTATION,
+        {"poId": po_id},
+    )
+
+    assert "errors" not in second_result, second_result.get("errors")
+    assert (
+        second_result["data"]["acknowledgeApprovedPurchaseOrder"]["status"]
+        == "acknowledged"
+    )
+
+    db = SessionLocal()
+    try:
+        assert db.query(POAckOutbox).filter(
+            POAckOutbox.message_key == po_id
+        ).count() == 1
+    finally:
+        db.close()
+
+
+def test_internal_user_cannot_acknowledge_approved_po(
+    procurement_client,
+):
+    po_id = seed_approved_po(
+        "PO-2026-000132",
+        "SUP-00001",
+    )
+
+    result = graphql(
+        procurement_client,
+        ACKNOWLEDGE_APPROVED_PO_MUTATION,
+        {"poId": po_id},
+    )
+
+    assert "errors" in result
+    assert (
+        "Only suppliers can acknowledge approved POs"
+        in result["errors"][0]["message"]
+    )
+
+    db = SessionLocal()
+    try:
+        saved_po = db.query(POMirror).filter(
+            POMirror.po_id == po_id
+        ).one()
+
+        assert saved_po.status == "approved"
+        assert saved_po.acknowledged_at is None
+
+        assert db.query(POAckOutbox).filter(
+            POAckOutbox.message_key == po_id
+        ).count() == 0
+    finally:
+        db.close()
 
 def test_acknowledge_unknown_purchase_order_returns_null(
     supplier_client,
@@ -1667,7 +2068,7 @@ def test_supplier_cannot_acknowledge_other_supplier_purchase_order(
 ):
     seed_po(
         "PO-SUP002-ACK-001",
-        "SUP002",
+        "SUP-00002",
         status=PurchaseOrderStatus.sent,
     )
 
@@ -1701,7 +2102,7 @@ def test_cross_supplier_acknowledge_does_not_modify_purchase_order(
 ):
     po = seed_po(
         "PO-SUP002-ACK-002",
-        "SUP002",
+        "SUP-00002",
         status=PurchaseOrderStatus.sent,
     )
 
@@ -1749,7 +2150,7 @@ def test_supplier_b_can_acknowledge_own_purchase_order(
 ):
     seed_po(
         "PO-SUP002-ACK-003",
-        "SUP002",
+        "SUP-00002",
         status=PurchaseOrderStatus.sent,
     )
 
@@ -1778,13 +2179,122 @@ def test_supplier_b_can_acknowledge_own_purchase_order(
 
     assert (
         po["supplierId"]
-        == "SUP002"
+        == "SUP-00002"
     )
 
     assert (
         po["status"]
         == "ACKNOWLEDGED"
     )
+
+
+# ============================================================
+# 12. R15 APPROVED PURCHASE ORDERS
+# ============================================================
+
+APPROVED_PURCHASE_ORDERS_QUERY = """
+query ApprovedPurchaseOrders {
+    approvedPurchaseOrders {
+        poId
+        poNumber
+        supplierId
+        warehouseId
+        approvalStatus
+        approvedBy
+        totalAmount
+        currency
+        status
+        acknowledgedAt
+        lines {
+            lineNumber
+            skuId
+            quantity
+            unitCost
+            expectedCost
+        }
+    }
+}
+"""
+
+ACKNOWLEDGE_APPROVED_PO_MUTATION = """
+mutation AcknowledgeApprovedPurchaseOrder($poId: String!) {
+    acknowledgeApprovedPurchaseOrder(poId: $poId) {
+        poId
+        poNumber
+        supplierId
+        status
+        acknowledgedAt
+    }
+}
+"""
+@pytest.fixture(autouse=True)
+def approved_po_db(po_db, monkeypatch):
+    """Point this module's SessionLocal at the in-memory po_db."""
+    monkeypatch.setitem(globals(), "SessionLocal", po_db)
+    yield po_db
+
+def seed_approved_po(
+    po_id: str,
+    supplier_id: str = "SUP-00001",
+    status: str = "approved",
+):
+    """Create a DB-backed inventory-approved PO for GraphQL tests."""
+
+    db = SessionLocal()
+
+    try:
+        # Keep repeated test runs deterministic for this PO ID.
+        db.query(POAckOutbox).filter(
+            POAckOutbox.message_key == po_id
+        ).delete(synchronize_session=False)
+
+        db.query(POMirror).filter(
+            POMirror.po_id == po_id
+        ).delete(synchronize_session=False)
+
+        approved_at = datetime(
+            2026, 10, 21, 10, 0, tzinfo=timezone.utc
+        )
+
+        po = POMirror(
+            po_id=po_id,
+            event_id=str(uuid4()),
+            event_type="inventory.po.approved",
+            event_version=1,
+            occurred_at=approved_at,
+            trace_id=None,
+            po_number=po_id,
+            supplier_id=supplier_id,
+            warehouse_id="WH-BLR-01",
+            approval_status="approved",
+            approved_by="3f2b8c1e-7a4d-4e9b-9c2f-1d5e6a7b8c90",
+            approved_at=approved_at,
+            total_amount=2000,
+            currency="INR",
+            expected_delivery_date=date(2026, 11, 1),
+            lines=[
+                {
+                    "line_number": 1,
+                    "sku_id": "SKU-000123",
+                    "quantity": 2,
+                    "unit_cost": 1000,
+                    "expected_cost": 2000,
+                }
+            ],
+            status=status,
+            acknowledged_at=None,
+        )
+
+        db.add(po)
+        db.commit()
+        return po_id
+
+    except Exception:
+        db.rollback()
+        raise
+
+    finally:
+        db.close()
 
 
 # ============================================================
@@ -1810,23 +2320,23 @@ def test_supplier_a_cannot_access_supplier_b_graphql_resources(
     # Supplier A is the authenticated supplier.
     # Compliance-first GraphQL authorization requires
     # the authenticated supplier to exist.
-    seed_supplier("SUP001")
+    seed_supplier("SUP-00001")
 
     # Supplier B owns the resources being requested.
-    seed_supplier("SUP002")
+    seed_supplier("SUP-00002")
 
     seed_po(
         "PO-SUP002-SECURITY",
-        "SUP002",
+        "SUP-00002",
     )
 
     seed_invoice(
         "INV-SUP002-SECURITY",
-        "SUP002",
+        "SUP-00002",
     )
 
     seed_document(
-        "SUP002",
+        "SUP-00002",
         "DOC-SUP002-SECURITY",
     )
 
@@ -1904,20 +2414,20 @@ def test_purchase_order_pagination_is_applied_after_supplier_scoping(
 
     seed_po(
         "PO-A-001",
-        "SUP001",
+        "SUP-00001",
     )
     seed_po(
         "PO-A-002",
-        "SUP001",
+        "SUP-00001",
     )
 
     seed_po(
         "PO-B-001",
-        "SUP002",
+        "SUP-00002",
     )
     seed_po(
         "PO-B-002",
-        "SUP002",
+        "SUP-00002",
     )
 
     result = graphql(
@@ -1941,7 +2451,7 @@ def test_purchase_order_pagination_is_applied_after_supplier_scoping(
 
     assert all(
         edge["node"]["supplierId"]
-        == "SUP001"
+        == "SUP-00001"
         for edge in connection["edges"]
     )
 
@@ -1962,20 +2472,20 @@ def test_invoice_pagination_is_applied_after_supplier_scoping(
 
     seed_invoice(
         "INV-A-001",
-        "SUP001",
+        "SUP-00001",
     )
     seed_invoice(
         "INV-A-002",
-        "SUP001",
+        "SUP-00001",
     )
 
     seed_invoice(
         "INV-B-001",
-        "SUP002",
+        "SUP-00002",
     )
     seed_invoice(
         "INV-B-002",
-        "SUP002",
+        "SUP-00002",
     )
 
     result = graphql(
@@ -1999,7 +2509,7 @@ def test_invoice_pagination_is_applied_after_supplier_scoping(
 
     assert all(
         edge["node"]["supplierId"]
-        == "SUP001"
+        == "SUP-00001"
         for edge in connection["edges"]
     )
 
@@ -2019,20 +2529,20 @@ def test_document_pagination_is_applied_after_supplier_scoping(
     """
 
     seed_document(
-        "SUP001",
+        "SUP-00001",
         "DOC-A-001",
     )
     seed_document(
-        "SUP001",
+        "SUP-00001",
         "DOC-A-002",
     )
 
     seed_document(
-        "SUP002",
+        "SUP-00002",
         "DOC-B-001",
     )
     seed_document(
-        "SUP002",
+        "SUP-00002",
         "DOC-B-002",
     )
 
@@ -2057,7 +2567,7 @@ def test_document_pagination_is_applied_after_supplier_scoping(
 
     assert all(
         edge["node"]["supplierId"]
-        == "SUP001"
+        == "SUP-00001"
         for edge in connection["edges"]
     )
 
@@ -2072,7 +2582,7 @@ def test_internal_role_cannot_acknowledge_purchase_order(
 ):
     seed_po(
         "PO-SUP001-ACK-INT",
-        "SUP001",
+        "SUP-00001",
         status=PurchaseOrderStatus.sent,
     )
 
@@ -2107,12 +2617,12 @@ def test_supplier_invoice_ignores_client_supplier_id(
 
     seed_invoice(
         "INV-SAME-001",
-        "SUP001",
+        "SUP-00001",
     )
 
     seed_invoice(
         "INV-SAME-001",
-        "SUP002",
+        "SUP-00002",
     )
 
     query = """
@@ -2135,7 +2645,7 @@ def test_supplier_invoice_ignores_client_supplier_id(
         query,
         {
             "invoiceNumber": "INV-SAME-001",
-            "supplierId": "SUP002",
+            "supplierId": "SUP-00002",
         },
     )
 
@@ -2147,7 +2657,7 @@ def test_supplier_invoice_ignores_client_supplier_id(
     assert invoice["invoiceNumber"] == "INV-SAME-001"
 
     # Supplier A must still receive Supplier A's invoice.
-    assert invoice["supplierId"] == "SUP001"
+    assert invoice["supplierId"] == "SUP-00001"
 
 
 def test_internal_user_requires_supplier_id_for_single_invoice(
@@ -2160,7 +2670,7 @@ def test_internal_user_requires_supplier_id_for_single_invoice(
 
     seed_invoice(
         "INV-INTERNAL-001",
-        "SUP001",
+        "SUP-00001",
     )
 
     result = graphql(
@@ -2191,7 +2701,7 @@ def test_internal_user_can_query_invoice_with_supplier_id(
 
     seed_invoice(
         "INV-INTERNAL-002",
-        "SUP001",
+        "SUP-00001",
     )
 
     result = graphql(
@@ -2213,7 +2723,7 @@ def test_internal_user_can_query_invoice_with_supplier_id(
         """,
         {
             "invoiceNumber": "INV-INTERNAL-002",
-            "supplierId": "SUP001",
+            "supplierId": "SUP-00001",
         },
     )
 
@@ -2223,7 +2733,7 @@ def test_internal_user_can_query_invoice_with_supplier_id(
 
     assert invoice is not None
     assert invoice["invoiceNumber"] == "INV-INTERNAL-002"
-    assert invoice["supplierId"] == "SUP001"
+    assert invoice["supplierId"] == "SUP-00001"
     assert invoice["amount"] == 2000
 
 
@@ -2240,12 +2750,12 @@ def test_internal_user_gets_correct_invoice_when_invoice_number_is_shared(
 
     seed_invoice(
         "INV-SHARED-001",
-        "SUP001",
+        "SUP-00001",
     )
 
     seed_invoice(
         "INV-SHARED-001",
-        "SUP002",
+        "SUP-00002",
     )
 
     result = graphql(
@@ -2267,7 +2777,7 @@ def test_internal_user_gets_correct_invoice_when_invoice_number_is_shared(
         """,
         {
             "invoiceNumber": "INV-SHARED-001",
-            "supplierId": "SUP002",
+            "supplierId": "SUP-00002",
         },
     )
 
@@ -2277,7 +2787,7 @@ def test_internal_user_gets_correct_invoice_when_invoice_number_is_shared(
 
     assert invoice is not None
     assert invoice["invoiceNumber"] == "INV-SHARED-001"
-    assert invoice["supplierId"] == "SUP002"
+    assert invoice["supplierId"] == "SUP-00002"
     assert invoice["amount"] == 2000
 
 # ============================================================
@@ -2290,11 +2800,11 @@ def test_cleared_supplier_can_query_purchase_order(
 ):
     seed_po(
         "PO-R14-CLEAR-001",
-        "SUP001",
+        "SUP-00001",
     )
 
     set_compliance_status(
-        "SUP001",
+        "SUP-00001",
         SupplierComplianceStatus.cleared,
     )
 
@@ -2312,7 +2822,7 @@ def test_cleared_supplier_can_query_purchase_order(
     po = result["data"]["purchaseOrder"]
 
     assert po is not None
-    assert po["supplierId"] == "SUP001"
+    assert po["supplierId"] == "SUP-00001"
 
 
 def test_needs_review_supplier_can_query_purchase_order(
@@ -2320,11 +2830,11 @@ def test_needs_review_supplier_can_query_purchase_order(
 ):
     seed_po(
         "PO-R14-REVIEW-001",
-        "SUP001",
+        "SUP-00001",
     )
 
     set_compliance_status(
-        "SUP001",
+        "SUP-00001",
         SupplierComplianceStatus.needs_review,
     )
 
@@ -2342,7 +2852,7 @@ def test_needs_review_supplier_can_query_purchase_order(
     po = result["data"]["purchaseOrder"]
 
     assert po is not None
-    assert po["supplierId"] == "SUP001"
+    assert po["supplierId"] == "SUP-00001"
 
 
 def test_suspended_supplier_cannot_query_purchase_order(
@@ -2350,11 +2860,11 @@ def test_suspended_supplier_cannot_query_purchase_order(
 ):
     seed_po(
         "PO-R14-BLOCK-001",
-        "SUP001",
+        "SUP-00001",
     )
 
     set_compliance_status(
-        "SUP001",
+        "SUP-00001",
         SupplierComplianceStatus.suspended,
     )
 
@@ -2383,7 +2893,7 @@ def test_suspended_supplier_cannot_query_purchase_order_list(
     supplier_client,
 ):
     set_compliance_status(
-        "SUP001",
+        "SUP-00001",
         SupplierComplianceStatus.suspended,
     )
 
@@ -2412,11 +2922,11 @@ def test_needs_review_supplier_can_query_invoices(
 ):
     seed_invoice(
         "INV-R14-REVIEW-001",
-        "SUP001",
+        "SUP-00001",
     )
 
     set_compliance_status(
-        "SUP001",
+        "SUP-00001",
         SupplierComplianceStatus.needs_review,
     )
 
@@ -2434,7 +2944,7 @@ def test_needs_review_supplier_can_query_invoices(
     invoice = result["data"]["invoice"]
 
     assert invoice is not None
-    assert invoice["supplierId"] == "SUP001"
+    assert invoice["supplierId"] == "SUP-00001"
 
 
 def test_suspended_supplier_cannot_query_invoice(
@@ -2442,11 +2952,11 @@ def test_suspended_supplier_cannot_query_invoice(
 ):
     seed_invoice(
         "INV-R14-BLOCK-001",
-        "SUP001",
+        "SUP-00001",
     )
 
     set_compliance_status(
-        "SUP001",
+        "SUP-00001",
         SupplierComplianceStatus.suspended,
     )
 
@@ -2475,7 +2985,7 @@ def test_suspended_supplier_cannot_query_invoice_list(
     supplier_client,
 ):
     set_compliance_status(
-        "SUP001",
+        "SUP-00001",
         SupplierComplianceStatus.suspended,
     )
 
@@ -2500,12 +3010,12 @@ def test_needs_review_supplier_can_query_documents(
     supplier_client,
 ):
     seed_document(
-        "SUP001",
+        "SUP-00001",
         "DOC-R14-REVIEW-001",
     )
 
     set_compliance_status(
-        "SUP001",
+        "SUP-00001",
         SupplierComplianceStatus.needs_review,
     )
 
@@ -2529,14 +3039,14 @@ def test_needs_review_supplier_can_query_documents(
 
     assert (
         edges[0]["node"]["supplierId"]
-        == "SUP001"
+        == "SUP-00001"
     )
 
 def test_suspended_supplier_cannot_query_documents(
     supplier_client,
 ):
     set_compliance_status(
-        "SUP001",
+        "SUP-00001",
         SupplierComplianceStatus.suspended,
     )
 
@@ -2562,12 +3072,12 @@ def test_needs_review_supplier_cannot_acknowledge_purchase_order(
 ):
     seed_po(
         "PO-R14-REVIEW-ACK-001",
-        "SUP001",
+        "SUP-00001",
         status=PurchaseOrderStatus.sent,
     )
 
     set_compliance_status(
-        "SUP001",
+        "SUP-00001",
         SupplierComplianceStatus.needs_review,
     )
 
@@ -2608,12 +3118,12 @@ def test_suspended_supplier_cannot_acknowledge_purchase_order(
 ):
     seed_po(
         "PO-R14-BLOCK-ACK-001",
-        "SUP001",
+        "SUP-00001",
         status=PurchaseOrderStatus.sent,
     )
 
     set_compliance_status(
-        "SUP001",
+        "SUP-00001",
         SupplierComplianceStatus.suspended,
     )
 
@@ -2654,12 +3164,12 @@ def test_cleared_supplier_can_acknowledge_purchase_order_after_compliance_check(
 ):
     seed_po(
         "PO-R14-CLEAR-ACK-001",
-        "SUP001",
+        "SUP-00001",
         status=PurchaseOrderStatus.sent,
     )
 
     set_compliance_status(
-        "SUP001",
+        "SUP-00001",
         SupplierComplianceStatus.cleared,
     )
 
@@ -2710,21 +3220,21 @@ def test_suspended_supplier_cannot_access_any_graphql_resource(
 
     seed_po(
         "PO-R14-COMBINED-001",
-        "SUP001",
+        "SUP-00001",
     )
 
     seed_invoice(
         "INV-R14-COMBINED-001",
-        "SUP001",
+        "SUP-00001",
     )
 
     seed_document(
-        "SUP001",
+        "SUP-00001",
         "DOC-R14-COMBINED-001",
     )
 
     set_compliance_status(
-        "SUP001",
+        "SUP-00001",
         SupplierComplianceStatus.suspended,
     )
 
@@ -2799,21 +3309,21 @@ def test_suspended_supplier_cannot_access_other_supplier_resources(
 
     seed_po(
         "PO-R14-OTHER-001",
-        "SUP002",
+        "SUP-00002",
     )
 
     seed_invoice(
         "INV-R14-OTHER-001",
-        "SUP002",
+        "SUP-00002",
     )
 
     seed_document(
-        "SUP002",
+        "SUP-00002",
         "DOC-R14-OTHER-001",
     )
 
     set_compliance_status(
-        "SUP001",
+        "SUP-00001",
         SupplierComplianceStatus.suspended,
     )
 
@@ -2865,3 +3375,4 @@ def test_suspended_supplier_cannot_access_other_supplier_resources(
         expected_message
         in documents_result["errors"][0]["message"]
     )
+

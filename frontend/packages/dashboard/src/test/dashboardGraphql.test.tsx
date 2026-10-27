@@ -19,10 +19,10 @@ const dashboard = {
   inventory: [
     {
       __typename: "InventoryItem",
-      sku_id: "SKU001",
+      sku_id: "SKU-000001",
       product_name: "Apples",
       category: "Food",
-      warehouse_id: "WH001",
+      warehouse_id: "WH-BLR-01",
       quantity_on_hand: 10,
       reorder_point: 5,
       needs_reorder: false,
@@ -74,7 +74,7 @@ describe("useDashboardData (Apollo)", () => {
     });
 
     expect(result.current.error).toBeUndefined();
-    expect(result.current.data?.dashboard.inventory[0].sku_id).toBe("SKU001");
+    expect(result.current.data?.dashboard.inventory[0].sku_id).toBe("SKU-000001");
   });
 
   it("exposes a network error", async () => {

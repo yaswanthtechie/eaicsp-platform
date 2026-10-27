@@ -150,7 +150,7 @@ describe("AlertsPanel", () => {
       ...alert,
       id: "alert-3",
       type: "system",
-      severity: "error",
+      severity: "critical",
       message: "System service is unavailable.",
     };
 

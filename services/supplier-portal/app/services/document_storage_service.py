@@ -32,7 +32,7 @@ class DocumentStorageService:
 
     Example:
 
-        suppliers/SUP001/onboarding/<document_id>_pan_card.pdf
+        suppliers/SUP-00001/onboarding/<document_id>_pan_card.pdf
 
     The object key is stored by the application.
     Temporary presigned URLs are generated only when a
@@ -91,7 +91,7 @@ class DocumentStorageService:
 
         Example:
 
-            suppliers/SUP001/onboarding/
+            suppliers/SUP-00001/onboarding/
             <document_id>_pan_card.pdf
         """
 
@@ -113,7 +113,7 @@ class DocumentStorageService:
 
         Example:
 
-            suppliers/SUP001/invoices/INV1001.pdf
+            suppliers/SUP-00001/invoices/INV1001.pdf
 
         The uploaded filename is intentionally not used as the
         object filename. One invoice has one canonical PDF object.
@@ -204,7 +204,7 @@ class DocumentStorageService:
 
         Example:
 
-            suppliers/SUP001/invoices/INV1001.pdf
+            suppliers/SUP-00001/invoices/INV1001.pdf
         """
 
         object_key = self.build_invoice_object_key(

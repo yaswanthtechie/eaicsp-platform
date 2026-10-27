@@ -15,6 +15,15 @@ os.environ.setdefault(
     "test-secret-key",
 )
 
+# Unit tests never connect; DB tests build their own SQLite engine.
+os.environ.setdefault(
+    "DATABASE_URL",
+    "sqlite://",
+)
+# Unit tests must not start the R15 Kafka consumer or outbox publisher.
+os.environ.setdefault("PO_KAFKA_ENABLED", "false")
+os.environ.setdefault("PO_OUTBOX_ENABLED", "false")
+
 import pytest
 from fastapi.testclient import TestClient
 from minio.error import S3Error
@@ -162,7 +171,7 @@ SUPPLIER_USER = {
     "email": "supplier@company.com",
     "full_name": "Supplier User",
     "role": "supplier",
-    "supplier_id": "SUP001",
+    "supplier_id": "SUP-00001",
     "is_active": True,
 }
 
@@ -171,7 +180,7 @@ SUPPLIER_B_USER = {
     "valid": True,
     "user_id": 99,
     "role": "supplier",
-    "supplier_id": "SUP002",
+    "supplier_id": "SUP-00002",
     "email": "supplierb@example.com",
     "full_name": "Supplier B",
     "is_active": True,
@@ -241,7 +250,7 @@ def mock_authentication():
     Default authentication for tests that do not explicitly
     request a role-specific client.
 
-    Default user = SUP001 supplier.
+    Default user = SUP-00001 supplier.
     """
 
     async def mock_verify_token():
@@ -262,7 +271,7 @@ def mock_authentication():
 @pytest.fixture
 def supplier_client():
     """
-    TestClient authenticated as supplier SUP001.
+    TestClient authenticated as supplier SUP-00001.
     """
 
     with AuthenticatedTestClient(
@@ -275,7 +284,7 @@ def supplier_client():
 @pytest.fixture
 def supplier_b_client():
     """
-    TestClient authenticated as supplier SUP002.
+    TestClient authenticated as supplier SUP-00002.
     """
 
     with AuthenticatedTestClient(
@@ -337,3 +346,62 @@ def compliance_db(tmp_path, monkeypatch):
         tmp_path / "compliance.db",
     )
     yield
+
+@pytest.fixture
+def po_db(monkeypatch):
+    """
+    In-memory SQLite with the supplier_portal schema attached, holding
+    po_mirror and po_ack_outbox. Every module that opens its own
+    SessionLocal is pointed at it, so no PostgreSQL is needed.
+    """
+    from sqlalchemy import create_engine, event
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    from app.core.config import settings
+    from app.database import Base
+    from app.models.po_ack_outbox import POAckOutbox
+    from app.models.po_mirror import POMirror
+
+    schema_name = settings.SUPPLIER_DB_SCHEMA
+
+    if not schema_name.replace("_", "").isalnum():
+        raise ValueError(
+            f"Unsupported SQLite schema name: {schema_name!r}"
+        )
+    
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+
+    @event.listens_for(engine, "connect")
+    def attach_schema(dbapi_connection, _record):
+        dbapi_connection.execute(
+            f"ATTACH DATABASE ':memory:' AS {schema_name}"
+        )
+
+    Base.metadata.create_all(
+        engine,
+        tables=[POMirror.__table__, POAckOutbox.__table__],
+    )
+
+    factory = sessionmaker(
+        bind=engine,
+        autoflush=False,
+        expire_on_commit=False,
+    )
+
+    for module in (
+        "app.database",
+        "app.graphql.queries",
+        "app.graphql.mutations",
+        "app.services.inventory_po_approved_consumer",
+        "app.services.po_ack_outbox_publisher",
+    ):
+        monkeypatch.setattr(f"{module}.SessionLocal", factory)
+
+    yield factory
+
+    engine.dispose()

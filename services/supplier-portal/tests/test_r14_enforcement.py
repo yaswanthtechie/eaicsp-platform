@@ -11,7 +11,7 @@ from tests.test_kafka_consumer import make_event
 
 
 def _suspend(
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
     name="ABC Supplies",
     country="India",
 ):
@@ -55,7 +55,7 @@ def test_suspended_supplier_gets_no_onboarding_presigned_url(
 
     url = app.url_path_for(
         "download_document_endpoint",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         document_id="DOC-1",
     )
 

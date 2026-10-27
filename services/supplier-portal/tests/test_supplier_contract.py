@@ -25,8 +25,8 @@ client = TestClient(app)
 # TEST DATA
 # ============================================================
 
-SUP001 = "SUP001"
-SUP002 = "SUP002"
+SUP001 = "SUP-00001"
+SUP002 = "SUP-00002"
 
 
 PROCUREMENT_USER = {
@@ -211,8 +211,8 @@ def test_create_contract_success():
 def test_create_contract_requires_active_supplier():
     authenticate_as(PROCUREMENT_USER)
 
-    suppliers["SUP-INACTIVE"] = {
-        "supplier_id": "SUP-INACTIVE",
+    suppliers["SUP-99998"] = {
+        "supplier_id": "SUP-99998",
         "company_name": "Inactive Supplier",
         "status": "pending_documents",
     }
@@ -220,7 +220,7 @@ def test_create_contract_requires_active_supplier():
     response = client.post(
         "/api/v1/supplier-contracts",
         json=contract_payload(
-            supplier_id="SUP-INACTIVE",
+            supplier_id="SUP-99998",
             contract_number="SC-INACTIVE-001",
         ),
     )
@@ -235,7 +235,7 @@ def test_create_contract_unknown_supplier_returns_404():
     response = client.post(
         "/api/v1/supplier-contracts",
         json=contract_payload(
-            supplier_id="SUP-UNKNOWN",
+            supplier_id="SUP-99999",
             contract_number="SC-UNKNOWN-001",
         ),
     )

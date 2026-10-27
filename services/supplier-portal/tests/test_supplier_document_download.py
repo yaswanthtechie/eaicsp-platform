@@ -18,7 +18,7 @@ from app.services.supplier_onboarding_service import (
 # TEST DATA
 # ============================================================
 SUPPLIER_A_REGISTRATION = {
-    "supplier_id": "SUP001",
+    "supplier_id": "SUP-00001",
     "company_name": "ABC Supplies Pvt Ltd",
     "contact_name": "Ravi Kumar",
     "email": "ravi@abcsupplies.com",
@@ -34,7 +34,7 @@ SUPPLIER_A_REGISTRATION = {
 
 
 SUPPLIER_B_REGISTRATION = {
-    "supplier_id": "SUP002",
+    "supplier_id": "SUP-00002",
     "company_name": "XYZ Supplies Pvt Ltd",
     "contact_name": "Suresh Kumar",
     "email": "suresh@xyzsupplies.com",
@@ -105,7 +105,7 @@ def clean_onboarding_storage():
 @pytest.fixture
 def supplier_a_document(procurement_client, supplier_client):
     """
-    Register SUP001 and upload one document.
+    Register SUP-00001 and upload one document.
 
     Returns:
         Upload response JSON.
@@ -123,7 +123,7 @@ def supplier_a_document(procurement_client, supplier_client):
 
     upload_response = upload_document(
         supplier_client,
-        "SUP001",
+        "SUP-00001",
         "pan_card",
     )
 
@@ -139,7 +139,7 @@ def supplier_a_document(procurement_client, supplier_client):
 @pytest.fixture
 def supplier_b_document(procurement_client, supplier_b_client):
     """
-    Register SUP002 and upload one document.
+    Register SUP-00002 and upload one document.
 
     Returns:
         Upload response JSON.
@@ -157,7 +157,7 @@ def supplier_b_document(procurement_client, supplier_b_client):
 
     upload_response = upload_document(
         supplier_b_client,
-        "SUP002",
+        "SUP-00002",
         "pan_card",
     )
 
@@ -201,7 +201,7 @@ def test_supplier_can_download_own_document(
     )
 
     response = supplier_client.get(
-        f"/api/v1/suppliers/SUP001/"
+        f"/api/v1/suppliers/SUP-00001/"
         f"documents/{document_id}/download"
     )
 
@@ -210,7 +210,7 @@ def test_supplier_can_download_own_document(
     body = response.json()
 
     assert body["document_id"] == document_id
-    assert body["supplier_id"] == "SUP001"
+    assert body["supplier_id"] == "SUP-00001"
     assert body["file_name"] == supplier_a_document["file_name"]
     assert body["download_url"] == expected_url
     assert (
@@ -242,7 +242,7 @@ def test_download_response_contains_exact_contract(
     )
 
     response = supplier_client.get(
-        f"/api/v1/suppliers/SUP001/"
+        f"/api/v1/suppliers/SUP-00001/"
         f"documents/{document_id}/download"
     )
 
@@ -288,7 +288,7 @@ def test_download_uses_document_path_as_object_key(
     )
 
     response = supplier_client.get(
-        f"/api/v1/suppliers/SUP001/"
+        f"/api/v1/suppliers/SUP-00001/"
         f"documents/{document_id}/download"
     )
 
@@ -310,8 +310,8 @@ def test_supplier_cannot_download_another_supplier_document(
     monkeypatch,
 ):
     """
-    SUP001 must not be able to access SUP002's document
-    through the SUP002 supplier URL.
+    SUP-00001 must not be able to access SUP-00002's document
+    through the SUP-00002 supplier URL.
 
     Expected:
         403
@@ -333,7 +333,7 @@ def test_supplier_cannot_download_another_supplier_document(
     )
 
     response = supplier_client.get(
-        f"/api/v1/suppliers/SUP002/"
+        f"/api/v1/suppliers/SUP-00002/"
         f"documents/{document_id}/download"
     )
 
@@ -357,8 +357,8 @@ def test_supplier_cannot_download_other_supplier_document_id(
     monkeypatch,
 ):
     """
-    A SUP002 document ID supplied under the SUP001 URL must
-    not expose the SUP002 document.
+    A SUP-00002 document ID supplied under the SUP-00001 URL must
+    not expose the SUP-00002 document.
 
     Expected:
         404
@@ -380,7 +380,7 @@ def test_supplier_cannot_download_other_supplier_document_id(
     )
 
     response = supplier_client.get(
-        f"/api/v1/suppliers/SUP001/"
+        f"/api/v1/suppliers/SUP-00001/"
         f"documents/{document_id}/download"
     )
 
@@ -420,7 +420,7 @@ def test_download_unknown_document_returns_404(
     )
 
     response = supplier_client.get(
-        "/api/v1/suppliers/SUP001/"
+        "/api/v1/suppliers/SUP-00001/"
         "documents/DOC-DOES-NOT-EXIST/download"
     )
 
@@ -460,7 +460,7 @@ def test_download_document_for_unknown_supplier_returns_404(
     )
 
     response = procurement_client.get(
-        "/api/v1/suppliers/SUP999/"
+        "/api/v1/suppliers/SUP-00999/"
         "documents/DOC-UNKNOWN/download"
     )
 
@@ -495,7 +495,7 @@ def test_supplier_without_supplier_id_cannot_download_document(
     )
 
     response = supplier_no_id_client.get(
-        "/api/v1/suppliers/SUP001/"
+        "/api/v1/suppliers/SUP-00001/"
         "documents/DOC-ANY/download"
     )
 
@@ -535,7 +535,7 @@ def test_download_returns_502_when_storage_fails(
     )
 
     response = supplier_client.get(
-        f"/api/v1/suppliers/SUP001/"
+        f"/api/v1/suppliers/SUP-00001/"
         f"documents/{document_id}/download"
     )
 
@@ -573,7 +573,7 @@ def test_procurement_manager_can_download_supplier_document(
     )
 
     response = procurement_client.get(
-        f"/api/v1/suppliers/SUP001/"
+        f"/api/v1/suppliers/SUP-00001/"
         f"documents/{document_id}/download"
     )
 
@@ -582,7 +582,7 @@ def test_procurement_manager_can_download_supplier_document(
     body = response.json()
 
     assert body["document_id"] == document_id
-    assert body["supplier_id"] == "SUP001"
+    assert body["supplier_id"] == "SUP-00001"
     assert body["download_url"] == expected_url
 
 
@@ -618,7 +618,7 @@ def test_download_requires_authentication(
 
         with TestClient(app) as unauthenticated_client:
             response = unauthenticated_client.get(
-                f"/api/v1/suppliers/SUP001/"
+                f"/api/v1/suppliers/SUP-00001/"
                 f"documents/{document_id}/download"
             )
 
@@ -675,7 +675,7 @@ def test_download_returns_404_when_minio_object_does_not_exist(
     )
 
     response = supplier_client.get(
-        f"/api/v1/suppliers/SUP001/"
+        f"/api/v1/suppliers/SUP-00001/"
         f"documents/{document_id}/download"
     )
 
@@ -732,7 +732,7 @@ def test_download_returns_502_when_object_check_fails(
     )
 
     response = supplier_client.get(
-        f"/api/v1/suppliers/SUP001/"
+        f"/api/v1/suppliers/SUP-00001/"
         f"documents/{document_id}/download"
     )
 

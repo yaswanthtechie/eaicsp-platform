@@ -62,7 +62,7 @@ def make_minio_object(
 
 
 def invoice_object_key(
-    supplier_id: str = "SUP001",
+    supplier_id: str = "SUP-00001",
     invoice_number: str = "INV1001",
 ) -> str:
     """
@@ -99,7 +99,7 @@ SUPPLIER_1_USER = {
     "email": "supplier@company.com",
     "full_name": "Supplier User",
     "role": "supplier",
-    "supplier_id": "SUP001",
+    "supplier_id": "SUP-00001",
     "is_active": True,
 }
 
@@ -110,7 +110,7 @@ SUPPLIER_2_USER = {
     "email": "supplier2@company.com",
     "full_name": "Supplier Two",
     "role": "supplier",
-    "supplier_id": "SUP002",
+    "supplier_id": "SUP-00002",
     "is_active": True,
 }
 
@@ -121,7 +121,7 @@ SUPPLIER_123_USER = {
     "email": "supplier123@company.com",
     "full_name": "Supplier 123",
     "role": "supplier",
-    "supplier_id": "SUP123",
+    "supplier_id": "SUP-00123",
     "is_active": True,
 }
 
@@ -193,16 +193,16 @@ def reset_data():
 
     suppliers.update(
         {
-            "SUP001": {
-                "supplier_id": "SUP001",
+            "SUP-00001": {
+                "supplier_id": "SUP-00001",
                 "status": SupplierOnboardingStatus.active,
             },
-            "SUP002": {
-                "supplier_id": "SUP002",
+            "SUP-00002": {
+                "supplier_id": "SUP-00002",
                 "status": SupplierOnboardingStatus.active,
             },
-            "SUP123": {
-                "supplier_id": "SUP123",
+            "SUP-00123": {
+                "supplier_id": "SUP-00123",
                 "status": SupplierOnboardingStatus.active,
             },
         }
@@ -228,7 +228,7 @@ def reset_data():
 
 def create_sample_po(
     po_number="PO1001",
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
     item_code="LAPTOP",
     quantity=1,
     unit_price=50000,
@@ -287,13 +287,13 @@ def acknowledge_po(po_number="PO1001"):
     po = purchase_orders[po_number]
     supplier_id = po["supplier_id"]
 
-    if supplier_id == "SUP001":
+    if supplier_id == "SUP-00001":
         authenticate_as(SUPPLIER_1_USER)
 
-    elif supplier_id == "SUP002":
+    elif supplier_id == "SUP-00002":
         authenticate_as(SUPPLIER_2_USER)
 
-    elif supplier_id == "SUP123":
+    elif supplier_id == "SUP-00123":
         authenticate_as(SUPPLIER_123_USER)
 
     else:
@@ -312,7 +312,7 @@ def acknowledge_po(po_number="PO1001"):
 
 def create_acknowledged_po(
     po_number="PO1001",
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
     item_code="LAPTOP",
     quantity=1,
     unit_price=50000,
@@ -338,7 +338,7 @@ def create_acknowledged_po(
 
 def create_received_po(
     po_number="PO1001",
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
     item_code="LAPTOP",
     quantity=1,
     unit_price=50000,
@@ -365,7 +365,7 @@ def create_received_po(
 
 def create_fulfilled_po(
     po_number="PO1001",
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
     item_code="LAPTOP",
     quantity=1,
     unit_price=50000,
@@ -405,7 +405,7 @@ def create_fulfilled_po(
 def invoice_payload(
     invoice_number="INV1001",
     po_number="PO1001",
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
     item_code="LAPTOP",
     quantity=1,
     unit_price=50000,
@@ -439,7 +439,7 @@ def invoice_payload(
 def create_sample_invoice(
     invoice_number="INV1001",
     po_number="PO1001",
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
     item_code="LAPTOP",
     quantity=1,
     unit_price=50000,
@@ -490,7 +490,7 @@ def transition_invoice(
     invoice_number="INV1001",
     target_state="approved",
     reason=None,
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
 ):
     """
     Call the invoice transition API.
@@ -510,7 +510,7 @@ def adjust_invoice_api(
     quantity=1,
     unit_price=50000,
     reason="Correcting invoice quantity.",
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
 ):
     """
     Call the invoice adjustment API.
@@ -824,7 +824,7 @@ def test_dispute_requires_reason():
     # Invoice must remain submitted.
     # --------------------------------------------------------
 
-    invoice_key = ("SUP001", "INV1001")
+    invoice_key = ("SUP-00001", "INV1001")
 
     assert (
         invoices[invoice_key]["status"]
@@ -853,7 +853,7 @@ def test_dispute_rejects_blank_reason():
     # Invoice must remain submitted.
     # --------------------------------------------------------
 
-    invoice_key = ("SUP001", "INV1001")
+    invoice_key = ("SUP-00001", "INV1001")
 
     assert (
         invoices[invoice_key]["status"]
@@ -1281,7 +1281,7 @@ def test_valid_pdf_with_renamed_extension_is_accepted():
     authenticate_as(SUPPLIER_1_USER)
 
     expected_key = (
-        "suppliers/SUP001/invoices/INV9201.pdf"
+        "suppliers/SUP-00001/invoices/INV9201.pdf"
     )
 
     with patch.object(
@@ -1290,7 +1290,7 @@ def test_valid_pdf_with_renamed_extension_is_accepted():
         return_value=expected_key,
     ) as mock_upload:
         response = client.post(
-            "/api/v1/invoices/SUP001/INV9201/document",
+            "/api/v1/invoices/SUP-00001/INV9201/document",
             files={
                 "file": (
                     "invoice.txt",
@@ -1308,7 +1308,7 @@ def test_valid_pdf_with_renamed_extension_is_accepted():
 
     # Public API URL remains stable.
     assert data["document_url"] == (
-        "/api/v1/invoices/SUP001/INV9201/document"
+        "/api/v1/invoices/SUP-00001/INV9201/document"
     )
 
     # Internal MinIO object key is not exposed
@@ -1318,7 +1318,7 @@ def test_valid_pdf_with_renamed_extension_is_accepted():
     # Verify the invoice record stores the MinIO
     # object key rather than a local filesystem path.
     assert invoices[
-        ("SUP001", "INV9201")
+        ("SUP-00001", "INV9201")
     ]["document_path"] == expected_key
 
     mock_upload.assert_called_once()
@@ -1350,7 +1350,7 @@ def test_corrupted_pdf_header_rejected(content):
         "upload_invoice_document",
     ) as mock_upload:
         response = client.post(
-            "/api/v1/invoices/SUP001/INV9301/document",
+            "/api/v1/invoices/SUP-00001/INV9301/document",
             files={
                 "file": (
                     "invoice.pdf",
@@ -1386,7 +1386,7 @@ def test_valid_pdf_with_wrong_content_type_rejected():
         "upload_invoice_document",
     ) as mock_upload:
         response = client.post(
-            "/api/v1/invoices/SUP001/INV9401/document",
+            "/api/v1/invoices/SUP-00001/INV9401/document",
             files={
                 "file": (
                     "invoice.pdf",
@@ -1414,7 +1414,7 @@ def test_upload_invoice_pdf_stores_minio_object_key():
     authenticate_as(SUPPLIER_1_USER)
 
     expected_key = (
-        "suppliers/SUP001/invoices/INV9501.pdf"
+        "suppliers/SUP-00001/invoices/INV9501.pdf"
     )
 
     with patch.object(
@@ -1423,7 +1423,7 @@ def test_upload_invoice_pdf_stores_minio_object_key():
         return_value=expected_key,
     ) as mock_upload:
         response = client.post(
-            "/api/v1/invoices/SUP001/INV9501/document",
+            "/api/v1/invoices/SUP-00001/INV9501/document",
             files={
                 "file": (
                     "invoice.pdf",
@@ -1436,13 +1436,13 @@ def test_upload_invoice_pdf_stores_minio_object_key():
     assert response.status_code == 200, response.text
 
     invoice = invoices[
-        ("SUP001", "INV9501")
+        ("SUP-00001", "INV9501")
     ]
 
     assert invoice["document_path"] == expected_key
 
     assert invoice["document_url"] == (
-        "/api/v1/invoices/SUP001/INV9501/document"
+        "/api/v1/invoices/SUP-00001/INV9501/document"
     )
 
     mock_upload.assert_called_once()
@@ -1451,7 +1451,7 @@ def test_upload_invoice_pdf_stores_minio_object_key():
 def test_invoice_document_uses_supplier_scoped_minio_key():
     create_received_po(
         po_number="PO1234",
-        supplier_id="SUP123",
+        supplier_id="SUP-00123",
     )
 
     authenticate_as(SUPPLIER_123_USER)
@@ -1459,13 +1459,13 @@ def test_invoice_document_uses_supplier_scoped_minio_key():
     response = create_sample_invoice(
         invoice_number="INV9601",
         po_number="PO1234",
-        supplier_id="SUP123",
+        supplier_id="SUP-00123",
     )
 
     assert response.status_code == 201, response.text
 
     expected_key = (
-        "suppliers/SUP123/invoices/INV9601.pdf"
+        "suppliers/SUP-00123/invoices/INV9601.pdf"
     )
 
     with patch.object(
@@ -1474,7 +1474,7 @@ def test_invoice_document_uses_supplier_scoped_minio_key():
         return_value=expected_key,
     ) as mock_upload:
         response = client.post(
-            "/api/v1/invoices/SUP123/INV9601/document",
+            "/api/v1/invoices/SUP-00123/INV9601/document",
             files={
                 "file": (
                     "invoice.pdf",
@@ -1487,7 +1487,7 @@ def test_invoice_document_uses_supplier_scoped_minio_key():
     assert response.status_code == 200, response.text
 
     assert invoices[
-        ("SUP123", "INV9601")
+        ("SUP-00123", "INV9601")
     ]["document_path"] == expected_key
 
     mock_upload.assert_called_once()
@@ -1505,7 +1505,7 @@ def test_supplier_cannot_upload_document_for_another_supplier():
         "upload_invoice_document",
     ) as mock_upload:
         response = client.post(
-            "/api/v1/invoices/SUP001/INV9701/document",
+            "/api/v1/invoices/SUP-00001/INV9701/document",
             files={
                 "file": (
                     "invoice.pdf",
@@ -1526,11 +1526,11 @@ def test_download_invoice_document_returns_presigned_url():
     )
 
     object_key = (
-        "suppliers/SUP001/invoices/INV9801.pdf"
+        "suppliers/SUP-00001/invoices/INV9801.pdf"
     )
 
     invoices[
-        ("SUP001", "INV9801")
+        ("SUP-00001", "INV9801")
     ]["document_path"] = object_key
 
     authenticate_as(SUPPLIER_1_USER)
@@ -1548,7 +1548,7 @@ def test_download_invoice_document_returns_presigned_url():
         ) as mock_download:
 
             response = client.get(
-                "/api/v1/invoices/SUP001/INV9801/document"
+                "/api/v1/invoices/SUP-00001/INV9801/document"
             )
 
     assert response.status_code == 200, response.text
@@ -1556,7 +1556,7 @@ def test_download_invoice_document_returns_presigned_url():
     data = response.json()
 
     assert data["invoice_number"] == "INV9801"
-    assert data["supplier_id"] == "SUP001"
+    assert data["supplier_id"] == "SUP-00001"
     assert data["file_name"] == "INV9801.pdf"
     assert data["download_url"] == (
         "http://minio/presigned-url"
@@ -1578,9 +1578,9 @@ def test_supplier_cannot_download_other_supplier_document():
     )
 
     invoices[
-        ("SUP001", "INV9901")
+        ("SUP-00001", "INV9901")
     ]["document_path"] = (
-        "suppliers/SUP001/invoices/INV9901.pdf"
+        "suppliers/SUP-00001/invoices/INV9901.pdf"
     )
 
     authenticate_as(SUPPLIER_2_USER)
@@ -1590,7 +1590,7 @@ def test_supplier_cannot_download_other_supplier_document():
         "generate_download_url",
     ) as mock_download:
         response = client.get(
-            "/api/v1/invoices/SUP001/INV9901/document"
+            "/api/v1/invoices/SUP-00001/INV9901/document"
         )
 
     assert response.status_code == 403, response.text
@@ -1606,7 +1606,7 @@ def test_download_invoice_without_document_returns_404():
     )
 
     invoices[
-        ("SUP001", "INV9910")
+        ("SUP-00001", "INV9910")
     ]["document_path"] = None
 
     authenticate_as(SUPPLIER_1_USER)
@@ -1616,7 +1616,7 @@ def test_download_invoice_without_document_returns_404():
         "generate_download_url",
     ) as mock_download:
         response = client.get(
-            "/api/v1/invoices/SUP001/INV9910/document"
+            "/api/v1/invoices/SUP-00001/INV9910/document"
         )
 
     assert response.status_code == 404, response.text
@@ -1698,7 +1698,7 @@ def test_create_invoice_success():
     data = response.json()
 
     assert data["invoice_number"] == "INV2001"
-    assert data["supplier_id"] == "SUP001"
+    assert data["supplier_id"] == "SUP-00001"
     assert data["amount"] == 50000
 
     assert len(data["items"]) == 1
@@ -1724,7 +1724,7 @@ def test_get_invoice_by_number():
     authenticate_as(SUPPLIER_1_USER)
 
     response = client.get(
-        "/api/v1/invoices/SUP001/INV2001"
+        "/api/v1/invoices/SUP-00001/INV2001"
     )
 
     assert response.status_code == 200, response.text
@@ -1732,7 +1732,7 @@ def test_get_invoice_by_number():
     data = response.json()
 
     assert data["invoice_number"] == "INV2001"
-    assert data["supplier_id"] == "SUP001"
+    assert data["supplier_id"] == "SUP-00001"
     assert data["amount"] == 50000
 
     assert data["items"][0]["po_number"] == "PO1001"
@@ -1746,7 +1746,7 @@ def test_get_invoice_not_found():
     authenticate_as(SUPPLIER_1_USER)
 
     response = client.get(
-        "/api/v1/invoices/SUP001/INVALID001"
+        "/api/v1/invoices/SUP-00001/INVALID001"
     )
 
     assert response.status_code == 404, response.text
@@ -1791,7 +1791,7 @@ def test_same_invoice_number_different_supplier():
 
     create_received_po(
         po_number="PO1001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     # --------------------------------------------------------
@@ -1800,7 +1800,7 @@ def test_same_invoice_number_different_supplier():
 
     create_received_po(
         po_number="PO1002",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     # --------------------------------------------------------
@@ -1812,7 +1812,7 @@ def test_same_invoice_number_different_supplier():
     response = create_sample_invoice(
         invoice_number="INV1001",
         po_number="PO1001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     assert response.status_code == 201, response.text
@@ -1827,13 +1827,13 @@ def test_same_invoice_number_different_supplier():
     response = create_sample_invoice(
         invoice_number="INV1001",
         po_number="PO1002",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     assert response.status_code == 201, response.text
 
-    assert ("SUP001", "INV1001") in invoices
-    assert ("SUP002", "INV1001") in invoices
+    assert ("SUP-00001", "INV1001") in invoices
+    assert ("SUP-00002", "INV1001") in invoices
 
 # ============================================================
 # DUPLICATE INVOICE NUMBER - SAME SUPPLIER
@@ -1842,13 +1842,13 @@ def test_same_invoice_number_different_supplier():
 def test_duplicate_invoice_number_same_supplier():
     create_received_po(
         po_number="PO1001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     response = create_sample_invoice(
         invoice_number="INV1001",
         po_number="PO1001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     assert response.status_code == 201, response.text
@@ -1856,7 +1856,7 @@ def test_duplicate_invoice_number_same_supplier():
     response = create_sample_invoice(
         invoice_number="INV1001",
         po_number="PO1001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     assert response.status_code == 409, response.text
@@ -1993,7 +1993,7 @@ def test_invoice_fulfilled_po_accepted():
     data = response.json()
 
     assert data["invoice_number"] == "INV1001"
-    assert data["supplier_id"] == "SUP001"
+    assert data["supplier_id"] == "SUP-00001"
     assert data["amount"] == 50000
 
 
@@ -2074,7 +2074,7 @@ def test_partial_invoice():
 
     # Document upload is a separate operation.
     invoice = invoices[
-        ("SUP001", "INV1001")
+        ("SUP-00001", "INV1001")
     ]
 
     assert invoice["document_path"] is None
@@ -2131,12 +2131,12 @@ def test_multiple_partial_invoices():
 
     # Both invoices belong to the same supplier.
     assert invoices[
-        ("SUP001", "INV1001")
-    ]["supplier_id"] == "SUP001"
+        ("SUP-00001", "INV1001")
+    ]["supplier_id"] == "SUP-00001"
 
     assert invoices[
-        ("SUP001", "INV1002")
-    ]["supplier_id"] == "SUP001"
+        ("SUP-00001", "INV1002")
+    ]["supplier_id"] == "SUP-00001"
 
 
 # ============================================================
@@ -2162,11 +2162,11 @@ def test_invoice_creation_does_not_call_minio():
     mock_upload.assert_not_called()
 
     assert invoices[
-        ("SUP001", "INV1101")
+        ("SUP-00001", "INV1101")
     ]["document_path"] is None
 
     assert invoices[
-        ("SUP001", "INV1101")
+        ("SUP-00001", "INV1101")
     ]["document_url"] is None
 
 
@@ -2187,14 +2187,14 @@ def test_invoice_can_be_created_then_document_uploaded():
     assert response.status_code == 201, response.text
 
     invoice = invoices[
-        ("SUP001", "INV1201")
+        ("SUP-00001", "INV1201")
     ]
 
     assert invoice["document_path"] is None
 
     # Step 2: upload document separately.
     expected_key = (
-        "suppliers/SUP001/invoices/INV1201.pdf"
+        "suppliers/SUP-00001/invoices/INV1201.pdf"
     )
 
     with patch.object(
@@ -2205,7 +2205,7 @@ def test_invoice_can_be_created_then_document_uploaded():
 
         response = client.post(
             "/api/v1/invoices/"
-            "SUP001/INV1201/document",
+            "SUP-00001/INV1201/document",
             files={
                 "file": (
                     "invoice.pdf",
@@ -2218,13 +2218,13 @@ def test_invoice_can_be_created_then_document_uploaded():
     assert response.status_code == 200, response.text
 
     invoice = invoices[
-        ("SUP001", "INV1201")
+        ("SUP-00001", "INV1201")
     ]
 
     assert invoice["document_path"] == expected_key
 
     assert invoice["document_url"] == (
-        "/api/v1/invoices/SUP001/INV1201/document"
+        "/api/v1/invoices/SUP-00001/INV1201/document"
     )
 
     mock_upload.assert_called_once()
@@ -2268,7 +2268,7 @@ def test_over_invoice_after_partial_invoice():
     )
 
     # Failed invoice must not be persisted.
-    assert ("SUP001", "INV1002") not in invoices
+    assert ("SUP-00001", "INV1002") not in invoices
 
 
 # ============================================================
@@ -2293,7 +2293,7 @@ def test_invoice_unit_price_above_tolerance():
     data = response.json()
 
     assert data["invoice_number"] == "INV1001"
-    assert data["supplier_id"] == "SUP001"
+    assert data["supplier_id"] == "SUP-00001"
     assert data["items"][0]["unit_price"] == 53000
 
 
@@ -2319,7 +2319,7 @@ def test_invoice_unit_price_below_tolerance():
     data = response.json()
 
     assert data["invoice_number"] == "INV1002"
-    assert data["supplier_id"] == "SUP001"
+    assert data["supplier_id"] == "SUP-00001"
     assert data["items"][0]["unit_price"] == 46000
 
 
@@ -2343,7 +2343,7 @@ def test_invoice_amount_too_high():
         response.json()["detail"].lower()
     )
 
-    assert ("SUP001", "INV3001") not in invoices
+    assert ("SUP-00001", "INV3001") not in invoices
 
 
 # ============================================================
@@ -2366,7 +2366,7 @@ def test_invoice_amount_too_low():
         response.json()["detail"].lower()
     )
 
-    assert ("SUP001", "INV3002") not in invoices
+    assert ("SUP-00001", "INV3002") not in invoices
 
 
 # ============================================================
@@ -2380,7 +2380,7 @@ def test_duplicate_invoice_line():
 
     payload = {
         "invoice_number": "INV5001",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [
             {
                 "po_number": "PO1001",
@@ -2412,7 +2412,7 @@ def test_duplicate_invoice_line():
         response.json()["detail"].lower()
     )
 
-    assert ("SUP001", "INV5001") not in invoices
+    assert ("SUP-00001", "INV5001") not in invoices
 
 
 # ============================================================
@@ -2424,7 +2424,7 @@ def test_invoice_empty_items():
 
     payload = {
         "invoice_number": "INV6001",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [],
         "amount": 50000,
         "invoice_date": "2026-08-06",
@@ -2488,7 +2488,7 @@ def test_invalid_po_number_format():
         "/api/v1/invoices",
         json={
             "invoice_number": "INV1001",
-            "supplier_id": "SUP001",
+            "supplier_id": "SUP-00001",
             "items": [
                 {
                     "po_number": "PO@1001",
@@ -2517,7 +2517,7 @@ def test_invalid_item_code_format():
         "/api/v1/invoices",
         json={
             "invoice_number": "INV1001",
-            "supplier_id": "SUP001",
+            "supplier_id": "SUP-00001",
             "items": [
                 {
                     "po_number": "PO1001",
@@ -2546,7 +2546,7 @@ def test_invoice_quantity_zero():
         "/api/v1/invoices",
         json={
             "invoice_number": "INV1001",
-            "supplier_id": "SUP001",
+            "supplier_id": "SUP-00001",
             "items": [
                 {
                     "po_number": "PO1001",
@@ -2575,7 +2575,7 @@ def test_invoice_unit_price_zero():
         "/api/v1/invoices",
         json={
             "invoice_number": "INV1001",
-            "supplier_id": "SUP001",
+            "supplier_id": "SUP-00001",
             "items": [
                 {
                     "po_number": "PO1001",
@@ -2602,7 +2602,7 @@ def test_invoice_amount_zero():
         "/api/v1/invoices",
         json={
             "invoice_number": "INV1001",
-            "supplier_id": "SUP001",
+            "supplier_id": "SUP-00001",
             "items": [
                 {
                     "po_number": "PO1001",
@@ -2631,7 +2631,7 @@ def test_invalid_invoice_date():
         "/api/v1/invoices",
         json={
             "invoice_number": "INV1001",
-            "supplier_id": "SUP001",
+            "supplier_id": "SUP-00001",
             "items": [
                 {
                     "po_number": "PO1001",
@@ -2682,10 +2682,10 @@ def test_invoice_missing_supplier_id():
 # ============================================================
 
 def test_invoice_supplier_does_not_match_po():
-    # PO belongs to SUP001.
+    # PO belongs to SUP-00001.
     create_received_po(
         po_number="PO1001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     # Authenticate as a different supplier.
@@ -2694,7 +2694,7 @@ def test_invoice_supplier_does_not_match_po():
     response = create_sample_invoice(
         invoice_number="INV1001",
         po_number="PO1001",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     # Supplier scoping must reject the request before
@@ -2705,7 +2705,7 @@ def test_invoice_supplier_does_not_match_po():
         response.json()["detail"].lower()
     )
 
-    assert ("SUP002", "INV1001") not in invoices
+    assert ("SUP-00002", "INV1001") not in invoices
 
 
 # ============================================================
@@ -2724,7 +2724,7 @@ def test_upload_invoice_pdf():
     authenticate_as(SUPPLIER_1_USER)
 
     expected_key = (
-        "suppliers/SUP001/invoices/INV1001.pdf"
+        "suppliers/SUP-00001/invoices/INV1001.pdf"
     )
 
     # Unit test: mock MinIO upload.
@@ -2736,7 +2736,7 @@ def test_upload_invoice_pdf():
     ) as mock_upload:
 
         response = client.post(
-            "/api/v1/invoices/SUP001/INV1001/document",
+            "/api/v1/invoices/SUP-00001/INV1001/document",
             files={
                 "file": (
                     "invoice.pdf",
@@ -2757,7 +2757,7 @@ def test_upload_invoice_pdf():
     assert body["invoice_number"] == "INV1001"
 
     assert body["document_url"] == (
-        "/api/v1/invoices/SUP001/INV1001/document"
+        "/api/v1/invoices/SUP-00001/INV1001/document"
     )
 
     # Internal MinIO object key must NOT be exposed.
@@ -2767,21 +2767,21 @@ def test_upload_invoice_pdf():
     # Internal storage metadata
     # --------------------------------------------------------
 
-    invoice_key = ("SUP001", "INV1001")
+    invoice_key = ("SUP-00001", "INV1001")
 
     assert invoices[invoice_key]["document_path"] == (
-        "suppliers/SUP001/invoices/INV1001.pdf"
+        "suppliers/SUP-00001/invoices/INV1001.pdf"
     )
 
     assert invoices[invoice_key]["document_url"] == (
-        "/api/v1/invoices/SUP001/INV1001/document"
+        "/api/v1/invoices/SUP-00001/INV1001/document"
     )
 
     mock_upload.assert_called_once()
 
     call_kwargs = mock_upload.call_args.kwargs
 
-    assert call_kwargs["supplier_id"] == "SUP001"
+    assert call_kwargs["supplier_id"] == "SUP-00001"
     assert call_kwargs["invoice_number"] == "INV1001"
 
 
@@ -2801,7 +2801,7 @@ def test_invoice_document_saved_under_supplier_scoped_minio_key():
     authenticate_as(SUPPLIER_1_USER)
 
     expected_key = (
-        "suppliers/SUP001/invoices/INV9101.pdf"
+        "suppliers/SUP-00001/invoices/INV9101.pdf"
     )
 
     with patch.object(
@@ -2811,7 +2811,7 @@ def test_invoice_document_saved_under_supplier_scoped_minio_key():
     ) as mock_upload:
 
         response = client.post(
-            "/api/v1/invoices/SUP001/INV9101/document",
+            "/api/v1/invoices/SUP-00001/INV9101/document",
             files={
                 "file": (
                     "invoice.pdf",
@@ -2824,9 +2824,9 @@ def test_invoice_document_saved_under_supplier_scoped_minio_key():
     assert response.status_code == 200, response.text
 
     assert invoices[
-        ("SUP001", "INV9101")
+        ("SUP-00001", "INV9101")
     ]["document_path"] == (
-        "suppliers/SUP001/invoices/INV9101.pdf"
+        "suppliers/SUP-00001/invoices/INV9101.pdf"
     )
 
     mock_upload.assert_called_once()
@@ -2845,7 +2845,7 @@ def test_upload_document_invoice_not_found():
     ) as mock_upload:
 
         response = client.post(
-            "/api/v1/invoices/SUP001/INV9999/document",
+            "/api/v1/invoices/SUP-00001/INV9999/document",
             files={
                 "file": (
                     "invoice.pdf",
@@ -2889,7 +2889,7 @@ def test_invoice_quantity_exactly_matches_po_quantity():
     data = response.json()
 
     assert data["invoice_number"] == "INV1001"
-    assert data["supplier_id"] == "SUP001"
+    assert data["supplier_id"] == "SUP-00001"
     assert data["amount"] == 500000
 
 
@@ -2934,7 +2934,7 @@ def test_invoice_rejected_after_po_fully_invoiced():
     )
 
     # Failed invoice must not be persisted.
-    assert ("SUP001", "INV1002") not in invoices
+    assert ("SUP-00001", "INV1002") not in invoices
 
 
 # ============================================================
@@ -2954,11 +2954,11 @@ def test_document_not_found():
 
     # Invoice exists, but no document_path has been registered.
     assert invoices[
-        ("SUP001", "INV1001")
+        ("SUP-00001", "INV1001")
     ]["document_path"] is None
 
     response = client.get(
-        "/api/v1/invoices/SUP001/INV1001/document"
+        "/api/v1/invoices/SUP-00001/INV1001/document"
     )
 
     assert response.status_code == 404, response.text
@@ -2976,7 +2976,7 @@ def test_invoice_document_invoice_not_found():
     authenticate_as(SUPPLIER_1_USER)
 
     response = client.get(
-        "/api/v1/invoices/SUP001/INV9999/document"
+        "/api/v1/invoices/SUP-00001/INV9999/document"
     )
 
     assert response.status_code == 404, response.text
@@ -3014,7 +3014,7 @@ def test_large_pdf_rejected():
     ) as mock_upload:
 
         response = client.post(
-            "/api/v1/invoices/SUP001/INV1001/document",
+            "/api/v1/invoices/SUP-00001/INV1001/document",
             files={
                 "file": (
                     "large.pdf",
@@ -3060,7 +3060,7 @@ def test_pdf_exactly_10_mb_accepted():
     )
 
     expected_key = (
-        "suppliers/SUP001/invoices/INV9501.pdf"
+        "suppliers/SUP-00001/invoices/INV9501.pdf"
     )
 
     with patch.object(
@@ -3070,7 +3070,7 @@ def test_pdf_exactly_10_mb_accepted():
     ) as mock_upload:
 
         response = client.post(
-            "/api/v1/invoices/SUP001/INV9501/document",
+            "/api/v1/invoices/SUP-00001/INV9501/document",
             files={
                 "file": (
                     "invoice.pdf",
@@ -3083,7 +3083,7 @@ def test_pdf_exactly_10_mb_accepted():
     assert response.status_code == 200, response.text
 
     assert invoices[
-        ("SUP001", "INV9501")
+        ("SUP-00001", "INV9501")
     ]["document_path"] == expected_key
 
     mock_upload.assert_called_once()
@@ -3097,11 +3097,11 @@ def test_download_invoice_document():
     create_submitted_invoice()
 
     expected_key = (
-        "suppliers/SUP001/invoices/INV1001.pdf"
+        "suppliers/SUP-00001/invoices/INV1001.pdf"
     )
 
     invoices[
-        ("SUP001", "INV1001")
+        ("SUP-00001", "INV1001")
     ]["document_path"] = expected_key
 
     authenticate_as(SUPPLIER_1_USER)
@@ -3119,7 +3119,7 @@ def test_download_invoice_document():
 
             response = client.get(
                 "/api/v1/invoices/"
-                "SUP001/INV1001/document"
+                "SUP-00001/INV1001/document"
             )
 
     assert response.status_code == 200, response.text
@@ -3127,7 +3127,7 @@ def test_download_invoice_document():
     data = response.json()
 
     assert data["invoice_number"] == "INV1001"
-    assert data["supplier_id"] == "SUP001"
+    assert data["supplier_id"] == "SUP-00001"
     assert data["file_name"] == "INV1001.pdf"
     assert data["download_url"] == (
         "http://minio/presigned-url"
@@ -3157,7 +3157,7 @@ def test_file_deleted_after_upload():
     authenticate_as(SUPPLIER_1_USER)
 
     expected_key = (
-        "suppliers/SUP001/invoices/INV1001.pdf"
+        "suppliers/SUP-00001/invoices/INV1001.pdf"
     )
 
     # Upload the document to MinIO.
@@ -3168,7 +3168,7 @@ def test_file_deleted_after_upload():
     ) as mock_upload:
 
         upload_response = client.post(
-            "/api/v1/invoices/SUP001/INV1001/document",
+            "/api/v1/invoices/SUP-00001/INV1001/document",
             files={
                 "file": (
                     "invoice.pdf",
@@ -3184,10 +3184,10 @@ def test_file_deleted_after_upload():
 
     mock_upload.assert_called_once()
 
-    invoice_key = ("SUP001", "INV1001")
+    invoice_key = ("SUP-00001", "INV1001")
 
     assert invoices[invoice_key]["document_path"] == (
-        "suppliers/SUP001/invoices/INV1001.pdf"
+        "suppliers/SUP-00001/invoices/INV1001.pdf"
     )
 
     # --------------------------------------------------------
@@ -3204,7 +3204,7 @@ def test_file_deleted_after_upload():
     ) as mock_exists:
 
         response = client.get(
-            "/api/v1/invoices/SUP001/INV1001/document"
+            "/api/v1/invoices/SUP-00001/INV1001/document"
         )
 
     # --------------------------------------------------------
@@ -3239,7 +3239,7 @@ def test_document_url_saved_in_memory():
 
     assert response.status_code == 201, response.text
 
-    invoice_key = ("SUP001", "INV1001")
+    invoice_key = ("SUP-00001", "INV1001")
 
     # Before upload there is no document.
     assert invoices[invoice_key]["document_url"] is None
@@ -3248,7 +3248,7 @@ def test_document_url_saved_in_memory():
     authenticate_as(SUPPLIER_1_USER)
 
     expected_key = (
-        "suppliers/SUP001/invoices/INV1001.pdf"
+        "suppliers/SUP-00001/invoices/INV1001.pdf"
     )
 
     with patch.object(
@@ -3258,7 +3258,7 @@ def test_document_url_saved_in_memory():
     ) as mock_upload:
 
         upload_response = client.post(
-            "/api/v1/invoices/SUP001/INV1001/document",
+            "/api/v1/invoices/SUP-00001/INV1001/document",
             files={
                 "file": (
                     "invoice.pdf",
@@ -3274,12 +3274,12 @@ def test_document_url_saved_in_memory():
 
     # Public API URL remains stable.
     assert invoices[invoice_key]["document_url"] == (
-        "/api/v1/invoices/SUP001/INV1001/document"
+        "/api/v1/invoices/SUP-00001/INV1001/document"
     )
 
     # Internal value is now the MinIO object key.
     assert invoices[invoice_key]["document_path"] == (
-        "suppliers/SUP001/invoices/INV1001.pdf"
+        "suppliers/SUP-00001/invoices/INV1001.pdf"
     )
 
     mock_upload.assert_called_once()
@@ -3291,22 +3291,22 @@ def test_document_url_saved_in_memory():
 
 def test_invoice_document_saved_under_supplier_directory():
     # --------------------------------------------------------
-    # Create PO belonging to SUP123.
+    # Create PO belonging to SUP-00123.
     # --------------------------------------------------------
 
     create_received_po(
-        supplier_id="SUP123",
+        supplier_id="SUP-00123",
     )
 
     # --------------------------------------------------------
-    # Create invoice belonging to SUP123.
+    # Create invoice belonging to SUP-00123.
     # --------------------------------------------------------
 
     authenticate_as(SUPPLIER_123_USER)
 
     response = create_sample_invoice(
         invoice_number="INV1001",
-        supplier_id="SUP123",
+        supplier_id="SUP-00123",
     )
 
     assert response.status_code == 201, response.text
@@ -3316,7 +3316,7 @@ def test_invoice_document_saved_under_supplier_directory():
     # --------------------------------------------------------
 
     expected_key = (
-        "suppliers/SUP123/invoices/INV1001.pdf"
+        "suppliers/SUP-00123/invoices/INV1001.pdf"
     )
 
     with patch.object(
@@ -3326,7 +3326,7 @@ def test_invoice_document_saved_under_supplier_directory():
     ) as mock_upload:
 
         upload_response = client.post(
-            "/api/v1/invoices/SUP123/INV1001/document",
+            "/api/v1/invoices/SUP-00123/INV1001/document",
             files={
                 "file": (
                     "invoice.pdf",
@@ -3340,7 +3340,7 @@ def test_invoice_document_saved_under_supplier_directory():
         upload_response.text
     )
 
-    invoice_key = ("SUP123", "INV1001")
+    invoice_key = ("SUP-00123", "INV1001")
 
     # --------------------------------------------------------
     # Internal MinIO object key.
@@ -3349,7 +3349,7 @@ def test_invoice_document_saved_under_supplier_directory():
     document_path = invoices[invoice_key]["document_path"]
 
     assert document_path == (
-        "suppliers/SUP123/invoices/INV1001.pdf"
+        "suppliers/SUP-00123/invoices/INV1001.pdf"
     )
 
     mock_upload.assert_called_once()
@@ -3361,7 +3361,7 @@ def test_invoice_document_saved_under_supplier_directory():
     body = upload_response.json()
 
     assert body["document_url"] == (
-        "/api/v1/invoices/SUP123/INV1001/document"
+        "/api/v1/invoices/SUP-00123/INV1001/document"
     )
 
     # Internal MinIO key must never be exposed.
@@ -3396,7 +3396,7 @@ def test_invoice_document_url_initially_none():
     # Internal invoice storage.
     # --------------------------------------------------------
 
-    invoice_key = ("SUP001", "INV1001")
+    invoice_key = ("SUP-00001", "INV1001")
 
     assert invoices[invoice_key]["document_path"] is None
     assert invoices[invoice_key]["document_url"] is None
@@ -3418,7 +3418,7 @@ def test_get_invoice_after_document_upload():
     authenticate_as(SUPPLIER_1_USER)
 
     expected_key = (
-        "suppliers/SUP001/invoices/INV1001.pdf"
+        "suppliers/SUP-00001/invoices/INV1001.pdf"
     )
 
     with patch.object(
@@ -3428,7 +3428,7 @@ def test_get_invoice_after_document_upload():
     ) as mock_upload:
 
         upload_response = client.post(
-            "/api/v1/invoices/SUP001/INV1001/document",
+            "/api/v1/invoices/SUP-00001/INV1001/document",
             files={
                 "file": (
                     "invoice.pdf",
@@ -3445,7 +3445,7 @@ def test_get_invoice_after_document_upload():
     mock_upload.assert_called_once()
 
     response = client.get(
-        "/api/v1/invoices/SUP001/INV1001"
+        "/api/v1/invoices/SUP-00001/INV1001"
     )
 
     assert response.status_code == 200, response.text
@@ -3457,7 +3457,7 @@ def test_get_invoice_after_document_upload():
     assert data["document_url"] is not None
 
     assert data["document_url"] == (
-        "/api/v1/invoices/SUP001/INV1001/document"
+        "/api/v1/invoices/SUP-00001/INV1001/document"
     )
 
     # Internal MinIO key must not be exposed.
@@ -3475,7 +3475,7 @@ def test_invoice_with_multiple_purchase_orders():
 
     create_received_po(
         po_number="PO1001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         item_code="LAPTOP",
         quantity=5,
         unit_price=50000,
@@ -3487,7 +3487,7 @@ def test_invoice_with_multiple_purchase_orders():
 
     create_received_po(
         po_number="PO1002",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         item_code="MOUSE",
         quantity=10,
         unit_price=1500,
@@ -3497,7 +3497,7 @@ def test_invoice_with_multiple_purchase_orders():
 
     payload = {
         "invoice_number": "INV7001",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [
             {
                 "po_number": "PO1001",
@@ -3528,13 +3528,13 @@ def test_invoice_with_multiple_purchase_orders():
     data = response.json()
 
     assert data["invoice_number"] == "INV7001"
-    assert data["supplier_id"] == "SUP001"
+    assert data["supplier_id"] == "SUP-00001"
     assert len(data["items"]) == 2
     assert data["amount"] == 107500
 
     # Creating an invoice does not upload a document.
     assert invoices[
-        ("SUP001", "INV7001")
+        ("SUP-00001", "INV7001")
     ]["document_path"] is None
 
 
@@ -3574,7 +3574,7 @@ def test_invoice_multiple_items_same_po():
 
     payload = {
         "invoice_number": "INV8001",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [
             {
                 "po_number": "PO1001",
@@ -3605,13 +3605,13 @@ def test_invoice_multiple_items_same_po():
     data = response.json()
 
     assert data["invoice_number"] == "INV8001"
-    assert data["supplier_id"] == "SUP001"
+    assert data["supplier_id"] == "SUP-00001"
     assert len(data["items"]) == 2
     assert data["amount"] == 53000
 
     # No document is created during invoice creation.
     assert invoices[
-        ("SUP001", "INV8001")
+        ("SUP-00001", "INV8001")
     ]["document_path"] is None
 # ============================================================
 # ORPHANED INVOICE FILE TEST SETUP - MINIO
@@ -3744,7 +3744,7 @@ def test_find_orphaned_file_when_invoice_does_not_exist(
 
     object_key = add_minio_invoice_object(
         objects=objects,
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="INV001",
         age_days=2,
         size=100,
@@ -3761,14 +3761,14 @@ def test_find_orphaned_file_when_invoice_does_not_exist(
     orphan = result[0]
 
     assert orphan["invoice_number"] == "INV001"
-    assert orphan["supplier_id"] == "SUP001"
+    assert orphan["supplier_id"] == "SUP-00001"
     assert orphan["file_name"] == "INV001.pdf"
 
     # MinIO object key, not an absolute filesystem path.
     assert orphan["file_path"] == object_key
 
     assert orphan["file_path"] == (
-        "suppliers/SUP001/invoices/INV001.pdf"
+        "suppliers/SUP-00001/invoices/INV001.pdf"
     )
 
     assert orphan["size_bytes"] == 100
@@ -3796,20 +3796,20 @@ def test_approved_invoice_file_is_not_orphaned(
 
     object_key = add_minio_invoice_object(
         objects=objects,
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="INV002",
         age_days=2,
     )
 
     invoice_service.invoices[
-        ("SUP001", "INV002")
+        ("SUP-00001", "INV002")
     ] = {
         "invoice_number": "INV002",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "status": InvoiceStatus.approved,
         "document_url": (
             "/api/v1/invoices/"
-            "SUP001/INV002/document"
+            "SUP-00001/INV002/document"
         ),
         "document_path": object_key,
     }
@@ -3839,20 +3839,20 @@ def test_rejected_invoice_file_is_not_orphaned(
 
     object_key = add_minio_invoice_object(
         objects=objects,
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="INV003",
         age_days=2,
     )
 
     invoice_service.invoices[
-        ("SUP001", "INV003")
+        ("SUP-00001", "INV003")
     ] = {
         "invoice_number": "INV003",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "status": InvoiceStatus.rejected,
         "document_url": (
             "/api/v1/invoices/"
-            "SUP001/INV003/document"
+            "SUP-00001/INV003/document"
         ),
         "document_path": object_key,
     }
@@ -3884,21 +3884,21 @@ def test_submitted_old_invoice_file_is_orphaned(
 
     object_key = add_minio_invoice_object(
         objects=objects,
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="INV004",
         age_days=2,
     )
 
     invoice_service.invoices[
-        ("SUP001", "INV004")
+        ("SUP-00001", "INV004")
     ] = {
         "invoice_number": "INV004",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "status": InvoiceStatus.submitted,
         "document_path": object_key,
         "document_url": (
             "/api/v1/invoices/"
-            "SUP001/INV004/document"
+            "SUP-00001/INV004/document"
         ),
     }
 
@@ -3913,11 +3913,11 @@ def test_submitted_old_invoice_file_is_orphaned(
     orphan = result[0]
 
     assert orphan["invoice_number"] == "INV004"
-    assert orphan["supplier_id"] == "SUP001"
+    assert orphan["supplier_id"] == "SUP-00001"
     assert orphan["invoice_status"] == "submitted"
 
     assert orphan["file_path"] == (
-        "suppliers/SUP001/invoices/INV004.pdf"
+        "suppliers/SUP-00001/invoices/INV004.pdf"
     )
 
     assert (
@@ -3942,16 +3942,16 @@ def test_non_terminal_invoice_without_document_path_is_orphaned(
 
     object_key = add_minio_invoice_object(
         objects=objects,
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
         invoice_number="INV005",
         age_days=2,
     )
 
     invoice_service.invoices[
-        ("SUP002", "INV005")
+        ("SUP-00002", "INV005")
     ] = {
         "invoice_number": "INV005",
-        "supplier_id": "SUP002",
+        "supplier_id": "SUP-00002",
         "status": InvoiceStatus.disputed,
         "document_path": None,
         "document_url": None,
@@ -3968,7 +3968,7 @@ def test_non_terminal_invoice_without_document_path_is_orphaned(
     orphan = result[0]
 
     assert orphan["invoice_number"] == "INV005"
-    assert orphan["supplier_id"] == "SUP002"
+    assert orphan["supplier_id"] == "SUP-00002"
     assert orphan["invoice_status"] == "disputed"
 
     assert orphan["file_path"] == object_key
@@ -3995,26 +3995,26 @@ def test_invoice_file_with_wrong_document_path_is_orphaned(
 
     actual_object_key = add_minio_invoice_object(
         objects=objects,
-        supplier_id="SUP003",
+        supplier_id="SUP-00003",
         invoice_number="INV006",
         age_days=2,
     )
 
     wrong_document_path = (
-        "suppliers/SUP003/"
+        "suppliers/SUP-00003/"
         "invoices/different-file.pdf"
     )
 
     invoice_service.invoices[
-        ("SUP003", "INV006")
+        ("SUP-00003", "INV006")
     ] = {
         "invoice_number": "INV006",
-        "supplier_id": "SUP003",
+        "supplier_id": "SUP-00003",
         "status": InvoiceStatus.submitted,
         "document_path": wrong_document_path,
         "document_url": (
             "/api/v1/invoices/"
-            "SUP003/INV006/document"
+            "SUP-00003/INV006/document"
         ),
     }
 
@@ -4029,12 +4029,12 @@ def test_invoice_file_with_wrong_document_path_is_orphaned(
     orphan = result[0]
 
     assert orphan["invoice_number"] == "INV006"
-    assert orphan["supplier_id"] == "SUP003"
+    assert orphan["supplier_id"] == "SUP-00003"
 
     assert orphan["file_path"] == actual_object_key
 
     assert orphan["file_path"] == (
-        "suppliers/SUP003/invoices/INV006.pdf"
+        "suppliers/SUP-00003/invoices/INV006.pdf"
     )
 
     assert (
@@ -4058,7 +4058,7 @@ def test_recent_invoice_file_is_not_orphaned(
 
     object_key = add_minio_invoice_object(
         objects=objects,
-        supplier_id="SUP004",
+        supplier_id="SUP-00004",
         invoice_number="INV007",
         age_days=0,
     )
@@ -4092,7 +4092,7 @@ def test_purge_deletes_orphaned_file(
 
     object_key = add_minio_invoice_object(
         objects,
-        supplier_id="SUP005",
+        supplier_id="SUP-00005",
         invoice_number="INV008",
         age_days=2,
     )
@@ -4120,7 +4120,7 @@ def test_purge_deletes_orphaned_file(
 
     assert (
         result["files"][0]["supplier_id"]
-        == "SUP005"
+        == "SUP-00005"
     )
 
     assert (
@@ -4152,21 +4152,21 @@ def test_purge_does_not_delete_approved_file(
 
     object_key = add_minio_invoice_object(
         objects,
-        supplier_id="SUP006",
+        supplier_id="SUP-00006",
         invoice_number="INV009",
         age_days=2,
     )
 
     invoice_service.invoices[
-        ("SUP006", "INV009")
+        ("SUP-00006", "INV009")
     ] = {
         "invoice_number": "INV009",
-        "supplier_id": "SUP006",
+        "supplier_id": "SUP-00006",
         "status": InvoiceStatus.approved,
         "document_path": object_key,
         "document_url": (
             "/api/v1/invoices/"
-            "SUP006/INV009/document"
+            "SUP-00006/INV009/document"
         ),
     }
 
@@ -4208,7 +4208,7 @@ def test_purge_does_not_delete_recent_file(
 
     object_key = add_minio_invoice_object(
         objects,
-        supplier_id="SUP007",
+        supplier_id="SUP-00007",
         invoice_number="INV010",
         age_days=0,
     )
@@ -4250,21 +4250,21 @@ def test_purge_multiple_orphaned_files(
 
     file1 = add_minio_invoice_object(
         objects,
-        supplier_id="SUP008",
+        supplier_id="SUP-00008",
         invoice_number="INV011",
         age_days=3,
     )
 
     file2 = add_minio_invoice_object(
         objects,
-        supplier_id="SUP008",
+        supplier_id="SUP-00008",
         invoice_number="INV012",
         age_days=3,
     )
 
     file3 = add_minio_invoice_object(
         objects,
-        supplier_id="SUP009",
+        supplier_id="SUP-00009",
         invoice_number="INV013",
         age_days=3,
     )
@@ -4326,7 +4326,7 @@ def test_purge_only_deletes_orphaned_files(
 
     orphan_file = add_minio_invoice_object(
         objects,
-        supplier_id="SUP010",
+        supplier_id="SUP-00010",
         invoice_number="INV014",
         age_days=3,
     )
@@ -4337,21 +4337,21 @@ def test_purge_only_deletes_orphaned_files(
 
     approved_file = add_minio_invoice_object(
         objects,
-        supplier_id="SUP010",
+        supplier_id="SUP-00010",
         invoice_number="INV015",
         age_days=3,
     )
 
     invoice_service.invoices[
-        ("SUP010", "INV015")
+        ("SUP-00010", "INV015")
     ] = {
         "invoice_number": "INV015",
-        "supplier_id": "SUP010",
+        "supplier_id": "SUP-00010",
         "status": InvoiceStatus.approved,
         "document_path": approved_file,
         "document_url": (
             "/api/v1/invoices/"
-            "SUP010/INV015/document"
+            "SUP-00010/INV015/document"
         ),
     }
 
@@ -4361,7 +4361,7 @@ def test_purge_only_deletes_orphaned_files(
 
     recent_file = add_minio_invoice_object(
         objects,
-        supplier_id="SUP010",
+        supplier_id="SUP-00010",
         invoice_number="INV016",
         age_days=0,
     )
@@ -4428,21 +4428,21 @@ def test_purge_continues_when_one_minio_delete_fails(
 
     file1 = add_minio_invoice_object(
         objects,
-        supplier_id="SUP011",
+        supplier_id="SUP-00011",
         invoice_number="INV017",
         age_days=3,
     )
 
     file2 = add_minio_invoice_object(
         objects,
-        supplier_id="SUP011",
+        supplier_id="SUP-00011",
         invoice_number="INV018",
         age_days=3,
     )
 
     file3 = add_minio_invoice_object(
         objects,
-        supplier_id="SUP012",
+        supplier_id="SUP-00012",
         invoice_number="INV019",
         age_days=3,
     )
@@ -4569,7 +4569,7 @@ def test_compliance_officer_can_scan_orphaned_invoice_files(
 
     object_key = add_minio_invoice_object(
         objects,
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="INV9901",
         age_days=2,
     )
@@ -4592,7 +4592,7 @@ def test_compliance_officer_can_scan_orphaned_invoice_files(
 
     orphan = data["orphaned_files"][0]
 
-    assert orphan["supplier_id"] == "SUP001"
+    assert orphan["supplier_id"] == "SUP-00001"
     assert orphan["invoice_number"] == "INV9901"
     assert orphan["file_name"] == "INV9901.pdf"
 
@@ -4617,7 +4617,7 @@ def test_compliance_officer_can_purge_orphaned_invoice_files(
 
     object_key = add_minio_invoice_object(
         objects,
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         invoice_number="INV9902",
         age_days=2,
     )
@@ -4678,7 +4678,7 @@ def test_supplier_cannot_purge_orphaned_file_physically(
 
     object_key = add_minio_invoice_object(
         objects,
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
         invoice_number="INV9903",
         age_days=2,
     )
@@ -4761,16 +4761,16 @@ def test_supplier_can_access_own_invoice():
     """
     R5:
 
-    Supplier SUP001 must be able to access its own invoice.
+    Supplier SUP-00001 must be able to access its own invoice.
     """
 
     # --------------------------------------------------------
-    # Create PO and invoice for SUP001.
+    # Create PO and invoice for SUP-00001.
     # --------------------------------------------------------
 
     create_received_po(
         po_number="PO2001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     authenticate_as(SUPPLIER_1_USER)
@@ -4778,7 +4778,7 @@ def test_supplier_can_access_own_invoice():
     response = create_sample_invoice(
         invoice_number="INV2001",
         po_number="PO2001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     assert response.status_code == 201, response.text
@@ -4788,7 +4788,7 @@ def test_supplier_can_access_own_invoice():
     # --------------------------------------------------------
 
     response = client.get(
-        "/api/v1/invoices/SUP001/INV2001"
+        "/api/v1/invoices/SUP-00001/INV2001"
     )
 
     assert response.status_code == 200, response.text
@@ -4796,26 +4796,26 @@ def test_supplier_can_access_own_invoice():
     data = response.json()
 
     assert data["invoice_number"] == "INV2001"
-    assert data["supplier_id"] == "SUP001"
+    assert data["supplier_id"] == "SUP-00001"
 
 
 def test_supplier_cannot_access_other_supplier_invoice():
     """
     R5 Supplier Scoping:
 
-    Authenticated supplier = SUP001
-    Requested invoice owner = SUP002
+    Authenticated supplier = SUP-00001
+    Requested invoice owner = SUP-00002
 
-    SUP001 must not be able to view SUP002's invoice.
+    SUP-00001 must not be able to view SUP-00002's invoice.
     """
 
     # --------------------------------------------------------
-    # Create PO and invoice for SUP002.
+    # Create PO and invoice for SUP-00002.
     # --------------------------------------------------------
 
     create_received_po(
         po_number="PO2002",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     authenticate_as(SUPPLIER_2_USER)
@@ -4823,19 +4823,19 @@ def test_supplier_cannot_access_other_supplier_invoice():
     response = create_sample_invoice(
         invoice_number="INV2002",
         po_number="PO2002",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     assert response.status_code == 201, response.text
 
     # --------------------------------------------------------
-    # Switch to SUP001.
+    # Switch to SUP-00001.
     # --------------------------------------------------------
 
     authenticate_as(SUPPLIER_1_USER)
 
     response = client.get(
-        "/api/v1/invoices/SUP002/INV2002"
+        "/api/v1/invoices/SUP-00002/INV2002"
     )
 
     assert response.status_code == 403, response.text
@@ -4850,17 +4850,17 @@ def test_supplier_cannot_transition_other_supplier_invoice():
     """
     R5 Supplier Scoping:
 
-    SUP001 must not be able to transition
-    an invoice owned by SUP002.
+    SUP-00001 must not be able to transition
+    an invoice owned by SUP-00002.
     """
 
     # --------------------------------------------------------
-    # Create SUP002 invoice.
+    # Create SUP-00002 invoice.
     # --------------------------------------------------------
 
     create_received_po(
         po_number="PO2003",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     authenticate_as(SUPPLIER_2_USER)
@@ -4868,19 +4868,19 @@ def test_supplier_cannot_transition_other_supplier_invoice():
     response = create_sample_invoice(
         invoice_number="INV2003",
         po_number="PO2003",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     assert response.status_code == 201, response.text
 
     # --------------------------------------------------------
-    # Switch to SUP001.
+    # Switch to SUP-00001.
     # --------------------------------------------------------
 
     authenticate_as(SUPPLIER_1_USER)
 
     response = client.post(
-        "/api/v1/invoices/SUP002/INV2003/transition",
+        "/api/v1/invoices/SUP-00002/INV2003/transition",
         json={
             "target_state": "disputed",
             "actor_id": "USER001",
@@ -4902,17 +4902,17 @@ def test_supplier_cannot_upload_document_for_other_supplier_invoice():
     """
     R5 Supplier Scoping:
 
-    SUP001 must not be able to upload a document
-    to an invoice owned by SUP002.
+    SUP-00001 must not be able to upload a document
+    to an invoice owned by SUP-00002.
     """
 
     # --------------------------------------------------------
-    # Create SUP002 invoice.
+    # Create SUP-00002 invoice.
     # --------------------------------------------------------
 
     create_received_po(
         po_number="PO2004",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     authenticate_as(SUPPLIER_2_USER)
@@ -4920,19 +4920,19 @@ def test_supplier_cannot_upload_document_for_other_supplier_invoice():
     response = create_sample_invoice(
         invoice_number="INV2004",
         po_number="PO2004",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     assert response.status_code == 201, response.text
 
     # --------------------------------------------------------
-    # Switch to SUP001.
+    # Switch to SUP-00001.
     # --------------------------------------------------------
 
     authenticate_as(SUPPLIER_1_USER)
 
     response = client.post(
-        "/api/v1/invoices/SUP002/INV2004/document",
+        "/api/v1/invoices/SUP-00002/INV2004/document",
         files={
             "file": (
                 "invoice.pdf",
@@ -4954,17 +4954,17 @@ def test_supplier_cannot_download_other_supplier_invoice_document():
     """
     R5 Supplier Scoping:
 
-    SUP001 must not be able to download
-    a document belonging to SUP002.
+    SUP-00001 must not be able to download
+    a document belonging to SUP-00002.
     """
 
     # --------------------------------------------------------
-    # Create SUP002 invoice.
+    # Create SUP-00002 invoice.
     # --------------------------------------------------------
 
     create_received_po(
         po_number="PO2005",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     authenticate_as(SUPPLIER_2_USER)
@@ -4972,17 +4972,17 @@ def test_supplier_cannot_download_other_supplier_invoice_document():
     response = create_sample_invoice(
         invoice_number="INV2005",
         po_number="PO2005",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     assert response.status_code == 201, response.text
 
     # --------------------------------------------------------
-    # Upload document as SUP002.
+    # Upload document as SUP-00002.
     # --------------------------------------------------------
 
     response = client.post(
-        "/api/v1/invoices/SUP002/INV2005/document",
+        "/api/v1/invoices/SUP-00002/INV2005/document",
         files={
             "file": (
                 "invoice.pdf",
@@ -4995,13 +4995,13 @@ def test_supplier_cannot_download_other_supplier_invoice_document():
     assert response.status_code == 200, response.text
 
     # --------------------------------------------------------
-    # Switch to SUP001.
+    # Switch to SUP-00001.
     # --------------------------------------------------------
 
     authenticate_as(SUPPLIER_1_USER)
 
     response = client.get(
-        "/api/v1/invoices/SUP002/INV2005/document"
+        "/api/v1/invoices/SUP-00002/INV2005/document"
     )
 
     assert response.status_code == 403, response.text
@@ -5016,21 +5016,21 @@ def test_supplier_cannot_create_invoice_for_other_supplier():
     """
     R5 Supplier Scoping:
 
-    SUP001 token must not be able to create an invoice
-    claiming supplier_id = SUP002.
+    SUP-00001 token must not be able to create an invoice
+    claiming supplier_id = SUP-00002.
     """
 
     # --------------------------------------------------------
-    # Create a valid SUP002 PO.
+    # Create a valid SUP-00002 PO.
     # --------------------------------------------------------
 
     create_received_po(
         po_number="PO2006",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     # --------------------------------------------------------
-    # Switch to SUP001.
+    # Switch to SUP-00001.
     # --------------------------------------------------------
 
     authenticate_as(SUPPLIER_1_USER)
@@ -5038,7 +5038,7 @@ def test_supplier_cannot_create_invoice_for_other_supplier():
     response = create_sample_invoice(
         invoice_number="INV2006",
         po_number="PO2006",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     assert response.status_code == 403, response.text
@@ -5060,12 +5060,12 @@ def test_supplier_cannot_adjust_invoice():
     """
 
     # --------------------------------------------------------
-    # Create invoice for SUP001.
+    # Create invoice for SUP-00001.
     # --------------------------------------------------------
 
     create_received_po(
         po_number="PO2007",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     authenticate_as(SUPPLIER_1_USER)
@@ -5073,7 +5073,7 @@ def test_supplier_cannot_adjust_invoice():
     response = create_sample_invoice(
         invoice_number="INV2007",
         po_number="PO2007",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     assert response.status_code == 201, response.text
@@ -5083,7 +5083,7 @@ def test_supplier_cannot_adjust_invoice():
     # --------------------------------------------------------
 
     response = client.post(
-        "/api/v1/invoices/SUP001/INV2007/transition",
+        "/api/v1/invoices/SUP-00001/INV2007/transition",
         json={
             "target_state": "disputed",
             "actor_id": "USER001",
@@ -5100,7 +5100,7 @@ def test_supplier_cannot_adjust_invoice():
     # --------------------------------------------------------
 
     response = client.post(
-        "/api/v1/invoices/SUP001/INV2007/adjust",
+        "/api/v1/invoices/SUP-00001/INV2007/adjust",
         json={
             "actor_id": "USER001",
             "actor_name": "Supplier User",
@@ -5135,12 +5135,12 @@ def test_compliance_officer_can_adjust_supplier_invoice():
     """
 
     # --------------------------------------------------------
-    # Create invoice as SUP001.
+    # Create invoice as SUP-00001.
     # --------------------------------------------------------
 
     create_received_po(
         po_number="PO2008",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     authenticate_as(SUPPLIER_1_USER)
@@ -5148,7 +5148,7 @@ def test_compliance_officer_can_adjust_supplier_invoice():
     response = create_sample_invoice(
         invoice_number="INV2008",
         po_number="PO2008",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     assert response.status_code == 201, response.text
@@ -5158,7 +5158,7 @@ def test_compliance_officer_can_adjust_supplier_invoice():
     # --------------------------------------------------------
 
     response = client.post(
-        "/api/v1/invoices/SUP001/INV2008/transition",
+        "/api/v1/invoices/SUP-00001/INV2008/transition",
         json={
             "target_state": "disputed",
             "actor_id": "USER001",
@@ -5177,7 +5177,7 @@ def test_compliance_officer_can_adjust_supplier_invoice():
     authenticate_as(COMPLIANCE_USER)
 
     response = client.post(
-        "/api/v1/invoices/SUP001/INV2008/adjust",
+        "/api/v1/invoices/SUP-00001/INV2008/adjust",
         json={
             "actor_id": "USER002",
             "actor_name": "Compliance Officer",
@@ -5208,18 +5208,18 @@ def test_supplier_get_all_invoices_returns_only_own_invoices():
     """
     R5 Supplier Scoping:
 
-    SUP001 must only receive invoices belonging to SUP001.
+    SUP-00001 must only receive invoices belonging to SUP-00001.
 
     Invoices belonging to other suppliers must not be exposed.
     """
 
     # --------------------------------------------------------
-    # Create SUP001 invoice.
+    # Create SUP-00001 invoice.
     # --------------------------------------------------------
 
     create_received_po(
         po_number="PO2101",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     authenticate_as(SUPPLIER_1_USER)
@@ -5227,18 +5227,18 @@ def test_supplier_get_all_invoices_returns_only_own_invoices():
     response = create_sample_invoice(
         invoice_number="INV2101",
         po_number="PO2101",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     assert response.status_code == 201, response.text
 
     # --------------------------------------------------------
-    # Create SUP002 invoice.
+    # Create SUP-00002 invoice.
     # --------------------------------------------------------
 
     create_received_po(
         po_number="PO2102",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     authenticate_as(SUPPLIER_2_USER)
@@ -5246,13 +5246,13 @@ def test_supplier_get_all_invoices_returns_only_own_invoices():
     response = create_sample_invoice(
         invoice_number="INV2102",
         po_number="PO2102",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     assert response.status_code == 201, response.text
 
     # --------------------------------------------------------
-    # Request list as SUP001.
+    # Request list as SUP-00001.
     # --------------------------------------------------------
 
     authenticate_as(SUPPLIER_1_USER)
@@ -5265,15 +5265,15 @@ def test_supplier_get_all_invoices_returns_only_own_invoices():
 
     data = response.json()
 
-    # Only SUP001 invoice must be visible.
+    # Only SUP-00001 invoice must be visible.
     assert len(data) == 1
 
     assert data[0]["invoice_number"] == "INV2101"
-    assert data[0]["supplier_id"] == "SUP001"
+    assert data[0]["supplier_id"] == "SUP-00001"
 
-    # SUP002 data must not leak.
+    # SUP-00002 data must not leak.
     assert all(
-        invoice["supplier_id"] != "SUP002"
+        invoice["supplier_id"] != "SUP-00002"
         for invoice in data
     )
 
@@ -5282,16 +5282,16 @@ def test_supplier_b_get_all_invoices_returns_only_own_invoices():
     """
     R5 Supplier Scoping:
 
-    SUP002 must only receive invoices belonging to SUP002.
+    SUP-00002 must only receive invoices belonging to SUP-00002.
     """
 
     # --------------------------------------------------------
-    # Create SUP001 invoice.
+    # Create SUP-00001 invoice.
     # --------------------------------------------------------
 
     create_received_po(
         po_number="PO2111",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     authenticate_as(SUPPLIER_1_USER)
@@ -5299,18 +5299,18 @@ def test_supplier_b_get_all_invoices_returns_only_own_invoices():
     response = create_sample_invoice(
         invoice_number="INV2111",
         po_number="PO2111",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     assert response.status_code == 201, response.text
 
     # --------------------------------------------------------
-    # Create SUP002 invoice.
+    # Create SUP-00002 invoice.
     # --------------------------------------------------------
 
     create_received_po(
         po_number="PO2112",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     authenticate_as(SUPPLIER_2_USER)
@@ -5318,13 +5318,13 @@ def test_supplier_b_get_all_invoices_returns_only_own_invoices():
     response = create_sample_invoice(
         invoice_number="INV2112",
         po_number="PO2112",
-        supplier_id="SUP002",
+        supplier_id="SUP-00002",
     )
 
     assert response.status_code == 201, response.text
 
     # --------------------------------------------------------
-    # Request list as SUP002.
+    # Request list as SUP-00002.
     # --------------------------------------------------------
 
     authenticate_as(SUPPLIER_2_USER)
@@ -5340,11 +5340,11 @@ def test_supplier_b_get_all_invoices_returns_only_own_invoices():
     assert len(data) == 1
 
     assert data[0]["invoice_number"] == "INV2112"
-    assert data[0]["supplier_id"] == "SUP002"
+    assert data[0]["supplier_id"] == "SUP-00002"
 
-    # SUP001 must not be exposed.
+    # SUP-00001 must not be exposed.
     assert all(
-        invoice["supplier_id"] != "SUP001"
+        invoice["supplier_id"] != "SUP-00001"
         for invoice in data
     )
 
@@ -5364,7 +5364,7 @@ def test_supplier_without_supplier_id_is_rejected():
     authenticate_as(SUPPLIER_NO_ID_USER)
 
     response = client.get(
-        "/api/v1/invoices/SUP001/INV9999"
+        "/api/v1/invoices/SUP-00001/INV9999"
     )
 
     assert response.status_code == 403
@@ -5544,13 +5544,13 @@ def test_failed_over_invoice_does_not_modify_previous_invoice():
     assert response2.status_code == 400
 
     invoice = invoices[
-        ("SUP001", "INV9201")
+        ("SUP-00001", "INV9201")
     ]
 
     assert invoice["items"][0]["quantity"] == 7
 
     assert (
-        ("SUP001", "INV9202")
+        ("SUP-00001", "INV9202")
         not in invoices
     )
 
@@ -5620,14 +5620,14 @@ def test_multi_po_invoice_rolls_back_p2p_transition_on_failure(
 
     create_acknowledged_po(
         po_number="PO1001",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         quantity=5,
         unit_price=50000,
     )
 
     create_acknowledged_po(
         po_number="PO1002",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
         quantity=5,
         unit_price=50000,
     )
@@ -5665,7 +5665,7 @@ def test_multi_po_invoice_rolls_back_p2p_transition_on_failure(
 
     payload = {
         "invoice_number": "INV9401",
-        "supplier_id": "SUP001",
+        "supplier_id": "SUP-00001",
         "items": [
             {
                 "po_number": "PO1001",
@@ -5707,7 +5707,7 @@ def test_multi_po_invoice_rolls_back_p2p_transition_on_failure(
 
     # Invoice must not remain stored.
     assert (
-        ("SUP001", "INV9401")
+        ("SUP-00001", "INV9401")
         not in invoices
     )
 
@@ -5727,7 +5727,7 @@ def test_supplier_without_supplier_id_cannot_create_invoice():
     # AFTER the helper call.
     create_received_po(
         po_number="PO9501",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     authenticate_as(SUPPLIER_NO_ID_USER)
@@ -5735,7 +5735,7 @@ def test_supplier_without_supplier_id_cannot_create_invoice():
     response = create_sample_invoice(
         invoice_number="INV9501",
         po_number="PO9501",
-        supplier_id="SUP001",
+        supplier_id="SUP-00001",
     )
 
     assert response.status_code == 403
@@ -5752,7 +5752,7 @@ def test_supplier_without_supplier_id_cannot_create_invoice():
 
 def upload_invoice_pdf(
     invoice_number="INV1001",
-    supplier_id="SUP001",
+    supplier_id="SUP-00001",
 ):
     """
     Upload a valid PDF to the invoice document endpoint.
@@ -5760,7 +5760,7 @@ def upload_invoice_pdf(
 
     authenticate_as(
         SUPPLIER_1_USER
-        if supplier_id == "SUP001"
+        if supplier_id == "SUP-00001"
         else SUPPLIER_2_USER
     )
 
@@ -5812,7 +5812,7 @@ def test_invoice_document_download_returns_presigned_url():
         mock_generate.return_value = (
             "http://127.0.0.1:9000/"
             "supplier-documents/"
-            "suppliers/SUP001/invoices/INV1001.pdf"
+            "suppliers/SUP-00001/invoices/INV1001.pdf"
             "?X-Amz-Expires=300"
         )
 
@@ -5820,7 +5820,7 @@ def test_invoice_document_download_returns_presigned_url():
 
         response = client.get(
             "/api/v1/invoices/"
-            "SUP001/INV1001/document"
+            "SUP-00001/INV1001/document"
         )
 
     assert response.status_code == 200, response.text
@@ -5828,7 +5828,7 @@ def test_invoice_document_download_returns_presigned_url():
     data = response.json()
 
     assert data["invoice_number"] == "INV1001"
-    assert data["supplier_id"] == "SUP001"
+    assert data["supplier_id"] == "SUP-00001"
     assert data["file_name"] == "INV1001.pdf"
 
     assert data["download_url"].startswith(
@@ -5839,7 +5839,7 @@ def test_invoice_document_download_returns_presigned_url():
 
     mock_generate.assert_called_once_with(
         object_key=(
-            "suppliers/SUP001/"
+            "suppliers/SUP-00001/"
             "invoices/INV1001.pdf"
         )
     )
@@ -5853,12 +5853,12 @@ def test_invoice_document_download_uses_registered_document_path():
     create_submitted_invoice()
 
     expected_key = (
-        "suppliers/SUP001/"
+        "suppliers/SUP-00001/"
         "invoices/INV1001.pdf"
     )
 
     invoices[
-        ("SUP001", "INV1001")
+        ("SUP-00001", "INV1001")
     ]["document_path"] = expected_key
 
     authenticate_as(SUPPLIER_1_USER)
@@ -5880,7 +5880,7 @@ def test_invoice_document_download_uses_registered_document_path():
 
             response = client.get(
                 "/api/v1/invoices/"
-                "SUP001/INV1001/document"
+                "SUP-00001/INV1001/document"
             )
 
     assert response.status_code == 200
@@ -5895,16 +5895,16 @@ def test_invoice_document_download_uses_registered_document_path():
 
 def test_invoice_document_download_cross_supplier_is_forbidden():
     """
-    Supplier SUP002 must not receive a download URL for
-    SUP001's invoice.
+    Supplier SUP-00002 must not receive a download URL for
+    SUP-00001's invoice.
     """
 
     create_submitted_invoice()
 
     invoices[
-        ("SUP001", "INV1001")
+        ("SUP-00001", "INV1001")
     ]["document_path"] = (
-        "suppliers/SUP001/"
+        "suppliers/SUP-00001/"
         "invoices/INV1001.pdf"
     )
 
@@ -5917,7 +5917,7 @@ def test_invoice_document_download_cross_supplier_is_forbidden():
 
         response = client.get(
             "/api/v1/invoices/"
-            "SUP001/INV1001/document"
+            "SUP-00001/INV1001/document"
         )
 
     assert response.status_code == 403
@@ -5940,9 +5940,9 @@ def test_invoice_document_download_cross_supplier_does_not_call_minio():
     create_submitted_invoice()
 
     invoices[
-        ("SUP001", "INV1001")
+        ("SUP-00001", "INV1001")
     ]["document_path"] = (
-        "suppliers/SUP001/"
+        "suppliers/SUP-00001/"
         "invoices/INV1001.pdf"
     )
 
@@ -5955,7 +5955,7 @@ def test_invoice_document_download_cross_supplier_does_not_call_minio():
 
         response = client.get(
             "/api/v1/invoices/"
-            "SUP001/INV1001/document"
+            "SUP-00001/INV1001/document"
         )
 
     assert response.status_code == 403
@@ -5978,7 +5978,7 @@ def test_invoice_document_download_unknown_invoice_returns_404():
 
         response = client.get(
             "/api/v1/invoices/"
-            "SUP001/UNKNOWN/document"
+            "SUP-00001/UNKNOWN/document"
         )
 
     assert response.status_code == 404
@@ -5998,7 +5998,7 @@ def test_invoice_document_download_without_document_returns_404():
     create_submitted_invoice()
 
     assert invoices[
-        ("SUP001", "INV1001")
+        ("SUP-00001", "INV1001")
     ]["document_path"] is None
 
     authenticate_as(SUPPLIER_1_USER)
@@ -6010,7 +6010,7 @@ def test_invoice_document_download_without_document_returns_404():
 
         response = client.get(
             "/api/v1/invoices/"
-            "SUP001/INV1001/document"
+            "SUP-00001/INV1001/document"
         )
 
     assert response.status_code == 404
@@ -6030,12 +6030,12 @@ def test_invoice_document_download_minio_failure_returns_502():
     create_submitted_invoice()
 
     expected_key = (
-        "suppliers/SUP001/"
+        "suppliers/SUP-00001/"
         "invoices/INV1001.pdf"
     )
 
     invoices[
-        ("SUP001", "INV1001")
+        ("SUP-00001", "INV1001")
     ]["document_path"] = expected_key
 
     authenticate_as(SUPPLIER_1_USER)
@@ -6064,7 +6064,7 @@ def test_invoice_document_download_minio_failure_returns_502():
 
             response = client.get(
                 "/api/v1/invoices/"
-                "SUP001/INV1001/document"
+                "SUP-00001/INV1001/document"
             )
 
     assert response.status_code == 502
@@ -6096,7 +6096,7 @@ def test_invoice_document_download_requires_authentication():
 
     response = client.get(
         "/api/v1/invoices/"
-        "SUP001/INV1001/document"
+        "SUP-00001/INV1001/document"
     )
 
     assert response.status_code == 401
@@ -6112,12 +6112,12 @@ def test_invoice_document_download_procurement_manager_allowed():
     create_submitted_invoice()
 
     expected_key = (
-        "suppliers/SUP001/"
+        "suppliers/SUP-00001/"
         "invoices/INV1001.pdf"
     )
 
     invoices[
-        ("SUP001", "INV1001")
+        ("SUP-00001", "INV1001")
     ]["document_path"] = expected_key
 
     authenticate_as(PROCUREMENT_USER)
@@ -6139,7 +6139,7 @@ def test_invoice_document_download_procurement_manager_allowed():
 
             response = client.get(
                 "/api/v1/invoices/"
-                "SUP001/INV1001/document"
+                "SUP-00001/INV1001/document"
             )
 
     assert response.status_code == 200
@@ -6147,7 +6147,7 @@ def test_invoice_document_download_procurement_manager_allowed():
     data = response.json()
 
     assert data["invoice_number"] == "INV1001"
-    assert data["supplier_id"] == "SUP001"
+    assert data["supplier_id"] == "SUP-00001"
 
     mock_exists.assert_called_once_with(
         object_key=expected_key,
@@ -6176,7 +6176,7 @@ def test_invoice_document_download_supplier_without_supplier_id_returns_403():
 
         response = client.get(
             "/api/v1/invoices/"
-            "SUP001/INV1001/document"
+            "SUP-00001/INV1001/document"
         )
 
     assert response.status_code == 403
@@ -6203,7 +6203,7 @@ def test_invoice_document_download_invalid_invoice_number_returns_400():
 
         response = client.get(
             "/api/v1/invoices/"
-            "SUP001/INVALID%20INVOICE/document"
+            "SUP-00001/INVALID%20INVOICE/document"
         )
 
     assert response.status_code == 400
@@ -6220,11 +6220,11 @@ def test_invoice_document_download_object_exists_minio_failure_returns_502():
     )
 
     object_key = (
-        "suppliers/SUP001/invoices/INV9910.pdf"
+        "suppliers/SUP-00001/invoices/INV9910.pdf"
     )
 
     invoices[
-        ("SUP001", "INV9910")
+        ("SUP-00001", "INV9910")
     ]["document_path"] = object_key
 
     authenticate_as(SUPPLIER_1_USER)
@@ -6238,7 +6238,7 @@ def test_invoice_document_download_object_exists_minio_failure_returns_502():
     ) as mock_exists:
 
         response = client.get(
-            "/api/v1/invoices/SUP001/INV9910/document"
+            "/api/v1/invoices/SUP-00001/INV9910/document"
         )
 
     assert response.status_code == 502, response.text
@@ -6252,11 +6252,11 @@ def test_invoice_document_download_presign_failure_returns_502():
     )
 
     object_key = (
-        "suppliers/SUP001/invoices/INV9911.pdf"
+        "suppliers/SUP-00001/invoices/INV9911.pdf"
     )
 
     invoices[
-        ("SUP001", "INV9911")
+        ("SUP-00001", "INV9911")
     ]["document_path"] = object_key
 
     authenticate_as(SUPPLIER_1_USER)
@@ -6276,7 +6276,7 @@ def test_invoice_document_download_presign_failure_returns_502():
         ) as mock_download:
 
             response = client.get(
-                "/api/v1/invoices/SUP001/INV9911/document"
+                "/api/v1/invoices/SUP-00001/INV9911/document"
             )
 
     assert response.status_code == 502, response.text
@@ -6305,7 +6305,7 @@ def test_invoice_upload_returns_502_when_minio_is_unreachable(
     monkeypatch.setattr(fake_minio, "bucket_exists", minio_unreachable)
 
     response = client.post(
-        "/api/v1/invoices/SUP001/INV9601/document",
+        "/api/v1/invoices/SUP-00001/INV9601/document",
         files={
             "file": (
                 "invoice.pdf",
@@ -6318,4 +6318,4 @@ def test_invoice_upload_returns_502_when_minio_is_unreachable(
     assert response.status_code == 502, response.text
 
     # Nothing was registered for a document that was never stored.
-    assert invoices[("SUP001", "INV9601")].get("document_path") is None
+    assert invoices[("SUP-00001", "INV9601")].get("document_path") is None
