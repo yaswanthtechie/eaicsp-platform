@@ -176,6 +176,26 @@ class Settings(BaseSettings):
     OTEL_SERVICE_NAME: str = "api-gateway"
     OTEL_EXPORTER_OTLP_ENDPOINT: str = "http://localhost:4318"
 
+    # --------------------------------------------------
+    # Round 15 Milestone 3 — Realtime WebSocket & Kafka BFF
+    # --------------------------------------------------
+    KAFKA_BOOTSTRAP_SERVERS: str = "localhost:9092"
+    KAFKA_CONSUMER_GROUP: str = "api-gateway-bff"
+    KAFKA_CONSUMER_ENABLED: bool = True
+    KAFKA_CONSUMER_AUTO_OFFSET_RESET: str = "latest"
+    KAFKA_DEDUPLICATION_CACHE_SIZE: int = 1000
+    KAFKA_DLQ_ENABLED: bool = True
+    KAFKA_TOPICS: list[str] = [
+        "inventory.stock.low",
+        "iot.anomaly.detected",
+        "supplierrisk.score.changed",
+        "eta.shipment.predicted",
+        "forecast.batch.completed",
+        "data.pipeline.completed",
+    ]
+    REALTIME_AUTH_TIMEOUT_SECONDS: float = 2.0
+    REALTIME_WS_PATH: str = "/api/v1/analytics/kpis/real-time"
+
     def model_post_init(self, __context: object = None, /) -> None:
         """
         Synchronize individual downstream URLs with the route mapping table.
