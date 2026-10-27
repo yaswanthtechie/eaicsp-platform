@@ -91,7 +91,7 @@ class AuditArchive:
 
         return records
 
-    def save_run(self, report, drift=None):
+    def save_run(self, report, drift=None, dataset=None):
         """
         Append one run to the archive. Existing records are never rewritten.
         """
@@ -106,6 +106,7 @@ class AuditArchive:
                 timezone.utc
             ).isoformat(),
             "schema_version": SCHEMA_VERSION,
+            "dataset": dataset or "unknown",
             "profile_report": report,
             "drift_report": drift,
         }
