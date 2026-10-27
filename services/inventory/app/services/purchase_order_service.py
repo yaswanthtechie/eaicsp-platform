@@ -405,7 +405,7 @@ def _record_po_approved(
 def approve_purchase_order(
     db: Session,
     po_id: str,
-    approved_by: str = "system",
+    approved_by: str,
 ):
     """
     Approve a purchase order and emit an inventory.po.approved outbox event

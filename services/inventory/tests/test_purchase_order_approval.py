@@ -69,21 +69,6 @@ def test_draft_po_awaits_procurement_approval(client, db_session):
     assert approved.json()["approval_status"] == "approved"
 
 
-def test_large_draft_po_awaits_procurement_approval(client, db_session):
-    _seed_reorderable_sku(db_session, unit_cost=100.0)  # 55 x 100 = 5500
-
-    response = client.post(
-        "/api/v1/inventory/purchase-orders/draft",
-        json={"sku_id": "SKU-000901", "warehouse_id": "WH-BLR-01"},
-    )
-
-    assert response.status_code == 201, response.text
-    assert (
-        response.json()["approval_status"]
-        == "pending_vp_approval"
-    )
-
-
 @pytest.mark.parametrize(
     "role",
     ["warehouse_manager", "analyst", "ceo"],

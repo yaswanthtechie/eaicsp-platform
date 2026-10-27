@@ -119,7 +119,7 @@ class KafkaEventPublisher:
         remaining = self._producer.flush(timeout=5.0)
 
         if remaining > 0:
-            # Drop undelivered messages so a late ack can't publish them after the outbox retries.
+            # Drop undelivered messages. Delivery stays at-least-once; consumers dedupe on event_id.
             try:
                 self._producer.purge()
             except Exception:
