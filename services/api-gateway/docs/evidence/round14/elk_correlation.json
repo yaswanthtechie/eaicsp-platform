@@ -1,49 +1,49 @@
 {
-  "request_id": "r14-elk-b6ddfa00-e138-4dbf-9743-3d4f828ab095",
+  "request_id": "r14-elk-7e7720ea-a726-4408-b79e-a2be2f44d429",
   "http_status_returned": 503,
   "http_status_logged": 503,
   "log_line": {
-    "@timestamp": "2026-10-23T05:43:46.166Z",
+    "@timestamp": "2026-10-27T05:51:39.266Z",
+    "log": {
+      "offset": 2749208,
+      "file": {
+        "inode": "562949953561801",
+        "fingerprint": "d7c95eb7149db59245f07dc58c33ce4d1d78face3dc958307e80df539a91abb3",
+        "path": "/usr/share/filebeat/logs/access.log",
+        "device_id": "71"
+      }
+    },
     "input": {
       "type": "filestream"
-    },
-    "latency_ms": 8442.68,
-    "route": "/api/v1/inventory",
-    "trace_id": "510bd7ae602b7b34eaa6ec60827cba16",
-    "http": {
-      "method": "GET",
-      "status_code": 503
     },
     "ecs": {
       "version": "8.0.0"
     },
-    "host": {
-      "name": "7f678ef0fc22"
-    },
     "agent": {
+      "name": "2df724433b25",
+      "type": "filebeat",
       "version": "8.15.1",
-      "ephemeral_id": "10b1fbfb-2186-43aa-9a44-8958797339be",
-      "id": "214a81ec-2778-428c-9519-2a88a2ef9d85",
-      "name": "7f678ef0fc22",
-      "type": "filebeat"
+      "ephemeral_id": "8d155399-653b-40e5-b51c-50380f6c8292",
+      "id": "214a81ec-2778-428c-9519-2a88a2ef9d85"
     },
-    "log": {
-      "file": {
-        "fingerprint": "d7c95eb7149db59245f07dc58c33ce4d1d78face3dc958307e80df539a91abb3",
-        "path": "/usr/share/filebeat/logs/access.log",
-        "device_id": "71",
-        "inode": "562949953561801"
-      },
-      "offset": 1702027
-    },
-    "request_id": "r14-elk-b6ddfa00-e138-4dbf-9743-3d4f828ab095",
     "service": {
       "name": "api-gateway"
     },
-    "level": "ERROR"
+    "route": "/api/v1/inventory",
+    "level": "ERROR",
+    "latency_ms": 8491.41,
+    "trace_id": "4323564ef1c59ac24b170bbd03528edf",
+    "host": {
+      "name": "2df724433b25"
+    },
+    "http": {
+      "status_code": 503,
+      "method": "GET"
+    },
+    "request_id": "r14-elk-7e7720ea-a726-4408-b79e-a2be2f44d429"
   },
-  "trace_id": "510bd7ae602b7b34eaa6ec60827cba16",
-  "jaeger_url": "http://localhost:16686/trace/510bd7ae602b7b34eaa6ec60827cba16",
-  "kibana_url": "http://127.0.0.1:15601/app/discover#/view/1e6adbaa-1f7b-426c-bad0-d483bfff6c5c?_a=(query:(language:kuery,query:'request_id:\"r14-elk-b6ddfa00-e138-4dbf-9743-3d4f828ab095\"'))",
-  "token_found_in_elasticsearch": null
+  "trace_id": "4323564ef1c59ac24b170bbd03528edf",
+  "jaeger_url": "http://localhost:16686/trace/4323564ef1c59ac24b170bbd03528edf",
+  "kibana_url": "http://127.0.0.1:15601/app/discover#/view/1e6adbaa-1f7b-426c-bad0-d483bfff6c5c?_a=(query:(language:kuery,query:'request_id:\"r14-elk-7e7720ea-a726-4408-b79e-a2be2f44d429\"'))",
+  "token_found_in_elasticsearch": false
 }

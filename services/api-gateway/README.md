@@ -850,7 +850,7 @@ curl -X POST "http://localhost:15601/api/saved_objects/_import?overwrite=true" `
 
 The exported objects include:
 1. **Data View (`gateway-logs-view`)**: Matches `gateway-logs-*` with `@timestamp` time filter.
-2. **Saved Search (`gateway-logs-by-request-id`)**: Pre-configured column view (`@timestamp`, `level`, `service.name`, `http.method`, `route`, `http.status_code`, `latency_ms`, `request_id`, `trace_id`) for single `request_id` investigation.
+2. **Saved Search ("Gateway Logs by Request ID", id `1e6adbaa-1f7b-426c-bad0-d483bfff6c5c`)**: Pre-configured column view (`@timestamp`, `level`, `service.name`, `http.method`, `route`, `http.status_code`, `latency_ms`, `request_id`, `trace_id`) for single `request_id` investigation.
 3. **Errors Over Time Visualization**: Error count and rate segmented by status code.
 4. **Slow Routes Visualization**: Table ranking routes by p95 and average latency.
 5. **Latency Percentiles**: Visual trends for p50, p95, and p99 response times.
