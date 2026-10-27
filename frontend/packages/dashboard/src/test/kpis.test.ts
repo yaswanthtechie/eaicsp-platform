@@ -312,4 +312,72 @@ describe("KPI API", () => {
       message: "The KPI service is temporarily unavailable.",
     });
   });
+
+  it("appends filter query parameters when provided", async () => {
+    authMocks.getAuthSession.mockReturnValue({
+      access_token: "test-access-token",
+    });
+
+    const api = await loadApi("false");
+    fetchMock.mockResolvedValue(makeResponse(api.MOCK_KPI_RESPONSE));
+
+    await api.fetchKpiDashboard({
+      warehouse_id: "WH-ORD-01",
+      category: "industrial",
+      start_date: "2026-10-01",
+      end_date: "2026-10-15",
+      window_days: 14,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/analytics/kpis?warehouse_id=WH-ORD-01&category=industrial&start_date=2026-10-01&end_date=2026-10-15&window_days=14",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer test-access-token",
+        }),
+      }),
+    );
+  });
+
+  it("accepts valid responses with null secondary metrics", async () => {
+    authMocks.getAuthSession.mockReturnValue({
+      access_token: "test-access-token",
+    });
+
+    const api = await loadApi("false");
+    const responseWithNulls = {
+      ...api.MOCK_KPI_RESPONSE,
+      kpis: {
+        ...api.MOCK_KPI_RESPONSE.kpis,
+        fill_rate: {
+          ...api.MOCK_KPI_RESPONSE.kpis.fill_rate,
+          total_lines_ordered: null,
+          lines_fulfilled: null,
+        },
+        stockouts: {
+          ...api.MOCK_KPI_RESPONSE.kpis.stockouts,
+          critical_skus: null,
+          at_risk_skus: null,
+        },
+        open_purchase_orders: {
+          ...api.MOCK_KPI_RESPONSE.kpis.open_purchase_orders,
+          total_value_usd: null,
+          pending_approval: null,
+          by_status: null,
+        },
+        on_time_delivery: {
+          ...api.MOCK_KPI_RESPONSE.kpis.on_time_delivery,
+          total_shipments: null,
+          delivered_on_time: null,
+          delayed: null,
+        },
+      },
+    };
+
+    fetchMock.mockResolvedValue(makeResponse(responseWithNulls));
+
+    const result = await api.fetchKpiDashboard();
+    expect(result.kpis.fill_rate.total_lines_ordered).toBeNull();
+    expect(result.kpis.open_purchase_orders.total_value_usd).toBeNull();
+  });
 });
