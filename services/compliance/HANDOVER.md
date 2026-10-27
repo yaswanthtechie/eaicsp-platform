@@ -266,8 +266,8 @@ Do not overwrite shared credentials or change shared infrastructure without coor
 - [ ] `HANDOVER.md` reviewed and committed.
 - [x] Full test suite green from a clean virtual environment.
 - [x] Internal-check contract test green.
-- [ ] Known issues and untested items documented accurately.
-- [ ] Pull request opened against the intended base branch.
+- [x] Known issues and untested items documented accurately.
+- [x] Pull request opened against the intended base branch.
 
 
 ## 12. Maintenance Notes
