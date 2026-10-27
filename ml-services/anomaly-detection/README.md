@@ -2166,7 +2166,7 @@ Simulator -> Kafka `iot.sensor.reading` -> consumer -> InfluxDB (every reading)
 - `min_flagged_readings=2` by default. A single reading with `score >= threshold + severe_margin * scale` (`severe_margin=3.0`, a fixed design value, not tuned on results) still opens an episode. This keeps the recall-first policy (miss 500, false alarm 2).
 - Threshold: `SignificanceThresholdTuner(percentile=97)`, calibrated on normal data only. It is fed only readings that are unflagged and outside any episode. Each sensor has 1,000 clean readings before its first episode. The M2 cold-start limitation applies.
 - Seeds differ for training, calibration, evaluation, held-out and tuning streams. Readings carry no labels.
-- Event envelope follows the inventory-service schema: `event_id, event_type, producer, occurred_at, event_version ("1.0"), trace_id, payload`. `occurred_at` is wall-clock creation time; sensor time is in the payload.
+- Event envelope follows the inventory-service schema: `event_id, event_type, producer, occurred_at, event_version (integer 1), trace_id, payload`. `occurred_at` is wall-clock creation time; sensor time is in the payload.
 - `payload.top_features`: each feature's share of the positive (toward-anomaly) SHAP push; features pushing toward normal are not listed. Each item also carries the signed `shap_value` and `direction` (high/low vs the training mean). Computed once per episode, on the peak-score reading.
 - Delivery is at-least-once. Consumers de-duplicate on `payload.episode_id` (`sensor_id|window_start`).
 - InfluxDB 2.x: measurement `warehouse_sensor`, tag `sensor_id`, fields `temperature, humidity, door_open, power, anomaly_score, is_flagged`.
@@ -2280,6 +2280,17 @@ Use local dev values for the token and password; never commit `.env`. Run `down 
 - The consumer writes to InfluxDB one reading at a time (several minutes for 9,000 readings); batching is a possible improvement.
 - Known follow-ups (next round): an episode on a sensor that goes silent stays open and blocks offset commits; InfluxDB writes have no retry; `PERCENTILE`, `GAP` and `SEVERE_MARGIN` are duplicated in `stream_consumer.py` and `stream_eval.py` and should move to one config module.
 - Full test suite: 651 passed (1 integration test deselected by default; run with `pytest -m integration`).
+
+# Round 15 - Sensors on canonical warehouses (#232)
+
+- `src/sensor_config.py` generates `config/sensors.json` from the shared seed warehouses (`python -m src.sensor_config`): 2 sensors per warehouse, ids `WH-XXX-NN-S1/S2`, with a sensor-to-warehouse map. Re-generate when the seed changes.
+- The simulator takes `--sensors-config config/sensors.json` and `--n-per-sensor`. Round 14 ids (`wh1-s1`) remain only in unit tests and the in-memory evaluation.
+- Events now carry `warehouse_id`, `severity` and `message` and are validated against `contracts/events/iot.anomaly.detected.v1.json` in `tests/test_stream_contract.py`. `event_version` is the integer `1`, like every other platform event.
+- Severity rule, fixed in code before any run: critical = severe and >= 10 flagged readings; high = severe; medium = >= 3 flagged readings; low otherwise.
+- Readings from sensors missing from the config are counted (`skipped_unknown_sensor`) and not scored.
+- Docker: `ml-services/anomaly-detection/Dockerfile` (build context = repo root). Services `anomaly-detector` and `anomaly-simulator` are in the shared `infra/docker-compose.yml` (network `shared`, Kafka `kafka:9092`, InfluxDB token from `INFLUXDB_ADMIN_TOKEN`). Start with `make up`, then `docker compose --env-file .env -f infra/docker-compose.yml up -d --build anomaly-detector anomaly-simulator`. The model is mounted from `models/` and never trained in the container.
+- Real run (shared stack, `infra/docker-compose.yml`: Kafka, InfluxDB bucket `telemetry`, `anomaly-simulator`, `anomaly-detector`): 18000 rows stored (12 sensors x 1500), 131 events on `iot.anomaly.detected`, 0 invalid against `contracts/events/iot.anomaly.detected.v1.json`, all six seed warehouses present. The detector ran without `--flush-open-episodes`, so an episode still open at the end of a sensor's stream is not in this count.
+- The sensor count per warehouse (2) and the sensor id format (`WH-XXX-NN-S<n>`) are my choice; proposed for the blueprint ID table.
 
 # Future Improvements
 
@@ -2403,7 +2414,7 @@ The validated continuous-lifecycle results are:
 ## Test suite
 
 ```text
-651 passed
+689 passed
 3 warnings
 0 failures
 ```

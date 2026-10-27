@@ -20,6 +20,9 @@ os.environ.setdefault(
     "DATABASE_URL",
     "sqlite://",
 )
+# Unit tests must not start the R15 Kafka consumer or outbox publisher.
+os.environ.setdefault("PO_KAFKA_ENABLED", "false")
+os.environ.setdefault("PO_OUTBOX_ENABLED", "false")
 
 import pytest
 from fastapi.testclient import TestClient
@@ -343,3 +346,62 @@ def compliance_db(tmp_path, monkeypatch):
         tmp_path / "compliance.db",
     )
     yield
+
+@pytest.fixture
+def po_db(monkeypatch):
+    """
+    In-memory SQLite with the supplier_portal schema attached, holding
+    po_mirror and po_ack_outbox. Every module that opens its own
+    SessionLocal is pointed at it, so no PostgreSQL is needed.
+    """
+    from sqlalchemy import create_engine, event
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    from app.core.config import settings
+    from app.database import Base
+    from app.models.po_ack_outbox import POAckOutbox
+    from app.models.po_mirror import POMirror
+
+    schema_name = settings.SUPPLIER_DB_SCHEMA
+
+    if not schema_name.replace("_", "").isalnum():
+        raise ValueError(
+            f"Unsupported SQLite schema name: {schema_name!r}"
+        )
+    
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+
+    @event.listens_for(engine, "connect")
+    def attach_schema(dbapi_connection, _record):
+        dbapi_connection.execute(
+            f"ATTACH DATABASE ':memory:' AS {schema_name}"
+        )
+
+    Base.metadata.create_all(
+        engine,
+        tables=[POMirror.__table__, POAckOutbox.__table__],
+    )
+
+    factory = sessionmaker(
+        bind=engine,
+        autoflush=False,
+        expire_on_commit=False,
+    )
+
+    for module in (
+        "app.database",
+        "app.graphql.queries",
+        "app.graphql.mutations",
+        "app.services.inventory_po_approved_consumer",
+        "app.services.po_ack_outbox_publisher",
+    ):
+        monkeypatch.setattr(f"{module}.SessionLocal", factory)
+
+    yield factory
+
+    engine.dispose()

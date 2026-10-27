@@ -21,6 +21,8 @@ def test_token_revoked_on_instance_a_is_rejected_by_instance_b():
     try:
         redis.Redis.from_url(redis_url, socket_connect_timeout=2).ping()
     except redis.RedisError:
+        if os.getenv("CI_REQUIRE_SERVICES") == "1":
+            pytest.fail(f"Redis not reachable at {redis_url}")
         pytest.skip(f"Redis not reachable at {redis_url}")
 
     result = subprocess.run(

@@ -71,6 +71,10 @@ export default defineConfig({
         target: "http://localhost:8005",
         changeOrigin: true,
       },
+      "/api/v1/analytics": {
+      target: "http://localhost:8000",
+      changeOrigin: true,
+      },
     },
   },
 });
