@@ -10,7 +10,7 @@ info:
 
 servers:
   - url: http://localhost:8007
-    description: Local, through the API gateway
+    description: Local, forecast service called directly (the gateway does not forward X-API-Key)
 
 security:
   - ServiceApiKey: []
