@@ -327,6 +327,8 @@ def run(
     from confluent_kafka import Consumer, KafkaError, KafkaException
 
     model = load_stream_model()
+    model.warm_up()
+    log.info("consumer ready")
 
     writer = InfluxWriter(
         settings["influx_url"],
