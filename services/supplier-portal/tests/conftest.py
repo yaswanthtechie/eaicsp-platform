@@ -23,6 +23,7 @@ os.environ.setdefault(
 # Unit tests must not start the R15 Kafka consumer or outbox publisher.
 os.environ.setdefault("PO_KAFKA_ENABLED", "false")
 os.environ.setdefault("PO_OUTBOX_ENABLED", "false")
+os.environ.setdefault("GOODS_RECEIVED_KAFKA_ENABLED", "false")
 
 import pytest
 from fastapi.testclient import TestClient
@@ -360,6 +361,9 @@ def po_db(monkeypatch):
 
     from app.core.config import settings
     from app.database import Base
+    from app.models.inventory_goods_receipt_event import (
+        InventoryGoodsReceiptEvent,
+    )
     from app.models.po_ack_outbox import POAckOutbox
     from app.models.po_mirror import POMirror
 
@@ -384,7 +388,11 @@ def po_db(monkeypatch):
 
     Base.metadata.create_all(
         engine,
-        tables=[POMirror.__table__, POAckOutbox.__table__],
+        tables=[
+            POMirror.__table__,
+            POAckOutbox.__table__,
+            InventoryGoodsReceiptEvent.__table__,
+        ],
     )
 
     factory = sessionmaker(
@@ -399,6 +407,9 @@ def po_db(monkeypatch):
         "app.graphql.mutations",
         "app.services.inventory_po_approved_consumer",
         "app.services.po_ack_outbox_publisher",
+        "app.services.canonical_po_service",
+        "app.services.three_way_match_service",
+        "app.services.inventory_goods_received_consumer",
     ):
         monkeypatch.setattr(f"{module}.SessionLocal", factory)
 

@@ -20,9 +20,12 @@ class InventoryGoodsReceiptEvent(Base):
         primary_key=True,
     )
 
+    # One stored event per goods receipt: a re-sent receipt must never
+    # add its quantities to the three-way match a second time.
     receipt_id: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
+        unique=True,
         index=True,
     )
     po_id: Mapped[str] = mapped_column(

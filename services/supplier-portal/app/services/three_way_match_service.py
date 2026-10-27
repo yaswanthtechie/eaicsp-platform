@@ -1,39 +1,30 @@
+import logging
 from datetime import datetime, timezone
 from uuid import uuid4
 
+from sqlalchemy import select
+
+from app.core.config import PRICE_TOLERANCE_PERCENT
+from app.database import SessionLocal
+from app.models.inventory_goods_receipt_event import (
+    InventoryGoodsReceiptEvent,
+)
 from app.schemas.invoice import InvoiceStatus
 from app.schemas.purchase_order import PurchaseOrderStatus
 from app.schemas.three_way_match import (
     DiscrepancyType,
     ThreeWayMatchStatus,
 )
-
-from app.services.invoice_service import (
-    get_invoice_by_number,
-)
-from app.services.purchase_order_service import (
-    get_purchase_order_by_id,
-)
-from app.services.goods_receipt_service import (
-    get_goods_receipts_by_po,
-)
+from app.services.canonical_po_service import get_canonical_po
+from app.services.goods_receipt_service import get_goods_receipts_by_po
+from app.services.invoice_service import get_invoice_by_number
 from app.services.po_p2p_state_machine import (
     P2PState,
     get_p2p_state,
     transition_p2p,
     p2p_states,
 )
-from app.core.config import PRICE_TOLERANCE_PERCENT
-from sqlalchemy import select
-
-from app.database import SessionLocal
-from app.models.inventory_goods_receipt_event import (
-    InventoryGoodsReceiptEvent,
-)
-from app.models.po_mirror import POMirror
-from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
-import logging
+from app.services.purchase_order_service import get_purchase_order_by_id
 
 logger = logging.getLogger(__name__)
 
@@ -86,50 +77,8 @@ def _get_purchase_order(
             )
         return purchase_order
 
-    # 2. Fall back to the canonical Inventory PO mirror.
-    db = SessionLocal()
-
-    try:
-        statement = select(POMirror).where(
-            POMirror.supplier_id == supplier_id,
-            (
-                (POMirror.po_id == po_number)
-                | (POMirror.po_number == po_number)
-            ),
-        )
-
-        mirror = db.scalars(statement).first()
-
-        if mirror is None:
-            return None
-
-        # Only approved Inventory POs can be matched.
-        if mirror.approval_status != "approved":
-            raise ValueError(
-                f"Purchase Order '{po_number}' is not approved."
-            )
-
-        return {
-            "po_number": mirror.po_number or mirror.po_id,
-            "po_id": mirror.po_id,
-            "supplier_id": mirror.supplier_id,
-            "status": PurchaseOrderStatus.fulfilled.value,
-            "items": mirror.lines or [],
-            "is_inventory_po": True,
-        }
-
-    except SQLAlchemyError:
-        # Compatibility with test databases where the mirror table
-        # has not been created. Do not hide this error in production.
-        logger.exception(
-            "Failed to query PO mirror for PO %s",
-            po_number,
-        )
-        return None
-
-    finally:
-        db.close()
-
+    # 2. Fall back to the shared canonical Inventory PO lookup.
+    return get_canonical_po(po_number, supplier_id)
 
 def _get_received_quantity(
     po_number: str,

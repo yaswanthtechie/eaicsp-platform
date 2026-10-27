@@ -20,7 +20,12 @@ from app.schemas.invoice import (
 from app.services.po_p2p_state_machine import (
     P2PState,
     get_p2p_state,
+    initialize_p2p_state,
     transition_p2p,
+)
+from app.services.canonical_po_service import (
+    get_canonical_po,
+    has_inventory_receipt,
 )
 
 
@@ -109,6 +114,26 @@ def get_invoice_by_number(
 
     return invoices[invoice_key]
 
+def _get_invoice_po(
+    po_number: str,
+    supplier_id: str,
+) -> dict | None:
+    """
+    Return the PO an invoice line refers to: a legacy in-memory PO
+    first, then an approved Inventory PO from po_mirror.
+    """
+    purchase_order = purchase_orders.get(po_number)
+
+    if purchase_order is not None:
+        return purchase_order
+
+    return get_canonical_po(po_number, supplier_id)
+
+
+def _line_id(item: dict) -> str | None:
+    """Inventory lines are identified by sku_id, legacy lines by item_code."""
+    return item.get("sku_id") or item.get("item_code")
+
 def _get_invoice_key(
     supplier_id: str,
     invoice_number: str,
@@ -195,7 +220,7 @@ def _get_existing_invoiced_quantity(
 
             if (
                 item["po_number"] == po_number
-                and item["item_code"] == item_code
+                and _line_id(item) == item_code
             ):
                 total_quantity += item["quantity"]
 
@@ -214,7 +239,7 @@ def _find_po_item(
 
         if isinstance(item, dict):
 
-            if item.get("item_code") == item_code:
+            if _line_id(item) == item_code:
                 return item
 
     return None
@@ -228,73 +253,69 @@ def _validate_invoice_line_item(
     """
     Validate one invoice line against its Purchase Order.
 
-    Validation includes:
-
-    - PO exists
-    - PO belongs to the supplier
-    - PO status is valid
-    - item exists in the PO
-    - quantity is positive
-    - quantity does not exceed remaining PO quantity
-    - unit price is within the configured tolerance
+    Supports:
+    - Legacy PO lines using item_code and unit_price
+    - Inventory PO lines using sku_id and unit_cost
     """
 
     po_number = invoice_item["po_number"]
-    item_code = invoice_item["item_code"]
+    item_code = _line_id(invoice_item)
+
+    if not item_code:
+        raise ValueError(
+            "Invoice line must contain either sku_id or item_code."
+        )
+
     invoice_quantity = invoice_item["quantity"]
     invoice_unit_price = invoice_item["unit_price"]
 
-    # ---------------------------------------------------------
-    # 1. Validate Purchase Order exists
-    # ---------------------------------------------------------
+    # 1. Get legacy or canonical Inventory PO.
+    purchase_order = _get_invoice_po(
+        po_number,
+        supplier_id,
+    )
 
-    if po_number not in purchase_orders:
+    if purchase_order is None:
         raise ValueError(
             f"Purchase Order '{po_number}' not found."
         )
 
-    purchase_order = purchase_orders[po_number]
-
-    # ---------------------------------------------------------
-    # 2. Validate Purchase Order belongs to supplier
-    # ---------------------------------------------------------
-
-    if purchase_order["supplier_id"] != supplier_id:
+    # 2. Validate supplier ownership.
+    if purchase_order.get("supplier_id") != supplier_id:
         raise ValueError(
             f"Purchase Order '{po_number}' does not belong "
             f"to supplier '{supplier_id}'."
         )
 
-    # ---------------------------------------------------------
-    # 3. Validate Purchase Order status
-    # ---------------------------------------------------------
+    # 3. Validate PO status.
+    status = purchase_order.get("status")
 
-    status = purchase_order["status"]
+    status_value = (
+        status.value
+        if isinstance(status, PurchaseOrderStatus)
+        else status
+    )
 
-    if status not in [
-        PurchaseOrderStatus.acknowledged,
-        PurchaseOrderStatus.fulfilled,
-    ]:
+    allowed_statuses = {
+        PurchaseOrderStatus.acknowledged.value,
+        PurchaseOrderStatus.fulfilled.value,
+    }
+
+    if status_value not in allowed_statuses:
         raise ValueError(
             f"Invoice cannot be created because "
             f"Purchase Order '{po_number}' is in "
-            f"'{status.value}' status."
+            f"'{status_value}' status."
         )
 
-    # ---------------------------------------------------------
-    # 4. Validate invoice quantity
-    # ---------------------------------------------------------
-
+    # 4. Validate invoice quantity.
     if invoice_quantity <= 0:
         raise ValueError(
             f"Invoice quantity for item '{item_code}' "
-            f"must be greater than zero."
+            "must be greater than zero."
         )
 
-    # ---------------------------------------------------------
-    # 5. Find matching PO line item
-    # ---------------------------------------------------------
-
+    # 5. Find matching PO line.
     po_item = _find_po_item(
         purchase_order,
         item_code,
@@ -306,11 +327,14 @@ def _validate_invoice_line_item(
             f"in Purchase Order '{po_number}'."
         )
 
-    # ---------------------------------------------------------
-    # 6. Check remaining quantity
-    # ---------------------------------------------------------
+    # 6. Validate remaining quantity.
+    ordered_quantity = po_item.get("quantity")
 
-    ordered_quantity = po_item["quantity"]
+    if ordered_quantity is None:
+        raise ValueError(
+            f"Purchase Order line '{item_code}' "
+            "does not contain a quantity."
+        )
 
     already_invoiced_quantity = (
         _get_existing_invoiced_quantity(
@@ -322,49 +346,45 @@ def _validate_invoice_line_item(
     )
 
     remaining_quantity = (
-        ordered_quantity
-        - already_invoiced_quantity
+        ordered_quantity - already_invoiced_quantity
     )
 
     if invoice_quantity > remaining_quantity:
         raise ValueError(
             f"Invoice quantity for item '{item_code}' "
-            f"cannot exceed the remaining quantity. "
+            "cannot exceed the remaining quantity. "
             f"Ordered: {ordered_quantity}, "
-            f"Already invoiced: "
-            f"{already_invoiced_quantity}, "
+            f"Already invoiced: {already_invoiced_quantity}, "
             f"Remaining: {remaining_quantity}, "
             f"Requested: {invoice_quantity}."
         )
 
-    # ---------------------------------------------------------
-    # 7. Capture PO and invoice prices for three-way matching
-    # ---------------------------------------------------------
-    #
-    # IMPORTANT:
-    # Price differences are legitimate business discrepancies.
-    # They must reach the three-way match stage so that the
-    # matching service can flag them for human review.
-    #
-    # Therefore, invoice creation must NOT reject a price
-    # simply because it is outside the 5% matching tolerance.
-    # ---------------------------------------------------------
-
-    po_unit_price = float(
-        po_item["unit_price"]
+    # 7. Capture PO price for three-way matching.
+    # Legacy PO: unit_price
+    # Inventory PO: unit_cost
+    po_price = po_item.get(
+        "unit_price",
+        po_item.get("unit_cost"),
     )
-    
-    # ---------------------------------------------------------
-    # 8. Return validation details
-    # ---------------------------------------------------------
 
+    if po_price is None:
+        raise ValueError(
+            f"Purchase Order line '{item_code}' "
+            "does not contain unit_price or unit_cost."
+        )
+
+    po_unit_price = float(po_price)
+
+    # Do not reject price differences here.
+    # The three-way matching process must flag discrepancies.
+
+    # 8. Return normalized validation details.
     return {
         "po_number": po_number,
         "item_code": item_code,
+        "sku_id": po_item.get("sku_id"),
         "ordered_quantity": ordered_quantity,
-        "already_invoiced_quantity": (
-            already_invoiced_quantity
-        ),
+        "already_invoiced_quantity": already_invoiced_quantity,
         "remaining_quantity": remaining_quantity,
         "invoice_quantity": invoice_quantity,
         "po_unit_price": po_unit_price,
@@ -387,58 +407,67 @@ def _validate_p2p_invoice_state(
     invoice: InvoiceCreate,
 ) -> list[str]:
     """
-    Validate that every Purchase Order referenced by the invoice
-    is eligible for invoice creation.
+    Validate every PO before invoice creation.
 
-    Validation order:
-
-    1. PO must exist.
-    2. PO business status must be acknowledged or fulfilled.
-    3. P2P state must be initialized.
-    4. P2P state must be 'received'.
-
-    Returns the unique PO numbers so they can be transitioned
-    atomically after all invoice validations succeed.
+    Inventory POs require an actual goods-received event.
+    This function does not modify P2P states.
     """
 
     po_numbers = _get_unique_invoice_po_numbers(invoice)
 
     for po_number in po_numbers:
+        purchase_order = _get_invoice_po(
+            po_number,
+            invoice.supplier_id,
+        )
 
-        # ----------------------------------------------------
-        # 1. Purchase Order must exist.
-        # ----------------------------------------------------
-
-        if po_number not in purchase_orders:
+        if purchase_order is None:
             raise ValueError(
                 f"Purchase Order '{po_number}' not found."
             )
 
-        purchase_order = purchase_orders[po_number]
-
-        # ----------------------------------------------------
-        # 2. PO business status must allow invoicing.
-        #
-        # Draft and sent POs cannot be invoiced.
-        # ----------------------------------------------------
-
-        po_status = purchase_order["status"]
-
-        if po_status not in (
-            PurchaseOrderStatus.acknowledged,
-            PurchaseOrderStatus.fulfilled,
-        ):
+        if purchase_order.get("supplier_id") != invoice.supplier_id:
             raise ValueError(
-                f"Purchase Order '{po_number}' "
-                f"has status '{po_status.value}' "
-                f"and cannot be invoiced."
+                f"Purchase Order '{po_number}' does not belong "
+                f"to supplier '{invoice.supplier_id}'."
             )
 
-        # ----------------------------------------------------
-        # 3. P2P state must be initialized.
-        # ----------------------------------------------------
+        po_status = purchase_order.get("status")
+
+        po_status_value = (
+            po_status.value
+            if isinstance(po_status, PurchaseOrderStatus)
+            else po_status
+        )
+
+        allowed_statuses = {
+            PurchaseOrderStatus.acknowledged.value,
+            PurchaseOrderStatus.fulfilled.value,
+        }
+
+        if po_status_value not in allowed_statuses:
+            raise ValueError(
+                f"Purchase Order '{po_number}' has status "
+                f"'{po_status_value}' and cannot be invoiced."
+            )
 
         current_state = get_p2p_state(po_number)
+
+        if purchase_order.get("is_inventory_po"):
+            if current_state is None:
+                if not has_inventory_receipt(
+                    purchase_order["po_id"],
+                    invoice.supplier_id,
+                ):
+                    raise ValueError(
+                        f"Purchase Order '{po_number}' cannot be "
+                        "invoiced before Inventory has received "
+                        "the goods."
+                    )
+
+                # Do not initialize here.
+                # Initialization happens after every validation passes.
+                continue
 
         if current_state is None:
             raise ValueError(
@@ -446,288 +475,183 @@ def _validate_p2p_invoice_state(
                 f"for Purchase Order '{po_number}'."
             )
 
-        # ----------------------------------------------------
-        # 4. Goods receipt must be completed.
-        #
-        # Invoice creation is allowed only when the
-        # shared P2P workflow reaches 'received'.
-        # ----------------------------------------------------
-
         if current_state != P2PState.received:
             raise ValueError(
                 f"Purchase Order '{po_number}' cannot be invoiced "
                 f"from P2P state '{current_state.value}'. "
-                f"Invoice creation requires P2P state 'received'."
+                "Invoice creation requires P2P state 'received'."
             )
 
     return po_numbers
 
 def create_invoice(invoice: InvoiceCreate):
     """
-    Create and submit an invoice.
+    Create and submit an invoice for legacy or Inventory POs.
 
-    P2P workflow requirement:
-
-        acknowledged
-            ↓
-        shipped
-            ↓
-        received
-            ↓
-        invoiced
-
-    Invoice creation is allowed only when EVERY Purchase Order
-    referenced by the invoice is in P2PState.received.
-
-    All validations are completed before any invoice data or
-    P2P state is modified.
+    Every referenced PO must be in the received P2P state.
+    Inventory POs require an actual goods-received event.
     """
 
-    # ---------------------------------------------------------
-    # 1. Validate invoice number
-    # ---------------------------------------------------------
-
+    # 1. Validate invoice number.
     if not re.fullmatch(
         r"[A-Za-z0-9_-]+",
         invoice.invoice_number,
     ):
-        raise ValueError(
-            "Invalid invoice number."
-        )
+        raise ValueError("Invalid invoice number.")
 
-    # ---------------------------------------------------------
-    # 2. Build supplier-scoped invoice key
-    # ---------------------------------------------------------
-
+    # 2. Build supplier-scoped invoice key.
     invoice_key = _get_invoice_key(
         supplier_id=invoice.supplier_id,
         invoice_number=invoice.invoice_number,
     )
 
-    # ---------------------------------------------------------
-    # 3. Prevent duplicate invoice
-    # ---------------------------------------------------------
-
+    # 3. Prevent duplicate invoice.
     if invoice_key in invoices:
         raise ValueError(
-            f"Invoice '{invoice.invoice_number}' "
-            f"already exists for supplier "
-            f"'{invoice.supplier_id}'."
+            f"Invoice '{invoice.invoice_number}' already exists "
+            f"for supplier '{invoice.supplier_id}'."
         )
 
-    # ---------------------------------------------------------
-    # 4. Validate invoice contains items
-    # ---------------------------------------------------------
-
+    # 4. Require at least one invoice line.
     if not invoice.items:
         raise ValueError(
             "Invoice must contain at least one item."
         )
 
-    # ---------------------------------------------------------
-    # 5. Prevent duplicate PO/item lines
-    # ---------------------------------------------------------
-
+    # 5. Prevent duplicate PO/item lines.
     seen_items = set()
 
     for invoice_item in invoice.items:
+        line_id = (
+            invoice_item.sku_id
+            or invoice_item.item_code
+        )
 
         key = (
             invoice_item.po_number,
-            invoice_item.item_code,
+            line_id,
         )
 
         if key in seen_items:
             raise ValueError(
-                f"Duplicate invoice line for "
-                f"Purchase Order "
-                f"'{invoice_item.po_number}' "
-                f"and item "
-                f"'{invoice_item.item_code}'."
+                f"Duplicate invoice line for Purchase Order "
+                f"'{invoice_item.po_number}' and item '{line_id}'."
             )
 
         seen_items.add(key)
 
-    # ---------------------------------------------------------
-    # 6. Validate ALL P2P states FIRST
-    #
-    # Every PO must already be in:
-    #
-    #     received
-    #
-    # before an invoice can be created.
-    #
-    # This is deliberately done before storing the invoice.
-    # ---------------------------------------------------------
+    # 6. Validate all POs and P2P states.
+    # No state modifications happen in this function.
+    po_numbers = _validate_p2p_invoice_state(invoice)
 
-    po_numbers = _validate_p2p_invoice_state(
-        invoice
-    )
-
-    # ---------------------------------------------------------
-    # 7. Validate every invoice line
-    # ---------------------------------------------------------
-
+    # 7. Validate every invoice line.
     for invoice_item in invoice.items:
-
         po_number = invoice_item.po_number
 
-        # -----------------------------------------------------
-        # 7.1 Validate PO exists
-        # -----------------------------------------------------
+        purchase_order = _get_invoice_po(
+            po_number,
+            invoice.supplier_id,
+        )
 
-        if po_number not in purchase_orders:
+        if purchase_order is None:
             raise ValueError(
                 f"Purchase Order '{po_number}' not found."
             )
 
-        purchase_order = purchase_orders[po_number]
-
-        # -----------------------------------------------------
-        # 7.2 Validate invoice supplier matches PO supplier
-        # -----------------------------------------------------
-
-        if (
-            invoice.supplier_id
-            != purchase_order["supplier_id"]
-        ):
+        if purchase_order.get("supplier_id") != invoice.supplier_id:
             raise ValueError(
-                f"Invoice supplier "
-                f"'{invoice.supplier_id}' "
-                f"does not match Purchase Order "
-                f"supplier "
-                f"'{purchase_order['supplier_id']}'."
+                f"Invoice supplier '{invoice.supplier_id}' does not "
+                f"match Purchase Order supplier "
+                f"'{purchase_order.get('supplier_id')}'."
             )
 
-        # -----------------------------------------------------
-        # 7.3 Validate line item
-        # -----------------------------------------------------
-
-        item_data = invoice_item.model_dump()
-
         _validate_invoice_line_item(
-            item_data,
+            invoice_item.model_dump(),
             supplier_id=invoice.supplier_id,
         )
 
-    # ---------------------------------------------------------
-    # 8. Calculate expected invoice amount
-    # ---------------------------------------------------------
-
-    calculated_amount = 0.0
-
-    for invoice_item in invoice.items:
-
-        calculated_amount += (
-            invoice_item.quantity
-            * invoice_item.unit_price
-        )
-
+    # 8. Calculate invoice amount.
     calculated_amount = round(
-        calculated_amount,
+        sum(
+            item.quantity * item.unit_price
+            for item in invoice.items
+        ),
         2,
     )
 
-    # ---------------------------------------------------------
-    # 9. Normalize submitted amount
-    # ---------------------------------------------------------
-
-    submitted_amount = round(
-        invoice.amount,
-        2,
-    )
-
-    # ---------------------------------------------------------
-    # 10. Validate invoice amount
-    # ---------------------------------------------------------
+    submitted_amount = round(invoice.amount, 2)
 
     if submitted_amount != calculated_amount:
         raise ValueError(
-            f"Invoice amount does not match "
-            f"the line-item total. "
+            f"Invoice amount does not match the line-item total. "
             f"Expected: {calculated_amount:.2f}, "
             f"Received: {submitted_amount:.2f}."
         )
 
-    # ---------------------------------------------------------
-    # 11. Prepare invoice data
-    # ---------------------------------------------------------
-
+    # 9. Prepare invoice data.
     invoice_data = invoice.model_dump()
 
     invoice_data["amount"] = submitted_amount
-
     invoice_data["document_url"] = None
     invoice_data["document_path"] = None
-
-    # New invoice always starts as submitted.
     invoice_data["status"] = InvoiceStatus.submitted
-
     invoice_data["dispute"] = None
     invoice_data["history"] = []
 
-    # ---------------------------------------------------------
-    # 12. Store invoice
-    # ---------------------------------------------------------
+    # 10. Capture original P2P states.
+    from app.services.po_p2p_state_machine import p2p_states
 
-    invoices[invoice_key] = invoice_data
+    original_states = {
+        po_number: get_p2p_state(po_number)
+        for po_number in po_numbers
+    }
 
-    # ---------------------------------------------------------
-    # 13. Advance P2P state
-    #
-    #     received → invoiced
-    #
-    # At this point ALL validations have already succeeded.
-    # ---------------------------------------------------------
-
-    transitioned_po_numbers = []
-
+    # 11. Initialize missing Inventory P2P states and transition.
     try:
+        for po_number in po_numbers:
+            if get_p2p_state(po_number) is None:
+                purchase_order = _get_invoice_po(
+                    po_number,
+                    invoice.supplier_id,
+                )
+
+                if (
+                    purchase_order is None
+                    or not purchase_order.get("is_inventory_po")
+                ):
+                    raise ValueError(
+                        f"P2P workflow state is not initialized "
+                        f"for Purchase Order '{po_number}'."
+                    )
+
+                initialize_p2p_state(
+                    po_number,
+                    P2PState.received,
+                )
+
+        # Store invoice only after all validations and initialization.
+        invoices[invoice_key] = invoice_data
 
         for po_number in po_numbers:
-
             transition_p2p(
                 po_number,
                 P2PState.invoiced,
             )
 
-            transitioned_po_numbers.append(
-                po_number
-            )
+    except Exception:
+        # Roll back invoice creation.
+        invoices.pop(invoice_key, None)
 
-    except ValueError:
-
-        # -----------------------------------------------------
-        # Roll back invoice creation
-        # -----------------------------------------------------
-
-        invoices.pop(
-            invoice_key,
-            None,
-        )
-
-        # -----------------------------------------------------
-        # Roll back any P2P transitions that already happened.
-        #
-        # In-memory implementation: restore received state.
-        # -----------------------------------------------------
-
-        from app.services.po_p2p_state_machine import p2p_states
-
-        for po_number in transitioned_po_numbers:
-
-            p2p_states[po_number] = (
-                P2PState.received
-            )
+        # Restore the exact original P2P states.
+        for po_number, original_state in original_states.items():
+            if original_state is None:
+                p2p_states.pop(po_number, None)
+            else:
+                p2p_states[po_number] = original_state
 
         raise
 
-    # ---------------------------------------------------------
-    # 14. Return invoice
-    # ---------------------------------------------------------
-
     return invoices[invoice_key]
-
 
 # ---------------------------------------------------------
 # Transition validation and state machine

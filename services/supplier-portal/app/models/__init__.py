@@ -5,4 +5,9 @@ from app.models.inventory_goods_receipt_event import (
     InventoryGoodsReceiptEvent,
 )
 
-__all__ = ["Supplier", "POMirror", "POAckOutbox"]
+__all__ = [
+    "Supplier",
+    "POMirror",
+    "POAckOutbox",
+    "InventoryGoodsReceiptEvent",
+]

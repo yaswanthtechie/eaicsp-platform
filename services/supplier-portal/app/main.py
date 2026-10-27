@@ -4,6 +4,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.services.kafka_consumer_runner import kafka_consumer_runner
+from app.services.inventory_goods_received_runner import (
+    inventory_goods_received_runner,
+)
 from app.services.inv_po_approved_consumer_runner import (
     inv_po_approved_consumer_runner,
 )
@@ -46,6 +49,8 @@ async def lifespan(app: FastAPI):
     """
     if settings.KAFKA_ENABLED:
         kafka_consumer_runner.start()
+
+    if settings.GOODS_RECEIVED_KAFKA_ENABLED:
         inventory_goods_received_runner.start()
 
     if settings.PO_KAFKA_ENABLED:
@@ -63,8 +68,10 @@ async def lifespan(app: FastAPI):
         if settings.PO_KAFKA_ENABLED:
             inv_po_approved_consumer_runner.stop()
 
-        if settings.KAFKA_ENABLED:
+        if settings.GOODS_RECEIVED_KAFKA_ENABLED:
             inventory_goods_received_runner.stop()
+
+        if settings.KAFKA_ENABLED:
             kafka_consumer_runner.stop()
 
 app = FastAPI(
@@ -188,9 +195,14 @@ def health():
             if settings.PO_KAFKA_ENABLED
             else False
         ),
-            "po_outbox_publisher_alive": (
+        "po_outbox_publisher_alive": (
             po_ack_outbox_publisher_runner.is_alive()
             if settings.PO_OUTBOX_ENABLED
+            else False
+        ),
+        "goods_received_consumer_alive": (
+            inventory_goods_received_runner.is_alive()
+            if settings.GOODS_RECEIVED_KAFKA_ENABLED
             else False
         ),
     }
