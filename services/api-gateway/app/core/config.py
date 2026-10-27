@@ -176,6 +176,18 @@ class Settings(BaseSettings):
     OTEL_SERVICE_NAME: str = "api-gateway"
     OTEL_EXPORTER_OTLP_ENDPOINT: str = "http://localhost:4318"
 
+    # --------------------------------------------------
+    # Round 15 Milestone 3 - ClickHouse & Redis Analytics KPIs
+    # --------------------------------------------------
+    CLICKHOUSE_HOST: str = "localhost"
+    CLICKHOUSE_PORT: int = 8123
+    CLICKHOUSE_USER: str = "default"
+    CLICKHOUSE_PASSWORD: str = ""
+    CLICKHOUSE_DB: str = "analytics"
+    CLICKHOUSE_DATABASE: str | None = None
+    REDIS_URL: str = "redis://localhost:6379/0"
+    LIVE_KPIS_CACHE_TTL_SECONDS: int = 300
+
     def model_post_init(self, __context: object = None, /) -> None:
         """
         Synchronize individual downstream URLs with the route mapping table.
@@ -212,6 +224,9 @@ class Settings(BaseSettings):
             else:
                 # When SERVICE_ROUTES is not explicitly set, *_SERVICE_URL populates routes
                 self.SERVICE_ROUTES[prefix] = url_value
+
+        if self.CLICKHOUSE_DATABASE and "CLICKHOUSE_DB" not in self.model_fields_set:
+            self.CLICKHOUSE_DB = self.CLICKHOUSE_DATABASE
 
     model_config = SettingsConfigDict(
         env_file=(
