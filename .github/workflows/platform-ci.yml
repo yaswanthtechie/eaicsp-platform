@@ -351,7 +351,7 @@ jobs:
       - name: Build image (with layer cache)
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
-          context: .
+          context: ${{ env.SERVICE_DIR }}
           file: ${{ env.SERVICE_DIR }}/Dockerfile
           tags: ${{ env.IMAGE_NAME }}:${{ github.sha }}
           load: true
