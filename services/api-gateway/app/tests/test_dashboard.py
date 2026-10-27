@@ -21,6 +21,22 @@ def reset_metrics_and_limiter():
     limiter.enabled = True
 
 
+@pytest.fixture(autouse=True)
+def mock_downstream_health_checks():
+    """Mock downstream health check calls during dashboard unit tests to avoid 3s timeouts."""
+    health_data = {
+        "inventory": "UP",
+        "shipments": "UP",
+        "compliance": "UP",
+        "purchase-orders": "UP",
+        "purchase-order": "UP",
+        "auth": "UP",
+        "supplier-risk": "UP",
+    }
+    with patch("app.routes.dashboard.get_system_health", new=AsyncMock(return_value=health_data)):
+        yield
+
+
 @pytest.fixture
 def client():
     with TestClient(app) as test_client:
