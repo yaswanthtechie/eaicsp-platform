@@ -7,7 +7,6 @@ class Settings(BaseSettings):
     TEST_DATABASE_URL: str | None = None   # only the test suite needs this
     PLATFORM_AUTH_URL: str = "http://localhost:8005"
     COMPLIANCE_SERVICE_URL: str = "http://localhost:8003"
-    PO_AUTO_APPROVAL_THRESHOLD: float = 1000.0
     # Supplier has no country column yet; every supplier is
     # screened with this country until one is added.
     DEFAULT_SUPPLIER_COUNTRY: str = "India"

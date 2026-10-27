@@ -52,3 +52,9 @@ reset-data:
 e2e:
 	@echo "Cross-service E2E suite is not implemented yet."
 	@exit 1
+
+# Inject one anomaly episode and measure how long the event takes to reach
+# iot.anomaly.detected. Needs the stack up and anomaly-detector running
+# (logs show 'consumer ready'). Kafka is reached on the host at localhost:29092.
+demo-anomaly:
+	cd ml-services/anomaly-detection && python -m src.demo_anomaly
