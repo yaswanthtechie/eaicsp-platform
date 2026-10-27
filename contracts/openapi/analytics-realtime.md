@@ -103,6 +103,7 @@ Clients must implement the exponential backoff reconnection behavior established
    - Reconnections may redeliver recent events buffered during transient network disconnects.
    - The UI maintains a rolling de-duplication cache of the last 100 seen dedup keys and ignores duplicates.
    - The dedup key is `event_id` for all events except `iot.anomaly.detected`, which uses `payload.episode_id`.
+   - `eta.shipment.predicted` can be re-predicted for the same shipment with a new `event_id`. The panel keeps one card per `payload.shipment_id` and replaces it when a newer `payload.predicted_at` arrives.
 
 ### 2.5 WebSocket Close Codes
 
@@ -148,7 +149,6 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 ## 4. Event Specifications & JSON Examples
 
 ### 4.1 Event 1: `inventory.stock.low`
-
 
 - **Producer:** `inventory-service` (Inventory Service, Balaji)
 - **Status:** **Confirmed in repository** (`services/inventory/docs/events.md`, `services/inventory/app/services/inventory_service.py`)
@@ -487,7 +487,7 @@ To ensure the alerts panel renders uniformly across the six event types, the tab
 | `inventory.stock.low` | **Low Stock Alert** | Warning (Amber) / Error (Red if 0) | Package / Box | Navigate to Inventory table filtered by `sku_id` & `warehouse_id` |
 | `iot.anomaly.detected` | **Cold-Chain Anomaly** | Critical (Red) / High (Orange) | Alert Triangle / Thermometer | Open anomaly detail (message, peak_score vs threshold, top_features) |
 | `supplierrisk.score.changed` | **Supplier Risk Change**| Warning (Amber) / Error (Red) | Shield Alert | View Supplier Risk breakdown & news citations modal |
-| `eta.shipment.predicted` | **Shipment ETA Update** | Info (Blue) / Warning (if delayed) | Truck / Navigation | Open Shipment tracking card for `shipment_id` |
+| `eta.shipment.predicted` | **Shipment ETA Update** | Info (Blue) | Truck / Navigation | Open Shipment tracking card for `shipment_id` |
 | `forecast.batch.completed` | **Forecast Batch Done** | Success (Green) / Info (Blue) | Trend / Chart | Refresh demand forecast chart view for updated horizon |
 | `data.pipeline.completed` | **Data Ingestion Sync** | Success (Green) | Database / Refresh | Refresh live KPI snapshot widgets |
 
@@ -498,7 +498,7 @@ To ensure the alerts panel renders uniformly across the six event types, the tab
 | `inventory.stock.low` | `quantity_on_hand == 0` to `critical`, else `warning` |
 | `iot.anomaly.detected` | `payload.severity`: `low` to `info`, `medium` to `warning`, `high`/`critical` to `critical` |
 | `supplierrisk.score.changed` | `new_tier`: `high` to `critical`, `medium` to `warning`, `low` to `info` |
-| `eta.shipment.predicted` | `delay_risk == "high_risk"` to `warning`, else `info` |
+| `eta.shipment.predicted` | `info` (the producer contract has no delay field; see 4.4) |
 | `forecast.batch.completed` | `status == "PARTIAL"` to `warning`, else `success` |
 | `data.pipeline.completed` | `success` |
 
