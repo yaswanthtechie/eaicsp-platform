@@ -224,10 +224,7 @@ def _make_history_copy_fn(table_name, history_table, business_columns=None):
                                    AND CAST(:max_date AS date)
               AND ({differences});
         """
-        result = connection.execute(text(sql), params)
-        # Rows archived == existing rows whose business values differ, i.e.
-        # exactly the rows the following upsert will UPDATE.
-        return getattr(result, "rowcount", None)
+        connection.execute(text(sql), params)
 
     return _copy
 
@@ -338,9 +335,8 @@ def bulk_upsert(
             # the dedupe above already guarantees that can't happen, so this
             # chunk is safe to insert as one multi-row statement.
 
-            changed_existing = None
             if history_copy_fn:
-                changed_existing = history_copy_fn(conn, chunk)
+                history_copy_fn(conn, chunk)
 
             values_clauses = []
             params = {}

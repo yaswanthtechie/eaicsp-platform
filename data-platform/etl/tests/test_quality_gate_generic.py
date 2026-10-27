@@ -225,6 +225,8 @@ def test_successful_batch_clears_failure_count(
     dead_letter.clear_failures("some_file.csv")
 
     assert "some_file.csv" not in dead_letter._load_counts()
+
+
 def test_zero_quantity_rows_are_kept_and_negative_rows_dropped(tmp_path, monkeypatch):
     monkeypatch.setattr(dead_letter, "COUNTS_FILE", tmp_path / "counts.json")
     dead_letter.COUNTS_FILE.write_text("{}")

@@ -34,7 +34,7 @@ sources:
   null_rate_threshold: 0.1
   negative_rate_threshold: 0.05
   min_rows: 5
-  max_rows: 3000000
+  max_rows: 3000000  # seed sales is 2,190,000 rows (500 SKUs x 6 warehouses x 730 days)
   history_table: sales_fact_history
   schema_evolution: quarantine
 - name: inventory
@@ -110,6 +110,9 @@ archive:
   table: sales_fact
   archive_table: sales_fact_archive
   date_column: date
-  cutoff_days: 741
+  # Dev loads the fixed seed (2024-10-15 .. 2026-10-14). The archive cutoff is
+  # today - cutoff_days, so 730 would start archiving seed rows. 3650 keeps the
+  # seed intact in dev for years. Staging/prod keep the real 2-year retention.
+  cutoff_days: 3650
 environment: dev
 quality_sla_min_pass_rate: 0.95
