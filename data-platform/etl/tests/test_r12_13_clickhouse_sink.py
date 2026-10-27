@@ -145,6 +145,26 @@ def test_dashboard_views_are_created_in_the_analytics_database_and_use_final():
     client = FakeClient()
     cs.ensure_schema(client)
     views = [c for c in client.commands if c.startswith("CREATE VIEW")]
-    assert len(views) == 3
+    kpi_names = (
+        "analytics.kpi_stockouts_by_warehouse AS",
+    )
+    mart_views = [v for v in views if not any(name in v for name in kpi_names)]
+    assert len(mart_views) == 3
     for mart in cs.MARTS:
-        assert any(f"analytics.{mart} AS SELECT * FROM analytics.ch_{mart} FINAL" in v for v in views)
+        assert any(f"analytics.{mart} AS SELECT * FROM analytics.ch_{mart} FINAL" in v for v in mart_views)
+    assert any("analytics.kpi_stockouts_by_warehouse AS" in v for v in views)
+
+
+def test_stockout_kpi_view_is_created():
+    client = FakeClient()
+    cs.ensure_schema(client)
+
+    views = [
+        command for command in client.commands
+        if "kpi_stockouts_by_warehouse AS" in command
+    ]
+
+    assert len(views) == 1
+    assert "countIf(quantity_on_hand <= 0)" in views[0]
+    assert "analytics.mart_inventory_position" in views[0]
+    assert "GROUP BY warehouse_id" in views[0]

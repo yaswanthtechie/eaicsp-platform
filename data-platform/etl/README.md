@@ -1391,3 +1391,23 @@ Parity: PASS (rows, quantity sum and price sum identical). Input: ~10.05M genera
 - **Windows note:** if several Python versions are installed, set `PYSPARK_PYTHON` and `PYSPARK_DRIVER_PYTHON` to the interpreter running pytest, otherwise Spark workers may start with a different Python and fail with `Connection reset`.
 
 - After the review fixes, the DAG was triggered again for 2024-02: dag_run id 8 succeeded, all 263,613 rows carry run_id 8 (the Airflow run id), and the quantity sum (13,173,901) was unchanged, so the re-run was idempotent.
+
+## V4 Dashboard KPI Views
+
+### Stockout count by warehouse
+
+`analytics.kpi_stockouts_by_warehouse` reports the number of SKU-warehouse
+inventory positions whose current `quantity_on_hand` is zero or below,
+grouped by warehouse. The result column `stockout_sku_count` counts inventory
+positions, not distinct stockout events. The view uses the existing
+`analytics.mart_inventory_position` mart.
+
+
+### Remaining KPI source-data prerequisites
+
+The current ETL database has no purchase-orders table, and its shipment and
+inventory source tables are empty. A true fill rate requires a verified
+ordered-versus-fulfilled quantity definition. On-time delivery requires
+persisted shipment records with expected and actual delivery dates. These
+KPIs must not be reported as implemented until their source data is available
+and their views are validated against seed data.
