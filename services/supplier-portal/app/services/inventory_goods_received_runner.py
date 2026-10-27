@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 from threading import Event, Thread
 
 from app.services.inventory_goods_received_consumer import (

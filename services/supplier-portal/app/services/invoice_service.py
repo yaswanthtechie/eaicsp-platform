@@ -21,6 +21,7 @@ from app.services.po_p2p_state_machine import (
     P2PState,
     get_p2p_state,
     initialize_p2p_state,
+    p2p_states,
     transition_p2p,
 )
 from app.services.canonical_po_service import (
@@ -599,7 +600,6 @@ def create_invoice(invoice: InvoiceCreate):
     invoice_data["history"] = []
 
     # 10. Capture original P2P states.
-    from app.services.po_p2p_state_machine import p2p_states
 
     original_states = {
         po_number: get_p2p_state(po_number)
