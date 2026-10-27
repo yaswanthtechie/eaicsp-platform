@@ -58,7 +58,7 @@ async def lifespan(app: FastAPI):
     if settings.SHIPMENT_OUTBOX_ENABLED:
         shipment_outbox_publisher_runner.start()
 
-    if settings.KAFKA_ENABLED:
+    if settings.ETA_KAFKA_ENABLED:
         shipment_eta_consumer_runner.start()
 
     try:
@@ -73,7 +73,7 @@ async def lifespan(app: FastAPI):
         if settings.PO_KAFKA_ENABLED:
             inv_po_approved_consumer_runner.stop()
 
-        if settings.KAFKA_ENABLED:
+        if settings.ETA_KAFKA_ENABLED:
             shipment_eta_consumer_runner.stop()
 
         if settings.KAFKA_ENABLED:
@@ -214,7 +214,7 @@ def health():
         ),
         "shipment_eta_consumer_alive": (
             shipment_eta_consumer_runner.is_alive()
-            if settings.KAFKA_ENABLED
+            if settings.ETA_KAFKA_ENABLED
             else False
         ),
     }

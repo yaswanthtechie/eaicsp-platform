@@ -1,5 +1,4 @@
-
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import logging
@@ -90,6 +89,8 @@ class ShipmentETAConsumer:
     # ---------------------------------------------------------
 
     def _process_with_retry(self, message: Any):
+        dlq_reason = "Maximum retries exceeded"
+
         for attempt in range(1, self.max_retries + 1):
             if not self.running:
                 return
@@ -107,7 +108,19 @@ class ShipmentETAConsumer:
                 )
                 return
 
-            except Exception as exc:
+            except ValueError as exc:
+                # Permanent failure: retrying cannot fix invalid data,
+                # an unknown shipment, or a PO mismatch.
+                logger.warning(
+                    "Invalid ETA event: offset=%s reason=%s",
+                    message.offset(),
+                    exc,
+                )
+                dlq_reason = str(exc)
+                break
+
+            except Exception:
+                # Transient or unexpected failure: retry with backoff.
                 logger.exception(
                     "ETA processing failed: attempt=%s/%s topic=%s "
                     "partition=%s offset=%s",
@@ -121,8 +134,8 @@ class ShipmentETAConsumer:
                 if attempt < self.max_retries:
                     time.sleep(self.retry_backoff)
 
-        # Do not commit until DLQ delivery is confirmed.
-        if self._publish_to_dlq(message, "Maximum retries exceeded"):
+        # Commit only after successful DLQ delivery.
+        if self._publish_to_dlq(message, dlq_reason):
             self._commit_message(message)
         else:
             logger.error(

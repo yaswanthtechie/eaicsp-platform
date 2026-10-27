@@ -2,7 +2,7 @@ from datetime import date, datetime
 from enum import Enum
 from typing import List
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # ============================================================
@@ -18,15 +18,33 @@ class ShipmentStatus(str, Enum):
 # ============================================================
 
 class ShipmentItem(BaseModel):
-    item_code: str = Field(
+    """
+    One shipped line. Legacy POs use item_code;
+    Inventory POs (po_mirror) use the canonical sku_id.
+    """
+
+    item_code: str | None = Field(
+        default=None,
         min_length=1,
         pattern=r"^[A-Za-z0-9_-]+$",
+    )
+
+    sku_id: str | None = Field(
+        default=None,
+        pattern=r"^SKU-\d{6}$",
     )
 
     quantity: int = Field(
         gt=0,
     )
 
+    @model_validator(mode="after")
+    def validate_item_identifier(self):
+        if not self.item_code and not self.sku_id:
+            raise ValueError(
+                "Either item_code or sku_id must be provided."
+            )
+        return self
 
 # ============================================================
 # CREATE SHIPMENT NOTICE

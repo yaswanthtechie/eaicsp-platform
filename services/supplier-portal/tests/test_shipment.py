@@ -1,4 +1,12 @@
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+
 import pytest
+from jsonschema import Draft202012Validator, FormatChecker
+
+from app.models.po_mirror import POMirror
+from app.models.shipment_outbox import ShipmentOutbox
 
 from app.schemas.purchase_order import PurchaseOrderStatus
 from app.schemas.shipment import ShipmentCreate
@@ -803,4 +811,185 @@ def test_shipment_is_persisted_in_database(po_db):
         assert record.status == "created"
     finally:
         db.close()
+
+# ============================================================
+# R15: SHIPMENT IDS, DISPATCH CONTRACT, INVENTORY POs
+# ============================================================
+
+DISPATCHED_CONTRACT = (
+    Path(__file__).resolve().parents[3]
+    / "contracts"
+    / "events"
+    / "supplierportal.shipment.dispatched.v1.json"
+)
+INVENTORY_PO_ID = "PO-2026-000123"
+
+
+def test_shipment_id_continues_after_restart(po_db):
+    """IDs come from the database, not from memory."""
+    create_acknowledged_po(po_number="PO-2026-000001")
+    create_acknowledged_po(po_number="PO-2026-000002")
+
+    first = create_shipment_for_supplier(po_number="PO-2026-000001")
+
+    shipments.clear()  # what an app restart does to the in-memory dict
+
+    second = create_shipment_for_supplier(po_number="PO-2026-000002")
+
+    year = datetime.now(timezone.utc).year
+    assert first["shipment_id"] == f"SHP-{year}-000001"
+    assert second["shipment_id"] == f"SHP-{year}-000002"
+
+
+def test_dispatch_event_matches_contract(po_db):
+    create_acknowledged_po()
+    result = create_shipment_for_supplier()
+
+    with po_db() as db:
+        row = db.query(ShipmentOutbox).one()
+
+    schema = json.loads(DISPATCHED_CONTRACT.read_text(encoding="utf-8-sig"))
+    validator = Draft202012Validator(schema, format_checker=FormatChecker())
+
+    assert [error.message for error in validator.iter_errors(row.payload)] == []
+    assert row.payload["payload"]["shipment_id"] == result["shipment_id"]
+    assert row.message_key == result["shipment_id"]
+
+
+def add_inventory_po(factory, status="acknowledged", supplier_id="SUP-00001"):
+    """Inventory PO in po_mirror, as #261 stores and acknowledges it."""
+    with factory() as db:
+        db.add(
+            POMirror(
+                po_id=INVENTORY_PO_ID,
+                event_id="a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                po_number=INVENTORY_PO_ID,
+                supplier_id=supplier_id,
+                warehouse_id="WH-BLR-01",
+                approval_status="approved",
+                approved_by="3f2b8c1e-7a4d-4e9b-9c2f-1d5e6a7b8c90",
+                approved_at=datetime.now(timezone.utc),
+                total_amount=45000,
+                lines=[
+                    {
+                        "line_number": 1,
+                        "sku_id": "SKU-000123",
+                        "quantity": 100,
+                        "unit_cost": 450.0,
+                        "expected_cost": 45000.0,
+                    }
+                ],
+                event_type="inventory.po.approved",
+                event_version=1,
+                occurred_at=datetime.now(timezone.utc),
+                status=status,
+            )
+        )
+        db.commit()
+
+
+def dispatch_inventory_po(sku_id="SKU-000123", quantity=100):
+    shipment = ShipmentCreate(
+        po_number=INVENTORY_PO_ID,
+        shipment_date="2026-10-15",
+        expected_delivery_date="2026-10-20",
+        carrier="BlueDart",
+        tracking_number="BD-0001",
+        origin="Supplier Warehouse, Bengaluru",
+        destination_warehouse="WH-BLR-01",
+        items=[{"sku_id": sku_id, "quantity": quantity}],
+    )
+
+    return create_shipment(
+        shipment,
+        supplier_id="SUP-00001",
+        created_by="supplier@company.com",
+    )
+
+
+def test_acknowledged_inventory_po_can_be_dispatched(po_db):
+    add_inventory_po(po_db)
+
+    result = dispatch_inventory_po()
+
+    with po_db() as db:
+        stored = db.get(Shipment, result["shipment_id"])
+        row = db.query(ShipmentOutbox).one()
+
+    assert stored.po_number == INVENTORY_PO_ID
+    assert stored.items == [{"sku_id": "SKU-000123", "quantity": 100}]
+    assert row.payload["payload"]["po_number"] == INVENTORY_PO_ID
+
+    schema = json.loads(DISPATCHED_CONTRACT.read_text(encoding="utf-8-sig"))
+    validator = Draft202012Validator(schema, format_checker=FormatChecker())
+    assert list(validator.iter_errors(row.payload)) == []
+
+
+def test_unacknowledged_inventory_po_cannot_be_dispatched(po_db):
+    add_inventory_po(po_db, status="approved")
+
+    with pytest.raises(ValueError, match="acknowledged Purchase Order"):
+        dispatch_inventory_po()
+
+
+def test_inventory_po_cannot_be_dispatched_twice(po_db):
+    add_inventory_po(po_db)
+    dispatch_inventory_po()
+
+    shipments.clear()  # still rejected after a restart
+
+    with pytest.raises(ValueError, match="already been dispatched"):
+        dispatch_inventory_po()
+
+
+def test_other_supplier_cannot_dispatch_inventory_po(po_db):
+    add_inventory_po(po_db, supplier_id="SUP-00002")
+
+    with pytest.raises(ValueError, match="does not own"):
+        dispatch_inventory_po()
+
+
+@pytest.mark.parametrize(
+    ("sku_id", "quantity", "expected_error"),
+    [
+        ("SKU-999999", 1, "does not exist"),
+        ("SKU-000123", 101, "exceeds"),
+    ],
+)
+def test_inventory_po_items_are_checked_by_sku(
+    po_db, sku_id, quantity, expected_error
+):
+    add_inventory_po(po_db)
+
+    with pytest.raises(ValueError, match=expected_error):
+        dispatch_inventory_po(sku_id=sku_id, quantity=quantity)
+
+
+def test_shipments_migration_stores_eta_as_float():
+    """SQLite tests use the model, so check the migration itself."""
+    import importlib.util
+    from unittest.mock import MagicMock
+
+    import sqlalchemy as sa
+
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "alembic"
+        / "versions"
+        / "005_create_shipments_table.py"
+    )
+    spec = importlib.util.spec_from_file_location("migration_005", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    migration.op = MagicMock()
+
+    migration.upgrade()
+
+    columns = {
+        column.name: column
+        for column in migration.op.create_table.call_args.args[1:]
+        if isinstance(column, sa.Column)
+    }
+    for name in ("eta_days", "confidence_low", "confidence_high"):
+        assert isinstance(columns[name].type, sa.Float), name
 

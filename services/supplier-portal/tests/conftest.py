@@ -23,6 +23,8 @@ os.environ.setdefault(
 # Unit tests must not start the R15 Kafka consumer or outbox publisher.
 os.environ.setdefault("PO_KAFKA_ENABLED", "false")
 os.environ.setdefault("PO_OUTBOX_ENABLED", "false")
+os.environ.setdefault("SHIPMENT_OUTBOX_ENABLED", "false")
+os.environ.setdefault("ETA_KAFKA_ENABLED", "false")
 
 import pytest
 from fastapi.testclient import TestClient

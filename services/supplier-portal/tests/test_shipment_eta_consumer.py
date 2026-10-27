@@ -3,7 +3,7 @@ import json
 from datetime import date, datetime, timezone
 
 import pytest
-
+from pathlib import Path
 from app.models.shipment import Shipment
 from app.models.shipment_eta_event import ShipmentETAEvent
 from app.services.shipment_eta_consumer import ShipmentETAConsumer
@@ -318,7 +318,7 @@ def test_processing_retries_before_success():
     with patch.object(
         consumer,
         "process_message",
-        side_effect=[ValueError("temporary failure"), True],
+        side_effect=[RuntimeError("temporary failure"), True],
     ) as process_mock, patch.object(
         consumer,
         "_commit_message",
@@ -345,7 +345,7 @@ def test_processing_failure_publishes_to_dlq_and_commits():
     with patch.object(
         consumer,
         "process_message",
-        side_effect=ValueError("invalid event"),
+        side_effect=RuntimeError("database unavailable"),
     ) as process_mock, patch.object(
         consumer,
         "_publish_to_dlq",
@@ -452,4 +452,90 @@ def test_dlq_publish_returns_false_when_delivery_fails():
     )
 
     assert result is False
+
+
+ETA_EXAMPLE = (
+    Path(__file__).resolve().parents[3]
+    / "contracts"
+    / "events"
+    / "examples"
+    / "eta.shipment.predicted.v1.json"
+)
+
+
+def test_harish_example_event_is_stored_on_shipment(po_db):
+    """The ETA service's published example must be stored unchanged."""
+    event = json.loads(ETA_EXAMPLE.read_text(encoding="utf-8-sig"))
+    payload = event["payload"]
+
+    with po_db() as db:
+        db.add(
+            Shipment(
+                shipment_id=payload["shipment_id"],
+                po_number=payload["po_number"],
+                supplier_id="SUP-00045",
+                shipment_date=date(2026, 10, 15),
+                expected_delivery_date=date(2026, 10, 20),
+                carrier="BlueDart",
+                tracking_number="BD-0001",
+                origin="Supplier Warehouse, Bengaluru",
+                destination_warehouse="WH-BLR-01",
+                items=[{"sku_id": "SKU-000123", "quantity": 100}],
+                status="created",
+                created_by="supplier@company.com",
+                dispatched_at=datetime(
+                    2026, 10, 15, 6, 30, tzinfo=timezone.utc
+                ),
+            )
+        )
+        db.commit()
+
+    consumer = create_consumer()
+    assert process_event(consumer, event) is True
+
+    with po_db() as db:
+        shipment = db.get(Shipment, payload["shipment_id"])
+        stored_event = db.get(ShipmentETAEvent, event["event_id"])
+
+    assert shipment.eta_days == payload["eta_days"]
+    assert shipment.confidence_low == payload["confidence_low"]
+    assert shipment.confidence_high == payload["confidence_high"]
+    assert shipment.model_version == payload["model_version"]
+    assert shipment.top_features == payload["top_features"]
+    assert stored_event is not None
+
+
+def test_invalid_event_goes_to_dlq_without_retry():
+    consumer = create_consumer()
+    consumer.running = True
+    consumer.max_retries = 5
+    consumer.retry_backoff = 0
+    consumer.consumer = Mock()
+
+    message = FakeKafkaRecord({})
+
+    with patch.object(
+        consumer,
+        "process_message",
+        side_effect=ValueError("Unknown shipment: SHP-2026-999999"),
+    ) as process_mock, patch.object(
+        consumer,
+        "_publish_to_dlq",
+        return_value=True,
+    ) as dlq_mock, patch.object(
+        consumer,
+        "_commit_message",
+    ) as commit_mock, patch(
+        "app.services.shipment_eta_consumer.time.sleep",
+    ) as sleep_mock:
+
+        consumer._process_with_retry(message)
+
+    assert process_mock.call_count == 1
+    sleep_mock.assert_not_called()
+    dlq_mock.assert_called_once_with(
+        message,
+        "Unknown shipment: SHP-2026-999999",
+    )
+    commit_mock.assert_called_once_with(message)
 

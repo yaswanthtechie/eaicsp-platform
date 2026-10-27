@@ -106,8 +106,8 @@ class Settings(BaseSettings):
     PO_OUTBOX_POLL_SECONDS: float = 2.0
     PO_OUTBOX_BATCH_SIZE: int = 50
 
-        # --------------------------------------------------------
-    # Shipment Dispatch Outbox (R5)
+    # --------------------------------------------------------
+    # Shipment Dispatch Outbox + ETA Consumer (R15-R5)
     # --------------------------------------------------------
 
     SHIPMENT_OUTBOX_ENABLED: bool = True
@@ -117,7 +117,9 @@ class Settings(BaseSettings):
     SHIPMENT_DISPATCHED_TOPIC: str = (
         "supplierportal.shipment.dispatched"
     )
-
+    # Separate flag from the Compliance consumer's KAFKA_ENABLED.
+    ETA_KAFKA_ENABLED: bool = True
+    
     ETA_PREDICTED_TOPIC: str = (
         "eta.shipment.predicted"
     )
