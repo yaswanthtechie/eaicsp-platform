@@ -37,11 +37,13 @@ class ShipmentCreate(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "po_number": "PO1001",
+                "po_number": "PO-2026-000123",
                 "shipment_date": "2026-09-09",
                 "expected_delivery_date": "2026-09-15",
                 "carrier": "DHL",
                 "tracking_number": "DHL123456789",
+                "origin": "Supplier Warehouse, Bengaluru",
+                "destination_warehouse": "WH-BLR-01",
                 "items": [
                     {
                         "item_code": "LAP001",
@@ -74,6 +76,15 @@ class ShipmentCreate(BaseModel):
         max_length=100,
     )
 
+    origin: str = Field(
+        min_length=1,
+        max_length=255,
+    )
+
+    destination_warehouse: str = Field(
+        pattern=r"^WH-[A-Z]{3}-[0-9]{2}$"
+    )
+
     items: List[ShipmentItem] = Field(
         min_length=1,
     )
@@ -99,6 +110,10 @@ class ShipmentResponse(BaseModel):
 
     tracking_number: str
 
+    origin: str
+
+    destination_warehouse: str
+
     items: List[ShipmentItem]
 
     status: ShipmentStatus
@@ -106,3 +121,15 @@ class ShipmentResponse(BaseModel):
     created_at: datetime
 
     created_by: str
+
+    dispatched_at: datetime | None = None
+
+    eta_days: float | None = None
+
+    confidence_low: float | None = None
+
+    confidence_high: float | None = None
+
+    model_version: str | None = None
+
+    predicted_at: datetime | None = None

@@ -16,7 +16,13 @@ from app.services.po_p2p_state_machine import (
 from app.services.purchase_order_service import (
     get_purchase_order_by_id,
 )
-
+import re
+from threading import Lock
+from app.core.config import settings
+from app.database import SessionLocal
+from app.models.shipment_outbox import ShipmentOutbox
+from app.models.shipment import Shipment
+from sqlalchemy import select
 
 # ============================================================
 # IN-MEMORY SHIPMENT STORAGE
@@ -24,6 +30,118 @@ from app.services.purchase_order_service import (
 
 shipments: dict[str, dict] = {}
 
+# Protect shipment ID generation during concurrent requests.
+_shipment_id_lock = Lock()
+
+
+def _generate_shipment_id() -> str:
+    """Generate a unique SHP-YYYY-NNNNNN shipment ID."""
+
+    year = datetime.now(timezone.utc).year
+    prefix = f"SHP-{year}-"
+
+    with _shipment_id_lock:
+        existing_sequences = [
+            int(shipment_id[len(prefix):])
+            for shipment_id in shipments
+            if shipment_id.startswith(prefix)
+            and re.fullmatch(
+                rf"SHP-{year}-[0-9]{{6}}",
+                shipment_id,
+            )
+        ]
+
+        next_sequence = max(existing_sequences, default=0) + 1
+
+        if next_sequence > 999999:
+            raise ValueError(
+                "Shipment ID sequence exhausted for this year."
+            )
+
+        return f"{prefix}{next_sequence:06d}"
+
+def _build_shipment_dispatched_event(
+    shipment_data: dict,
+) -> dict:
+    """Build an event that follows the shipment-dispatched v1 contract."""
+
+    po_number = shipment_data["po_number"]
+
+    if not re.fullmatch(r"PO-[0-9]{4}-[0-9]{6}", po_number):
+        raise ValueError(
+            "Purchase Order number must follow "
+            "PO-YYYY-NNNNNN format to publish a dispatch event."
+        )
+
+    return {
+        "event_id": str(uuid4()),
+        "event_type": "supplierportal.shipment.dispatched",
+        "event_version": 1,
+        "occurred_at": datetime.now(timezone.utc).isoformat(),
+        "producer": "supplier-portal",
+        "payload": {
+            "shipment_id": shipment_data["shipment_id"],
+            "po_number": po_number,
+            "supplier_id": shipment_data["supplier_id"],
+            "origin": shipment_data["origin"],
+            "destination_warehouse": shipment_data[
+                "destination_warehouse"
+            ],
+            "carrier": shipment_data["carrier"],
+            "dispatched_at": shipment_data[
+                "dispatched_at"
+            ].isoformat(),
+        },
+    }
+
+def _save_shipment_and_dispatch_event(
+    shipment_data: dict,
+    event: dict,
+) -> None:
+    """Persist the shipment and its dispatch event atomically."""
+
+    db = SessionLocal()
+
+    try:
+        shipment_record = Shipment(
+            shipment_id=shipment_data["shipment_id"],
+            po_number=shipment_data["po_number"],
+            supplier_id=shipment_data["supplier_id"],
+            shipment_date=shipment_data["shipment_date"],
+            expected_delivery_date=shipment_data["expected_delivery_date"],
+            carrier=shipment_data["carrier"],
+            tracking_number=shipment_data["tracking_number"],
+            origin=shipment_data["origin"],
+            destination_warehouse=shipment_data["destination_warehouse"],
+            items=shipment_data["items"],
+            status=shipment_data["status"].value,
+            created_by=shipment_data["created_by"],
+            dispatched_at=shipment_data["dispatched_at"],
+            eta_days=None,
+            confidence_low=None,
+            confidence_high=None,
+            model_version=None,
+            predicted_at=None,
+        )
+
+        outbox_event = ShipmentOutbox(
+            event_id=event["event_id"],
+            topic=settings.SHIPMENT_DISPATCHED_TOPIC,
+            message_key=event["payload"]["shipment_id"],
+            payload=event,
+            status="pending",
+        )
+
+        db.add(shipment_record)
+        db.add(outbox_event)
+        db.commit()
+
+    except Exception:
+        db.rollback()
+        raise
+
+    finally:
+        db.close()
 
 # ============================================================
 # CREATE SHIPMENT NOTICE
@@ -134,9 +252,7 @@ def create_shipment(
     # 6. GENERATE SHIPMENT ID
     # --------------------------------------------------------
 
-    shipment_id = (
-        f"SHIP-{uuid4().hex[:12].upper()}"
-    )
+    shipment_id = _generate_shipment_id()
 
     # --------------------------------------------------------
     # 7. STORE SHIPMENT
@@ -146,6 +262,9 @@ def create_shipment(
         "shipment_id": shipment_id,
         "po_number": shipment.po_number,
         "supplier_id": supplier_id,
+        "origin": shipment.origin,
+        "destination_warehouse": shipment.destination_warehouse,
+        "dispatched_at": datetime.now(timezone.utc),
         "shipment_date": shipment.shipment_date,
         "expected_delivery_date": (
             shipment.expected_delivery_date
@@ -159,63 +278,80 @@ def create_shipment(
         "status": ShipmentStatus.created,
         "created_at": datetime.now(timezone.utc),
         "created_by": created_by,
+        # ETA prediction fields are populated
+        # when eta.shipment.predicted is consumed.
+        "eta_days": None,
+        "confidence_low": None,
+        "confidence_high": None,
+        "model_version": None,
+        "predicted_at": None,
     }
 
     shipments[shipment_id] = shipment_data
 
-    # --------------------------------------------------------
-    # 8. ADVANCE SHARED P2P STATE
+        # --------------------------------------------------------
+    # 8. PUBLISH SHIPMENT DISPATCH EVENT THROUGH OUTBOX
     # --------------------------------------------------------
 
     try:
+        dispatch_event = _build_shipment_dispatched_event(
+            shipment_data
+        )
+
+        _save_shipment_and_dispatch_event(
+            shipment_data,
+            dispatch_event
+        )
+
+        # ----------------------------------------------------
+        # 9. ADVANCE SHARED P2P STATE
+        # ----------------------------------------------------
 
         transition_p2p(
             shipment.po_number,
             P2PState.shipped,
         )
 
-    except ValueError:
-
-        # Roll back shipment creation if the workflow
-        # transition fails.
-        del shipments[shipment_id]
-
+    except Exception:
+        # Roll back in-memory shipment if event persistence
+        # or workflow transition fails.
+        shipments.pop(shipment_id, None)
         raise
 
     return shipment_data
 
+def get_shipment_by_id(shipment_id: str):
+    db = SessionLocal()
 
-# ============================================================
-# GET SHIPMENT
-# ============================================================
-
-def get_shipment_by_id(
-    shipment_id: str,
-):
-    return shipments.get(
-        shipment_id
-    )
+    try:
+        return db.get(Shipment, shipment_id)
+    finally:
+        db.close()
 
 
-# ============================================================
-# GET SHIPMENTS FOR A PO
-# ============================================================
+def get_shipments_by_po(po_number: str):
+    db = SessionLocal()
 
-def get_shipments_by_po(
-    po_number: str,
-):
-    return [
-        shipment
-        for shipment in shipments.values()
-        if shipment["po_number"] == po_number
-    ]
+    try:
+        statement = (
+            select(Shipment)
+            .where(Shipment.po_number == po_number)
+            .order_by(Shipment.created_at.desc())
+        )
 
+        return list(db.scalars(statement).all())
+    finally:
+        db.close()
 
-# ============================================================
-# GET ALL SHIPMENTS
-# ============================================================
 
 def get_all_shipments():
-    return list(
-        shipments.values()
-    )
+    db = SessionLocal()
+
+    try:
+        statement = select(Shipment).order_by(
+            Shipment.created_at.desc()
+        )
+
+        return list(db.scalars(statement).all())
+    finally:
+        db.close()

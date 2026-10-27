@@ -15,7 +15,9 @@ from app.services.shipment_service import (
     get_shipments_by_po,
     get_all_shipments,
 )
+from app.models.shipment import Shipment
 
+pytestmark = pytest.mark.usefixtures("po_db")
 
 @pytest.fixture(autouse=True)
 def clear_storage():
@@ -36,7 +38,7 @@ def clear_storage():
 
 
 def create_acknowledged_po(
-    po_number="PO1001",
+    po_number="PO-2026-000001",
     supplier_id="SUP-00001",
 ):
     purchase_orders[po_number] = {
@@ -71,10 +73,12 @@ def create_acknowledged_po(
 
 
 def create_shipment_for_supplier(
-    po_number="PO1001",
+    po_number="PO-2026-000001",
     supplier_id="SUP-00001",
     quantity=5,
     created_by="supplier@company.com",
+    origin="Supplier Warehouse, Bengaluru",
+    destination_warehouse="WH-BLR-01",
 ):
     shipment = ShipmentCreate(
         po_number=po_number,
@@ -82,6 +86,8 @@ def create_shipment_for_supplier(
         expected_delivery_date="2026-09-15",
         carrier="DHL",
         tracking_number="DHL123456789",
+        origin=origin,
+        destination_warehouse=destination_warehouse,
         items=[
             {
                 "item_code": "LAP001",
@@ -100,8 +106,6 @@ def create_shipment_for_supplier(
 # ============================================================
 # CREATE SHIPMENT
 # ============================================================
-
-
 def test_create_shipment_successfully():
     """
     An owning supplier can create a shipment for
@@ -114,7 +118,7 @@ def test_create_shipment_successfully():
         quantity=10,
     )
 
-    assert result["po_number"] == "PO1001"
+    assert result["po_number"] == "PO-2026-000001"
     assert result["supplier_id"] == "SUP-00001"
     assert result["carrier"] == "DHL"
     assert result["tracking_number"] == "DHL123456789"
@@ -131,7 +135,7 @@ def test_shipment_moves_p2p_state_to_shipped():
 
     create_shipment_for_supplier()
 
-    assert p2p_states["PO1001"] == P2PState.shipped
+    assert p2p_states["PO-2026-000001"] == P2PState.shipped
 
 
 def test_cross_supplier_shipment_is_rejected():
@@ -151,6 +155,8 @@ def test_cross_supplier_shipment_is_rejected():
         expected_delivery_date="2026-09-15",
         carrier="DHL",
         tracking_number="DHL123456789",
+        origin="Supplier Warehouse, Bengaluru",
+        destination_warehouse="WH-BLR-01",
         items=[
             {
                 "item_code": "LAP001",
@@ -181,6 +187,8 @@ def test_shipment_for_nonexistent_po_is_rejected():
         expected_delivery_date="2026-09-15",
         carrier="DHL",
         tracking_number="DHL123456789",
+        origin="Supplier Warehouse, Bengaluru",
+        destination_warehouse="WH-BLR-01",
         items=[
             {
                 "item_code": "LAP001",
@@ -205,8 +213,8 @@ def test_shipment_before_acknowledgment_is_rejected():
     Shipment cannot be created before PO acknowledgment.
     """
 
-    purchase_orders["PO1001"] = {
-        "po_number": "PO1001",
+    purchase_orders["PO-2026-000001"] = {
+        "po_number": "PO-2026-000001",
         "supplier_id": "SUP-00001",
         "items": [
             {
@@ -225,11 +233,13 @@ def test_shipment_before_acknowledgment_is_rejected():
     }
 
     shipment = ShipmentCreate(
-        po_number="PO1001",
+        po_number="PO-2026-000001",
         shipment_date="2026-09-09",
         expected_delivery_date="2026-09-15",
         carrier="DHL",
         tracking_number="DHL123456789",
+        origin="Supplier Warehouse, Bengaluru",
+        destination_warehouse="WH-BLR-01",
         items=[
             {
                 "item_code": "LAP001",
@@ -257,14 +267,16 @@ def test_shipment_requires_acknowledged_p2p_state():
 
     create_acknowledged_po()
 
-    p2p_states["PO1001"] = P2PState.received
+    p2p_states["PO-2026-000001"] = P2PState.received
 
     shipment = ShipmentCreate(
-        po_number="PO1001",
+        po_number="PO-2026-000001",
         shipment_date="2026-09-09",
         expected_delivery_date="2026-09-15",
         carrier="DHL",
         tracking_number="DHL123456789",
+        origin="Supplier Warehouse, Bengaluru",
+        destination_warehouse="WH-BLR-01",
         items=[
             {
                 "item_code": "LAP001",
@@ -292,11 +304,13 @@ def test_shipment_with_unknown_item_is_rejected():
     create_acknowledged_po()
 
     shipment = ShipmentCreate(
-        po_number="PO1001",
+        po_number="PO-2026-000001",
         shipment_date="2026-09-09",
         expected_delivery_date="2026-09-15",
         carrier="DHL",
         tracking_number="DHL123456789",
+        origin="Supplier Warehouse, Bengaluru",
+        destination_warehouse="WH-BLR-01",
         items=[
             {
                 "item_code": "UNKNOWN",
@@ -325,11 +339,13 @@ def test_shipment_quantity_cannot_exceed_po_quantity():
     create_acknowledged_po()
 
     shipment = ShipmentCreate(
-        po_number="PO1001",
+        po_number="PO-2026-000001",
         shipment_date="2026-09-09",
         expected_delivery_date="2026-09-15",
         carrier="DHL",
         tracking_number="DHL123456789",
+        origin="Supplier Warehouse, Bengaluru",
+        destination_warehouse="WH-BLR-01",
         items=[
             {
                 "item_code": "LAP001",
@@ -357,11 +373,13 @@ def test_duplicate_shipment_item_is_rejected():
     create_acknowledged_po()
 
     shipment = ShipmentCreate(
-        po_number="PO1001",
+        po_number="PO-2026-000001",
         shipment_date="2026-09-09",
         expected_delivery_date="2026-09-15",
         carrier="DHL",
         tracking_number="DHL123456789",
+        origin="Supplier Warehouse, Bengaluru",
+        destination_warehouse="WH-BLR-01",
         items=[
             {
                 "item_code": "LAP001",
@@ -388,38 +406,42 @@ def test_duplicate_shipment_item_is_rejected():
 # ============================================================
 # STORAGE
 # ============================================================
-
-
-def test_shipment_is_stored():
+def test_shipment_is_stored(po_db):
     """
     Successfully created shipment must be persisted
-    in shipment storage.
+    in the database.
     """
-
     create_acknowledged_po()
 
     result = create_shipment_for_supplier()
-
     shipment_id = result["shipment_id"]
 
-    assert shipment_id in shipments
-    assert get_shipment_by_id(shipment_id) == result
+    db = po_db()
 
+    try:
+        db_record = db.get(Shipment, shipment_id)
+
+        assert db_record is not None
+        assert db_record.shipment_id == shipment_id
+        assert db_record.po_number == result["po_number"]
+        assert db_record.supplier_id == result["supplier_id"]
+        assert db_record.status == "created"
+    finally:
+        db.close()
 
 def test_get_shipments_by_po():
     """
     Shipments can be retrieved using the Purchase Order number.
     """
-
     create_acknowledged_po()
 
     result = create_shipment_for_supplier()
 
-    results = get_shipments_by_po("PO1001")
+    results = get_shipments_by_po("PO-2026-000001")
 
     assert len(results) == 1
-    assert results[0]["shipment_id"] == result["shipment_id"]
-
+    assert results[0].shipment_id == result["shipment_id"]
+    assert results[0].po_number == result["po_number"]
 
 def test_get_all_shipments():
     """
@@ -427,21 +449,23 @@ def test_get_all_shipments():
     """
 
     create_acknowledged_po(
-        po_number="PO1001",
+        po_number="PO-2026-000001",
         supplier_id="SUP-00001",
     )
 
     create_acknowledged_po(
-        po_number="PO1002",
+        po_number="PO-2026-000002",
         supplier_id="SUP-00002",
     )
 
     shipment1 = ShipmentCreate(
-        po_number="PO1001",
+        po_number="PO-2026-000001",
         shipment_date="2026-09-09",
         expected_delivery_date="2026-09-15",
         carrier="DHL",
         tracking_number="DHL111",
+        origin="Supplier Warehouse, Bengaluru",
+        destination_warehouse="WH-BLR-01",
         items=[
             {
                 "item_code": "LAP001",
@@ -451,11 +475,13 @@ def test_get_all_shipments():
     )
 
     shipment2 = ShipmentCreate(
-        po_number="PO1002",
+        po_number="PO-2026-000002",
         shipment_date="2026-09-09",
         expected_delivery_date="2026-09-15",
         carrier="FedEx",
         tracking_number="FDX222",
+        origin="Supplier Warehouse, Bengaluru",
+        destination_warehouse="WH-BLR-01",
         items=[
             {
                 "item_code": "LAP001",
@@ -515,12 +541,12 @@ def test_supplier_can_view_own_shipment(
     """
 
     create_acknowledged_po(
-        po_number="PO1001",
+        po_number="PO-2026-000001",
         supplier_id="SUP-00001",
     )
 
     result = create_shipment_for_supplier(
-        po_number="PO1001",
+        po_number="PO-2026-000001",
         supplier_id="SUP-00001",
     )
 
@@ -544,13 +570,13 @@ def test_supplier_cannot_view_another_suppliers_shipment(
     """
 
     create_acknowledged_po(
-        po_number="PO2001",
+        po_number="PO-2026-000001",
         supplier_id="SUP-00002",
     )
 
-    # Shipment creation changes the P2P state only for PO2001.
+    # Shipment creation changes the P2P state only for PO-2026-000001.
     result = create_shipment_for_supplier(
-        po_number="PO2001",
+        po_number="PO-2026-000001",
         supplier_id="SUP-00002",
         created_by="supplierb@example.com",
     )
@@ -639,12 +665,12 @@ def test_internal_user_can_view_existing_supplier_shipment(
     """
 
     create_acknowledged_po(
-        po_number="PO2001",
+        po_number="PO-2026-000001",
         supplier_id="SUP-00002",
     )
 
     result = create_shipment_for_supplier(
-        po_number="PO2001",
+        po_number="PO-2026-000001",
         supplier_id="SUP-00002",
         created_by="supplierb@example.com",
     )
@@ -675,23 +701,23 @@ def test_supplier_list_shipments_returns_only_own_shipments(
     """
 
     create_acknowledged_po(
-        po_number="PO1001",
+        po_number="PO-2026-000001",
         supplier_id="SUP-00001",
     )
 
     create_acknowledged_po(
-        po_number="PO2001",
+        po_number="PO-2026-000002",
         supplier_id="SUP-00002",
     )
 
     create_shipment_for_supplier(
-        po_number="PO1001",
+        po_number="PO-2026-000001",
         supplier_id="SUP-00001",
         created_by="supplier@company.com",
     )
 
     create_shipment_for_supplier(
-        po_number="PO2001",
+        po_number="PO-2026-000002",
         supplier_id="SUP-00002",
         created_by="supplierb@example.com",
     )
@@ -717,23 +743,23 @@ def test_internal_user_can_list_all_shipments(
     """
 
     create_acknowledged_po(
-        po_number="PO1001",
+        po_number="PO-2026-000001",
         supplier_id="SUP-00001",
     )
 
     create_acknowledged_po(
-        po_number="PO2001",
+        po_number="PO-2026-000002",
         supplier_id="SUP-00002",
     )
 
     create_shipment_for_supplier(
-        po_number="PO1001",
+        po_number="PO-2026-000001",
         supplier_id="SUP-00001",
         created_by="supplier@company.com",
     )
 
     create_shipment_for_supplier(
-        po_number="PO2001",
+        po_number="PO-2026-000002",
         supplier_id="SUP-00002",
         created_by="supplierb@example.com",
     )
@@ -757,4 +783,24 @@ def test_internal_user_can_list_all_shipments(
         "SUP-00001",
         "SUP-00002",
     }
+
+def test_shipment_is_persisted_in_database(po_db):
+    create_acknowledged_po()
+
+    result = create_shipment_for_supplier()
+
+    db = po_db()
+    try:
+        record = db.get(
+            Shipment,
+            result["shipment_id"],
+        )
+
+        assert record is not None
+        assert record.po_number == "PO-2026-000001"
+        assert record.supplier_id == "SUP-00001"
+        assert record.carrier == "DHL"
+        assert record.status == "created"
+    finally:
+        db.close()
 

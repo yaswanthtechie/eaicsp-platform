@@ -10,6 +10,12 @@ from app.services.inv_po_approved_consumer_runner import (
 from app.services.po_ack_outbox_publisher import (
     po_ack_outbox_publisher_runner,
 )
+from app.services.shipment_outbox_publisher import (
+    shipment_outbox_publisher_runner,
+)
+from app.services.shipment_eta_consumer_runner import (
+    shipment_eta_consumer_runner,
+)
 from app.routes.supplier_onboarding import (
     router as supplier_onboarding_router,
 )
@@ -49,14 +55,26 @@ async def lifespan(app: FastAPI):
     if settings.PO_OUTBOX_ENABLED:
         po_ack_outbox_publisher_runner.start()
 
+    if settings.SHIPMENT_OUTBOX_ENABLED:
+        shipment_outbox_publisher_runner.start()
+
+    if settings.KAFKA_ENABLED:
+        shipment_eta_consumer_runner.start()
+
     try:
         yield
     finally:
+        if settings.SHIPMENT_OUTBOX_ENABLED:
+            shipment_outbox_publisher_runner.stop()
+
         if settings.PO_OUTBOX_ENABLED:
             po_ack_outbox_publisher_runner.stop()
 
         if settings.PO_KAFKA_ENABLED:
             inv_po_approved_consumer_runner.stop()
+
+        if settings.KAFKA_ENABLED:
+            shipment_eta_consumer_runner.stop()
 
         if settings.KAFKA_ENABLED:
             kafka_consumer_runner.stop()
@@ -184,9 +202,19 @@ def health():
             if settings.PO_KAFKA_ENABLED
             else False
         ),
-            "po_outbox_publisher_alive": (
+        "po_outbox_publisher_alive": (
             po_ack_outbox_publisher_runner.is_alive()
             if settings.PO_OUTBOX_ENABLED
+            else False
+        ),
+        "shipment_outbox_publisher_alive": (
+            shipment_outbox_publisher_runner.is_alive()
+            if settings.SHIPMENT_OUTBOX_ENABLED
+            else False
+        ),
+        "shipment_eta_consumer_alive": (
+            shipment_eta_consumer_runner.is_alive()
+            if settings.KAFKA_ENABLED
             else False
         ),
     }
