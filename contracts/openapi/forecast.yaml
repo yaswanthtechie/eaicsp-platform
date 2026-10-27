@@ -9,7 +9,7 @@ info:
     includes model metadata. Called service-to-service with a service API key.
 
 servers:
-  - url: http://localhost:8000
+  - url: http://localhost:8007
     description: Local, through the API gateway
 
 security:
@@ -58,8 +58,8 @@ paths:
                 warehouse_id: WH-BLR-01
                 granularity: daily
                 horizon: 3
-                interval_level: 0.9
-                model_version: demand-ensemble-v3
+                interval_level: 0.8
+                model_version: R5
                 generated_at: "2026-10-15T06:00:00Z"
                 forecast:
                   - date: "2026-10-16"
@@ -179,8 +179,8 @@ components:
           description: Echo of the requested horizon; forecast has exactly this many points
         interval_level:
           type: number
-          const: 0.9
-          description: Prediction interval coverage (90 percent, matches the model's bounds)
+          const: 0.8
+          description: Prediction interval coverage (80 percent, from the 10th to 90th percentiles)
         model_version:
           type: string
           minLength: 1
