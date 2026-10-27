@@ -9,28 +9,37 @@
     {
       "properties": {
         "event_type": { "const": "compliance.supplier.status_changed" },
-        "data": {
+        "payload": {
           "type": "object",
           "properties": {
-            "supplier_id": {
+            "supplier_name": {
               "type": "string",
-              "pattern": "^SUP-\\d{5}$",
-              "description": "Supplier canonical ID format."
+              "description": "The compliance event identifies a supplier by name; it has no supplier_id."
             },
-            "previous_status": {
+            "country": {
+              "type": ["string", "null"]
+            },
+            "old_status": {
               "type": "string",
-              "enum": ["UNSCREENED", "PENDING", "APPROVED", "REJECTED", "SUSPENDED"]
+              "enum": ["CLEAR", "BLOCK", "REVIEW"]
             },
             "new_status": {
               "type": "string",
-              "enum": ["UNSCREENED", "PENDING", "APPROVED", "REJECTED", "SUSPENDED"]
+              "enum": ["CLEAR", "BLOCK", "REVIEW"]
+            },
+            "matched_list": {
+              "type": "array",
+              "items": { "type": "string" }
             },
             "reason": {
               "type": "string",
               "description": "Context for the status change (e.g., sanctions match)."
+            },
+            "screening_run_id": {
+              "type": "string"
             }
           },
-          "required": ["supplier_id", "previous_status", "new_status"],
+          "required": ["supplier_name", "old_status", "new_status", "matched_list", "reason", "screening_run_id"],
           "additionalProperties": false
         }
       }

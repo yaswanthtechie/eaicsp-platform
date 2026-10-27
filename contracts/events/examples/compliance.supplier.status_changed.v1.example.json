@@ -1,13 +1,16 @@
 {
   "event_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
   "event_type": "compliance.supplier.status_changed",
-  "event_version": "v1",
-  "timestamp": "2026-10-16T12:13:00Z",
-  "producer": "compliance",
-  "data": {
-    "supplier_id": "SUP-00045",
-    "previous_status": "APPROVED",
-    "new_status": "SUSPENDED",
-    "reason": "Matched against updated global sanctions list."
+  "event_version": 1,
+  "occurred_at": "2026-10-16T12:13:00Z",
+  "producer": "compliance-service",
+  "payload": {
+    "supplier_name": "Acme Logistics Pvt Ltd",
+    "country": "IN",
+    "old_status": "CLEAR",
+    "new_status": "BLOCK",
+    "matched_list": ["OFAC-SDN"],
+    "reason": "Matched against updated global sanctions list.",
+    "screening_run_id": "9f2a1c3e-7b4d-4e21-9a0a-1234567890ab"
   }
 }

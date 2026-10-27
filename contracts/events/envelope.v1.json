@@ -15,11 +15,11 @@
       "description": "The routing key/type of the event (e.g., inventory.po.approved)."
     },
     "event_version": {
-      "type": "string",
-      "pattern": "^v[1-9]\\d*$",
+      "type": "integer",
+      "minimum": 1,
       "description": "Schema version indicator."
     },
-    "timestamp": {
+    "occurred_at": {
       "type": "string",
       "format": "date-time",
       "description": "ISO 8601 timestamp of when the event occurred."
@@ -28,11 +28,11 @@
       "type": "string",
       "description": "Name of the service emitting the event."
     },
-    "data": {
+    "payload": {
       "type": "object",
       "description": "The domain-specific payload. Defined by extending schemas."
     }
   },
-  "required": ["event_id", "event_type", "event_version", "timestamp", "producer", "data"],
+  "required": ["event_id", "event_type", "event_version", "occurred_at", "producer", "payload"],
   "additionalProperties": false
 }
