@@ -12,6 +12,7 @@ from xgboost import XGBRegressor
 
 from src.preprocess import (
     CATEGORICAL_FEATURES,
+    H2_MODEL_FEATURES,
     MODEL_FEATURES,
     NUMERIC_FEATURES,
     TARGET_COLUMN,
@@ -21,6 +22,7 @@ from src.train import (
     MIN_PRODUCTION_CALIBRATION_ROWS,
     check_production_calibration,
     train_model,
+    train_h2_model,
 )
 from src.xg_boost_model import XGBoostModel
 
@@ -208,6 +210,76 @@ def test_model_training_and_prediction_lifecycle(
         predictions >= 0
     ).all()
 
+def test_h2_model_training_and_prediction_lifecycle(
+    sample_model_data,
+    tmp_path,
+    monkeypatch,
+):
+    """Test complete H2 training and prediction lifecycle."""
+
+    from src import train
+
+    # Redirect H2 artifacts to the temporary test directory.
+    # This prevents the test from overwriting real H2 production artifacts.
+    monkeypatch.setattr(
+        train,
+        "H2_MODEL_PATH",
+        tmp_path / "eta_seed_routes_pipeline.joblib",
+    )
+
+    monkeypatch.setattr(
+        train,
+        "H2_CALIBRATION_MODEL_PATH",
+        tmp_path / "eta_seed_routes_interval.joblib",
+    )
+
+    X_train = sample_model_data["X_train"].copy()
+    y_train = sample_model_data["y_train"].copy()
+
+    # Keep only the H2 model features.
+    X_train_h2 = X_train[
+        H2_MODEL_FEATURES
+    ].copy()
+
+    # Train H2 model.
+    trained_model = train_h2_model(
+        X_train_h2,
+        y_train,
+    )
+
+    # Verify the trained pipeline was returned.
+    assert trained_model is not None
+
+    # Verify both H2 artifacts were written.
+    assert (
+        train.H2_MODEL_PATH.exists()
+    )
+
+    assert (
+        train.H2_CALIBRATION_MODEL_PATH.exists()
+    )
+
+    # Verify the trained model can make predictions.
+    predictions = trained_model.predict(
+        X_train_h2
+    )
+
+    assert isinstance(
+        predictions,
+        np.ndarray,
+    )
+
+    assert len(predictions) == len(
+        X_train_h2
+    )
+
+    assert np.isfinite(
+        predictions
+    ).all()
+
+    assert (
+        predictions >= 0
+    ).all()
 
 def test_single_feature_removal_leakage_sanity(
     sample_model_data,
@@ -614,4 +686,4 @@ def test_main_enables_production_gate():
         )
         assert isinstance(gate, ast.Constant) and gate.value is True, (
             "main.py must call train_model(..., enforce_production_gate=True)"
-        )          
+        )

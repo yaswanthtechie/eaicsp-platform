@@ -9,20 +9,28 @@ from src.route_insights import (
 from src.features import (
     build_eta_features,
     save_eta_features,
+    build_h2_eta_features,
+    H2_MODEL_FEATURES,
 )
 from src.preprocess import (
     TARGET_COLUMN,
     MODEL_FEATURES,
     preprocess_features,
+    preprocess_h2_features,
 )
 from src.split import chronological_split
 from src.train import (
     train_model,
+    train_h2_model,
     check_production_calibration,
     CALIBRATION_MODEL_PATH,
+    H2_CALIBRATION_MODEL_PATH,
 )
 
-from src.evaluate import evaluate_model
+from src.evaluate import (
+    evaluate_model,
+    evaluate_h2_model,
+)
 from src.paths import ensure_directories
 
 from src.mlflow_tracking import (
@@ -30,12 +38,13 @@ from src.mlflow_tracking import (
     start_run,
     log_parameters,
     log_metrics,
+    log_h2_metrics,
     log_dataset_metadata,
     log_calibration_metadata,
     log_model,
+    log_h2_parameters,
+    log_h2_model,
 )
-
-
 def main():
     # ---------------------------------------------------------
     # 1. Prepare project directories
@@ -296,7 +305,139 @@ def main():
         print(
             f"  {split.split_timestamp}"
         )
+                # -----------------------------------------------------
+        # 21. Build H2 seed-route ETA features
+        #
+        # H2 uses only features available at shipment dispatch:
+        # date-derived features + supplier-to-warehouse distance.
+        # -----------------------------------------------------
+        h2_features = build_h2_eta_features(
+            datasets
+        )
 
+        h2_features = preprocess_h2_features(
+            h2_features
+        )
+
+        # -----------------------------------------------------
+        # 22. Chronological H2 split
+        #
+        # The same Olist time-based split is used so H2 can be
+        # evaluated honestly against the same future period.
+        # -----------------------------------------------------
+        h2_split = chronological_split(
+            features=h2_features,
+            orders=datasets["orders"],
+            test_size=0.20,
+        )
+
+        # -----------------------------------------------------
+        # 23. Prepare H2 training data
+        # -----------------------------------------------------
+
+        h2_X_train = h2_split.train[
+            H2_MODEL_FEATURES
+        ].copy()
+
+        h2_y_train = h2_split.train[
+            TARGET_COLUMN
+        ].copy()
+
+        # -----------------------------------------------------
+        # 24. Train H2 seed-route model
+        # -----------------------------------------------------
+        h2_model = train_h2_model(
+            h2_X_train,
+            h2_y_train,
+        )
+
+        # -----------------------------------------------------
+        # 25. Load H2 interval calibration
+        # -----------------------------------------------------
+        if not H2_CALIBRATION_MODEL_PATH.exists():
+            raise FileNotFoundError(
+                "H2 prediction interval calibration artifact "
+                "was not created: "
+                f"{H2_CALIBRATION_MODEL_PATH}"
+            )
+
+        h2_calibration = joblib.load(
+            H2_CALIBRATION_MODEL_PATH
+        )
+
+        # -----------------------------------------------------
+        # 26. Log H2 parameters and tags
+        # -----------------------------------------------------
+        log_h2_parameters()
+
+        # -----------------------------------------------------
+        # 27. Evaluate H2 on the Olist future test period
+        # -----------------------------------------------------
+        h2_results = evaluate_h2_model(
+            h2_model,
+            h2_split.test,
+            h2_calibration,
+        )
+
+        # -----------------------------------------------------
+        # 28. Log H2 metrics
+        # -----------------------------------------------------
+        log_h2_metrics(
+            h2_results
+        )
+
+        # -----------------------------------------------------
+        # 29. Log H2 calibration metadata
+        # -----------------------------------------------------
+        log_calibration_metadata(
+            h2_calibration
+        )
+
+        # -----------------------------------------------------
+        # 30. Register H2 model with MLflow signature
+        # -----------------------------------------------------
+        h2_input_example = h2_X_train.head(1).copy()
+
+        h2_model_info = log_h2_model(
+            h2_model,
+            h2_input_example,
+        )
+
+        print("\nH2 MLflow model logged and registered:")
+        print(
+            f"  {h2_model_info.model_uri}"
+        )
+
+        # -----------------------------------------------------
+        # 31. Report H2 evaluation
+        # -----------------------------------------------------
+        print("\nH2 Seed-Route ETA Evaluation")
+        print("============================")
+
+        print(
+            f"\nMAE:"
+            f" {h2_results['mae']:.4f} days"
+        )
+
+        print(
+            f"\nInterval coverage:"
+            f" {h2_results['interval_coverage'] * 100:.2f}%"
+        )
+
+        print(
+            f"\nH2 training rows:"
+            f" {len(h2_split.train)}"
+        )
+
+        print(
+            f"\nH2 test rows:"
+            f" {len(h2_split.test)}"
+        )
+
+        print(
+            "\nH2 features:"
+            f" {H2_MODEL_FEATURES}"
+        )
 
 if __name__ == "__main__":
     main()

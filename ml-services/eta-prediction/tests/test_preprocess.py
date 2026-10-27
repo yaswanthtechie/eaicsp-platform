@@ -2,8 +2,10 @@ import pandas as pd
 import pytest
 
 from src.preprocess import (
+    H2_MODEL_FEATURES,
     MODEL_FEATURES,
     preprocess_features,
+    preprocess_h2_features,
     validate_columns,
     validate_order_ids,
     validate_target,
@@ -37,6 +39,20 @@ def make_valid_features():
         }
     )
 
+def make_valid_h2_features():
+    """Create a minimal valid H2 feature dataset."""
+
+    return pd.DataFrame(
+        {
+            "order_id": ["order_1", "order_2"],
+            "purchase_year": [2018, 2018],
+            "purchase_month": [1, 1],
+            "purchase_day_of_week": [0, 1],
+            "purchase_hour": [10, 11],
+            "distance_km": [5.0, 10.0],
+            "delivery_days": [5.0, 8.0],
+        }
+    )
 
 def test_valid_features_pass_preprocessing():
     features = make_valid_features()
@@ -214,3 +230,102 @@ def test_preprocessing_removes_all_model_missing_values():
 
     assert result["product_category_name"].isna().sum() == 0
     assert result[MODEL_FEATURES].isna().sum().sum() == 0
+
+def test_valid_h2_features_pass_preprocessing():
+    features = make_valid_h2_features()
+
+    result = preprocess_h2_features(features)
+
+    assert len(result) == 2
+    assert result["order_id"].is_unique
+    assert result["delivery_days"].notna().all()
+
+
+def test_h2_preprocessing_preserves_only_expected_columns():
+    features = make_valid_h2_features()
+
+    # Add an R14-only feature to ensure H2 does not retain it.
+    features["origin_lat"] = [-23.55, -22.90]
+
+    result = preprocess_h2_features(features)
+
+    expected_columns = {
+        "order_id",
+        *H2_MODEL_FEATURES,
+        "delivery_days",
+    }
+
+    assert set(result.columns) == expected_columns
+
+
+def test_h2_missing_required_feature_raises_error():
+    features = make_valid_h2_features()
+
+    features = features.drop(
+        columns=["distance_km"]
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Missing required H2 columns",
+    ):
+        preprocess_h2_features(features)
+
+
+def test_h2_missing_feature_value_is_dropped():
+    features = make_valid_h2_features()
+
+    features.loc[
+        0,
+        "distance_km",
+    ] = None
+
+    result = preprocess_h2_features(features)
+
+    assert len(result) == len(features) - 1
+    assert result["distance_km"].notna().all()
+
+
+def test_h2_negative_distance_raises_error():
+    features = make_valid_h2_features()
+
+    features.loc[
+        0,
+        "distance_km",
+    ] = -1.0
+
+    with pytest.raises(
+        ValueError,
+        match="distance_km cannot contain negative values",
+    ):
+        preprocess_h2_features(features)
+
+
+def test_h2_non_positive_target_raises_error():
+    features = make_valid_h2_features()
+
+    features.loc[
+        0,
+        "delivery_days",
+    ] = 0
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid delivery_days values",
+    ):
+        preprocess_h2_features(features)
+
+
+def test_h2_duplicate_order_id_raises_error():
+    features = make_valid_h2_features()
+
+    features.loc[
+        1,
+        "order_id",
+    ] = "order_1"
+
+    with pytest.raises(
+        ValueError,
+        match="Duplicate order_id",
+    ):
+        preprocess_h2_features(features)

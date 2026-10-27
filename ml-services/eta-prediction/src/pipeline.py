@@ -44,3 +44,40 @@ def create_pipeline():
             ),
         ]
     )
+
+H2_NUMERIC_FEATURES = [
+    "purchase_year",
+    "purchase_month",
+    "purchase_day_of_week",
+    "purchase_hour",
+    "distance_km",
+]
+
+
+def create_h2_pipeline():
+    """Create the H2 ETA preprocessing and XGBoost pipeline."""
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            (
+                "numeric",
+                "passthrough",
+                H2_NUMERIC_FEATURES,
+            ),
+        ]
+    )
+
+    model = XGBoostModel()
+
+    return Pipeline(
+        steps=[
+            (
+                "preprocessor",
+                preprocessor,
+            ),
+            (
+                "model",
+                model.model,
+            ),
+        ]
+    )

@@ -1,8 +1,15 @@
 import joblib
 import numpy as np
 
-from .paths import MODEL_PATH
-from .pipeline import create_pipeline
+from .paths import (
+    MODEL_PATH,
+    H2_MODEL_PATH,
+    H2_CALIBRATION_MODEL_PATH,
+)
+from .pipeline import (
+    create_pipeline,
+    create_h2_pipeline,
+)
 
 
 # ---------------------------------------------------------
@@ -292,5 +299,203 @@ def train_model(
 
     # ---------------------------------------------------------
     # 12. Return final production pipeline
+    # ---------------------------------------------------------
+    return pipeline
+
+def train_h2_model(
+    X_train,
+    y_train,
+    enforce_production_gate: bool = False,
+):
+    """
+    Train and save the H2 seed-route ETA pipeline.
+
+    H2 uses only features available at shipment dispatch time:
+    date-derived features and distance_km.
+
+    The final H2 model is trained on all supplied training rows.
+    Prediction interval calibration uses the latest 20% of the
+    training data as an out-of-sample chronological calibration set.
+    """
+
+    # ---------------------------------------------------------
+    # 1. Validate minimum training size
+    # ---------------------------------------------------------
+    if len(X_train) != len(y_train):
+        raise ValueError(
+            "X_train and y_train must contain "
+            "the same number of rows."
+        )
+
+    if len(X_train) < 4:
+        raise ValueError(
+            "At least 4 training rows are required "
+            "for prediction interval calibration."
+        )
+
+    # ---------------------------------------------------------
+    # 2. Create the H2 production pipeline
+    # ---------------------------------------------------------
+    pipeline = create_h2_pipeline()
+
+    # ---------------------------------------------------------
+    # 3. Create chronological calibration split
+    # ---------------------------------------------------------
+    calibration_size = max(
+        2,
+        int(len(X_train) * 0.20),
+    )
+
+    calibration_start = (
+        len(X_train) - calibration_size
+    )
+
+    X_fit = X_train.iloc[
+        :calibration_start
+    ].copy()
+
+    y_fit = y_train.iloc[
+        :calibration_start
+    ].copy()
+
+    X_calibration = X_train.iloc[
+        calibration_start:
+    ].copy()
+
+    y_calibration = y_train.iloc[
+        calibration_start:
+    ].copy()
+
+    # ---------------------------------------------------------
+    # 4. Train temporary calibration model
+    # ---------------------------------------------------------
+    calibration_pipeline = create_h2_pipeline()
+
+    calibration_pipeline.fit(
+        X_fit,
+        y_fit,
+    )
+
+    # ---------------------------------------------------------
+    # 5. Generate calibration predictions
+    # ---------------------------------------------------------
+    calibration_predictions = (
+        calibration_pipeline.predict(
+            X_calibration
+        )
+    )
+
+    calibration_predictions = np.asarray(
+        calibration_predictions,
+        dtype=float,
+    )
+
+    y_calibration_array = np.asarray(
+        y_calibration,
+        dtype=float,
+    )
+
+    # ---------------------------------------------------------
+    # 6. Calculate absolute residuals
+    # ---------------------------------------------------------
+    absolute_residuals = np.abs(
+        y_calibration_array
+        - calibration_predictions
+    )
+
+    if not np.isfinite(
+        absolute_residuals
+    ).all():
+        raise ValueError(
+            "H2 prediction interval calibration produced "
+            "non-finite residuals."
+        )
+
+    # ---------------------------------------------------------
+    # 7. Calculate interval width
+    # ---------------------------------------------------------
+    interval_width = float(
+        np.quantile(
+            absolute_residuals,
+            PREDICTION_INTERVAL_COVERAGE,
+        )
+    )
+
+    if not np.isfinite(
+        interval_width
+    ):
+        raise ValueError(
+            "H2 prediction interval calibration produced "
+            "an invalid interval width."
+        )
+
+    # ---------------------------------------------------------
+    # 8. Store calibration metadata
+    # ---------------------------------------------------------
+    calibration = {
+        "method": (
+            "absolute_residual_quantile"
+        ),
+        "coverage": (
+            PREDICTION_INTERVAL_COVERAGE
+        ),
+        "calibration_fraction": 0.20,
+        "calibration_rows": len(
+            X_calibration
+        ),
+        "training_rows": len(
+            X_train
+        ),
+        "lower_quantile": (
+            1.0
+            - PREDICTION_INTERVAL_COVERAGE
+        ),
+        "upper_quantile": (
+            PREDICTION_INTERVAL_COVERAGE
+        ),
+        "interval_width": interval_width,
+        "residual_lower": -interval_width,
+        "residual_upper": interval_width,
+    }
+
+    # ---------------------------------------------------------
+    # 8b. Production gate
+    # ---------------------------------------------------------
+    if enforce_production_gate:
+        check_production_calibration(
+            calibration
+        )
+
+    # ---------------------------------------------------------
+    # 9. Train final H2 production model
+    # ---------------------------------------------------------
+    pipeline.fit(
+        X_train,
+        y_train,
+    )
+
+    # ---------------------------------------------------------
+    # 10. Save H2 model
+    # ---------------------------------------------------------
+    H2_MODEL_PATH.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    joblib.dump(
+        pipeline,
+        H2_MODEL_PATH,
+    )
+
+    # ---------------------------------------------------------
+    # 11. Save H2 prediction interval
+    # ---------------------------------------------------------
+    joblib.dump(
+        calibration,
+        H2_CALIBRATION_MODEL_PATH,
+    )
+
+    # ---------------------------------------------------------
+    # 12. Return final H2 pipeline
     # ---------------------------------------------------------
     return pipeline

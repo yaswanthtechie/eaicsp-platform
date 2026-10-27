@@ -319,3 +319,105 @@ def preprocess_features(features):
     print_cleaning_summary(features)
 
     return features
+
+
+H2_MODEL_FEATURES = [
+    "purchase_year",
+    "purchase_month",
+    "purchase_day_of_week",
+    "purchase_hour",
+    "distance_km",
+]
+
+
+def validate_h2_columns(features):
+    """Validate the H2 ETA feature contract."""
+
+    required_columns = (
+        [ID_COLUMN]
+        + H2_MODEL_FEATURES
+        + [TARGET_COLUMN]
+    )
+
+    missing_columns = [
+        column
+        for column in required_columns
+        if column not in features.columns
+    ]
+
+    if missing_columns:
+        raise ValueError(
+            "Missing required H2 columns: "
+            f"{missing_columns}"
+        )
+
+
+def validate_h2_features(features):
+    """
+    Validate H2 model features and target.
+
+    H2 uses only features available at shipment dispatch time.
+    """
+
+    if features[H2_MODEL_FEATURES].isna().any().any():
+        missing_values = (
+            features[H2_MODEL_FEATURES]
+            .isna()
+            .sum()
+        )
+
+        raise ValueError(
+            "Missing H2 feature values found: "
+            f"{missing_values[missing_values > 0].to_dict()}"
+        )
+
+    if (
+        features["distance_km"] < 0
+    ).any():
+        raise ValueError(
+            "distance_km cannot contain negative values."
+        )
+
+    validate_order_ids(features)
+    validate_target(features)
+
+
+def preprocess_h2_features(features):
+    """
+    Validate and prepare the H2 ETA feature dataset.
+
+    Only prediction-time H2 features are retained.
+    """
+
+    if not isinstance(
+        features,
+        pd.DataFrame,
+    ):
+        raise TypeError(
+            "features must be a pandas DataFrame."
+        )
+
+    validate_h2_columns(features)
+
+    h2_columns = (
+        [ID_COLUMN]
+        + H2_MODEL_FEATURES
+        + [TARGET_COLUMN]
+    )
+
+    prepared = features[
+        h2_columns
+    ].copy()
+
+    # Rows with missing prediction-time features cannot be
+    # used for H2 training. In particular, Olist has some
+    # rows where distance_km cannot be calculated.
+    prepared = prepared.dropna(
+        subset=H2_MODEL_FEATURES
+    ).reset_index(
+        drop=True
+    )
+
+    validate_h2_features(prepared)
+
+    return prepared

@@ -163,7 +163,9 @@ ml-services/eta-prediction/
 │
 ├── models/
 │   ├── eta_pipeline.joblib
-│   └── eta_prediction_interval.joblib
+│   ├── eta_prediction_interval.joblib
+│   ├── eta_seed_routes_pipeline.joblib
+│   └── eta_seed_routes_interval.joblib
 │
 ├── src/
 │   ├── __init__.py
@@ -362,6 +364,31 @@ The model therefore uses:
 - product category
 
 The raw purchase timestamp is used for time-derived features and chronological splitting, but is not itself a model feature.
+
+### R15-H2 Seed-Route ETA Features
+
+The R15-H2 model uses only features available at shipment dispatch time:
+
+- `purchase_year`
+- `purchase_month`
+- `purchase_day_of_week`
+- `purchase_hour`
+- `distance_km`
+
+For seed shipments, the date features are derived from `dispatched_at`, and `distance_km` is calculated using the Haversine distance between the canonical supplier and warehouse locations.
+
+The following are intentionally excluded from the H2 model:
+
+- Raw latitude/longitude
+- Weight
+- Volume
+- Freight value
+- Item count
+- Product category
+- Route history
+- Carrier history
+
+`carrier` is accepted by the prediction contract but is not used as a model feature because the Olist training data does not contain a reliable carrier field.
 
 ---
 
@@ -586,6 +613,24 @@ The final production artifact is:
 models/eta_pipeline.joblib
 ```
 
+## R15-H2 Seed Supplier-to-Warehouse Routes
+
+The R15-H2 model supports canonical supplier-to-warehouse routes from the seed dataset.
+
+The route table is generated from `suppliers.csv` and `warehouses.csv`.
+
+There are 60 suppliers and 6 warehouses:
+
+60 × 6 = 360 routes
+
+Routes are identified using canonical `supplier_id` and `destination_warehouse` IDs rather than city names.
+
+Unknown supplier or warehouse IDs are rejected with a clear error.
+
+Each route receives a `distance_km` calculated using the Haversine formula.
+
+All 360 seed routes were validated against the trained H2 model and produced non-negative ETA values with valid confidence intervals.
+
 ---
 
 # Honest Baseline
@@ -673,6 +718,22 @@ RMSE improvement : 63.34%
 ```
 
 XGBoost has substantially lower error than the Olist estimated-delivery-date baseline on this chronological test period.
+
+### R15-H2 Evaluation
+
+The H2 model is trained on the Olist `delivery_days` target using a leak-free chronological split.
+
+| Metric | Result |
+|---|---:|
+| MAE | 4.5554 days |
+| Interval coverage | 95.21% |
+| Training rows | 76,792 |
+| Test rows | 19,199 |
+| Model features | 5 |
+
+The higher MAE compared with R14 is expected because H2 intentionally removes features that are unavailable for seed shipments.
+
+Seed-route predictions assume Brazilian Olist delivery behavior for comparable geographic distances. This assumption should be validated when real seed shipment outcomes become available.
 
 ## Important Interpretation Caveat:
 
@@ -997,6 +1058,30 @@ MLflow records:
 
 The production `joblib` model remains available independently of the MLflow artifact.
 
+### R15-H2 MLflow
+
+The H2 model is registered in MLflow as `eta_seed_routes`.
+
+The registered model includes an input/output signature and input example.
+
+H2 MLflow parameters and tags include:
+
+- `training_data=olist`
+- `serving_routes=seed`
+- `carrier_used_as_model_feature=false`
+- `feature_set=h2_seed_routes`
+- `feature_count=5`
+
+The H2 run records:
+
+- `mae`
+- `interval_coverage`
+
+H2 model artifacts:
+
+- `models/eta_seed_routes_pipeline.joblib`
+- `models/eta_seed_routes_interval.joblib`
+
 ---
 
 # Testing
@@ -1067,6 +1152,32 @@ python -m pytest tests/test_predict.py -v
 python -m pytest tests/test_mlflow_tracking.py -v
 ```
 
+### R15-H2 Tests
+
+The H2 implementation includes tests for:
+
+- H2 feature selection and validation
+- H2 preprocessing
+- H2 pipeline creation
+- H2 model training
+- H2 evaluation
+- Seed route generation
+- 60 × 6 = 360 route validation
+- Haversine distance calculation
+- Unknown supplier rejection
+- Unknown warehouse rejection
+- Seed prediction validation
+- Non-negative ETA and confidence bounds
+- MLflow logging and model registration
+
+The complete test suite passes:
+
+143 passed
+
+All 360 seed routes were also validated against the trained H2 model:
+
+Routes tested : 360
+ALL 360 SEED ROUTES PASSED
 ---
 
 # Module Guide

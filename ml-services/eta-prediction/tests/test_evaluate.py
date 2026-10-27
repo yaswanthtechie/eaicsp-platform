@@ -1,7 +1,10 @@
 import numpy as np
 import pytest
 
-from src.evaluate import evaluate_model
+from src.evaluate import (
+    evaluate_model,
+    evaluate_h2_model,
+)
 
 
 class DummyModel:
@@ -392,4 +395,50 @@ def test_evaluation_does_not_pass_baseline_columns_to_model(
     assert (
         "order_estimated_delivery_date"
         not in model.received_columns
+    )
+def test_h2_evaluation_returns_mae_and_interval_coverage(
+    sample_model_data,
+):
+    train = sample_model_data["train"]
+    test = sample_model_data["test"]
+
+    class H2DummyModel:
+        def predict(self, X):
+            return np.array(
+                [
+                    5.0,
+                    10.0,
+                    15.0,
+                    20.0,
+                ]
+            )
+
+    calibration = {
+        "residual_lower": -2.0,
+        "residual_upper": 3.0,
+    }
+
+    results = evaluate_h2_model(
+        H2DummyModel(),
+        test,
+        calibration,
+    )
+
+    assert set(results.keys()) == {
+        "mae",
+        "interval_coverage",
+    }
+
+    assert np.isfinite(
+        results["mae"]
+    )
+
+    assert np.isfinite(
+        results["interval_coverage"]
+    )
+
+    assert (
+        0.0
+        <= results["interval_coverage"]
+        <= 1.0
     )

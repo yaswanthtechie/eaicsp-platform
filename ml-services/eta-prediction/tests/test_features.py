@@ -1,5 +1,8 @@
 from src.features import build_eta_features
-
+from src.features import (
+    build_eta_features,
+    build_h2_eta_features,
+)
 
 EXPECTED_FEATURE_COLUMNS = {
     "order_id",
@@ -277,3 +280,91 @@ def test_target_is_not_used_as_input_feature(
         "delivery_days"
         not in model_feature_columns
     )
+
+
+H2_EXPECTED_FEATURE_COLUMNS = {
+    "order_id",
+    "purchase_year",
+    "purchase_month",
+    "purchase_day_of_week",
+    "purchase_hour",
+    "distance_km",
+    "delivery_days",
+}
+
+
+def test_h2_expected_feature_columns(sample_datasets):
+    """H2 output must contain only prediction-time features and target."""
+
+    features = build_h2_eta_features(sample_datasets)
+
+    assert set(features.columns) == (
+        H2_EXPECTED_FEATURE_COLUMNS
+    )
+
+
+def test_h2_forbidden_features_are_not_returned(sample_datasets):
+    """H2 must exclude features unavailable at seed-shipment prediction time."""
+
+    features = build_h2_eta_features(
+        sample_datasets
+    )
+
+    forbidden_columns = {
+        "origin_lat",
+        "origin_lng",
+        "destination_lat",
+        "destination_lng",
+        "item_count",
+        "total_weight_kg",
+        "total_volume_cm3",
+        "total_freight_value",
+        "product_category_name",
+        "carrier",
+        "historical_on_time_rate_carrier",
+        "historical_avg_transit_days_carrier",
+        "historical_on_time_rate_route",
+        "historical_avg_transit_days_route",
+        "historical_avg_transit_days_carrier_route",
+        "historical_on_time_rate_departure_season",
+    }
+
+    assert not (
+        forbidden_columns
+        & set(features.columns)
+    )
+
+
+def test_h2_distance_is_non_negative(sample_datasets):
+    """H2 distance must always be non-negative."""
+
+    features = build_h2_eta_features(
+        sample_datasets
+    )
+
+    assert (
+        features["distance_km"] >= 0
+    ).all()
+
+
+def test_h2_target_is_positive(sample_datasets):
+    """H2 training targets must be positive delivery durations."""
+
+    features = build_h2_eta_features(
+        sample_datasets
+    )
+
+    assert (
+        features["delivery_days"] > 0
+    ).all()
+
+
+def test_h2_preserves_one_row_per_order(sample_datasets):
+    """H2 must retain exactly one feature row per order."""
+
+    features = build_h2_eta_features(
+        sample_datasets
+    )
+
+    assert features["order_id"].is_unique
+    assert len(features) == 3
