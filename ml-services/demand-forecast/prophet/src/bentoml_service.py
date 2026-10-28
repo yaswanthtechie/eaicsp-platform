@@ -1,167 +1,145 @@
-"""
-BentoML service for Demand Forecasting.
-
-Features
---------
-- Health endpoint
-- Prediction endpoint
-- Service metrics
-- Promoted Ensemble (Prophet + XGBoost)
-"""
+"""BentoML service for the A2 daily demand forecast contract."""
 
 import time
+from datetime import datetime, timezone
 
 import bentoml
-from pydantic import BaseModel, Field
+from fastapi import FastAPI, Header, HTTPException, Path, Query, Request
+from pydantic import BaseModel, ConfigDict, Field
 
-from src.predict import predict as run_forecast
-
-
-# =====================================================
-# Request
-# =====================================================
-
-class ForecastRequest(BaseModel):
-    """Prediction request."""
-
-    sku_id: str = Field(...)
-
-    warehouse_id: str = Field(...)
-
-    horizon_months: int = Field(
-        default=6,
-        gt=0,
-        description="Number of future months to forecast.",
-    )
+from src.production_model import ProductionForecastModel
+from src.platform_auth import verify_platform_api_key
 
 
-# =====================================================
-# Response
-# =====================================================
+app = FastAPI(title="Demand Forecast Serving API", version="1.0.0")
+
+
+class ForecastPoint(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    date: str
+    predicted: float = Field(ge=0)
+    lower_bound: float = Field(ge=0)
+    upper_bound: float = Field(ge=0)
+
 
 class ForecastResponse(BaseModel):
-    """Prediction response."""
+    model_config = ConfigDict(extra="forbid")
 
-    forecast: list
-
+    contract_version: str = "v1"
+    sku_id: str
+    warehouse_id: str
+    granularity: str = "daily"
+    horizon: int = Field(ge=1, le=90)
+    interval_level: float = 0.8
     model_version: str
+    generated_at: datetime
+    forecast: list[ForecastPoint]
 
-    latency_ms: float
-
-
-# =====================================================
-# Service
-# =====================================================
 
 @bentoml.service(name="forecast_service")
+@bentoml.asgi_app(app, path="/")
 class ForecastService:
-
     def __init__(self):
-
-        self.model_version = "R5"
-
+        self.production_model = ProductionForecastModel()
         self.total_predictions = 0
-
         self.total_latency = 0.0
-
         self.error_count = 0
-
-    # =================================================
-    # Health
-    # =================================================
-
-    @bentoml.api
-    def health(self) -> dict:
+        self.load_error = None
 
         try:
-
-            result = run_forecast(1)
-
-            return {
-                "status": "healthy",
-                "model_version": self.model_version,
-                "sample_forecast": result["forecast"][0],
-            }
-
+            self.production_model.load()
         except Exception as exc:
+            self.load_error = str(exc)
 
-            return {
+        # The mounted FastAPI handlers use this same service instance.
+        app.state.forecast_service = self
+
+
+@app.get("/health")
+def health(request: Request) -> dict:
+    service = request.app.state.forecast_service
+    if not service.production_model.is_loaded:
+        raise HTTPException(
+            status_code=503,
+            detail={
                 "status": "unhealthy",
-                "error": str(exc),
-            }
+                "model_loaded": False,
+                "error": service.load_error or "Production model is not loaded.",
+            },
+        )
 
-    # =================================================
-    # Metrics
-    # =================================================
+    return {
+        "status": "healthy",
+        "model_loaded": True,
+        "model_version": service.production_model.model_version,
+    }
 
-    @bentoml.api
-    def service_metrics(self) -> dict:
 
-        average_latency = 0.0
+@app.get("/model/readyz")
+def readiness(request: Request) -> dict:
+    service = request.app.state.forecast_service
+    if not service.production_model.is_loaded:
+        raise HTTPException(status_code=503, detail="Production model is unavailable.")
+    return {"status": "ready"}
 
-        if self.total_predictions > 0:
 
-            average_latency = (
-                self.total_latency
-                / self.total_predictions
-            )
+@app.get("/service_metrics")
+def service_metrics(request: Request) -> dict:
+    service = request.app.state.forecast_service
+    average_latency = (
+        service.total_latency / service.total_predictions
+        if service.total_predictions
+        else 0.0
+    )
+    return {
+        "model_version": service.production_model.model_version,
+        "model_loaded": service.production_model.is_loaded,
+        "total_predictions": service.total_predictions,
+        "average_latency_ms": round(average_latency, 3),
+        "error_count": service.error_count,
+    }
 
-        return {
-            "model_version": self.model_version,
 
-            "total_predictions":
-                self.total_predictions,
+@app.get("/api/v1/demand/forecast/{sku_id}", response_model=ForecastResponse)
+def forecast(
+    request: Request,
+    sku_id: str = Path(pattern=r"^SKU-[0-9]{6}$"),
+    warehouse_id: str = Query(pattern=r"^WH-[A-Z]{3}-[0-9]{2}$"),
+    horizon: int = Query(default=30, ge=1, le=90),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> ForecastResponse:
+    verify_platform_api_key(x_api_key)
+    service = request.app.state.forecast_service
 
-            "average_latency_ms":
-                round(
-                    average_latency,
-                    3,
-                ),
+    if not service.production_model.is_loaded:
+        service.error_count += 1
+        raise HTTPException(status_code=503, detail="Production forecast model is unavailable.")
 
-            "error_count":
-                self.error_count,
-        }
+    start = time.perf_counter()
+    try:
+        points = service.production_model.predict(
+            sku_id=sku_id,
+            warehouse_id=warehouse_id,
+            horizon=horizon,
+        )
 
-    # =================================================
-    # Prediction
-    # =================================================
+        response = ForecastResponse(
+            sku_id=sku_id,
+            warehouse_id=warehouse_id,
+            horizon=horizon,
+            model_version=service.production_model.model_version,
+            generated_at=datetime.now(timezone.utc),
+            forecast=points,
+        )
 
-    @bentoml.api
-    def predict(
-        self,
-        request: ForecastRequest,
-    ) -> ForecastResponse:
+        service.total_predictions += 1
+        service.total_latency += (time.perf_counter() - start) * 1000
+        return response
 
-        start = time.perf_counter()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        service.error_count += 1
+        raise HTTPException(status_code=503, detail="Forecast generation failed.") from exc
 
-        try:
-
-            result = run_forecast(
-                request.horizon_months
-            )
-
-            latency = (
-                time.perf_counter()
-                - start
-            ) * 1000
-
-            self.total_predictions += 1
-
-            self.total_latency += latency
-
-            return ForecastResponse(
-                forecast=result["forecast"],
-
-                model_version=self.model_version,
-
-                latency_ms=round(
-                    latency,
-                    3,
-                ),
-            )
-
-        except Exception:
-
-            self.error_count += 1
-
-            raise
