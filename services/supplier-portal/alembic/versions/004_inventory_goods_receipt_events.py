@@ -1,11 +1,11 @@
-
 from alembic import op
 import sqlalchemy as sa
 
 from app.core.config import settings
 
-revision = "008_inventory_goods_receipt_events"
-down_revision = "007_shipment_eta_events"
+revision = "004_inventory_goods_receipt_events"
+# Runs after #261's PO mirror and outbox migrations (one Alembic head).
+down_revision = "003_po_ack_outbox"
 branch_labels = None
 depends_on = None
 
@@ -46,5 +46,29 @@ def upgrade() -> None:
         "ix_inventory_goods_receipt_events_supplier_id",
         "inventory_goods_receipt_events",
         ["supplier_id"],
+        schema=schema,
+    )
+
+
+def downgrade() -> None:
+    schema = settings.SUPPLIER_DB_SCHEMA
+
+    op.drop_index(
+        "ix_inventory_goods_receipt_events_supplier_id",
+        table_name="inventory_goods_receipt_events",
+        schema=schema,
+    )
+    op.drop_index(
+        "ix_inventory_goods_receipt_events_po_id",
+        table_name="inventory_goods_receipt_events",
+        schema=schema,
+    )
+    op.drop_index(
+        "ix_inventory_goods_receipt_events_receipt_id",
+        table_name="inventory_goods_receipt_events",
+        schema=schema,
+    )
+    op.drop_table(
+        "inventory_goods_receipt_events",
         schema=schema,
     )
