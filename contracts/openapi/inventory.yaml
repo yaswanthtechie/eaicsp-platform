@@ -1,2463 +1,1619 @@
-{
-  "openapi": "3.1.0",
-  "info": {
-    "title": "EAICSP Inventory Service API",
-    "description": "API specification for EAICSP Inventory Service, including Round 15 Flow A and Flow B endpoints.",
-    "version": "1.0.0"
-  },
-  "paths": {
-    "/health": {
-      "get": {
-        "tags": [
-          "Health"
-        ],
-        "summary": "Health Check",
-        "description": "Healthcheck endpoint for Docker and orchestration probes.",
-        "operationId": "health_check_health_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/inventory/purchase-orders/draft": {
-      "post": {
-        "tags": [
-          "Purchase Orders"
-        ],
-        "summary": "Create Purchase Order",
-        "operationId": "create_purchase_order_api_v1_inventory_purchase_orders_draft_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PurchaseOrderRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PurchaseOrderResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/inventory/purchase-orders/{po_id}/approve": {
-      "post": {
-        "tags": [
-          "Purchase Orders"
-        ],
-        "summary": "Approve Purchase Order Endpoint",
-        "operationId": "approve_purchase_order_endpoint_api_v1_inventory_purchase_orders__po_id__approve_post",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "po_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Po Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PurchaseOrderResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/inventory/purchase-orders/{po_id}/receive": {
-      "post": {
-        "tags": [
-          "Purchase Orders"
-        ],
-        "summary": "Receive Purchase Order Endpoint",
-        "operationId": "receive_purchase_order_endpoint_api_v1_inventory_purchase_orders__po_id__receive_post",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "po_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Po Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PurchaseOrderResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/inventory/purchase-orders": {
-      "get": {
-        "tags": [
-          "Purchase Orders"
-        ],
-        "summary": "List Purchase Orders Endpoint",
-        "operationId": "list_purchase_orders_endpoint_api_v1_inventory_purchase_orders_get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "po_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Filter by purchase order ID (e.g. PO-2026-000123)",
-              "title": "Po Id"
-            },
-            "description": "Filter by purchase order ID (e.g. PO-2026-000123)"
-          },
-          {
-            "name": "supplier_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Filter by supplier ID (e.g. SUP001)",
-              "title": "Supplier Id"
-            },
-            "description": "Filter by supplier ID (e.g. SUP001)"
-          },
-          {
-            "name": "status",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Filter by status (e.g. draft, on_hold, received)",
-              "title": "Status"
-            },
-            "description": "Filter by status (e.g. draft, on_hold, received)"
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 500,
-              "minimum": 1,
-              "default": 100,
-              "title": "Limit"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/PurchaseOrderResponse"
-                  },
-                  "title": "Response List Purchase Orders Endpoint Api V1 Inventory Purchase Orders Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/inventory/purchase-orders/{po_id}": {
-      "get": {
-        "tags": [
-          "Purchase Orders"
-        ],
-        "summary": "Get Purchase Order Endpoint",
-        "operationId": "get_purchase_order_endpoint_api_v1_inventory_purchase_orders__po_id__get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "po_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Po Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PurchaseOrderResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/inventory/reports/inventory-value": {
-      "get": {
-        "tags": [
-          "Reports"
-        ],
-        "summary": "Inventory Value Report",
-        "operationId": "inventory_value_report_api_v1_inventory_reports_inventory_value_get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "valuation_method",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "enum": [
-                "fifo",
-                "weighted_average"
-              ],
-              "type": "string",
-              "default": "fifo",
-              "title": "Valuation Method"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InventoryValueReportResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/inventory/optimization/recommendations": {
-      "get": {
-        "tags": [
-          "Optimization"
-        ],
-        "summary": "Get reorder recommendations using demand forecast (Flow A)",
-        "description": "Flow A: Computes replenishment recommendations by querying Forecast Service (GET /api/v1/demand/forecast/{sku_id}?horizon=30) and current inventory levels. Falls back to 28-day moving average if forecast is unavailable.",
-        "operationId": "get_optimization_recommendations_api_v1_inventory_optimization_recommendations_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OptimizationRecommendationsResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing or invalid token"
-          },
-          "403": {
-            "description": "Insufficient permissions"
-          },
-          "501": {
-            "description": "Not implemented yet (Round 15 stub)"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/inventory/goods-receipts": {
-      "post": {
-        "tags": [
-          "Goods Receipts"
-        ],
-        "summary": "Receive goods against an approved purchase order (Flow B)",
-        "description": "Flow B: Warehouse manager records physical arrival of shipment. Increments on-hand stock in inventory_ledger, marks goods receipt, and emits event inventory.goods.received to Kafka for 3-way match in Supplier Portal.",
-        "operationId": "create_goods_receipt_api_v1_inventory_goods_receipts_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/GoodsReceiptCreate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GoodsReceiptResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing or invalid token"
-          },
-          "403": {
-            "description": "Insufficient permissions"
-          },
-          "501": {
-            "description": "Not implemented yet (Round 15 stub)"
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/inventory": {
-      "get": {
-        "tags": [
-          "Inventory"
-        ],
-        "summary": "Get All Inventory Route",
-        "operationId": "get_all_inventory_route_api_v1_inventory_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/InventoryResponse"
-                  },
-                  "type": "array",
-                  "title": "Response Get All Inventory Route Api V1 Inventory Get"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      },
-      "post": {
-        "tags": [
-          "Inventory"
-        ],
-        "summary": "Create Inventory Route",
-        "operationId": "create_inventory_route_api_v1_inventory_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/InventoryCreate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InventoryResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/inventory/reorder-plan": {
-      "get": {
-        "tags": [
-          "Inventory"
-        ],
-        "summary": "Reorder Plan",
-        "operationId": "reorder_plan_api_v1_inventory_reorder_plan_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ReorderPlanEntry"
-                  },
-                  "type": "array",
-                  "title": "Response Reorder Plan Api V1 Inventory Reorder Plan Get"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/inventory/low-stock": {
-      "get": {
-        "tags": [
-          "Inventory"
-        ],
-        "summary": "Low Stock Route",
-        "operationId": "low_stock_route_api_v1_inventory_low_stock_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/LowStockResponse"
-                  },
-                  "type": "array",
-                  "title": "Response Low Stock Route Api V1 Inventory Low Stock Get"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/inventory/bulk-upload": {
-      "post": {
-        "tags": [
-          "Inventory"
-        ],
-        "summary": "Bulk Upload Route",
-        "operationId": "bulk_upload_route_api_v1_inventory_bulk_upload_post",
-        "requestBody": {
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "$ref": "#/components/schemas/Body_bulk_upload_route_api_v1_inventory_bulk_upload_post"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BulkUploadResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/inventory/bulk-update": {
-      "post": {
-        "tags": [
-          "Inventory"
-        ],
-        "summary": "Bulk Update Route",
-        "operationId": "bulk_update_route_api_v1_inventory_bulk_update_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "items": {
-                  "$ref": "#/components/schemas/BulkUpdateItem"
-                },
-                "type": "array",
-                "title": "Updates"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/inventory/what-if": {
-      "post": {
-        "tags": [
-          "Inventory"
-        ],
-        "summary": "What If Route",
-        "operationId": "what_if_route_api_v1_inventory_what_if_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/WhatIfRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WhatIfResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/inventory/simulate": {
-      "get": {
-        "tags": [
-          "Inventory"
-        ],
-        "summary": "Simulate Inventory",
-        "operationId": "simulate_inventory_api_v1_inventory_simulate_get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "growth_percent",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "number",
-              "default": 30.0,
-              "title": "Growth Percent"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/inventory/decrement": {
-      "post": {
-        "tags": [
-          "Inventory"
-        ],
-        "summary": "Decrement Inventory Route",
-        "operationId": "decrement_inventory_route_api_v1_inventory_decrement_post",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "sku_id",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Sku Id"
-            }
-          },
-          {
-            "name": "warehouse_id",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Warehouse Id"
-            }
-          },
-          {
-            "name": "quantity",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Quantity"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/inventory/{sku_id}/{warehouse_id}/reorder-check": {
-      "get": {
-        "tags": [
-          "Inventory"
-        ],
-        "summary": "Reorder Check Route",
-        "operationId": "reorder_check_route_api_v1_inventory__sku_id___warehouse_id__reorder_check_get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "sku_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Sku Id"
-            }
-          },
-          {
-            "name": "warehouse_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Warehouse Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ReorderCheckResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/inventory/{sku_id}/{warehouse_id}/simulate": {
-      "post": {
-        "tags": [
-          "Inventory"
-        ],
-        "summary": "Simulate Route",
-        "operationId": "simulate_route_api_v1_inventory__sku_id___warehouse_id__simulate_post",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "sku_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Sku Id"
-            }
-          },
-          {
-            "name": "warehouse_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Warehouse Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DemandSpikeRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SimulationResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/inventory/{sku_id}/{warehouse_id}": {
-      "put": {
-        "tags": [
-          "Inventory"
-        ],
-        "summary": "Update Inventory Route",
-        "operationId": "update_inventory_route_api_v1_inventory__sku_id___warehouse_id__put",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "sku_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Sku Id"
-            }
-          },
-          {
-            "name": "warehouse_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Warehouse Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/InventoryUpdate"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InventoryResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "get": {
-        "tags": [
-          "Inventory"
-        ],
-        "summary": "Get Inventory Route",
-        "operationId": "get_inventory_route_api_v1_inventory__sku_id___warehouse_id__get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "sku_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Sku Id"
-            }
-          },
-          {
-            "name": "warehouse_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Warehouse Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InventoryResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "Inventory"
-        ],
-        "summary": "Delete Inventory Route",
-        "operationId": "delete_inventory_route_api_v1_inventory__sku_id___warehouse_id__delete",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "sku_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Sku Id"
-            }
-          },
-          {
-            "name": "warehouse_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Warehouse Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeleteResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/inventory/multi-echelon/fulfill": {
-      "post": {
-        "tags": [
-          "Inventory"
-        ],
-        "summary": "Multi Echelon Fulfill Route",
-        "operationId": "multi_echelon_fulfill_route_api_v1_inventory_multi_echelon_fulfill_post",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "sku_id",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Sku Id"
-            }
-          },
-          {
-            "name": "warehouse_id",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Warehouse Id"
-            }
-          },
-          {
-            "name": "required_quantity",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Required Quantity"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MultiEchelonResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/inventory/network-optimization": {
-      "get": {
-        "tags": [
-          "Inventory"
-        ],
-        "summary": "Network Optimization",
-        "operationId": "network_optimization_api_v1_inventory_network_optimization_get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "days",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 30,
-              "title": "Days"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  },
-  "components": {
-    "schemas": {
-      "Body_bulk_upload_route_api_v1_inventory_bulk_upload_post": {
-        "properties": {
-          "file": {
-            "type": "string",
-            "contentMediaType": "application/octet-stream",
-            "title": "File"
-          }
-        },
-        "type": "object",
-        "required": [
-          "file"
-        ],
-        "title": "Body_bulk_upload_route_api_v1_inventory_bulk_upload_post"
-      },
-      "BulkUpdateItem": {
-        "properties": {
-          "sku_id": {
-            "type": "string",
-            "title": "Sku Id"
-          },
-          "warehouse_id": {
-            "type": "string",
-            "title": "Warehouse Id"
-          },
-          "quantity_delta": {
-            "type": "integer",
-            "title": "Quantity Delta"
-          }
-        },
-        "type": "object",
-        "required": [
-          "sku_id",
-          "warehouse_id",
-          "quantity_delta"
-        ],
-        "title": "BulkUpdateItem"
-      },
-      "BulkUploadResponse": {
-        "properties": {
-          "message": {
-            "type": "string",
-            "title": "Message"
-          },
-          "total_records": {
-            "type": "integer",
-            "title": "Total Records"
-          }
-        },
-        "type": "object",
-        "required": [
-          "message",
-          "total_records"
-        ],
-        "title": "BulkUploadResponse"
-      },
-      "DeleteResponse": {
-        "properties": {
-          "message": {
-            "type": "string",
-            "title": "Message"
-          }
-        },
-        "type": "object",
-        "required": [
-          "message"
-        ],
-        "title": "DeleteResponse"
-      },
-      "DemandSpikeRequest": {
-        "properties": {
-          "demand_spike_percent": {
-            "type": "number",
-            "minimum": 0.0,
-            "title": "Demand Spike Percent"
-          }
-        },
-        "type": "object",
-        "required": [
-          "demand_spike_percent"
-        ],
-        "title": "DemandSpikeRequest"
-      },
-      "GoodsReceiptCreate": {
-        "properties": {
-          "po_id": {
-            "type": "string",
-            "pattern": "^PO-\\d{4}-\\d{6}$",
-            "title": "Po Id",
-            "description": "Associated canonical Purchase Order ID (e.g. PO-2026-000123)"
-          },
-          "warehouse_id": {
-            "type": "string",
-            "pattern": "^WH-[A-Z]{3}-\\d{2}$",
-            "title": "Warehouse Id",
-            "description": "Canonical Destination Warehouse ID (e.g. WH-BLR-01)"
-          },
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/GoodsReceiptItemCreate"
-            },
-            "type": "array",
-            "minItems": 1,
-            "title": "Items",
-            "description": "List of received SKU items"
-          },
-          "notes": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Notes",
-            "description": "Optional delivery or inspection notes"
-          }
-        },
-        "type": "object",
-        "required": [
-          "po_id",
-          "warehouse_id",
-          "items"
-        ],
-        "title": "GoodsReceiptCreate"
-      },
-      "GoodsReceiptItemCreate": {
-        "properties": {
-          "sku_id": {
-            "type": "string",
-            "pattern": "^SKU-\\d{6}$",
-            "title": "Sku Id",
-            "description": "Canonical Product / SKU ID (e.g. SKU-000123)"
-          },
-          "quantity_received": {
-            "type": "integer",
-            "exclusiveMinimum": 0.0,
-            "title": "Quantity Received",
-            "description": "Quantity physically received into warehouse"
-          },
-          "unit_cost": {
-            "anyOf": [
-              {
-                "type": "number",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Unit Cost",
-            "description": "Unit cost at receipt"
-          }
-        },
-        "type": "object",
-        "required": [
-          "sku_id",
-          "quantity_received"
-        ],
-        "title": "GoodsReceiptItemCreate"
-      },
-      "GoodsReceiptItemResponse": {
-        "properties": {
-          "sku_id": {
-            "type": "string",
-            "title": "Sku Id",
-            "description": "Canonical Product / SKU ID (e.g. SKU-000123)"
-          },
-          "quantity_received": {
-            "type": "integer",
-            "exclusiveMinimum": 0.0,
-            "title": "Quantity Received",
-            "description": "Quantity physically received"
-          },
-          "unit_cost": {
-            "anyOf": [
-              {
-                "type": "number",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Unit Cost",
-            "description": "Unit cost"
-          }
-        },
-        "type": "object",
-        "required": [
-          "sku_id",
-          "quantity_received"
-        ],
-        "title": "GoodsReceiptItemResponse"
-      },
-      "GoodsReceiptResponse": {
-        "properties": {
-          "receipt_id": {
-            "type": "string",
-            "title": "Receipt Id",
-            "description": "Canonical Goods Receipt ID (e.g. GR-2026-000077)"
-          },
-          "po_id": {
-            "type": "string",
-            "title": "Po Id",
-            "description": "Associated Purchase Order ID"
-          },
-          "supplier_id": {
-            "type": "string",
-            "title": "Supplier Id",
-            "description": "Canonical Supplier ID (e.g. SUP-00045)"
-          },
-          "warehouse_id": {
-            "type": "string",
-            "title": "Warehouse Id",
-            "description": "Destination Warehouse ID (e.g. WH-BLR-01)"
-          },
-          "received_by": {
-            "type": "string",
-            "title": "Received By",
-            "description": "User that processed the receipt"
-          },
-          "received_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Received At",
-            "description": "Timestamp of receipt"
-          },
-          "status": {
-            "type": "string",
-            "title": "Status",
-            "description": "Status of the goods receipt",
-            "default": "received"
-          },
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/GoodsReceiptItemResponse"
-            },
-            "type": "array",
-            "title": "Items",
-            "description": "Received line items"
-          },
-          "notes": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Notes",
-            "description": "Receiver notes"
-          }
-        },
-        "type": "object",
-        "required": [
-          "receipt_id",
-          "po_id",
-          "supplier_id",
-          "warehouse_id",
-          "received_by",
-          "received_at",
-          "items"
-        ],
-        "title": "GoodsReceiptResponse"
-      },
-      "HTTPValidationError": {
-        "properties": {
-          "detail": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationError"
-            },
-            "type": "array",
-            "title": "Detail"
-          }
-        },
-        "type": "object",
-        "title": "HTTPValidationError"
-      },
-      "InventoryCreate": {
-        "properties": {
-          "sku_id": {
-            "type": "string",
-            "title": "Sku Id"
-          },
-          "product_name": {
-            "type": "string",
-            "title": "Product Name"
-          },
-          "warehouse_id": {
-            "type": "string",
-            "title": "Warehouse Id"
-          },
-          "category": {
-            "type": "string",
-            "title": "Category",
-            "default": "Uncategorized"
-          },
-          "quantity_on_hand": {
-            "type": "integer",
-            "minimum": 0.0,
-            "title": "Quantity On Hand"
-          },
-          "lead_time_days": {
-            "type": "integer",
-            "minimum": 0.0,
-            "title": "Lead Time Days"
-          },
-          "safety_stock": {
-            "type": "integer",
-            "minimum": 0.0,
-            "title": "Safety Stock"
-          },
-          "warehouse_type": {
-            "type": "string",
-            "enum": [
-              "central",
-              "regional",
-              "local"
-            ],
-            "title": "Warehouse Type",
-            "default": "local"
-          },
-          "parent_warehouse_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Parent Warehouse Id"
-          },
-          "unit_cost": {
-            "anyOf": [
-              {
-                "type": "number",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Unit Cost"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "sku_id",
-          "product_name",
-          "warehouse_id",
-          "quantity_on_hand",
-          "lead_time_days",
-          "safety_stock"
-        ],
-        "title": "InventoryCreate"
-      },
-      "InventoryResponse": {
-        "properties": {
-          "sku_id": {
-            "type": "string",
-            "title": "Sku Id"
-          },
-          "product_name": {
-            "type": "string",
-            "title": "Product Name"
-          },
-          "warehouse_id": {
-            "type": "string",
-            "title": "Warehouse Id"
-          },
-          "category": {
-            "type": "string",
-            "title": "Category"
-          },
-          "quantity_on_hand": {
-            "type": "integer",
-            "title": "Quantity On Hand"
-          },
-          "reorder_point": {
-            "type": "integer",
-            "title": "Reorder Point"
-          },
-          "avg_daily_demand": {
-            "type": "number",
-            "title": "Avg Daily Demand"
-          },
-          "lead_time_days": {
-            "type": "integer",
-            "title": "Lead Time Days"
-          },
-          "safety_stock": {
-            "type": "integer",
-            "title": "Safety Stock"
-          },
-          "warehouse_type": {
-            "type": "string",
-            "title": "Warehouse Type"
-          },
-          "parent_warehouse_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Parent Warehouse Id"
-          },
-          "version": {
-            "type": "integer",
-            "title": "Version"
-          }
-        },
-        "type": "object",
-        "required": [
-          "sku_id",
-          "product_name",
-          "warehouse_id",
-          "category",
-          "quantity_on_hand",
-          "reorder_point",
-          "avg_daily_demand",
-          "lead_time_days",
-          "safety_stock",
-          "warehouse_type",
-          "version"
-        ],
-        "title": "InventoryResponse"
-      },
-      "InventoryUpdate": {
-        "properties": {
-          "product_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Product Name"
-          },
-          "category": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Category"
-          },
-          "quantity_on_hand": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Quantity On Hand"
-          },
-          "lead_time_days": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Lead Time Days"
-          },
-          "safety_stock": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Safety Stock"
-          },
-          "warehouse_type": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "central",
-                  "regional",
-                  "local"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Warehouse Type"
-          },
-          "parent_warehouse_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Parent Warehouse Id"
-          },
-          "version": {
-            "type": "integer",
-            "title": "Version"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "version"
-        ],
-        "title": "InventoryUpdate"
-      },
-      "InventoryValueReportItem": {
-        "properties": {
-          "warehouse_id": {
-            "type": "string",
-            "title": "Warehouse Id"
-          },
-          "category": {
-            "type": "string",
-            "title": "Category"
-          },
-          "inventory_value": {
-            "type": "number",
-            "title": "Inventory Value"
-          }
-        },
-        "type": "object",
-        "required": [
-          "warehouse_id",
-          "category",
-          "inventory_value"
-        ],
-        "title": "InventoryValueReportItem"
-      },
-      "InventoryValueReportResponse": {
-        "properties": {
-          "valuation_method": {
-            "type": "string",
-            "title": "Valuation Method"
-          },
-          "report": {
-            "items": {
-              "$ref": "#/components/schemas/InventoryValueReportItem"
-            },
-            "type": "array",
-            "title": "Report"
-          },
-          "total_inventory_value": {
-            "type": "number",
-            "title": "Total Inventory Value"
-          }
-        },
-        "type": "object",
-        "required": [
-          "valuation_method",
-          "report",
-          "total_inventory_value"
-        ],
-        "title": "InventoryValueReportResponse"
-      },
-      "LowStockResponse": {
-        "properties": {
-          "sku_id": {
-            "type": "string",
-            "title": "Sku Id"
-          },
-          "product_name": {
-            "type": "string",
-            "title": "Product Name"
-          },
-          "warehouse_id": {
-            "type": "string",
-            "title": "Warehouse Id"
-          },
-          "quantity_on_hand": {
-            "type": "integer",
-            "title": "Quantity On Hand"
-          },
-          "reorder_point": {
-            "type": "integer",
-            "title": "Reorder Point"
-          },
-          "urgency_days": {
-            "type": "integer",
-            "title": "Urgency Days"
-          }
-        },
-        "type": "object",
-        "required": [
-          "sku_id",
-          "product_name",
-          "warehouse_id",
-          "quantity_on_hand",
-          "reorder_point",
-          "urgency_days"
-        ],
-        "title": "LowStockResponse"
-      },
-      "MultiEchelonResponse": {
-        "properties": {
-          "status": {
-            "type": "string",
-            "title": "Status"
-          },
-          "sku_id": {
-            "type": "string",
-            "title": "Sku Id"
-          },
-          "warehouse_id": {
-            "type": "string",
-            "title": "Warehouse Id"
-          },
-          "required_quantity": {
-            "type": "integer",
-            "title": "Required Quantity"
-          },
-          "transferred_quantity": {
-            "type": "integer",
-            "title": "Transferred Quantity"
-          },
-          "supplier_quantity": {
-            "type": "integer",
-            "title": "Supplier Quantity"
-          },
-          "transfers": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "type": "array",
-            "title": "Transfers"
-          },
-          "supplier_po": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Supplier Po"
-          }
-        },
-        "type": "object",
-        "required": [
-          "status",
-          "sku_id",
-          "warehouse_id",
-          "required_quantity",
-          "transferred_quantity",
-          "supplier_quantity",
-          "transfers"
-        ],
-        "title": "MultiEchelonResponse"
-      },
-      "OptimizationRecommendationsResponse": {
-        "properties": {
-          "generated_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Generated At",
-            "description": "UTC timestamp of recommendation generation"
-          },
-          "recommendations": {
-            "items": {
-              "$ref": "#/components/schemas/RecommendationLineItem"
-            },
-            "type": "array",
-            "title": "Recommendations",
-            "description": "List of recommended purchase orders"
-          },
-          "total_recommended_spend": {
-            "type": "number",
-            "minimum": 0.0,
-            "title": "Total Recommended Spend",
-            "description": "Sum of estimated costs across recommendations"
-          }
-        },
-        "type": "object",
-        "required": [
-          "generated_at",
-          "recommendations",
-          "total_recommended_spend"
-        ],
-        "title": "OptimizationRecommendationsResponse"
-      },
-      "PurchaseOrderRequest": {
-        "properties": {
-          "sku_id": {
-            "type": "string",
-            "title": "Sku Id"
-          },
-          "warehouse_id": {
-            "type": "string",
-            "title": "Warehouse Id"
-          }
-        },
-        "type": "object",
-        "required": [
-          "sku_id",
-          "warehouse_id"
-        ],
-        "title": "PurchaseOrderRequest"
-      },
-      "PurchaseOrderResponse": {
-        "properties": {
-          "po_id": {
-            "type": "string",
-            "title": "Po Id"
-          },
-          "sku_id": {
-            "type": "string",
-            "title": "Sku Id"
-          },
-          "warehouse_id": {
-            "type": "string",
-            "title": "Warehouse Id"
-          },
-          "supplier_id": {
-            "type": "string",
-            "title": "Supplier Id"
-          },
-          "quantity": {
-            "type": "integer",
-            "title": "Quantity"
-          },
-          "unit_cost": {
-            "type": "number",
-            "title": "Unit Cost"
-          },
-          "expected_cost": {
-            "type": "number",
-            "title": "Expected Cost"
-          },
-          "status": {
-            "type": "string",
-            "title": "Status"
-          },
-          "approval_status": {
-            "type": "string",
-            "title": "Approval Status"
-          },
-          "hold_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Hold Reason"
-          },
-          "hold_source": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Hold Source"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
-          }
-        },
-        "type": "object",
-        "required": [
-          "po_id",
-          "sku_id",
-          "warehouse_id",
-          "supplier_id",
-          "quantity",
-          "unit_cost",
-          "expected_cost",
-          "status",
-          "approval_status",
-          "created_at"
-        ],
-        "title": "PurchaseOrderResponse"
-      },
-      "RecommendationLineItem": {
-        "properties": {
-          "sku_id": {
-            "type": "string",
-            "title": "Sku Id",
-            "description": "Canonical Product / SKU ID (e.g. SKU-000123)"
-          },
-          "warehouse_id": {
-            "type": "string",
-            "title": "Warehouse Id",
-            "description": "Canonical Warehouse ID (e.g. WH-BLR-01)"
-          },
-          "supplier_id": {
-            "type": "string",
-            "title": "Supplier Id",
-            "description": "Canonical Supplier ID (e.g. SUP-00045)"
-          },
-          "current_stock": {
-            "type": "integer",
-            "minimum": 0.0,
-            "title": "Current Stock",
-            "description": "Current on-hand inventory"
-          },
-          "reorder_point": {
-            "type": "integer",
-            "minimum": 0.0,
-            "title": "Reorder Point",
-            "description": "Calculated reorder point threshold"
-          },
-          "safety_stock": {
-            "type": "integer",
-            "minimum": 0.0,
-            "title": "Safety Stock",
-            "description": "Target safety stock level"
-          },
-          "forecast_demand": {
-            "type": "number",
-            "minimum": 0.0,
-            "title": "Forecast Demand",
-            "description": "Projected demand over horizon"
-          },
-          "forecast_source": {
-            "type": "string",
-            "enum": [
-              "model",
-              "fallback"
-            ],
-            "title": "Forecast Source",
-            "description": "'model' if served by Forecast Service; 'fallback' if 28-day moving average"
-          },
-          "recommended_order_quantity": {
-            "type": "integer",
-            "exclusiveMinimum": 0.0,
-            "title": "Recommended Order Quantity",
-            "description": "Computed replenishment order quantity"
-          },
-          "estimated_unit_cost": {
-            "type": "number",
-            "minimum": 0.0,
-            "title": "Estimated Unit Cost",
-            "description": "Supplier unit cost"
-          },
-          "estimated_total_cost": {
-            "type": "number",
-            "minimum": 0.0,
-            "title": "Estimated Total Cost",
-            "description": "Total expected replenishment cost"
-          }
-        },
-        "type": "object",
-        "required": [
-          "sku_id",
-          "warehouse_id",
-          "supplier_id",
-          "current_stock",
-          "reorder_point",
-          "safety_stock",
-          "forecast_demand",
-          "forecast_source",
-          "recommended_order_quantity",
-          "estimated_unit_cost",
-          "estimated_total_cost"
-        ],
-        "title": "RecommendationLineItem"
-      },
-      "ReorderCheckResponse": {
-        "properties": {
-          "sku_id": {
-            "type": "string",
-            "title": "Sku Id"
-          },
-          "current_qty": {
-            "type": "integer",
-            "title": "Current Qty"
-          },
-          "reorder_point": {
-            "type": "integer",
-            "title": "Reorder Point"
-          },
-          "needs_reorder": {
-            "type": "boolean",
-            "title": "Needs Reorder"
-          },
-          "suggested_order_qty": {
-            "type": "integer",
-            "title": "Suggested Order Qty"
-          }
-        },
-        "type": "object",
-        "required": [
-          "sku_id",
-          "current_qty",
-          "reorder_point",
-          "needs_reorder",
-          "suggested_order_qty"
-        ],
-        "title": "ReorderCheckResponse"
-      },
-      "ReorderPlanEntry": {
-        "properties": {
-          "sku_id": {
-            "type": "string",
-            "title": "Sku Id"
-          },
-          "product_name": {
-            "type": "string",
-            "title": "Product Name"
-          },
-          "warehouse_id": {
-            "type": "string",
-            "title": "Warehouse Id"
-          },
-          "quantity_on_hand": {
-            "type": "integer",
-            "title": "Quantity On Hand"
-          },
-          "reorder_point": {
-            "type": "integer",
-            "title": "Reorder Point"
-          },
-          "urgency_score": {
-            "type": "number",
-            "title": "Urgency Score"
-          },
-          "rolling_avg_demand": {
-            "type": "number",
-            "title": "Rolling Avg Demand"
-          },
-          "abc_tier": {
-            "type": "string",
-            "title": "Abc Tier"
-          },
-          "adjusted_safety_stock": {
-            "type": "integer",
-            "title": "Adjusted Safety Stock"
-          },
-          "transfer_suggestion": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TransferSuggestion"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "type": "object",
-        "required": [
-          "sku_id",
-          "product_name",
-          "warehouse_id",
-          "quantity_on_hand",
-          "reorder_point",
-          "urgency_score",
-          "rolling_avg_demand",
-          "abc_tier",
-          "adjusted_safety_stock"
-        ],
-        "title": "ReorderPlanEntry"
-      },
-      "SimulationResponse": {
-        "properties": {
-          "sku_id": {
-            "type": "string",
-            "title": "Sku Id"
-          },
-          "current_quantity": {
-            "type": "integer",
-            "title": "Current Quantity"
-          },
-          "new_reorder_point": {
-            "type": "integer",
-            "title": "New Reorder Point"
-          },
-          "needs_reorder": {
-            "type": "boolean",
-            "title": "Needs Reorder"
-          },
-          "suggested_order_qty": {
-            "type": "integer",
-            "title": "Suggested Order Qty"
-          }
-        },
-        "type": "object",
-        "required": [
-          "sku_id",
-          "current_quantity",
-          "new_reorder_point",
-          "needs_reorder",
-          "suggested_order_qty"
-        ],
-        "title": "SimulationResponse"
-      },
-      "TransferSuggestion": {
-        "properties": {
-          "sku_id": {
-            "type": "string",
-            "title": "Sku Id"
-          },
-          "source_warehouse": {
-            "type": "string",
-            "title": "Source Warehouse"
-          },
-          "destination_warehouse": {
-            "type": "string",
-            "title": "Destination Warehouse"
-          },
-          "transfer_quantity": {
-            "type": "integer",
-            "title": "Transfer Quantity"
-          },
-          "source_excess_quantity": {
-            "type": "integer",
-            "title": "Source Excess Quantity"
-          },
-          "destination_shortage_quantity": {
-            "type": "integer",
-            "title": "Destination Shortage Quantity"
-          },
-          "recommendation": {
-            "type": "string",
-            "title": "Recommendation"
-          },
-          "days_saved_vs_reorder": {
-            "type": "integer",
-            "title": "Days Saved Vs Reorder"
-          }
-        },
-        "type": "object",
-        "required": [
-          "sku_id",
-          "source_warehouse",
-          "destination_warehouse",
-          "transfer_quantity",
-          "source_excess_quantity",
-          "destination_shortage_quantity",
-          "recommendation",
-          "days_saved_vs_reorder"
-        ],
-        "title": "TransferSuggestion"
-      },
-      "ValidationError": {
-        "properties": {
-          "loc": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
-                }
-              ]
-            },
-            "type": "array",
-            "title": "Location"
-          },
-          "msg": {
-            "type": "string",
-            "title": "Message"
-          },
-          "type": {
-            "type": "string",
-            "title": "Error Type"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "ctx": {
-            "type": "object",
-            "title": "Context"
-          }
-        },
-        "type": "object",
-        "required": [
-          "loc",
-          "msg",
-          "type"
-        ],
-        "title": "ValidationError"
-      },
-      "WhatIfItem": {
-        "properties": {
-          "sku_id": {
-            "type": "string",
-            "title": "Sku Id"
-          },
-          "current_quantity": {
-            "type": "integer",
-            "title": "Current Quantity"
-          },
-          "new_reorder_point": {
-            "type": "integer",
-            "title": "New Reorder Point"
-          },
-          "needs_reorder": {
-            "type": "boolean",
-            "title": "Needs Reorder"
-          },
-          "suggested_order_qty": {
-            "type": "integer",
-            "title": "Suggested Order Qty"
-          }
-        },
-        "type": "object",
-        "required": [
-          "sku_id",
-          "current_quantity",
-          "new_reorder_point",
-          "needs_reorder",
-          "suggested_order_qty"
-        ],
-        "title": "WhatIfItem"
-      },
-      "WhatIfRequest": {
-        "properties": {
-          "spike_percent": {
-            "type": "number",
-            "minimum": 0.0,
-            "title": "Spike Percent"
-          }
-        },
-        "type": "object",
-        "required": [
-          "spike_percent"
-        ],
-        "title": "WhatIfRequest"
-      },
-      "WhatIfResponse": {
-        "properties": {
-          "spike_percent": {
-            "type": "number",
-            "title": "Spike Percent"
-          },
-          "total_items": {
-            "type": "integer",
-            "title": "Total Items"
-          },
-          "affected_items": {
-            "type": "integer",
-            "title": "Affected Items"
-          },
-          "total_suggested_order_qty": {
-            "type": "integer",
-            "title": "Total Suggested Order Qty"
-          },
-          "details": {
-            "items": {
-              "$ref": "#/components/schemas/WhatIfItem"
-            },
-            "type": "array",
-            "title": "Details"
-          }
-        },
-        "type": "object",
-        "required": [
-          "spike_percent",
-          "total_items",
-          "affected_items",
-          "total_suggested_order_qty",
-          "details"
-        ],
-        "title": "WhatIfResponse"
-      }
-    },
-    "securitySchemes": {
-      "HTTPBearer": {
-        "type": "http",
-        "scheme": "bearer"
-      }
-    }
-  }
-}
+openapi: 3.1.0
+info:
+  title: EAICSP Inventory Service API
+  description: API specification for EAICSP Inventory Service, including Round 15
+    Flow A and Flow B endpoints.
+  version: 1.0.0
+paths:
+  /health:
+    get:
+      tags:
+      - Health
+      summary: Health Check
+      description: Healthcheck endpoint for Docker and orchestration probes.
+      operationId: health_check_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/v1/inventory/purchase-orders/draft:
+    post:
+      tags:
+      - Purchase Orders
+      summary: Create Purchase Order
+      operationId: create_purchase_order_api_v1_inventory_purchase_orders_draft_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PurchaseOrderRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurchaseOrderResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/inventory/purchase-orders/{po_id}/approve:
+    post:
+      tags:
+      - Purchase Orders
+      summary: Approve Purchase Order Endpoint
+      operationId: approve_purchase_order_endpoint_api_v1_inventory_purchase_orders__po_id__approve_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: po_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Po Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurchaseOrderResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inventory/purchase-orders/{po_id}/receive:
+    post:
+      tags:
+      - Purchase Orders
+      summary: Receive Purchase Order Endpoint
+      operationId: receive_purchase_order_endpoint_api_v1_inventory_purchase_orders__po_id__receive_post
+      deprecated: true
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: po_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Po Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurchaseOrderResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inventory/purchase-orders:
+    get:
+      tags:
+      - Purchase Orders
+      summary: List Purchase Orders Endpoint
+      operationId: list_purchase_orders_endpoint_api_v1_inventory_purchase_orders_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: po_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Filter by purchase order ID (e.g. PO-2026-000123)
+          title: Po Id
+        description: Filter by purchase order ID (e.g. PO-2026-000123)
+      - name: supplier_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Filter by supplier ID (e.g. SUP-00045)
+          title: Supplier Id
+        description: Filter by supplier ID (e.g. SUP-00045)
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Filter by status (e.g. draft, on_hold, received)
+          title: Status
+        description: Filter by status (e.g. draft, on_hold, received)
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 500
+          minimum: 1
+          default: 100
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PurchaseOrderResponse'
+                title: Response List Purchase Orders Endpoint Api V1 Inventory Purchase
+                  Orders Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inventory/purchase-orders/{po_id}:
+    get:
+      tags:
+      - Purchase Orders
+      summary: Get Purchase Order Endpoint
+      operationId: get_purchase_order_endpoint_api_v1_inventory_purchase_orders__po_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: po_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Po Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurchaseOrderResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inventory/reports/inventory-value:
+    get:
+      tags:
+      - Reports
+      summary: Inventory Value Report
+      operationId: inventory_value_report_api_v1_inventory_reports_inventory_value_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: valuation_method
+        in: query
+        required: false
+        schema:
+          enum:
+          - fifo
+          - weighted_average
+          type: string
+          default: fifo
+          title: Valuation Method
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryValueReportResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inventory/optimization/recommendations:
+    get:
+      tags:
+      - Optimization
+      summary: Get reorder recommendations using demand forecast (Flow A)
+      description: 'Flow A: Computes replenishment recommendations by querying Forecast
+        Service (GET /api/v1/demand/forecast/{sku_id}?horizon=30) and current inventory
+        levels. Falls back to 28-day moving average if forecast is unavailable.'
+      operationId: get_optimization_recommendations_api_v1_inventory_optimization_recommendations_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OptimizationRecommendationsResponse'
+        '401':
+          description: Missing or invalid token
+        '403':
+          description: Insufficient permissions
+        '501':
+          description: Not implemented yet (Round 15 stub)
+      security:
+      - HTTPBearer: []
+  /api/v1/inventory/goods-receipts:
+    post:
+      tags:
+      - Goods Receipts
+      summary: Receive goods against an approved purchase order (Flow B)
+      description: 'Flow B: Warehouse manager records physical arrival of shipment.
+        Increments on-hand stock in inventory_ledger, marks goods receipt, and emits
+        event inventory.goods.received to Kafka for 3-way match in Supplier Portal.'
+      operationId: create_goods_receipt_api_v1_inventory_goods_receipts_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoodsReceiptCreate'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoodsReceiptResponse'
+        '401':
+          description: Missing or invalid token
+        '403':
+          description: Insufficient permissions
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/inventory:
+    get:
+      tags:
+      - Inventory
+      summary: Get All Inventory Route
+      operationId: get_all_inventory_route_api_v1_inventory_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/InventoryResponse'
+                type: array
+                title: Response Get All Inventory Route Api V1 Inventory Get
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - Inventory
+      summary: Create Inventory Route
+      operationId: create_inventory_route_api_v1_inventory_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InventoryCreate'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/inventory/reorder-plan:
+    get:
+      tags:
+      - Inventory
+      summary: Reorder Plan
+      operationId: reorder_plan_api_v1_inventory_reorder_plan_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ReorderPlanEntry'
+                type: array
+                title: Response Reorder Plan Api V1 Inventory Reorder Plan Get
+      security:
+      - HTTPBearer: []
+  /api/v1/inventory/low-stock:
+    get:
+      tags:
+      - Inventory
+      summary: Low Stock Route
+      operationId: low_stock_route_api_v1_inventory_low_stock_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/LowStockResponse'
+                type: array
+                title: Response Low Stock Route Api V1 Inventory Low Stock Get
+      security:
+      - HTTPBearer: []
+  /api/v1/inventory/bulk-upload:
+    post:
+      tags:
+      - Inventory
+      summary: Bulk Upload Route
+      operationId: bulk_upload_route_api_v1_inventory_bulk_upload_post
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_bulk_upload_route_api_v1_inventory_bulk_upload_post'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkUploadResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/inventory/bulk-update:
+    post:
+      tags:
+      - Inventory
+      summary: Bulk Update Route
+      operationId: bulk_update_route_api_v1_inventory_bulk_update_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              items:
+                $ref: '#/components/schemas/BulkUpdateItem'
+              type: array
+              title: Updates
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/inventory/what-if:
+    post:
+      tags:
+      - Inventory
+      summary: What If Route
+      operationId: what_if_route_api_v1_inventory_what_if_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WhatIfRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WhatIfResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/inventory/simulate:
+    get:
+      tags:
+      - Inventory
+      summary: Simulate Inventory
+      operationId: simulate_inventory_api_v1_inventory_simulate_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: growth_percent
+        in: query
+        required: false
+        schema:
+          type: number
+          default: 30.0
+          title: Growth Percent
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inventory/decrement:
+    post:
+      tags:
+      - Inventory
+      summary: Decrement Inventory Route
+      operationId: decrement_inventory_route_api_v1_inventory_decrement_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: sku_id
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Sku Id
+      - name: warehouse_id
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Warehouse Id
+      - name: quantity
+        in: query
+        required: true
+        schema:
+          type: integer
+          title: Quantity
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inventory/{sku_id}/{warehouse_id}/reorder-check:
+    get:
+      tags:
+      - Inventory
+      summary: Reorder Check Route
+      operationId: reorder_check_route_api_v1_inventory__sku_id___warehouse_id__reorder_check_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: sku_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Sku Id
+      - name: warehouse_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Warehouse Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReorderCheckResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inventory/{sku_id}/{warehouse_id}/simulate:
+    post:
+      tags:
+      - Inventory
+      summary: Simulate Route
+      operationId: simulate_route_api_v1_inventory__sku_id___warehouse_id__simulate_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: sku_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Sku Id
+      - name: warehouse_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Warehouse Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DemandSpikeRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimulationResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inventory/{sku_id}/{warehouse_id}:
+    put:
+      tags:
+      - Inventory
+      summary: Update Inventory Route
+      operationId: update_inventory_route_api_v1_inventory__sku_id___warehouse_id__put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: sku_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Sku Id
+      - name: warehouse_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Warehouse Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InventoryUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - Inventory
+      summary: Get Inventory Route
+      operationId: get_inventory_route_api_v1_inventory__sku_id___warehouse_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: sku_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Sku Id
+      - name: warehouse_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Warehouse Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - Inventory
+      summary: Delete Inventory Route
+      operationId: delete_inventory_route_api_v1_inventory__sku_id___warehouse_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: sku_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Sku Id
+      - name: warehouse_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Warehouse Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inventory/multi-echelon/fulfill:
+    post:
+      tags:
+      - Inventory
+      summary: Multi Echelon Fulfill Route
+      operationId: multi_echelon_fulfill_route_api_v1_inventory_multi_echelon_fulfill_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: sku_id
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Sku Id
+      - name: warehouse_id
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Warehouse Id
+      - name: required_quantity
+        in: query
+        required: true
+        schema:
+          type: integer
+          title: Required Quantity
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MultiEchelonResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inventory/network-optimization:
+    get:
+      tags:
+      - Inventory
+      summary: Network Optimization
+      operationId: network_optimization_api_v1_inventory_network_optimization_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: days
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 30
+          title: Days
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    Body_bulk_upload_route_api_v1_inventory_bulk_upload_post:
+      properties:
+        file:
+          type: string
+          format: binary
+          title: File
+      type: object
+      required:
+      - file
+      title: Body_bulk_upload_route_api_v1_inventory_bulk_upload_post
+    BulkUpdateItem:
+      properties:
+        sku_id:
+          type: string
+          title: Sku Id
+        warehouse_id:
+          type: string
+          title: Warehouse Id
+        quantity_delta:
+          type: integer
+          title: Quantity Delta
+      type: object
+      required:
+      - sku_id
+      - warehouse_id
+      - quantity_delta
+      title: BulkUpdateItem
+    BulkUploadResponse:
+      properties:
+        message:
+          type: string
+          title: Message
+        total_records:
+          type: integer
+          title: Total Records
+      type: object
+      required:
+      - message
+      - total_records
+      title: BulkUploadResponse
+    DeleteResponse:
+      properties:
+        message:
+          type: string
+          title: Message
+      type: object
+      required:
+      - message
+      title: DeleteResponse
+    DemandSpikeRequest:
+      properties:
+        demand_spike_percent:
+          type: number
+          minimum: 0.0
+          title: Demand Spike Percent
+      type: object
+      required:
+      - demand_spike_percent
+      title: DemandSpikeRequest
+    GoodsReceiptCreate:
+      properties:
+        po_id:
+          type: string
+          pattern: ^PO-\d{4}-\d{6}$
+          title: Po Id
+          description: Associated canonical Purchase Order ID (e.g. PO-2026-000123)
+        warehouse_id:
+          type: string
+          pattern: ^WH-[A-Z]{3}-\d{2}$
+          title: Warehouse Id
+          description: Canonical Destination Warehouse ID (e.g. WH-BLR-01)
+        items:
+          items:
+            $ref: '#/components/schemas/GoodsReceiptItemCreate'
+          type: array
+          minItems: 1
+          title: Items
+          description: List of received SKU items
+        notes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notes
+          description: Optional delivery or inspection notes
+      type: object
+      required:
+      - po_id
+      - warehouse_id
+      - items
+      title: GoodsReceiptCreate
+    GoodsReceiptItemCreate:
+      properties:
+        sku_id:
+          type: string
+          pattern: ^SKU-\d{6}$
+          title: Sku Id
+          description: Canonical Product / SKU ID (e.g. SKU-000123)
+        quantity_received:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Quantity Received
+          description: Quantity physically received into warehouse
+        unit_cost:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Unit Cost
+          description: Unit cost at receipt
+      type: object
+      required:
+      - sku_id
+      - quantity_received
+      title: GoodsReceiptItemCreate
+    GoodsReceiptItemResponse:
+      properties:
+        sku_id:
+          type: string
+          title: Sku Id
+          description: Canonical Product / SKU ID (e.g. SKU-000123)
+        quantity_received:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Quantity Received
+          description: Quantity physically received
+        unit_cost:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Unit Cost
+          description: Unit cost
+      type: object
+      required:
+      - sku_id
+      - quantity_received
+      title: GoodsReceiptItemResponse
+    GoodsReceiptResponse:
+      properties:
+        receipt_id:
+          type: string
+          title: Receipt Id
+          description: Canonical Goods Receipt ID (e.g. GR-2026-000077)
+        po_id:
+          type: string
+          title: Po Id
+          description: Associated Purchase Order ID
+        supplier_id:
+          type: string
+          title: Supplier Id
+          description: Canonical Supplier ID (e.g. SUP-00045)
+        warehouse_id:
+          type: string
+          title: Warehouse Id
+          description: Destination Warehouse ID (e.g. WH-BLR-01)
+        received_by:
+          type: string
+          title: Received By
+          description: User that processed the receipt
+        received_at:
+          type: string
+          format: date-time
+          title: Received At
+          description: Timestamp of receipt
+        status:
+          type: string
+          title: Status
+          description: Status of the goods receipt
+          default: received
+        items:
+          items:
+            $ref: '#/components/schemas/GoodsReceiptItemResponse'
+          type: array
+          title: Items
+          description: Received line items
+        notes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notes
+          description: Receiver notes
+      type: object
+      required:
+      - receipt_id
+      - po_id
+      - supplier_id
+      - warehouse_id
+      - received_by
+      - received_at
+      - items
+      title: GoodsReceiptResponse
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    InventoryCreate:
+      properties:
+        sku_id:
+          type: string
+          title: Sku Id
+        product_name:
+          type: string
+          title: Product Name
+        warehouse_id:
+          type: string
+          title: Warehouse Id
+        category:
+          type: string
+          title: Category
+          default: Uncategorized
+        quantity_on_hand:
+          type: integer
+          minimum: 0.0
+          title: Quantity On Hand
+        lead_time_days:
+          type: integer
+          minimum: 0.0
+          title: Lead Time Days
+        safety_stock:
+          type: integer
+          minimum: 0.0
+          title: Safety Stock
+        warehouse_type:
+          type: string
+          enum:
+          - central
+          - regional
+          - local
+          title: Warehouse Type
+          default: local
+        parent_warehouse_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Parent Warehouse Id
+        unit_cost:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Unit Cost
+      additionalProperties: false
+      type: object
+      required:
+      - sku_id
+      - product_name
+      - warehouse_id
+      - quantity_on_hand
+      - lead_time_days
+      - safety_stock
+      title: InventoryCreate
+    InventoryResponse:
+      properties:
+        sku_id:
+          type: string
+          title: Sku Id
+        product_name:
+          type: string
+          title: Product Name
+        warehouse_id:
+          type: string
+          title: Warehouse Id
+        category:
+          type: string
+          title: Category
+        quantity_on_hand:
+          type: integer
+          title: Quantity On Hand
+        reorder_point:
+          type: integer
+          title: Reorder Point
+        avg_daily_demand:
+          type: number
+          title: Avg Daily Demand
+        lead_time_days:
+          type: integer
+          title: Lead Time Days
+        safety_stock:
+          type: integer
+          title: Safety Stock
+        warehouse_type:
+          type: string
+          title: Warehouse Type
+        parent_warehouse_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Parent Warehouse Id
+        version:
+          type: integer
+          title: Version
+      type: object
+      required:
+      - sku_id
+      - product_name
+      - warehouse_id
+      - category
+      - quantity_on_hand
+      - reorder_point
+      - avg_daily_demand
+      - lead_time_days
+      - safety_stock
+      - warehouse_type
+      - version
+      title: InventoryResponse
+    InventoryUpdate:
+      properties:
+        product_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Product Name
+        category:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Category
+        quantity_on_hand:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Quantity On Hand
+        lead_time_days:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Lead Time Days
+        safety_stock:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Safety Stock
+        warehouse_type:
+          anyOf:
+          - type: string
+            enum:
+            - central
+            - regional
+            - local
+          - type: 'null'
+          title: Warehouse Type
+        parent_warehouse_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Parent Warehouse Id
+        version:
+          type: integer
+          title: Version
+      additionalProperties: false
+      type: object
+      required:
+      - version
+      title: InventoryUpdate
+    InventoryValueReportItem:
+      properties:
+        warehouse_id:
+          type: string
+          title: Warehouse Id
+        category:
+          type: string
+          title: Category
+        inventory_value:
+          type: number
+          title: Inventory Value
+      type: object
+      required:
+      - warehouse_id
+      - category
+      - inventory_value
+      title: InventoryValueReportItem
+    InventoryValueReportResponse:
+      properties:
+        valuation_method:
+          type: string
+          title: Valuation Method
+        report:
+          items:
+            $ref: '#/components/schemas/InventoryValueReportItem'
+          type: array
+          title: Report
+        total_inventory_value:
+          type: number
+          title: Total Inventory Value
+      type: object
+      required:
+      - valuation_method
+      - report
+      - total_inventory_value
+      title: InventoryValueReportResponse
+    LowStockResponse:
+      properties:
+        sku_id:
+          type: string
+          title: Sku Id
+        product_name:
+          type: string
+          title: Product Name
+        warehouse_id:
+          type: string
+          title: Warehouse Id
+        quantity_on_hand:
+          type: integer
+          title: Quantity On Hand
+        reorder_point:
+          type: integer
+          title: Reorder Point
+        urgency_days:
+          type: integer
+          title: Urgency Days
+      type: object
+      required:
+      - sku_id
+      - product_name
+      - warehouse_id
+      - quantity_on_hand
+      - reorder_point
+      - urgency_days
+      title: LowStockResponse
+    MultiEchelonResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+        sku_id:
+          type: string
+          title: Sku Id
+        warehouse_id:
+          type: string
+          title: Warehouse Id
+        required_quantity:
+          type: integer
+          title: Required Quantity
+        transferred_quantity:
+          type: integer
+          title: Transferred Quantity
+        supplier_quantity:
+          type: integer
+          title: Supplier Quantity
+        transfers:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Transfers
+        supplier_po:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Supplier Po
+      type: object
+      required:
+      - status
+      - sku_id
+      - warehouse_id
+      - required_quantity
+      - transferred_quantity
+      - supplier_quantity
+      - transfers
+      title: MultiEchelonResponse
+    OptimizationRecommendationsResponse:
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+          title: Generated At
+          description: UTC timestamp of recommendation generation
+        recommendations:
+          items:
+            $ref: '#/components/schemas/RecommendationLineItem'
+          type: array
+          title: Recommendations
+          description: List of recommended purchase orders
+        total_recommended_spend:
+          type: number
+          minimum: 0.0
+          title: Total Recommended Spend
+          description: Sum of estimated costs across recommendations
+      type: object
+      required:
+      - generated_at
+      - recommendations
+      - total_recommended_spend
+      title: OptimizationRecommendationsResponse
+    PurchaseOrderRequest:
+      properties:
+        sku_id:
+          type: string
+          title: Sku Id
+        warehouse_id:
+          type: string
+          title: Warehouse Id
+      type: object
+      required:
+      - sku_id
+      - warehouse_id
+      title: PurchaseOrderRequest
+    PurchaseOrderResponse:
+      properties:
+        po_id:
+          type: string
+          title: Po Id
+        sku_id:
+          type: string
+          title: Sku Id
+        warehouse_id:
+          type: string
+          title: Warehouse Id
+        supplier_id:
+          type: string
+          title: Supplier Id
+        quantity:
+          type: integer
+          title: Quantity
+        unit_cost:
+          type: number
+          title: Unit Cost
+        expected_cost:
+          type: number
+          title: Expected Cost
+        status:
+          type: string
+          title: Status
+        approval_status:
+          type: string
+          title: Approval Status
+        hold_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Hold Reason
+        hold_source:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Hold Source
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - po_id
+      - sku_id
+      - warehouse_id
+      - supplier_id
+      - quantity
+      - unit_cost
+      - expected_cost
+      - status
+      - approval_status
+      - created_at
+      title: PurchaseOrderResponse
+    RecommendationLineItem:
+      properties:
+        sku_id:
+          type: string
+          title: Sku Id
+          description: Canonical Product / SKU ID (e.g. SKU-000123)
+        warehouse_id:
+          type: string
+          title: Warehouse Id
+          description: Canonical Warehouse ID (e.g. WH-BLR-01)
+        supplier_id:
+          type: string
+          title: Supplier Id
+          description: Canonical Supplier ID (e.g. SUP-00045)
+        current_stock:
+          type: integer
+          minimum: 0.0
+          title: Current Stock
+          description: Current on-hand inventory
+        reorder_point:
+          type: integer
+          minimum: 0.0
+          title: Reorder Point
+          description: Calculated reorder point threshold
+        safety_stock:
+          type: integer
+          minimum: 0.0
+          title: Safety Stock
+          description: Target safety stock level
+        forecast_demand:
+          type: number
+          minimum: 0.0
+          title: Forecast Demand
+          description: Projected demand over horizon
+        forecast_source:
+          type: string
+          enum:
+          - model
+          - fallback
+          title: Forecast Source
+          description: '''model'' if served by Forecast Service; ''fallback'' if 28-day
+            moving average'
+        recommended_order_quantity:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Recommended Order Quantity
+          description: Computed replenishment order quantity
+        estimated_unit_cost:
+          type: number
+          minimum: 0.0
+          title: Estimated Unit Cost
+          description: Supplier unit cost
+        estimated_total_cost:
+          type: number
+          minimum: 0.0
+          title: Estimated Total Cost
+          description: Total expected replenishment cost
+      type: object
+      required:
+      - sku_id
+      - warehouse_id
+      - supplier_id
+      - current_stock
+      - reorder_point
+      - safety_stock
+      - forecast_demand
+      - forecast_source
+      - recommended_order_quantity
+      - estimated_unit_cost
+      - estimated_total_cost
+      title: RecommendationLineItem
+    ReorderCheckResponse:
+      properties:
+        sku_id:
+          type: string
+          title: Sku Id
+        current_qty:
+          type: integer
+          title: Current Qty
+        reorder_point:
+          type: integer
+          title: Reorder Point
+        needs_reorder:
+          type: boolean
+          title: Needs Reorder
+        suggested_order_qty:
+          type: integer
+          title: Suggested Order Qty
+      type: object
+      required:
+      - sku_id
+      - current_qty
+      - reorder_point
+      - needs_reorder
+      - suggested_order_qty
+      title: ReorderCheckResponse
+    ReorderPlanEntry:
+      properties:
+        sku_id:
+          type: string
+          title: Sku Id
+        product_name:
+          type: string
+          title: Product Name
+        warehouse_id:
+          type: string
+          title: Warehouse Id
+        quantity_on_hand:
+          type: integer
+          title: Quantity On Hand
+        reorder_point:
+          type: integer
+          title: Reorder Point
+        urgency_score:
+          type: number
+          title: Urgency Score
+        rolling_avg_demand:
+          type: number
+          title: Rolling Avg Demand
+        abc_tier:
+          type: string
+          title: Abc Tier
+        adjusted_safety_stock:
+          type: integer
+          title: Adjusted Safety Stock
+        transfer_suggestion:
+          anyOf:
+          - $ref: '#/components/schemas/TransferSuggestion'
+          - type: 'null'
+      type: object
+      required:
+      - sku_id
+      - product_name
+      - warehouse_id
+      - quantity_on_hand
+      - reorder_point
+      - urgency_score
+      - rolling_avg_demand
+      - abc_tier
+      - adjusted_safety_stock
+      title: ReorderPlanEntry
+    SimulationResponse:
+      properties:
+        sku_id:
+          type: string
+          title: Sku Id
+        current_quantity:
+          type: integer
+          title: Current Quantity
+        new_reorder_point:
+          type: integer
+          title: New Reorder Point
+        needs_reorder:
+          type: boolean
+          title: Needs Reorder
+        suggested_order_qty:
+          type: integer
+          title: Suggested Order Qty
+      type: object
+      required:
+      - sku_id
+      - current_quantity
+      - new_reorder_point
+      - needs_reorder
+      - suggested_order_qty
+      title: SimulationResponse
+    TransferSuggestion:
+      properties:
+        sku_id:
+          type: string
+          title: Sku Id
+        source_warehouse:
+          type: string
+          title: Source Warehouse
+        destination_warehouse:
+          type: string
+          title: Destination Warehouse
+        transfer_quantity:
+          type: integer
+          title: Transfer Quantity
+        source_excess_quantity:
+          type: integer
+          title: Source Excess Quantity
+        destination_shortage_quantity:
+          type: integer
+          title: Destination Shortage Quantity
+        recommendation:
+          type: string
+          title: Recommendation
+        days_saved_vs_reorder:
+          type: integer
+          title: Days Saved Vs Reorder
+      type: object
+      required:
+      - sku_id
+      - source_warehouse
+      - destination_warehouse
+      - transfer_quantity
+      - source_excess_quantity
+      - destination_shortage_quantity
+      - recommendation
+      - days_saved_vs_reorder
+      title: TransferSuggestion
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+    WhatIfItem:
+      properties:
+        sku_id:
+          type: string
+          title: Sku Id
+        current_quantity:
+          type: integer
+          title: Current Quantity
+        new_reorder_point:
+          type: integer
+          title: New Reorder Point
+        needs_reorder:
+          type: boolean
+          title: Needs Reorder
+        suggested_order_qty:
+          type: integer
+          title: Suggested Order Qty
+      type: object
+      required:
+      - sku_id
+      - current_quantity
+      - new_reorder_point
+      - needs_reorder
+      - suggested_order_qty
+      title: WhatIfItem
+    WhatIfRequest:
+      properties:
+        spike_percent:
+          type: number
+          minimum: 0.0
+          title: Spike Percent
+      type: object
+      required:
+      - spike_percent
+      title: WhatIfRequest
+    WhatIfResponse:
+      properties:
+        spike_percent:
+          type: number
+          title: Spike Percent
+        total_items:
+          type: integer
+          title: Total Items
+        affected_items:
+          type: integer
+          title: Affected Items
+        total_suggested_order_qty:
+          type: integer
+          title: Total Suggested Order Qty
+        details:
+          items:
+            $ref: '#/components/schemas/WhatIfItem'
+          type: array
+          title: Details
+      type: object
+      required:
+      - spike_percent
+      - total_items
+      - affected_items
+      - total_suggested_order_qty
+      - details
+      title: WhatIfResponse
+  securitySchemes:
+    HTTPBearer:
+      type: http
+      scheme: bearer
