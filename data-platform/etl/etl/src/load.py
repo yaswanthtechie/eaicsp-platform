@@ -41,7 +41,7 @@ def load_data(validated_data_frames, run_id):
             run_id = EXCLUDED.run_id,
             pipeline_version = EXCLUDED.pipeline_version,
             updated_at = NOW()
-        RETURNING (xmax = 0) AS inserted;
+        RETURNING (loaded_at = updated_at) AS inserted;
     """)
 
     history_query = text("""
@@ -175,19 +175,37 @@ def load_data(validated_data_frames, run_id):
 # (xmax = 0) trick, and still capturing history for sales_fact.
 # ---------------------------------------------------------------------------
 
-def _make_history_copy_fn(table_name, history_table):
-    """Create an environment-aware history-copy callback."""
+def _make_history_copy_fn(table_name, history_table, business_columns=None):
+    """Archive existing rows only when incoming business values differ."""
+    business_columns = list(business_columns or ("quantity_sold", "unit_price"))
+
     def _copy(connection, chunk):
-        key_values_clauses = []
+        keys = ("date", "sku_id", "warehouse_id")
+        value_columns = list(dict.fromkeys((*keys, *business_columns)))
         params = {}
+        value_rows = []
 
         for row_idx, record in enumerate(chunk):
             placeholders = []
-            for col in ("date", "sku_id", "warehouse_id"):
-                key = f"k_{col}_{row_idx}"
+            for col in value_columns:
+                key = f"in_{col}_{row_idx}"
                 placeholders.append(f":{key}")
                 params[key] = record[col]
-            key_values_clauses.append("(" + ", ".join(placeholders) + ")")
+            value_rows.append("(" + ", ".join(placeholders) + ")")
+
+        # Bound the lookup to the chunk's own dates so Postgres can prune to
+        # the relevant partition(s) instead of scanning the whole table.
+        params["min_date"] = min(r["date"] for r in chunk)
+        params["max_date"] = max(r["date"] for r in chunk)
+
+        incoming_columns = ", ".join(value_columns)
+        join_keys = " AND ".join(
+            f"current.{key} = incoming.{key}" for key in keys
+        )
+        differences = " OR ".join(
+            f"current.{col} IS DISTINCT FROM incoming.{col}"
+            for col in business_columns
+        )
 
         sql = f"""
             INSERT INTO {history_table} (
@@ -195,10 +213,16 @@ def _make_history_copy_fn(table_name, history_table):
                 unit_price, source_batch, run_id, pipeline_version, valid_from
             )
             SELECT
-                id, date, sku_id, warehouse_id, quantity_sold,
-                unit_price, source_batch, run_id, pipeline_version, updated_at
-            FROM {table_name}
-            WHERE (date, sku_id, warehouse_id) IN ({", ".join(key_values_clauses)});
+                current.id, current.date, current.sku_id, current.warehouse_id,
+                current.quantity_sold, current.unit_price, current.source_batch,
+                current.run_id, current.pipeline_version, current.updated_at
+            FROM {table_name} AS current
+            JOIN (VALUES {", ".join(value_rows)})
+                AS incoming ({incoming_columns})
+              ON {join_keys}
+            WHERE current.date BETWEEN CAST(:min_date AS date)
+                                   AND CAST(:max_date AS date)
+              AND ({differences});
         """
         connection.execute(text(sql), params)
 
@@ -265,7 +289,7 @@ def bulk_upsert(
     conflict_keys,
     records,
     history_copy_fn=None,
-    chunk_size=5000,
+    chunk_size=2000,
     priority_key=None,
     connection=None,
 ):
@@ -280,9 +304,9 @@ def bulk_upsert(
     carry - see `_dedupe_records()` - used to resolve competing updates to
     the same conflict-key row within a chunk by an explicit rule (e.g.
     "latest file wins") instead of accidental processing order.
-    Returns (rows_inserted, rows_updated), counted from conflict keys
-    observed before each UPSERT, with the same semantics as load_data()'s
-    row-by-row loop.
+    Returns (rows_inserted, rows_updated). Unchanged business rows are
+    skipped and not counted, so identical input on a second run returns
+    (0, 0).
     """
 
     if not records:
@@ -330,55 +354,36 @@ def bulk_upsert(
             )
             set_clause += ", updated_at = NOW()"
 
-            # PostgreSQL's xmax system column cannot be safely used in
-            # RETURNING on a partitioned table. Determine which conflict keys
-            # already exist before the UPSERT, then count inserted/updated rows
-            # from that snapshot instead.
-            key_columns = ", ".join(conflict_keys)
-            existing_key_clauses = []
-            existing_params = {}
-
-            for row_idx, record in enumerate(chunk):
-                placeholders = []
-                for key in conflict_keys:
-                    param_key = f"existing_{key}_{row_idx}"
-                    placeholders.append(f":{param_key}")
-                    existing_params[param_key] = record[key]
-                existing_key_clauses.append(f"({', '.join(placeholders)})")
-
-            existing_sql = f"""
-                SELECT {key_columns}
-                FROM {table_name}
-                WHERE ({key_columns}) IN (
-                    {", ".join(existing_key_clauses)}
-                )
-            """
-
-            existing_result = conn.execute(
-                text(existing_sql),
-                existing_params,
+            business_columns = [
+                col for col in update_columns
+                if col not in {
+                    "source_batch", "run_id", "pipeline_version",
+                    "updated_at", "loaded_at",
+                }
+            ]
+            change_condition = " OR ".join(
+                f"{table_name}.{col} IS DISTINCT FROM EXCLUDED.{col}"
+                for col in business_columns
             )
-
-            existing_keys = {
-                tuple(row[key] for key in conflict_keys)
-                for row in existing_result
-            }
+            if not change_condition:
+                change_condition = "FALSE"
 
             sql = f"""
                 INSERT INTO {table_name} ({", ".join(columns)})
                 VALUES {", ".join(values_clauses)}
                 ON CONFLICT ({", ".join(conflict_keys)})
-                DO UPDATE SET {set_clause};
+                DO UPDATE SET {set_clause}
+                WHERE {change_condition}
+                RETURNING (loaded_at = updated_at) AS inserted;
             """
 
-            conn.execute(text(sql), params)
+            result = conn.execute(text(sql), params)
 
-            for record in chunk:
-                key = tuple(record[key] for key in conflict_keys)
-                if key in existing_keys:
-                    rows_updated += 1
-                else:
+            for row in result:
+                if row.inserted:
                     rows_inserted += 1
+                else:
+                    rows_updated += 1
 
     if connection is not None:
         _execute(connection)
@@ -421,10 +426,17 @@ def load_data_bulk_generic(validated_batches, run_id, source_config, connection=
             record["_conflict_priority"] = file_priority
             records.append(record)
 
+    # _make_history_copy_fn() copies sales_fact's columns, so only use it there.
+    history_table = getattr(source_config, "history_table", None)
     history_copy_fn = (
-        _make_history_copy_fn(source_config.table, source_config.history_table) if source_config.history_table else None
+        _make_history_copy_fn(
+            source_config.table,
+            history_table,
+            business_columns=business_columns,
+        )
+        if history_table and source_config.table == "sales_fact"
+        else None
     )
-
     start = time.perf_counter()
 
     rows_inserted, rows_updated = bulk_upsert(

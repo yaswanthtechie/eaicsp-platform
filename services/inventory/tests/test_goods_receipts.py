@@ -360,4 +360,10 @@ def test_legacy_receive_requires_warehouse_manager(client, db_session, seed_inve
     resp = client.post("/api/v1/inventory/purchase-orders/PO-2026-000123/receive")
     assert resp.status_code == 403
 
+def test_acknowledged_po_counts_as_open(db_session, seed_inventory_and_po):
+    from app.services.purchase_order_service import find_existing_draft_po
+
+    existing = find_existing_draft_po(db_session, "SKU-000123", "WH-BLR-01")
+    assert existing is not None
+    assert existing.po_id == "PO-2026-000123"
 

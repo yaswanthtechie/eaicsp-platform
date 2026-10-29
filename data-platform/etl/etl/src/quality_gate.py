@@ -86,7 +86,7 @@ def quality_gate(extracted_batches):
             ]
         )
 
-        df = df[df["quantity_sold"] > 0]
+        df = df[df["quantity_sold"] >= 0]
         df = df[df["unit_price"] > 0]
 
         report["rows_dropped"] = rows_before - len(df)
@@ -230,7 +230,7 @@ def quality_gate_generic(extracted_batches, source_config):
         df = df.dropna(subset=required_cols)
 
         column = source_config.quality_check_column
-        df = df[df[column] > 0]
+        df = df[df[column] >= 0]
 
         report["rows_dropped"] = rows_before - len(df)
 

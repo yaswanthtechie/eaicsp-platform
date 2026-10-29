@@ -7,6 +7,7 @@ from app.models.inventory_cost_layer import InventoryCostLayer
 from app.models.supplier import Supplier
 
 from tests.conftest import seed_sales_history
+from app.services.purchase_order_service import approve_purchase_order
 
 
 # ============================================================
@@ -845,6 +846,8 @@ def test_m3_receive_purchase_order_creates_cost_layer(
     po_quantity = draft_data["quantity"]
     po_unit_cost = draft_data["unit_cost"]
 
+    approve_purchase_order(db=db_session, po_id=po_id, approved_by="7")
+
     receive_response = client.post(
         f"/api/v1/inventory/purchase-orders/{po_id}/receive"
     )
@@ -966,6 +969,8 @@ def test_m3_receive_purchase_order_updates_inventory_value(
     po_id = draft_data["po_id"]
     po_quantity = draft_data["quantity"]
 
+    approve_purchase_order(db=db_session, po_id=po_id, approved_by="7")
+
     receive_response = client.post(
         f"/api/v1/inventory/purchase-orders/{po_id}/receive"
     )
@@ -1052,6 +1057,8 @@ def test_m3_cannot_receive_purchase_order_twice(
     assert draft_response.status_code == 201
 
     po_id = draft_response.json()["po_id"]
+
+    approve_purchase_order(db=db_session, po_id=po_id, approved_by="7")
 
     first_receive = client.post(
         f"/api/v1/inventory/purchase-orders/{po_id}/receive"

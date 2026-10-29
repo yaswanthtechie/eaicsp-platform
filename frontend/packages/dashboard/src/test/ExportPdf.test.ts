@@ -30,10 +30,10 @@ describe("exportDashboardPdf", () => {
 
     const inventory = [
         {
-            sku_id: "SKU001",
+            sku_id: "SKU-000001",
             product_name: "Rice",
             category: "Food",
-            warehouse_id: "WH001",
+            warehouse_id: "WH-BLR-01",
             quantity_on_hand: 100,
             reorder_point: 20,
             needs_reorder: false,
@@ -64,7 +64,7 @@ describe("exportDashboardPdf", () => {
     };
 
     const filters = {
-        warehouse: "WH001",
+        warehouse: "WH-BLR-01",
         category: "Food",
         startDate: "2026-09-01",
         endDate: "2026-09-24",
@@ -115,7 +115,7 @@ describe("exportDashboardPdf", () => {
         );
 
         expect(textMock).toHaveBeenCalledWith(
-            ["Warehouse: WH001"],
+            ["Warehouse: WH-BLR-01"],
             20,
             50
         );
@@ -127,7 +127,7 @@ describe("exportDashboardPdf", () => {
         );
 
         expect(textMock).toHaveBeenCalledWith(
-            ["SKU001 | Rice | WH001 | Qty: 100"],
+            ["SKU-000001 | Rice | WH-BLR-01 | Qty: 100"],
             20,
             190
         );

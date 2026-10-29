@@ -36,10 +36,10 @@ describe("InventoryHeatmap", () => {
   it("shows warehouse names after loading", async () => {
     render(<InventoryHeatmap data={inventory} />);
 
-    expect(screen.getByText("WH001")).toBeInTheDocument();
-    expect(screen.getByText("WH002")).toBeInTheDocument();
-    expect(screen.getByText("WH003")).toBeInTheDocument();
-    expect(screen.getByText("WH004")).toBeInTheDocument();
+    expect(screen.getByText("WH-BLR-01")).toBeInTheDocument();
+    expect(screen.getByText("WH-BOM-01")).toBeInTheDocument();
+    expect(screen.getByText("WH-CCU-01")).toBeInTheDocument();
+    expect(screen.getByText("WH-HYD-01")).toBeInTheDocument();
   });
 
   it("shows inventory products after loading", async () => {

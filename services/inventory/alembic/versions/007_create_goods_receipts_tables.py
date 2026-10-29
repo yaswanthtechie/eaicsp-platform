@@ -1,7 +1,7 @@
 """Create goods receipts and goods receipt items tables
 
-Revision ID: 006_create_goods_receipts_tables
-Revises: 005_po_hold_source
+Revision ID: 007_create_goods_receipts_tables
+Revises: 006_create_products_and_warehouses_tables
 """
 from typing import Sequence, Union
 
@@ -9,8 +9,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "006_create_goods_receipts_tables"
-down_revision: Union[str, None] = "005_po_hold_source"
+revision: str = "007_create_goods_receipts_tables"
+down_revision: Union[str, None] = "006_create_products_and_warehouses_tables"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -63,4 +63,3 @@ def downgrade() -> None:
         op.drop_table("goods_receipt_items")
     if "goods_receipts" in tables:
         op.drop_table("goods_receipts")
-
