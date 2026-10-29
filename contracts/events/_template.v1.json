@@ -9,7 +9,7 @@
     {
       "properties": {
         "event_type": { "const": "domain.entity.action" },
-        "data": {
+        "payload": {
           "type": "object",
           "properties": {
             "example_field_id": {
