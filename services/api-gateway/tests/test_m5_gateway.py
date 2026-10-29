@@ -48,6 +48,21 @@ def reset_gateway_state():
     limiter.enabled = True
 
 
+@pytest.fixture(autouse=True)
+def mock_dashboard_health():
+    """Mock downstream health check calls during precheck dashboard public route tests."""
+    health_data = {
+        "inventory": "UP",
+        "shipments": "UP",
+        "compliance": "UP",
+        "purchase-orders": "UP",
+        "auth": "UP",
+        "supplier-risk": "UP",
+    }
+    with patch("app.routes.dashboard.get_system_health", new=AsyncMock(return_value=health_data)):
+        yield
+
+
 @pytest.fixture
 def client():
     """Create a FastAPI test client for the gateway."""

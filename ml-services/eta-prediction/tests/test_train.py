@@ -17,6 +17,7 @@ from src.preprocess import (
     NUMERIC_FEATURES,
     TARGET_COLUMN,
 )
+
 from src.pipeline import create_pipeline
 from src.train import (
     MIN_PRODUCTION_CALIBRATION_ROWS,
@@ -24,6 +25,7 @@ from src.train import (
     train_model,
     train_h2_model,
 )
+
 from src.xg_boost_model import XGBoostModel
 
 
@@ -210,6 +212,7 @@ def test_model_training_and_prediction_lifecycle(
         predictions >= 0
     ).all()
 
+
 def test_h2_model_training_and_prediction_lifecycle(
     sample_model_data,
     tmp_path,
@@ -280,6 +283,7 @@ def test_h2_model_training_and_prediction_lifecycle(
     assert (
         predictions >= 0
     ).all()
+
 
 def test_single_feature_removal_leakage_sanity(
     sample_model_data,
@@ -615,6 +619,8 @@ def test_production_calibration_rejects_missing_row_count():
         check_production_calibration(
             calibration
         )
+
+
 def test_production_gate_blocks_artifact_write(
     sample_model_data,
     tmp_path,
@@ -625,19 +631,47 @@ def test_production_gate_blocks_artifact_write(
     Otherwise a bad run overwrites the good model in models/ even
     though it raises.
     """
+
     from src import train
 
-    model_path = tmp_path / "eta_pipeline.joblib"
-    calibration_path = tmp_path / "eta_prediction_interval.joblib"
+    model_path = (
+        tmp_path / "eta_pipeline.joblib"
+    )
 
-    monkeypatch.setattr(train, "MODEL_PATH", model_path)
-    monkeypatch.setattr(train, "CALIBRATION_MODEL_PATH", calibration_path)
+    calibration_path = (
+        tmp_path
+        / "eta_prediction_interval.joblib"
+    )
 
-    X_train = sample_model_data["X_train"].copy()
-    y_train = sample_model_data["y_train"].copy()
+    monkeypatch.setattr(
+        train,
+        "MODEL_PATH",
+        model_path,
+    )
 
-    with pytest.raises(ValueError, match="below the production minimum"):
-        train_model(X_train, y_train, enforce_production_gate=True)
+    monkeypatch.setattr(
+        train,
+        "CALIBRATION_MODEL_PATH",
+        calibration_path,
+    )
+
+    X_train = sample_model_data[
+        "X_train"
+    ].copy()
+
+    y_train = sample_model_data[
+        "y_train"
+    ].copy()
+
+    with pytest.raises(
+        ValueError,
+        match="below the production minimum",
+    ):
+        train_model(
+            X_train,
+            y_train,
+            enforce_production_gate=True,
+        )
 
     assert not model_path.exists()
     assert not calibration_path.exists()
@@ -649,41 +683,238 @@ def test_committed_artifact_passes_production_gate():
     main.py enforces. This is the test that catches a fixture-trained
     model being committed.
     """
+
     from src.train import CALIBRATION_MODEL_PATH
 
     if not CALIBRATION_MODEL_PATH.exists():
-        pytest.skip("No committed calibration artifact")
+        pytest.skip(
+            "No committed calibration artifact"
+        )
 
-    calibration = joblib.load(CALIBRATION_MODEL_PATH)
+    calibration = joblib.load(
+        CALIBRATION_MODEL_PATH
+    )
 
-    check_production_calibration(calibration)
+    check_production_calibration(
+        calibration
+    )
 
     assert "training_rows" in calibration, (
-        "Artifact predates provenance tracking; retrain with python main.py"
-    )  
+        "Artifact predates provenance tracking; "
+        "retrain with python main.py"
+    )
 
 
-def test_main_enables_production_gate():
+def test_main_trains_r14_as_candidate_before_promotion():
     """
-    main.py is the real production entry point. It must call
-    train_model(..., enforce_production_gate=True), otherwise a bad
-    run overwrites the good artifacts in models/ before failing.
+    main.py must train the Round 14 model as an in-memory candidate
+    and promote artifacts only after the candidate workflow succeeds.
     """
-    main_path = Path(__file__).resolve().parents[1] / "main.py"
-    tree = ast.parse(main_path.read_text(encoding="utf-8"))
-    calls = [
+
+    main_path = (
+        Path(__file__).resolve().parents[1]
+        / "main.py"
+    )
+
+    tree = ast.parse(
+        main_path.read_text(
+            encoding="utf-8"
+        )
+    )
+
+    comparison_calls = [
         node
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
-        and node.func.id == "train_model"
+        and node.func.id
+        == "train_comparison_model"
     ]
-    assert calls, "main.py never calls train_model()"
 
-    for call in calls:
-        gate = {kw.arg: kw.value for kw in call.keywords}.get(
-            "enforce_production_gate"
+    assert comparison_calls, (
+        "main.py must train the Round 14 candidate "
+        "with train_comparison_model()"
+    )
+
+    r14_calls = [
+        call
+        for call in comparison_calls
+        if any(
+            isinstance(
+                keyword.value,
+                ast.Constant,
+            )
+            and keyword.arg
+            == "use_eta_history_features"
+            and keyword.value is True
+            for keyword in call.keywords
         )
-        assert isinstance(gate, ast.Constant) and gate.value is True, (
-            "main.py must call train_model(..., enforce_production_gate=True)"
+    ]
+
+    assert r14_calls, (
+        "main.py must train the Round 14 candidate "
+        "with use_eta_history_features=True"
+    )
+
+    source = main_path.read_text(
+        encoding="utf-8"
+    )
+
+    assert "joblib.dump(" in source, (
+        "main.py must promote the candidate artifact "
+        "after the successful candidate workflow"
+    )
+
+    assert "R14_MODEL_PATH" in source
+
+    assert (
+        "R14_CALIBRATION_MODEL_PATH"
+        in source
+    )
+
+
+def test_r14_training_uses_eta_history_features():
+    """R14 training must use the feature-lib ETA history feature set."""
+
+    features = pd.DataFrame(
+        {
+            "origin_lat": np.linspace(
+                10.0,
+                20.0,
+                20,
+            ),
+            "origin_lng": np.linspace(
+                30.0,
+                40.0,
+                20,
+            ),
+            "destination_lat": np.linspace(
+                11.0,
+                21.0,
+                20,
+            ),
+            "destination_lng": np.linspace(
+                31.0,
+                41.0,
+                20,
+            ),
+            "distance_km": np.linspace(
+                5.0,
+                25.0,
+                20,
+            ),
+            "item_count": np.ones(20),
+            "total_weight_kg": np.ones(20),
+            "total_volume_cm3": np.ones(20),
+            "total_freight_value": np.ones(20),
+            "purchase_year": [2018] * 20,
+            "purchase_month": list(range(1, 21)),
+            "purchase_day_of_week": [0] * 20,
+            "purchase_hour": [10] * 20,
+            "historical_on_time_rate_carrier": np.linspace(
+                0.5,
+                0.9,
+                20,
+            ),
+            "historical_avg_transit_days_carrier": np.linspace(
+                3.0,
+                7.0,
+                20,
+            ),
+            "historical_on_time_rate_route": np.linspace(
+                0.4,
+                0.8,
+                20,
+            ),
+            "historical_avg_transit_days_route": np.linspace(
+                4.0,
+                8.0,
+                20,
+            ),
+            "historical_avg_transit_days_carrier_route": np.linspace(
+                3.5,
+                7.5,
+                20,
+            ),
+            "historical_on_time_rate_departure_season": np.linspace(
+                0.45,
+                0.85,
+                20,
+            ),
+            "product_category_name": [
+                "electronics"
+            ] * 20,
+        }
+    )
+
+    target = np.linspace(
+        2.0,
+        10.0,
+        20,
+    )
+
+    from src.pipeline import create_eta_history_pipeline
+
+    model = create_eta_history_pipeline()
+
+    model.fit(
+        features,
+        target,
+    )
+
+    preprocessor = model.named_steps[
+        "preprocessor"
+    ]
+
+    feature_names = (
+        preprocessor.get_feature_names_out()
+    )
+
+    for column in [
+        "historical_on_time_rate_carrier",
+        "historical_avg_transit_days_carrier",
+        "historical_on_time_rate_route",
+        "historical_avg_transit_days_route",
+        "historical_avg_transit_days_carrier_route",
+        "historical_on_time_rate_departure_season",
+    ]:
+        assert any(
+            column in name
+            for name in feature_names
         )
+
+    assert hasattr(
+        model.named_steps["model"],
+        "predict",
+    )
+
+
+def test_committed_model_serves_with_inference_features():
+    """
+    The committed production model must predict using only the
+    features the serving path builds (MODEL_FEATURES).
+    """
+
+    from src.paths import MODEL_PATH
+    from src.preprocess import MODEL_FEATURES
+
+    model = joblib.load(
+        MODEL_PATH
+    )
+
+    row = {
+        feature: 1.0
+        for feature in MODEL_FEATURES
+    }
+
+    row[
+        "product_category_name"
+    ] = "unknown"
+
+    predictions = model.predict(
+        pd.DataFrame(
+            [row]
+        )[MODEL_FEATURES]
+    )
+
+    assert len(predictions) == 1

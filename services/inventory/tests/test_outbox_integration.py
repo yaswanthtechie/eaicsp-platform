@@ -27,9 +27,9 @@ from app.services.inventory_service import check_and_record_low_stock
 @pytest.fixture
 def mock_supplier(db_session):
     supplier = Supplier(
-        supplier_id="SUP-TEST-001",
+        supplier_id="SUP-00601",
         supplier_name="Test Supplier Logistics",
-        sku_id="SKU-PO-DRAFT-1",
+        sku_id="SKU-000603",
         unit_cost=25.0,
         lead_time_days=5,
     )
@@ -47,12 +47,12 @@ def test_outbox_table_persists_envelope_structure(db_session):
     """
     Verify that the Outbox table stores events adhering to the standard EventEnvelope.
     """
-    test_payload = {"sku_id": "SKU-ENV-1", "warehouse_id": "WH-1", "quantity": 10}
+    test_payload = {"sku_id": "SKU-000601", "warehouse_id": "WH-BLR-01", "quantity": 10}
     entry = record_event(
         db=db_session,
         event_type="inventory.stock.low",
         aggregate_type="inventory",
-        aggregate_id="SKU-ENV-1:WH-1",
+        aggregate_id="SKU-000601:WH-BLR-01",
         payload=test_payload,
         trace_id="trace-test-123",
     )
@@ -62,7 +62,7 @@ def test_outbox_table_persists_envelope_structure(db_session):
     assert saved is not None
     assert saved.event_type == "inventory.stock.low"
     assert saved.aggregate_type == "inventory"
-    assert saved.aggregate_id == "SKU-ENV-1:WH-1"
+    assert saved.aggregate_id == "SKU-000601:WH-BLR-01"
     assert saved.status == "PENDING"
     assert saved.retry_count == 0
     assert saved.created_at is not None
@@ -87,8 +87,8 @@ def test_stock_low_event_emitted_on_reorder_threshold(db_session):
     an 'inventory.stock.low' event is recorded in the outbox.
     """
     item = Inventory(
-        sku_id="SKU-LOW-1",
-        warehouse_id="WH-1",
+        sku_id="SKU-000602",
+        warehouse_id="WH-BLR-01",
         product_name="Low Stock Widget",
         category="Hardware",
         quantity_on_hand=5,
@@ -109,12 +109,12 @@ def test_stock_low_event_emitted_on_reorder_threshold(db_session):
     )
     assert len(outbox_events) >= 1
     low_stock_event = outbox_events[-1]
-    assert low_stock_event.aggregate_id == "SKU-LOW-1:WH-1"
+    assert low_stock_event.aggregate_id == "SKU-000602:WH-BLR-01"
     assert low_stock_event.status == "PENDING"
 
     payload_data = json.loads(low_stock_event.payload)["payload"]
-    assert payload_data["sku_id"] == "SKU-LOW-1"
-    assert payload_data["warehouse_id"] == "WH-1"
+    assert payload_data["sku_id"] == "SKU-000602"
+    assert payload_data["warehouse_id"] == "WH-BLR-01"
     assert payload_data["quantity_on_hand"] == 5
     assert payload_data["reorder_point"] >= 20
 
@@ -125,7 +125,7 @@ def test_po_drafted_event_emitted_atomically(db_session, mock_supplier):
     an 'inventory.po.drafted' event into the outbox in the same transaction.
     """
     item = Inventory(
-        sku_id="SKU-PO-DRAFT-1",
+        sku_id="SKU-000603",
         warehouse_id="WH-CENTRAL",
         product_name="Draft PO Part",
         category="Electronics",
@@ -163,7 +163,7 @@ def test_po_drafted_event_emitted_atomically(db_session, mock_supplier):
     assert envelope["producer"] == "inventory-service"
     po_payload = envelope["payload"]
     assert po_payload["po_id"] == po.po_id
-    assert po_payload["sku_id"] == "SKU-PO-DRAFT-1"
+    assert po_payload["sku_id"] == "SKU-000603"
     assert po_payload["warehouse_id"] == "WH-CENTRAL"
     assert po_payload["supplier_id"] == mock_supplier.supplier_id
     assert po_payload["status"] == "draft"
@@ -189,7 +189,7 @@ def test_failure_mode_rollback_guarantees_no_event_emitted(db_session):
         new_po = PurchaseOrder(
             po_id=po_id,
             sku_id="SKU-ROLLBACK",
-            warehouse_id="WH-1",
+            warehouse_id="WH-BLR-01",
             supplier_id="SUP-FAIL",
             quantity=100,
             unit_cost=10.0,
@@ -352,12 +352,12 @@ def test_api_create_inventory_low_stock_records_outbox(client, db_session):
     """
     from tests.conftest import seed_sales_history
 
-    seed_sales_history("SKU-API-LOW", "WH-API-1", daily_quantity=10)
+    seed_sales_history("SKU-API-LOW", "WH-BOM-01", daily_quantity=10)
 
     payload = {
         "sku_id": "SKU-API-LOW",
         "product_name": "API Low Stock Test",
-        "warehouse_id": "WH-API-1",
+        "warehouse_id": "WH-BOM-01",
         "quantity_on_hand": 5,  # Much lower than 10 * 4 + 10 = 50 ROP
         "lead_time_days": 4,
         "safety_stock": 10,
@@ -370,7 +370,7 @@ def test_api_create_inventory_low_stock_records_outbox(client, db_session):
         db_session.query(Outbox)
         .filter(
             Outbox.event_type == "inventory.stock.low",
-            Outbox.aggregate_id == "SKU-API-LOW:WH-API-1",
+            Outbox.aggregate_id == "SKU-API-LOW:WH-BOM-01",
         )
         .first()
     )
@@ -389,13 +389,13 @@ def test_api_update_inventory_low_stock_records_outbox(client, db_session):
     """
     from tests.conftest import seed_sales_history
 
-    seed_sales_history("SKU-API-UPD", "WH-API-2", daily_quantity=5)
+    seed_sales_history("SKU-API-UPD", "WH-DEL-01", daily_quantity=5)
 
     # 1. Create with sufficient stock
     create_payload = {
         "sku_id": "SKU-API-UPD",
         "product_name": "API Update Test",
-        "warehouse_id": "WH-API-2",
+        "warehouse_id": "WH-DEL-01",
         "quantity_on_hand": 100,  # Well above ROP
         "lead_time_days": 4,
         "safety_stock": 10,
@@ -411,7 +411,7 @@ def test_api_update_inventory_low_stock_records_outbox(client, db_session):
         "version": current_version,
     }
     resp2 = client.put(
-        "/api/v1/inventory/SKU-API-UPD/WH-API-2",
+        "/api/v1/inventory/SKU-API-UPD/WH-DEL-01",
         json=update_payload,
     )
     assert resp2.status_code == 200
@@ -420,7 +420,7 @@ def test_api_update_inventory_low_stock_records_outbox(client, db_session):
         db_session.query(Outbox)
         .filter(
             Outbox.event_type == "inventory.stock.low",
-            Outbox.aggregate_id == "SKU-API-UPD:WH-API-2",
+            Outbox.aggregate_id == "SKU-API-UPD:WH-DEL-01",
         )
         .first()
     )
@@ -444,8 +444,16 @@ def test_real_producer_raises_when_broker_unreachable_and_event_is_kept(db_sessi
     )
     db_session.commit()
 
-    relay = OutboxRelay(publisher=KafkaEventPublisher(bootstrap_servers="localhost:1"))
-    published, failed = relay.relay_pending_events(db=db_session)
+    publisher = KafkaEventPublisher(bootstrap_servers="localhost:1")
+    relay = OutboxRelay(publisher=publisher)
+    try:
+        published, failed = relay.relay_pending_events(db=db_session)
+    finally:
+        try:
+            publisher._producer.purge()
+            publisher._producer.flush(0.1)
+        except Exception:
+            pass
 
     assert (published, failed) == (0, 1)
 
@@ -507,14 +515,14 @@ def test_outbox_relay_publishes_to_real_kafka(db_session):
 
 
 def test_sale_below_reorder_point_records_stock_low(client, db_session):
-    seed_sales_history("SKU-SALE-LOW", "WH-1", daily_quantity=5)
+    seed_sales_history("SKU-SALE-LOW", "WH-BLR-01", daily_quantity=5)
 
     client.post(
         "/api/v1/inventory/",
         json={
             "sku_id": "SKU-SALE-LOW",
             "product_name": "Sale Low Item",
-            "warehouse_id": "WH-1",
+            "warehouse_id": "WH-BLR-01",
             "quantity_on_hand": 200,
             "lead_time_days": 4,
             "safety_stock": 10,
@@ -528,7 +536,7 @@ def test_sale_below_reorder_point_records_stock_low(client, db_session):
 
     resp = client.post(
         "/api/v1/inventory/decrement",
-        params={"sku_id": "SKU-SALE-LOW", "warehouse_id": "WH-1", "quantity": 195},
+        params={"sku_id": "SKU-SALE-LOW", "warehouse_id": "WH-BLR-01", "quantity": 195},
     )
     assert resp.status_code == 200
 
@@ -536,7 +544,7 @@ def test_sale_below_reorder_point_records_stock_low(client, db_session):
         db_session.query(Outbox)
         .filter(
             Outbox.event_type == "inventory.stock.low",
-            Outbox.aggregate_id == "SKU-SALE-LOW:WH-1",
+            Outbox.aggregate_id == "SKU-SALE-LOW:WH-BLR-01",
         )
         .all()
     )
@@ -682,14 +690,14 @@ def test_low_stock_event_deduplication_on_repeated_decrements(client, db_session
     Verify that low-stock events fire ONLY when stock drops below the reorder point,
     not repeatedly on subsequent decrements while already below.
     """
-    seed_sales_history("SKU-DEDUP-LOW", "WH-1", daily_quantity=5)
+    seed_sales_history("SKU-DEDUP-LOW", "WH-BLR-01", daily_quantity=5)
 
     client.post(
         "/api/v1/inventory/",
         json={
             "sku_id": "SKU-DEDUP-LOW",
             "product_name": "Dedup Low Item",
-            "warehouse_id": "WH-1",
+            "warehouse_id": "WH-BLR-01",
             "quantity_on_hand": 100,
             "lead_time_days": 4,
             "safety_stock": 10,
@@ -703,7 +711,7 @@ def test_low_stock_event_deduplication_on_repeated_decrements(client, db_session
     # Decrement 1: Drops below ROP (from 100 to 15) -> emits event
     resp1 = client.post(
         "/api/v1/inventory/decrement",
-        params={"sku_id": "SKU-DEDUP-LOW", "warehouse_id": "WH-1", "quantity": 85},
+        params={"sku_id": "SKU-DEDUP-LOW", "warehouse_id": "WH-BLR-01", "quantity": 85},
     )
     assert resp1.status_code == 200
 
@@ -711,7 +719,7 @@ def test_low_stock_event_deduplication_on_repeated_decrements(client, db_session
         db_session.query(Outbox)
         .filter(
             Outbox.event_type == "inventory.stock.low",
-            Outbox.aggregate_id == "SKU-DEDUP-LOW:WH-1",
+            Outbox.aggregate_id == "SKU-DEDUP-LOW:WH-BLR-01",
         )
         .all()
     )
@@ -720,7 +728,7 @@ def test_low_stock_event_deduplication_on_repeated_decrements(client, db_session
     # Decrement 2: Already below ROP (from 15 to 10) -> MUST NOT emit duplicate event
     resp2 = client.post(
         "/api/v1/inventory/decrement",
-        params={"sku_id": "SKU-DEDUP-LOW", "warehouse_id": "WH-1", "quantity": 5},
+        params={"sku_id": "SKU-DEDUP-LOW", "warehouse_id": "WH-BLR-01", "quantity": 5},
     )
     assert resp2.status_code == 200
 
@@ -728,7 +736,7 @@ def test_low_stock_event_deduplication_on_repeated_decrements(client, db_session
         db_session.query(Outbox)
         .filter(
             Outbox.event_type == "inventory.stock.low",
-            Outbox.aggregate_id == "SKU-DEDUP-LOW:WH-1",
+            Outbox.aggregate_id == "SKU-DEDUP-LOW:WH-BLR-01",
         )
         .all()
     )
@@ -795,13 +803,13 @@ def test_relay_writes_heartbeat_each_cycle(tmp_path, monkeypatch):
 # ---- version must change on every stock change (Fix A) -----------------------
 
 def _create_item(client, sku, quantity=50):
-    seed_sales_history(sku, "WH-1", daily_quantity=5)
+    seed_sales_history(sku, "WH-BLR-01", daily_quantity=5)
     resp = client.post(
         "/api/v1/inventory/",
         json={
             "sku_id": sku,
             "product_name": "Versioned Item",
-            "warehouse_id": "WH-1",
+            "warehouse_id": "WH-BLR-01",
             "quantity_on_hand": quantity,
             "lead_time_days": 4,
             "safety_stock": 10,
@@ -817,7 +825,7 @@ def test_sale_increments_version(client, db_session):
 
     resp = client.post(
         "/api/v1/inventory/decrement",
-        params={"sku_id": "SKU-VER-SALE", "warehouse_id": "WH-1", "quantity": 5},
+        params={"sku_id": "SKU-VER-SALE", "warehouse_id": "WH-BLR-01", "quantity": 5},
     )
     assert resp.status_code == 200
 
@@ -831,11 +839,11 @@ def test_put_from_before_a_sale_gets_a_conflict(client, db_session):
 
     client.post(
         "/api/v1/inventory/decrement",
-        params={"sku_id": "SKU-VER-LOCK", "warehouse_id": "WH-1", "quantity": 20},
+        params={"sku_id": "SKU-VER-LOCK", "warehouse_id": "WH-BLR-01", "quantity": 20},
     )
 
     stale_put = client.put(
-        "/api/v1/inventory/SKU-VER-LOCK/WH-1",
+        "/api/v1/inventory/SKU-VER-LOCK/WH-BLR-01",
         json={"quantity_on_hand": 45, "version": before["version"]},
     )
     assert stale_put.status_code == 409

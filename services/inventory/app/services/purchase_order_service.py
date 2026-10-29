@@ -1,10 +1,13 @@
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from app.schemas.events import POApprovedLineItem, POApprovedPayload
 
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.compliance_event import SupplierComplianceState
 from app.models.inventory import Inventory
+from app.models.product import Product
 from app.models.purchase_order import PurchaseOrder
 from app.models.supplier import Supplier
 
@@ -42,10 +45,35 @@ def generate_po_id(db: Session) -> str:
     return f"{prefix}{next_number:06d}"
 
 
+@dataclass(frozen=True)
+class SupplierChoice:
+    supplier_id: str
+    supplier_name: str
+    unit_cost: float
+    lead_time_days: int
+
+
 def select_supplier(
     db: Session,
     sku_id: str,
 ):
+    # Seeded catalog: each product names its supplier and unit cost (skus.csv).
+    product = db.query(Product).filter(Product.sku_id == sku_id).first()
+    if product is not None and product.supplier_id:
+        supplier = (
+            db.query(Supplier)
+            .filter(Supplier.supplier_id == product.supplier_id)
+            .first()
+        )
+        if supplier is not None:
+            return SupplierChoice(
+                supplier_id=supplier.supplier_id,
+                supplier_name=supplier.supplier_name,
+                unit_cost=product.unit_cost,
+                lead_time_days=supplier.lead_time_days,
+            )
+
+    # No catalog entry: fall back to per-SKU supplier rows, cheapest first.
     suppliers = (
         db.query(Supplier)
         .filter(
@@ -65,21 +93,6 @@ def select_supplier(
     return suppliers[0]
 
 
-def determine_approval_status(
-    expected_cost: float,
-) -> str:
-    """
-    Determine whether a purchase order can be
-    automatically approved or requires VP Operations approval.
-    """
-
-    if (
-        expected_cost
-        <= settings.PO_AUTO_APPROVAL_THRESHOLD
-    ):
-        return "approved"
-
-    return "pending_vp_approval"
 
 
 def check_supplier_before_po(
@@ -234,9 +247,8 @@ def create_draft_po_for_inventory(
         supplier_name=po_details["supplier_name"],
     )
 
-    approval_status = determine_approval_status(
-        expected_cost=po_details["expected_cost"],
-    )
+    # Flow A: every PO is approved by a procurement_manager, which emits inventory.po.approved.
+    approval_status = "pending_vp_approval"
 
     po_status, hold_reason, hold_source = _initial_po_status(db, po_details["supplier_id"])
 
@@ -328,9 +340,8 @@ def create_automatic_draft_po(
         supplier_name=po_details["supplier_name"],
     )
 
-    approval_status = determine_approval_status(
-        expected_cost=po_details["expected_cost"],
-    )
+    # Flow A: every PO is approved by a procurement_manager, which emits inventory.po.approved.
+    approval_status = "pending_vp_approval"
 
     po_status, hold_reason, hold_source = _initial_po_status(db, po_details["supplier_id"])
 
@@ -381,13 +392,51 @@ def create_automatic_draft_po(
     return purchase_order
 
 
+def _record_po_approved(
+    db: Session,
+    purchase_order: PurchaseOrder,
+    approved_by: str,
+) -> None:
+    """Write inventory.po.approved to the outbox. Validates against the contract first."""
+    approved_at = datetime.now(UTC)
+    payload = POApprovedPayload(
+        po_id=purchase_order.po_id,
+        po_number=purchase_order.po_id,
+        supplier_id=purchase_order.supplier_id,
+        warehouse_id=purchase_order.warehouse_id,
+        approval_status="approved",
+        approved_by=approved_by,
+        approved_at=approved_at,
+        total_amount=purchase_order.expected_cost,
+        currency="INR",
+        lines=[
+            POApprovedLineItem(
+                line_number=1,
+                sku_id=purchase_order.sku_id,
+                quantity=purchase_order.quantity,
+                unit_cost=purchase_order.unit_cost,
+                expected_cost=purchase_order.expected_cost,
+            )
+        ],
+    )
+    record_event(
+        db=db,
+        event_type="inventory.po.approved",
+        aggregate_type="purchase_order",
+        aggregate_id=purchase_order.po_id,
+        payload=payload.model_dump(mode="json", exclude_none=True),
+        occurred_at=approved_at.isoformat(),
+    )
+
+
 def approve_purchase_order(
     db: Session,
     po_id: str,
+    approved_by: str,
 ):
     """
-    Approve a purchase order that requires
-    VP Operations approval.
+    Approve a purchase order and emit an inventory.po.approved outbox event
+    atomically within the same database transaction.
     """
 
     purchase_order = (
@@ -419,12 +468,13 @@ def approve_purchase_order(
         != "pending_vp_approval"
     ):
         raise ValueError(
-            "Purchase order does not require VP Operations approval"
+            "Purchase order is not awaiting approval"
         )
 
     purchase_order.approval_status = "approved"
 
     try:
+        _record_po_approved(db, purchase_order, approved_by=approved_by)
         db.commit()
         db.refresh(purchase_order)
 
@@ -472,7 +522,7 @@ def receive_purchase_order(
         != "approved"
     ):
         raise ValueError(
-            "Purchase order requires VP Operations approval"
+            "Purchase order must be approved by a procurement manager before it can be received"
         )
 
     inventory = (

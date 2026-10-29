@@ -11,9 +11,11 @@ frontend/
         └── src/
             ├──api/
             |    ├── auth.ts
+            |    ├── kpis.ts
             |    └── dashboardGraphql.ts
             ├── components/
             │   ├── AlertsPanel.tsx
+            |   ├── AnalyticsKpiPanel.tsx
             |   ├── ErrorBoundary.tsx
             │   ├── ForecastChart.tsx
             │   ├── InventoryHeatmap.tsx
@@ -71,6 +73,7 @@ frontend/
             │
             ├── test/
             │   ├── AlertsPanel.test.tsx
+            |   ├── AnalyticsKpiPanel.test.tsx
             |   ├── App.role.test.tsx
             |   ├── ExportCsv.test.tsx
             |   ├── ExportCsvButton.test.tsx
@@ -83,16 +86,19 @@ frontend/
             │   ├── ForecastAccuracy.test.tsx
             │   ├── InventoryHealth.test.tsx
             |   ├── kpiSnapshot.test.tsx
+            |   ├── kpis.test.ts
             |   ├── setup.ts
             |   ├── SupplierRiskDistribution.test.tsx
             │   ├── SupplierRisk.test.tsx
             |   ├── dashboardGraphql.test.tsx
+            │   ├── AlertMapper.test.tsx
             |   ├── theme.test.tsx
             |   └── useWebSocket.test.ts
             ├── utils/
             │   ├── exportCsv.ts
             |   ├── exportPdf.ts
             |   ├── insights.ts
+            |   ├── alertMapper.ts
             │   └── kpiSnapshot.ts
             │
             ├── App.tsx
@@ -173,7 +179,7 @@ The idea is to show:
 * Reorder timing
 * Recommended reorder quantity
 
-For example: SKU007 → 8 days remaining → reorder before stock out.
+For example: SKU-000007 → 8 days remaining → reorder before stock out.
 
 The current inventory data includes average daily demand, so days remaining can be calculated. However, the current dashboard does not yet implement the full reorder planning view or recommended reorder quantity calculation.
 
@@ -217,6 +223,59 @@ The mock WebSocket server is used only during development.
 It is started only when `import.meta.env.DEV` is true, so the mock server is not started in the production build.
 
 `mock-socket` is kept as a development dependency because it is only required for the mock WebSocket server and tests.
+
+### Live Alerts and WebSocket Event Handling
+
+The dashboard uses the reusable `useWebSocket` hook to receive real-time alerts. During development, the mock WebSocket server runs at `ws://localhost:8080` and simulates events based on the dashboard WebSocket contract.
+
+The dashboard supports the following six event types:
+
+| Event type                   | Purpose                            | Dashboard severity                                     |
+| ---------------------------- | ---------------------------------- | ------------------------------------------------------ |
+| `inventory.stock.low`        | Reports low or depleted inventory  | Critical when quantity is zero; otherwise warning      |
+| `iot.anomaly.detected`       | Reports detected IoT anomalies     | Low: info; medium: warning; high or critical: critical |
+| `supplierrisk.score.changed` | Reports supplier risk-tier changes | High: critical; medium: warning; low: info             |
+| `eta.shipment.predicted`     | Reports predicted shipment delays  | High risk: warning; otherwise info                     |
+| `forecast.batch.completed`   | Reports forecast batch completion  | Partial: warning; otherwise success                    |
+| `data.pipeline.completed`    | Reports data pipeline completion   | Success                                                |
+
+Severity is derived from each event's payload using the alert-mapping utility in `src/utils/alertMapper.ts`. The Alerts Panel uses the shared dashboard design tokens to display severity consistently.
+
+### WebSocket Contract and Mock Events
+
+The mock WebSocket server is implemented in `src/mocks/wsServer.ts`. It provides sample events for all six supported event types so the dashboard can be tested without a live analytics backend.
+
+The event handling supports the contract's event envelope, including event type, event version, event ID, occurrence timestamp, producer, and payload.
+
+The event-version validator accepts the supported v1 representations (`1`, `"1"`, and `"1.0"`). Timestamps are parsed using JavaScript date handling, allowing valid UTC timestamp representations such as `Z` and `+00:00`. The optional `trace_id` field is supported.
+
+The IoT anomaly mock follows the reviewed contract, including episode and sensor identifiers, warehouse, severity, message, anomaly timestamps, peak score, threshold, flagged count, closure reason, top features, and model version.
+
+### Reconnection and Failure Handling
+
+The `useWebSocket` hook manages connection status, incoming events, disconnections, and automatic reconnection.
+
+The reconnection strategy uses exponential backoff, starting at approximately one second and increasing the delay up to a maximum of 30 seconds. The hook limits retry attempts and exposes a failure state when reconnection attempts are exhausted. The Alerts Panel displays an error state when the connection cannot be restored.
+
+The WebSocket mock server is started only in development mode. The mock implementation is not intended to replace the production analytics WebSocket service.
+
+### Live Alerts Test Coverage
+
+The alert-related tests cover event-to-alert mapping, severity selection, panel rendering, WebSocket connection states, incoming events, reconnection behavior, exponential backoff, and failure after the retry limit.
+
+Relevant test files include:
+
+- `src/test/AlertsPanel.test.tsx`
+- `src/test/useWebSocket.test.tsx`
+- `src/test/AlertMapper.test.tsx`
+
+Run the focused alert tests using:
+
+```powershell
+npx vitest run src/test/AlertsPanel.test.tsx src/test/useWebSocket.test.tsx src/test/AlertMapper.test.tsx
+```
+
+The latest reported targeted test run passed all 32 tests across these three files.
 
 
 # 6. KPI Views and Dashboard Filters
@@ -516,7 +575,6 @@ This allows the dashboard running on port `5173` to communicate with the Platfor
 The Vite proxy is available only during development. Production builds and `npm run preview` require the Platform service to allow the dashboard origin through its CORS configuration.
 
 
-
 ## Authentication Testing
 
 Real authentication is tested separately from the main dashboard E2E tests.
@@ -638,6 +696,7 @@ All component test files are organized inside the `src/test` folder.
 Tests were added for:
 
 * `AlertsPanel`
+* `AnalyticsKpiPanel`
 * `App.role`
 * `ForecastChart`
 * `InventoryHeatmap`
@@ -647,6 +706,9 @@ Tests were added for:
 * `Insights`
 * `ExportCsv`
 * `ExportPdf`
+* `kpiSnapshot`
+* `kpis`
+* `theme`
 * `ForecastAccuracy`
 * `InventoryHealth`
 * `SupplierRisk`
@@ -1150,11 +1212,91 @@ npm run test:e2e
 
 Test verification completed successfully.
 
-* Vitest: 19 test files, 147/147 tests passed
+* Vitest: 22 test files, 187/187 tests passed
 * Playwright Dashboard E2E: 4/4 tests passed
 * Authentication E2E: 14/14 passed with valid credentials.
-* Total: 165 tests passed across the three reported test groups.
-* Offline PWA snapshot test is also passing now.
+* Total: 205 tests passed across the three reported test groups.
 
 The authentication tests are run separately using
 npm run test:e2e:auth.
+
+## R15[C1] — KPI Widgets and Dashboard Mock Data Updates
+
+As part of R15, Flow C — Live Dashboard, I implemented a KPI panel for displaying four supply-chain performance metrics: Fill Rate, Inventory Stockouts, Open Purchase Orders, and On-Time Delivery.
+
+### 1. KPI Implementation
+
+- **API integration (`src/api/kpis.ts`):** Added KPI data-fetching logic, mock and real API modes, bearer-token authentication, response validation, error handling, and response mapping.
+- **KPI panel (`src/components/AnalyticsKpiPanel.tsx`):** Added four KPI cards with percentage and number formatting, status-based colors, loading skeletons, empty and error states, and Refresh/Retry actions.
+- **Mock KPI data:** Added mock responses so the dashboard can display KPI values during development and demonstrations while the backend endpoint is unavailable.
+- **Snapshot fallback:** Saved the last successfully loaded KPI values in browser `localStorage` so previously loaded values can be displayed when a subsequent API request fails.
+- **Configuration:** Added support for `VITE_USE_MOCK_KPIS` to select mock or real API data and `VITE_KPI_API_BASE_URL` to configure the API base URL.
+
+### 2. KPI Test Files
+
+Created tests for the KPI API and dashboard panel:
+
+- `src/test/kpis.test.ts` — Tests KPI API behavior, response validation, response mapping, and mock/real API handling.
+- `src/test/AnalyticsKpiPanel.test.tsx` — Tests KPI panel rendering and UI behavior, including loading, error handling, and displayed KPI values.
+
+### 3. Dashboard Mock Data and Canonical Identifiers
+
+Updated dashboard mock data to align with the canonical seed-data identifiers instead of relying on legacy warehouse IDs such as `WH001` and `WH002`.
+
+- Used canonical warehouse identifiers such as `WH-BLR-01`, `WH-BOM-01`, `WH-CCU-01`, `WH-DEL-01`, `WH-HYD-01`, and `WH-MAA-01`, where applicable to the seed data.
+- Updated inventory mock data to use canonical SKU and warehouse identifiers and corresponding product details not updated in C2 will update as per seed data.
+- Kept SKU and warehouse information aligned with the inventory display requirements.
+- Updated related mock files where required for dashboard data consistency.
+
+Relevant mock files include:
+
+- `src/mocks/inventory.ts`
+- `src/mocks/inventoryHealth.ts`
+- `src/mocks/user.ts`
+- `src/mocks/wsServer.ts`
+
+### 4. API Contract and Integration Flow
+
+The planned KPI endpoint is:
+
+`GET /api/v1/analytics/kpis`
+
+The dashboard integration flow is:
+
+Dashboard KPI Panel → `fetchKpiDashboard()` → API response validation → `mapKpiResponse()` → KPI cards.
+
+The endpoint and agreed backend contract are not yet ready for full integration. Mock mode allows the dashboard to display KPI values without depending on the live endpoint. Real API mode is available for integration testing when the backend is ready.
+
+### 5. Expected Behavior
+
+- Display four KPI cards using mock data when mock mode is enabled.
+- Validate API responses before mapping them into the KPI cards.
+- Display loading, empty, and error states appropriately.
+- Allow users to refresh or retry KPI loading.
+- Use the saved KPI snapshot as a fallback when a request fails.
+- Support canonical SKU and warehouse identifiers in the updated dashboard mock data.
+
+### 6. Testing
+
+The KPI API and panel have dedicated test files:
+
+- `src/test/kpis.test.ts`
+- `src/test/AnalyticsKpiPanel.test.tsx`
+
+Run the relevant tests from `frontend/packages/dashboard`:
+
+```powershell
+npx vitest run src/test/kpis.test.ts src/test/AnalyticsKpiPanel.test.tsx
+```
+
+Run the TypeScript check with:
+
+```powershell
+npx tsc --noEmit
+```
+
+### 7. Outcome and Remaining Dependency
+
+The dashboard can demonstrate the four KPI cards using mock data while the backend endpoint is being finalized. The KPI API layer, UI states, snapshot fallback, tests, and canonical mock-data updates provide the foundation for switching to the real endpoint.
+
+**Remaining dependency:** Validate the real API integration against the finalized backend endpoint and contract when they become available.

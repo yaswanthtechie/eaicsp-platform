@@ -31,6 +31,12 @@ def make_valid_features():
             "total_weight_kg": [0.5, 1.0],
             "total_volume_cm3": [100.0, 200.0],
             "total_freight_value": [5.0, 10.0],
+            "historical_on_time_rate_carrier": [0.90, 0.85],
+            "historical_avg_transit_days_carrier": [4.0, 6.0],
+            "historical_on_time_rate_route": [0.88, 0.82],
+            "historical_avg_transit_days_route": [4.5, 6.5],
+            "historical_avg_transit_days_carrier_route": [4.2, 6.2],
+            "historical_on_time_rate_departure_season": [0.91, 0.84],
             "product_category_name": [
                 "electronics",
                 "books",

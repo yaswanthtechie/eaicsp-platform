@@ -24,6 +24,15 @@ H2_CALIBRATION_MODEL_PATH = (
     MODELS_DIR / "eta_seed_routes_interval.joblib"
 )
 
+# R14 candidate/promotion artifacts
+R14_MODEL_PATH = (
+    MODELS_DIR / "eta_pipeline_r14.joblib"
+)
+
+R14_CALIBRATION_MODEL_PATH = (
+    MODELS_DIR / "eta_prediction_interval_r14.joblib"
+)
+
 # MLflow
 MLFLOW_DIR = PROJECT_ROOT / "mlruns"
 

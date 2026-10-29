@@ -45,7 +45,31 @@ class PurchaseOrderType:
     actual_delivery_date: date | None
     history: list[PurchaseOrderHistoryType]
 
+@strawberry.type
+class ApprovedPOLineType:
+    line_number: int
+    sku_id: str
+    quantity: int
+    unit_cost: float
+    expected_cost: float
 
+
+@strawberry.type
+class ApprovedPurchaseOrderType:
+    po_id: str
+    po_number: str | None
+    supplier_id: str
+    warehouse_id: str
+    approval_status: str
+    approved_by: str
+    approved_at: datetime
+    total_amount: float
+    currency: str | None
+    expected_delivery_date: date | None
+    lines: list[ApprovedPOLineType]
+    status: str
+    acknowledged_at: datetime | None
+    
 @strawberry.type
 class PageInfoType:
     has_next_page: bool

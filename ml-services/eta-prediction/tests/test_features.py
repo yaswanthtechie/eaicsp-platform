@@ -1,8 +1,12 @@
-from src.features import build_eta_features
 from src.features import (
     build_eta_features,
     build_h2_eta_features,
 )
+
+from feature_lib import add_eta_features
+
+import pandas as pd
+
 
 EXPECTED_FEATURE_COLUMNS = {
     "order_id",
@@ -51,9 +55,32 @@ def test_expected_feature_columns(sample_datasets):
         sample_datasets
     )
 
-    assert set(features.columns) == (
-        EXPECTED_FEATURE_COLUMNS
-    )
+    expected_feature_columns = {
+        "order_id",
+        "purchase_year",
+        "purchase_month",
+        "purchase_day_of_week",
+        "purchase_hour",
+        "origin_lat",
+        "origin_lng",
+        "destination_lat",
+        "destination_lng",
+        "distance_km",
+        "item_count",
+        "total_weight_kg",
+        "total_volume_cm3",
+        "total_freight_value",
+        "product_category_name",
+        "historical_on_time_rate_carrier",
+        "historical_avg_transit_days_carrier",
+        "historical_on_time_rate_route",
+        "historical_avg_transit_days_route",
+        "historical_avg_transit_days_carrier_route",
+        "historical_on_time_rate_departure_season",
+        "delivery_days",
+    }
+
+    assert set(features.columns) == expected_feature_columns
 
 
 def test_target_is_positive(sample_datasets):
@@ -296,14 +323,18 @@ H2_EXPECTED_FEATURE_COLUMNS = {
 def test_h2_expected_feature_columns(sample_datasets):
     """H2 output must contain only prediction-time features and target."""
 
-    features = build_h2_eta_features(sample_datasets)
+    features = build_h2_eta_features(
+        sample_datasets
+    )
 
     assert set(features.columns) == (
         H2_EXPECTED_FEATURE_COLUMNS
     )
 
 
-def test_h2_forbidden_features_are_not_returned(sample_datasets):
+def test_h2_forbidden_features_are_not_returned(
+    sample_datasets,
+):
     """H2 must exclude features unavailable at seed-shipment prediction time."""
 
     features = build_h2_eta_features(
@@ -368,3 +399,69 @@ def test_h2_preserves_one_row_per_order(sample_datasets):
 
     assert features["order_id"].is_unique
     assert len(features) == 3
+
+
+def test_eta_history_features_exclude_in_flight_and_equal_timestamp_outcomes():
+    """Only outcomes delivered strictly before departure may be used."""
+
+    features = pd.DataFrame(
+        {
+            "order_id": [
+                "a_in_flight",
+                "b_current",
+                "c",
+                "d_equal",
+            ],
+            "scheduled_pickup_date": pd.to_datetime(
+                [
+                    "2024-01-08 10:00",
+                    "2024-01-10 10:00",
+                    "2024-01-15 10:00",
+                    "2024-01-20 10:00",
+                ]
+            ),
+            "actual_delivery_date": pd.to_datetime(
+                [
+                    "2024-01-15 10:00",
+                    "2024-01-12 10:00",
+                    "2024-01-20 10:00",
+                    "2024-01-25 10:00",
+                ]
+            ),
+            "expected_delivery_date": pd.to_datetime(
+                [
+                    "2024-01-16",
+                    "2024-01-13",
+                    "2024-01-21",
+                    "2024-01-26",
+                ]
+            ),
+            "carrier_name": ["carrier_a"] * 4,
+            "route_id": ["route_a"] * 4,
+        }
+    )
+
+    result = add_eta_features(
+        features
+    ).set_index("order_id")
+
+    col = "historical_avg_transit_days_carrier"
+
+    # a is still in flight when b departs, so b must have no history.
+    assert pd.isna(
+        result.loc["b_current", col]
+    )
+
+    # a is delivered exactly when c departs, so it is excluded;
+    # only b (2 days) counts.
+    assert (
+        result.loc["c", col]
+        == 2.0
+    )
+
+    # c is delivered exactly when d departs, so it is excluded;
+    # a (7) and b (2) count.
+    assert (
+        result.loc["d_equal", col]
+        == 4.5
+    )
