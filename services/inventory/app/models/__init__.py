@@ -7,6 +7,7 @@ from app.models.outbox import Outbox
 from app.models.compliance_event import ProcessedEvent, SupplierComplianceState
 from app.models.product import Product
 from app.models.warehouse import Warehouse
+from app.models.goods_receipt import GoodsReceipt, GoodsReceiptItem
 
 __all__ = [
     "Inventory",
@@ -19,4 +20,6 @@ __all__ = [
     "SupplierComplianceState",
     "Product",
     "Warehouse",
-]
+    "GoodsReceipt",
+    "GoodsReceiptItem",
+]

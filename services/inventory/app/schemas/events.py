@@ -117,6 +117,14 @@ class InventoryPOApprovedEvent(BaseModel):
     payload: POApprovedPayload
 
 
+class POAcknowledgedPayload(BaseModel):
+    """supplierportal.po.acknowledged v1 payload (contracts/events/supplierportal.po.acknowledged.v1.json)."""
+    model_config = ConfigDict(extra="forbid")
+    po_number: str = Field(pattern=r"^PO-\d{4}-\d{6}$")
+    supplier_id: str = Field(pattern=r"^SUP-\d{5}$")
+    acknowledged_at: datetime
+
+
 class GoodsReceivedLineItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

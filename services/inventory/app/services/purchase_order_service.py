@@ -179,22 +179,25 @@ def calculate_draft_po_details(
     }
 
 
+# POs that are still open: the stock is already on order.
+OPEN_PO_STATUSES = ("draft", "acknowledged", "partially_received")
+
+
 def find_existing_draft_po(
     db: Session,
     sku_id: str,
     warehouse_id: str,
 ):
     """
-    Find an existing draft PO for the same SKU
-    and warehouse.
+    Find an open PO (draft, acknowledged or partially received) for the same SKU and warehouse,
+    so the stock isn't ordered twice.
     """
-
     return (
         db.query(PurchaseOrder)
         .filter(
             PurchaseOrder.sku_id == sku_id,
             PurchaseOrder.warehouse_id == warehouse_id,
-            PurchaseOrder.status == "draft",
+            PurchaseOrder.status.in_(OPEN_PO_STATUSES),
         )
         .order_by(
             PurchaseOrder.created_at.desc()
@@ -488,91 +491,71 @@ def approve_purchase_order(
 def receive_purchase_order(
     db: Session,
     po_id: str,
+    received_by: str,
 ):
     """
-    Receive a purchase order.
+    Receive a purchase order (legacy).
+    Delegates to record_goods_receipt with the PO's full quantity.
     """
-
     purchase_order = (
         db.query(PurchaseOrder)
-        .filter(
-            PurchaseOrder.po_id == po_id
-        )
+        .filter(PurchaseOrder.po_id == po_id)
         .with_for_update()
         .first()
     )
 
     if purchase_order is None:
-        raise LookupError(
-            "Purchase order not found"
-        )
+        raise LookupError("Purchase order not found")
 
     if purchase_order.status == "on_hold":
         raise ValueError(
             f"Cannot receive purchase order: PO is on hold ({purchase_order.hold_reason or 'compliance review'})"
         )
 
-    if purchase_order.status != "draft":
+    if purchase_order.status not in ("draft", "acknowledged"):
         raise ValueError(
-            "Only draft purchase orders can be received"
+            "Only draft or acknowledged purchase orders can be received"
         )
 
-    if (
-        purchase_order.approval_status
-        != "approved"
-    ):
+    if purchase_order.approval_status != "approved":
         raise ValueError(
             "Purchase order must be approved by a procurement manager before it can be received"
         )
 
-    inventory = (
-        db.query(Inventory)
-        .filter(
-            Inventory.sku_id
-            == purchase_order.sku_id,
-            Inventory.warehouse_id
-            == purchase_order.warehouse_id,
-        )
-        .with_for_update()
-        .first()
-    )
-
-    if inventory is None:
-        raise ValueError(
-            "Inventory record not found for purchase order"
-        )
-
-    received_quantity = purchase_order.quantity
-
-    if received_quantity <= 0:
+    if purchase_order.quantity <= 0:
         raise ValueError(
             "Purchase order quantity must be greater than zero"
         )
 
-    inventory.quantity_on_hand += received_quantity
-
-    inventory.version += 1
-
-    add_cost_layer(
-        db=db,
-        sku_id=inventory.sku_id,
-        warehouse_id=inventory.warehouse_id,
-        category=inventory.category,
-        quantity=received_quantity,
-        unit_cost=purchase_order.unit_cost,
+    from app.schemas.goods_receipt import GoodsReceiptCreate, GoodsReceiptItemCreate
+    from app.services.goods_receipt_service import (
+        invalidate_receipt_cache,
+        record_goods_receipt,
     )
 
-    purchase_order.status = "received"
+    receipt_data = GoodsReceiptCreate(
+        po_id=purchase_order.po_id,
+        warehouse_id=purchase_order.warehouse_id,
+        items=[
+            GoodsReceiptItemCreate(
+                sku_id=purchase_order.sku_id,
+                quantity_received=purchase_order.quantity,
+                unit_cost=purchase_order.unit_cost,
+            )
+        ],
+        notes="Legacy PO receive endpoint",
+    )
+
+    receipt = record_goods_receipt(
+        db=db,
+        data=receipt_data,
+        received_by=received_by,
+    )
 
     try:
         db.commit()
         db.refresh(purchase_order)
-        invalidate_inventory_cache(
-            inventory.sku_id,
-            inventory.warehouse_id,
-            version=inventory.version,
-        )
-
+        invalidate_receipt_cache(db, receipt)
     except Exception:
         db.rollback()
         raise

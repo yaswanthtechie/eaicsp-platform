@@ -1,8 +1,14 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
 
-from app.core.auth import require_permission
+from app.core.auth import require_permission, require_roles
+from app.database import get_db
 from app.schemas.goods_receipt import GoodsReceiptCreate, GoodsReceiptResponse
+from app.services.goods_receipt_service import (
+    invalidate_receipt_cache,
+    record_goods_receipt,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,18 +31,53 @@ router = APIRouter(
     responses={
         401: {"description": "Missing or invalid token"},
         403: {"description": "Insufficient permissions"},
-        501: {"description": "Not implemented yet (Round 15 stub)"},
     },
     dependencies=[
         Depends(require_permission("inventory:write")),
     ],
 )
-def create_goods_receipt(data: GoodsReceiptCreate):
+def create_goods_receipt(
+    data: GoodsReceiptCreate,
+    db: Session = Depends(get_db),
+    auth: dict = Depends(require_roles("warehouse_manager")),
+):
     """
     Records physical receipt of goods (Flow B).
-    Returns 501 until Flow B goods receipt recording is wired.
+    Increments on-hand stock, updates purchase order status, and publishes inventory.goods.received outbox event.
     """
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Flow B goods receipt recording is under construction.",
-    )
+    user_id = auth.get("user_id")
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication token has no user_id",
+        )
+    received_by = str(user_id)
+
+    try:
+        receipt = record_goods_receipt(
+            db=db,
+            data=data,
+            received_by=received_by,
+        )
+        db.commit()
+        db.refresh(receipt)
+        invalidate_receipt_cache(db, receipt)
+        return receipt
+
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    except Exception:
+        db.rollback()
+        raise
