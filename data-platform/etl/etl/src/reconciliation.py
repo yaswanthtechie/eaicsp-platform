@@ -110,9 +110,13 @@ def compute_landed_expected_batches(transformed_batches, source_config):
         for record in batch["data"].to_dict(orient="records"):
             record["_conflict_priority"] = priority
             records.append(record)
-    deduped = _dedupe_records(
-        records, source_config.conflict_keys, priority_key="_conflict_priority"
-    )
+    conflict_keys = getattr(source_config, "conflict_keys", None)
+    if conflict_keys:
+        deduped = _dedupe_records(
+            records, conflict_keys, priority_key="_conflict_priority"
+        )
+    else:
+        deduped = records
     frame = pd.DataFrame(deduped, columns=business_columns)
     return [{"data": frame}]
 
@@ -137,17 +141,45 @@ def reconcile_load(raw_batches, approved_batches, transformed_batches, source_co
     deduped_transformed_batches = compute_landed_expected_batches(transformed_batches, source_config)
     transformed_stats = compute_stats(deduped_transformed_batches, numeric_column)
 
-    query = text(f"""
-        SELECT COUNT(*) AS row_count,
-               COALESCE(SUM({numeric_column}), 0) AS col_sum
-        FROM {table}
-        WHERE run_id = :run_id
-    """)
+    conflict_keys = list(getattr(source_config, "conflict_keys", []) or [])
+    if not conflict_keys:
+        query = text(f"""SELECT COUNT(*) AS row_count, COALESCE(SUM({numeric_column}), 0) AS col_sum FROM {table} WHERE run_id = :run_id""")
+        with engine.connect() as connection:
+            row = connection.execute(query, {"run_id": run_id}).fetchone()
+        actual_stats = (row.row_count, float(row.col_sum))
+    else:
+        source_records = [
+            record
+            for batch in deduped_transformed_batches
+            for record in batch["data"].to_dict(orient="records")
+        ]
 
-    with engine.connect() as connection:
-        row = connection.execute(query, {"run_id": run_id}).fetchone()
+        actual_rows = []
+        with engine.connect() as connection:
+            for offset in range(0, len(source_records), 500):
+                chunk = source_records[offset:offset + 500]
+                conditions = []
+                params = {}
 
-    actual_stats = (row.row_count, float(row.col_sum))
+                for i, record in enumerate(chunk):
+                    key_conditions = []
+                    for key in conflict_keys:
+                        param = f"p_{i}_{key}"
+                        key_conditions.append(f"{key} = :{param}")
+                        params[param] = record[key]
+                    conditions.append("(" + " AND ".join(key_conditions) + ")")
+
+                query = text(f"""
+                    SELECT {numeric_column}
+                    FROM {table}
+                    WHERE {" OR ".join(conditions)}
+                """)
+                actual_rows.extend(connection.execute(query, params).fetchall())
+
+        actual_stats = (
+            len(actual_rows),
+            float(sum(float(row[0] or 0) for row in actual_rows)),
+        )
     result = evaluate_reconciliation(
         raw_stats, approved_stats, transformed_stats, actual_stats,
         tolerance=tolerance,
