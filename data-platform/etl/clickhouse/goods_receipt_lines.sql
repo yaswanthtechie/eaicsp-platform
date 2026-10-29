@@ -1,4 +1,4 @@
-﻿CREATE TABLE IF NOT EXISTS goods_receipt_lines
+CREATE TABLE IF NOT EXISTS goods_receipt_lines
 (
     receipt_id String,
     po_id String,

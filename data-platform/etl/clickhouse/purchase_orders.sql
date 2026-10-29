@@ -1,4 +1,4 @@
-﻿CREATE TABLE IF NOT EXISTS purchase_orders
+CREATE TABLE IF NOT EXISTS purchase_orders
 (
     po_id String,
     supplier_id String,

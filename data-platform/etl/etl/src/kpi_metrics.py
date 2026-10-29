@@ -1,4 +1,4 @@
-﻿"""Refresh dashboard KPI snapshots from the contracted ClickHouse views."""
+"""Refresh dashboard KPI snapshots from the contracted ClickHouse views."""
 
 from datetime import date, datetime, timezone
 
@@ -39,7 +39,7 @@ COLUMNS = (
 def refresh_kpi_metrics(client, database, metric_date=None):
     """Write warehouse-level and overall KPI values into kpi_metrics."""
     if metric_date is None:
-        metric_date = date.today()
+        metric_date = datetime.now(timezone.utc).date()
 
     if isinstance(metric_date, str):
         metric_date = date.fromisoformat(metric_date)

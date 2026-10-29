@@ -139,7 +139,14 @@ Views are defined in `data-platform/etl/clickhouse/views/` and applied by
 `python data-platform/etl/clickhouse/apply_ddl.py`. The `{db}` placeholder
 is replaced by the configured ClickHouse database.
 
-### kpi_stockouts_by_warehouse
+The `clickhouse_load` task of the ETL DAG copies the views into `kpi_metrics`
+on every run (`data-platform/etl/etl/src/kpi_metrics.py`), under the metric
+name shown in each heading below. Each metric gets one row per warehouse plus
+one all-warehouse total with `warehouse_id = ''`; `category` is always `''`.
+Rate totals are weighted (sum of numerators / sum of denominators), not an
+average of the warehouse rates. A rate with no data writes no row.
+
+### kpi_stockouts_by_warehouse → `stockout_count`
 
 Reads the latest snapshot per SKU and warehouse from `inventory_snapshots`.
 A stockout is a position whose latest `quantity_on_hand` is zero or below.
@@ -157,7 +164,7 @@ Expected seed output for 2026-10-14: 3,000 positions and 55 stockouts.
 | WH-HYD-01 | 8 | 500 |
 | WH-MAA-01 | 9 | 500 |
 
-### kpi_open_pos_by_status
+### kpi_open_pos_by_status → `open_pos`
 
 Reads `purchase_orders`. Open statuses are `approved`, `acknowledged` and
 `in_transit`. Received POs are closed. Amounts are grouped by currency and
@@ -165,7 +172,7 @@ are not converted.
 
 Output: `warehouse_id`, `status`, `currency`, `open_po_count`, `open_po_value`.
 
-### kpi_fill_rate_by_warehouse
+### kpi_fill_rate_by_warehouse → `fill_rate`
 
 Compares ordered quantities in `po_lines` with received quantities in
 `goods_receipt_lines`, matched by `po_id` and `sku_id`. Only POs with at least
@@ -175,7 +182,7 @@ fulfilled when total received quantity is at least the ordered quantity.
 Output: `warehouse_id`, `total_lines_ordered`, `lines_fulfilled`, `fill_rate`.
 `fill_rate` is a percentage from 0 to 100.
 
-### kpi_on_time_delivery_by_warehouse
+### kpi_on_time_delivery_by_warehouse → `on_time_delivery_pct`
 
 Reads delivered shipments from `transport_performance` with known `on_time`.
 The first `eta.shipment.predicted` event supplies `predicted_eta` from

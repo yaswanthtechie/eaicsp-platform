@@ -1,4 +1,4 @@
-﻿CREATE OR REPLACE VIEW {db}.kpi_fill_rate_by_warehouse AS
+CREATE OR REPLACE VIEW {db}.kpi_fill_rate_by_warehouse AS
 SELECT
     ordered.warehouse_id AS warehouse_id,
     count() AS total_lines_ordered,

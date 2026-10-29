@@ -1,4 +1,4 @@
-﻿CREATE OR REPLACE VIEW {db}.kpi_on_time_delivery_by_warehouse AS
+CREATE OR REPLACE VIEW {db}.kpi_on_time_delivery_by_warehouse AS
 SELECT
     warehouse_id,
     count() AS total_shipments,

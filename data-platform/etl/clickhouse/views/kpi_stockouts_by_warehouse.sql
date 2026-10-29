@@ -1,4 +1,4 @@
-﻿CREATE OR REPLACE VIEW {db}.kpi_stockouts_by_warehouse AS
+CREATE OR REPLACE VIEW {db}.kpi_stockouts_by_warehouse AS
 SELECT
     warehouse_id,
     countIf(latest_quantity <= 0) AS stockout_count,

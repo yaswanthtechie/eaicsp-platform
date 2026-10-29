@@ -1,4 +1,4 @@
-﻿CREATE OR REPLACE VIEW {db}.kpi_open_pos_by_status AS
+CREATE OR REPLACE VIEW {db}.kpi_open_pos_by_status AS
 SELECT
     warehouse_id,
     status,

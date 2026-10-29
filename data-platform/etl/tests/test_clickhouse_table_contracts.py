@@ -1,10 +1,11 @@
-﻿import os
+import os
 import re
 from pathlib import Path
 
 import pytest
 
 from clickhouse import apply_ddl as ddl
+from etl.src import kpi_metrics as metrics
 
 ROOT = Path(__file__).resolve().parents[1]
 DDL_DIR = ROOT / "clickhouse"
@@ -191,6 +192,20 @@ def test_view_sql_has_one_statement_and_database_placeholder(view):
     assert "{db}" not in statement
 
 
+@pytest.mark.parametrize("view", VIEWS)
+def test_view_reads_only_contract_tables_in_its_own_database(view):
+    statement = ddl._view_statement(f"{view}.sql", "unit_test_analytics")
+
+    sources = re.findall(r"\b(?:FROM|JOIN)\s+([`\w.]+)", statement)
+    assert sources
+    for source in sources:
+        assert source.startswith("`unit_test_analytics`."), (
+            f"{view} reads {source} unqualified"
+        )
+        assert source.split(".", 1)[1] in TABLES, (
+            f"{view} reads non-contract table {source}"
+        )
+
 def test_bad_view_filename_definition_is_rejected(tmp_path, monkeypatch):
     monkeypatch.setattr(ddl, "VIEW_DIR", tmp_path)
     (tmp_path / "kpi_stockouts_by_warehouse.sql").write_text(
@@ -204,17 +219,22 @@ def test_bad_view_filename_definition_is_rejected(tmp_path, monkeypatch):
 
 def test_contract_readme_documents_all_views_and_event_tables():
     readme = README.read_text(encoding="utf-8-sig")
-    for table in ("purchase_orders", "po_lines", "goods_receipt_lines"):
-        assert f"## " in readme
-        assert table in readme
+    headings = [line.strip() for line in readme.splitlines() if line.startswith("#")]
+    for number, table in ((5, "purchase_orders"), (6, "po_lines"), (7, "goods_receipt_lines")):
+        assert f"## {number}. {table}" in headings
 
-    assert "## 8. KPI views" in readme
-    for view in VIEWS:
-        assert view in readme
+    assert "## 8. KPI views" in headings
+    for view, metric in (
+        ("kpi_stockouts_by_warehouse", "stockout_count"),
+        ("kpi_open_pos_by_status", "open_pos"),
+        ("kpi_fill_rate_by_warehouse", "fill_rate"),
+        ("kpi_on_time_delivery_by_warehouse", "on_time_delivery_pct"),
+    ):
+        assert f"### {view} → `{metric}`" in headings
+        assert metrics.METRICS[metric]["view"] == view
 
-    assert "## Schema notes" in readme
+    assert "## Schema notes" in headings
     assert "inventory snapshot schema adds `source` and `version`" in readme
-
 
 def test_database_environment_variable_fallback(monkeypatch):
     monkeypatch.delenv("CLICKHOUSE_DB", raising=False)

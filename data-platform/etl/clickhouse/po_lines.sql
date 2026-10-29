@@ -1,4 +1,4 @@
-﻿CREATE TABLE IF NOT EXISTS po_lines
+CREATE TABLE IF NOT EXISTS po_lines
 (
     po_id String,
     line_number UInt32,
