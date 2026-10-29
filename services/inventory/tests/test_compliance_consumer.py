@@ -559,10 +559,10 @@ def test_cannot_approve_or_receive_po_when_on_hold(db_session):
     po = seed_po(db_session, "PO-HOLD-LOCK", "SUP-HOLD", status="on_hold", hold_reason="Compliance investigation")
 
     with pytest.raises(ValueError, match="Cannot approve purchase order: PO is on hold"):
-        approve_purchase_order(db=db_session, po_id=po.po_id)
+        approve_purchase_order(db=db_session, po_id=po.po_id, approved_by="7")
 
     with pytest.raises(ValueError, match="Cannot receive purchase order: PO is on hold"):
-        receive_purchase_order(db=db_session, po_id=po.po_id)
+        receive_purchase_order(db=db_session, po_id=po.po_id, received_by="1")
 
 
 def test_get_and_list_purchase_order_endpoints(client, db_session):

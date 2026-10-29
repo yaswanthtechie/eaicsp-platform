@@ -1,4 +1,5 @@
 import logging
+from pydantic import ValidationError
 
 from fastapi import (
     APIRouter,
@@ -102,25 +103,43 @@ def approve_purchase_order_endpoint(
     po_id: str,
     db: Session = Depends(get_db),
     auth=Depends(
-        require_roles("vp_operations")
+        require_roles("procurement_manager")
     ),
 ):
+    user_id = auth.get("user_id") if isinstance(auth, dict) else None
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication token has no user_id",
+        )
     try:
         return approve_purchase_order(
             db=db,
             po_id=po_id,
+            approved_by=str(user_id),
         )
-
     except LookupError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         ) from exc
-
+    except ValidationError as exc:
+        # Must come before ValueError: ValidationError subclasses it.
+        logger.exception("PO %s does not match the inventory.po.approved contract", po_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Purchase order data does not match the event contract",
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
+        ) from exc
+    except Exception as exc:
+        logger.exception("Unexpected error approving purchase order %s", po_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to approve purchase order",
         ) from exc
 
 
@@ -128,18 +147,24 @@ def approve_purchase_order_endpoint(
     "/{po_id}/receive",
     response_model=PurchaseOrderResponse,
     status_code=status.HTTP_200_OK,
+    deprecated=True,
 )
 def receive_purchase_order_endpoint(
     po_id: str,
     db: Session = Depends(get_db),
-    auth=Depends(
-        require_permission("inventory:write")
-    ),
+    auth=Depends(require_roles("warehouse_manager")),
 ):
+    user_id = auth.get("user_id")
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication token has no user_id",
+        )
     try:
         return receive_purchase_order(
             db=db,
             po_id=po_id,
+            received_by=str(user_id),
         )
 
     except LookupError as exc:

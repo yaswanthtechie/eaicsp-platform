@@ -312,8 +312,8 @@ def test_receive_purchase_order_invalidates_cache(client, db_session):
     seed_sales_history("SKU-PO-REC", "WH-REC", daily_quantity=2)
 
     item = Inventory(
-        sku_id="SKU-PO-REC",
-        warehouse_id="WH-REC",
+        sku_id="SKU-000401",
+        warehouse_id="WH-BLR-01",
         product_name="PO Receive Cache Item",
         category="Parts",
         quantity_on_hand=10,
@@ -324,10 +324,10 @@ def test_receive_purchase_order_invalidates_cache(client, db_session):
     db_session.add(item)
 
     po = PurchaseOrder(
-        po_id="PO-2026-000901",
-        sku_id="SKU-PO-REC",
-        warehouse_id="WH-REC",
-        supplier_id="SUP-00901",
+        po_id="PO-2026-000401",
+        sku_id="SKU-000401",
+        warehouse_id="WH-BLR-01",
+        supplier_id="SUP-00045",
         quantity=50,
         unit_cost=10.0,
         expected_cost=500.0,
@@ -338,20 +338,20 @@ def test_receive_purchase_order_invalidates_cache(client, db_session):
     db_session.commit()
 
     # 1. Warm cache
-    resp1 = client.get("/api/v1/inventory/SKU-PO-REC/WH-REC")
+    resp1 = client.get("/api/v1/inventory/SKU-000401/WH-BLR-01")
     assert resp1.status_code == 200
     assert resp1.json()["quantity_on_hand"] == 10
-    assert get_cached_inventory("SKU-PO-REC", "WH-REC") is not None
+    assert get_cached_inventory("SKU-000401", "WH-BLR-01") is not None
 
     # 2. Receive the purchase order
     receive_resp = client.post(f"/api/v1/inventory/purchase-orders/{po.po_id}/receive")
     assert receive_resp.status_code == 200
 
     # 3. Verify cache is invalidated!
-    assert get_cached_inventory("SKU-PO-REC", "WH-REC") is None
+    assert get_cached_inventory("SKU-000401", "WH-BLR-01") is None
 
     # 4. Fresh read reflects new quantity (10 + 50 = 60)
-    resp2 = client.get("/api/v1/inventory/SKU-PO-REC/WH-REC")
+    resp2 = client.get("/api/v1/inventory/SKU-000401/WH-BLR-01")
     assert resp2.status_code == 200
     assert resp2.json()["quantity_on_hand"] == 60
 

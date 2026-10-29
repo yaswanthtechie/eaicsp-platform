@@ -84,7 +84,7 @@
         },
         "received_by": {
           "type": "string",
-          "description": "Username or email of the warehouse receiver."
+          "description": "Platform user ID of the warehouse receiver (from the auth token's user_id)."
         },
         "received_at": {
           "type": "string",

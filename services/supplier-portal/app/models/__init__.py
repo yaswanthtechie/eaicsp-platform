@@ -4,6 +4,9 @@ from app.models.shipment import Shipment
 from app.models.shipment_outbox import ShipmentOutbox
 from app.models.supplier import Supplier
 from app.models.shipment_eta_event import ShipmentETAEvent
+from app.models.inventory_goods_receipt_event import (
+    InventoryGoodsReceiptEvent,
+)
 
 __all__ = [
     "Supplier",
@@ -12,4 +15,6 @@ __all__ = [
     "ShipmentOutbox",
     "Shipment",
     "ShipmentETAEvent",
+]
+    "InventoryGoodsReceiptEvent",
 ]

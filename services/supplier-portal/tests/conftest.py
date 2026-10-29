@@ -25,6 +25,7 @@ os.environ.setdefault("PO_KAFKA_ENABLED", "false")
 os.environ.setdefault("PO_OUTBOX_ENABLED", "false")
 os.environ.setdefault("SHIPMENT_OUTBOX_ENABLED", "false")
 os.environ.setdefault("ETA_KAFKA_ENABLED", "false")
+os.environ.setdefault("GOODS_RECEIVED_KAFKA_ENABLED", "false")
 
 import pytest
 from fastapi.testclient import TestClient
@@ -364,6 +365,9 @@ def po_db(monkeypatch):
 
     from app.core.config import settings
     from app.database import Base
+    from app.models.inventory_goods_receipt_event import (
+        InventoryGoodsReceiptEvent,
+    )
     from app.models.po_ack_outbox import POAckOutbox
     from app.models.po_mirror import POMirror
     from app.models.shipment_outbox import ShipmentOutbox
@@ -396,6 +400,7 @@ def po_db(monkeypatch):
             ShipmentOutbox.__table__,
             Shipment.__table__,
             ShipmentETAEvent.__table__,
+            InventoryGoodsReceiptEvent.__table__,
         ],
     )
 

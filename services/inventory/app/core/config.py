@@ -7,7 +7,6 @@ class Settings(BaseSettings):
     TEST_DATABASE_URL: str | None = None   # only the test suite needs this
     PLATFORM_AUTH_URL: str = "http://localhost:8005"
     COMPLIANCE_SERVICE_URL: str = "http://localhost:8003"
-    PO_AUTO_APPROVAL_THRESHOLD: float = 1000.0
     # Supplier has no country column yet; every supplier is
     # screened with this country until one is added.
     DEFAULT_SUPPLIER_COUNTRY: str = "India"
@@ -26,6 +25,12 @@ class Settings(BaseSettings):
     COMPLIANCE_STATUS_CHANGED_TOPIC: str = "compliance.supplier.status_changed"
     COMPLIANCE_DLQ_TOPIC: str = "compliance.supplier.status_changed.dlq"
     COMPLIANCE_CONSUMER_INTERVAL_SECONDS: float = 1.0
+
+    # PO Acknowledged Consumer (Flow B)
+    PO_ACKNOWLEDGED_TOPIC: str = "supplierportal.po.acknowledged"
+    PO_ACKNOWLEDGED_CONSUMER_GROUP: str = "inventory-po-acknowledged-consumer"
+    PO_ACKNOWLEDGED_DLQ_TOPIC: str = "supplierportal.po.acknowledged.dlq"
+    PO_ACKNOWLEDGED_CONSUMER_INTERVAL_SECONDS: float = 1.0
 
     # Outbox Relay background worker
     ENABLE_OUTBOX_RELAY: bool = False

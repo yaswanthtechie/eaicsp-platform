@@ -28,7 +28,9 @@ class DiscrepancyType(str, Enum):
 
 class ThreeWayMatchLine(BaseModel):
     po_number: str
-    item_code: str
+    # Legacy PO lines carry item_code; Inventory PO lines carry sku_id.
+    item_code: str | None = None
+    sku_id: str | None = None
 
     po_quantity: float
     received_quantity: float

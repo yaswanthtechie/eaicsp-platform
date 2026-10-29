@@ -1,5 +1,5 @@
 from datetime import UTC, date, datetime
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 import uuid
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -97,7 +97,7 @@ class POApprovedPayload(BaseModel):
     supplier_id: str = Field(pattern=r"^SUP-\d{5}$")
     warehouse_id: str = Field(pattern=r"^WH-[A-Z]{3}-\d{2}$")
     approval_status: Literal["approved"]
-    approved_by: uuid.UUID
+    approved_by: Annotated[str, Field(min_length=1)]
     approved_at: datetime
     total_amount: float = Field(ge=0)
     currency: str = "INR"
@@ -115,6 +115,14 @@ class InventoryPOApprovedEvent(BaseModel):
     producer: Literal["inventory-service"] = "inventory-service"
     trace_id: Optional[str] = None
     payload: POApprovedPayload
+
+
+class POAcknowledgedPayload(BaseModel):
+    """supplierportal.po.acknowledged v1 payload (contracts/events/supplierportal.po.acknowledged.v1.json)."""
+    model_config = ConfigDict(extra="forbid")
+    po_number: str = Field(pattern=r"^PO-\d{4}-\d{6}$")
+    supplier_id: str = Field(pattern=r"^SUP-\d{5}$")
+    acknowledged_at: datetime
 
 
 class GoodsReceivedLineItem(BaseModel):

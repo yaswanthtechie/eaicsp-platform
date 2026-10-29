@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from app.schemas.events import POApprovedLineItem, POApprovedPayload
 
 from sqlalchemy.orm import Session
 
@@ -92,21 +93,6 @@ def select_supplier(
     return suppliers[0]
 
 
-def determine_approval_status(
-    expected_cost: float,
-) -> str:
-    """
-    Determine whether a purchase order can be
-    automatically approved or requires VP Operations approval.
-    """
-
-    if (
-        expected_cost
-        <= settings.PO_AUTO_APPROVAL_THRESHOLD
-    ):
-        return "approved"
-
-    return "pending_vp_approval"
 
 
 def check_supplier_before_po(
@@ -193,22 +179,25 @@ def calculate_draft_po_details(
     }
 
 
+# POs that are still open: the stock is already on order.
+OPEN_PO_STATUSES = ("draft", "acknowledged", "partially_received")
+
+
 def find_existing_draft_po(
     db: Session,
     sku_id: str,
     warehouse_id: str,
 ):
     """
-    Find an existing draft PO for the same SKU
-    and warehouse.
+    Find an open PO (draft, acknowledged or partially received) for the same SKU and warehouse,
+    so the stock isn't ordered twice.
     """
-
     return (
         db.query(PurchaseOrder)
         .filter(
             PurchaseOrder.sku_id == sku_id,
             PurchaseOrder.warehouse_id == warehouse_id,
-            PurchaseOrder.status == "draft",
+            PurchaseOrder.status.in_(OPEN_PO_STATUSES),
         )
         .order_by(
             PurchaseOrder.created_at.desc()
@@ -261,9 +250,8 @@ def create_draft_po_for_inventory(
         supplier_name=po_details["supplier_name"],
     )
 
-    approval_status = determine_approval_status(
-        expected_cost=po_details["expected_cost"],
-    )
+    # Flow A: every PO is approved by a procurement_manager, which emits inventory.po.approved.
+    approval_status = "pending_vp_approval"
 
     po_status, hold_reason, hold_source = _initial_po_status(db, po_details["supplier_id"])
 
@@ -355,9 +343,8 @@ def create_automatic_draft_po(
         supplier_name=po_details["supplier_name"],
     )
 
-    approval_status = determine_approval_status(
-        expected_cost=po_details["expected_cost"],
-    )
+    # Flow A: every PO is approved by a procurement_manager, which emits inventory.po.approved.
+    approval_status = "pending_vp_approval"
 
     po_status, hold_reason, hold_source = _initial_po_status(db, po_details["supplier_id"])
 
@@ -408,13 +395,51 @@ def create_automatic_draft_po(
     return purchase_order
 
 
+def _record_po_approved(
+    db: Session,
+    purchase_order: PurchaseOrder,
+    approved_by: str,
+) -> None:
+    """Write inventory.po.approved to the outbox. Validates against the contract first."""
+    approved_at = datetime.now(UTC)
+    payload = POApprovedPayload(
+        po_id=purchase_order.po_id,
+        po_number=purchase_order.po_id,
+        supplier_id=purchase_order.supplier_id,
+        warehouse_id=purchase_order.warehouse_id,
+        approval_status="approved",
+        approved_by=approved_by,
+        approved_at=approved_at,
+        total_amount=purchase_order.expected_cost,
+        currency="INR",
+        lines=[
+            POApprovedLineItem(
+                line_number=1,
+                sku_id=purchase_order.sku_id,
+                quantity=purchase_order.quantity,
+                unit_cost=purchase_order.unit_cost,
+                expected_cost=purchase_order.expected_cost,
+            )
+        ],
+    )
+    record_event(
+        db=db,
+        event_type="inventory.po.approved",
+        aggregate_type="purchase_order",
+        aggregate_id=purchase_order.po_id,
+        payload=payload.model_dump(mode="json", exclude_none=True),
+        occurred_at=approved_at.isoformat(),
+    )
+
+
 def approve_purchase_order(
     db: Session,
     po_id: str,
+    approved_by: str,
 ):
     """
-    Approve a purchase order that requires
-    VP Operations approval.
+    Approve a purchase order and emit an inventory.po.approved outbox event
+    atomically within the same database transaction.
     """
 
     purchase_order = (
@@ -446,12 +471,13 @@ def approve_purchase_order(
         != "pending_vp_approval"
     ):
         raise ValueError(
-            "Purchase order does not require VP Operations approval"
+            "Purchase order is not awaiting approval"
         )
 
     purchase_order.approval_status = "approved"
 
     try:
+        _record_po_approved(db, purchase_order, approved_by=approved_by)
         db.commit()
         db.refresh(purchase_order)
 
@@ -465,91 +491,71 @@ def approve_purchase_order(
 def receive_purchase_order(
     db: Session,
     po_id: str,
+    received_by: str,
 ):
     """
-    Receive a purchase order.
+    Receive a purchase order (legacy).
+    Delegates to record_goods_receipt with the PO's full quantity.
     """
-
     purchase_order = (
         db.query(PurchaseOrder)
-        .filter(
-            PurchaseOrder.po_id == po_id
-        )
+        .filter(PurchaseOrder.po_id == po_id)
         .with_for_update()
         .first()
     )
 
     if purchase_order is None:
-        raise LookupError(
-            "Purchase order not found"
-        )
+        raise LookupError("Purchase order not found")
 
     if purchase_order.status == "on_hold":
         raise ValueError(
             f"Cannot receive purchase order: PO is on hold ({purchase_order.hold_reason or 'compliance review'})"
         )
 
-    if purchase_order.status != "draft":
+    if purchase_order.status not in ("draft", "acknowledged"):
         raise ValueError(
-            "Only draft purchase orders can be received"
+            "Only draft or acknowledged purchase orders can be received"
         )
 
-    if (
-        purchase_order.approval_status
-        != "approved"
-    ):
+    if purchase_order.approval_status != "approved":
         raise ValueError(
-            "Purchase order requires VP Operations approval"
+            "Purchase order must be approved by a procurement manager before it can be received"
         )
 
-    inventory = (
-        db.query(Inventory)
-        .filter(
-            Inventory.sku_id
-            == purchase_order.sku_id,
-            Inventory.warehouse_id
-            == purchase_order.warehouse_id,
-        )
-        .with_for_update()
-        .first()
-    )
-
-    if inventory is None:
-        raise ValueError(
-            "Inventory record not found for purchase order"
-        )
-
-    received_quantity = purchase_order.quantity
-
-    if received_quantity <= 0:
+    if purchase_order.quantity <= 0:
         raise ValueError(
             "Purchase order quantity must be greater than zero"
         )
 
-    inventory.quantity_on_hand += received_quantity
-
-    inventory.version += 1
-
-    add_cost_layer(
-        db=db,
-        sku_id=inventory.sku_id,
-        warehouse_id=inventory.warehouse_id,
-        category=inventory.category,
-        quantity=received_quantity,
-        unit_cost=purchase_order.unit_cost,
+    from app.schemas.goods_receipt import GoodsReceiptCreate, GoodsReceiptItemCreate
+    from app.services.goods_receipt_service import (
+        invalidate_receipt_cache,
+        record_goods_receipt,
     )
 
-    purchase_order.status = "received"
+    receipt_data = GoodsReceiptCreate(
+        po_id=purchase_order.po_id,
+        warehouse_id=purchase_order.warehouse_id,
+        items=[
+            GoodsReceiptItemCreate(
+                sku_id=purchase_order.sku_id,
+                quantity_received=purchase_order.quantity,
+                unit_cost=purchase_order.unit_cost,
+            )
+        ],
+        notes="Legacy PO receive endpoint",
+    )
+
+    receipt = record_goods_receipt(
+        db=db,
+        data=receipt_data,
+        received_by=received_by,
+    )
 
     try:
         db.commit()
         db.refresh(purchase_order)
-        invalidate_inventory_cache(
-            inventory.sku_id,
-            inventory.warehouse_id,
-            version=inventory.version,
-        )
-
+        invalidate_receipt_cache(db, receipt)
     except Exception:
         db.rollback()
         raise

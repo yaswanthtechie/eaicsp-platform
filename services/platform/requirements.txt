@@ -10,3 +10,5 @@ uvicorn==0.51.0
 SQLAlchemy==2.0.51
 redis==7.1.0
 kafka-python==3.0.11
+# PostgreSQL driver
+psycopg2-binary>=2.9,<3

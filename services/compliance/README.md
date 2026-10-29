@@ -1081,14 +1081,15 @@ The service will load sanctions data during application startup.
 Basic service health endpoint:
 
 ```text
-GET /root
+GET /health
 ```
 
 Example response:
 
 ```json
 {
-  "service": "compliance"
+ "status":"ok",
+  "service": "compliance-service"
 }
 ```
 

@@ -2292,6 +2292,16 @@ Use local dev values for the token and password; never commit `.env`. Run `down 
 - Real run (shared stack, `infra/docker-compose.yml`: Kafka, InfluxDB bucket `telemetry`, `anomaly-simulator`, `anomaly-detector`): 18000 rows stored (12 sensors x 1500), 131 events on `iot.anomaly.detected`, 0 invalid against `contracts/events/iot.anomaly.detected.v1.json`, all six seed warehouses present. The detector ran without `--flush-open-episodes`, so an episode still open at the end of a sensor's stream is not in this count.
 - The sensor count per warehouse (2) and the sensor id format (`WH-XXX-NN-S<n>`) are my choice; proposed for the blueprint ID table.
 
+# Round 15 - On-demand demo episode (#233)
+
+- `make demo-anomaly` (from the repo root; runs `python -m src.demo_anomaly` in `ml-services/anomaly-detection`) injects one anomaly episode on demand and measures how long the `iot.anomaly.detected` event takes to arrive. Where make is not installed, run `cd ml-services/anomaly-detection && python -m src.demo_anomaly`.
+- The episode is 8 flagged readings 10 seconds apart plus one closing reading stamped 16 minutes after the last flag (sensor time), so the detector closes the episode at once. A real live episode closes only after the 15-minute quiet gap.
+- "Episode start" = the moment the first anomalous reading is handed to Kafka. The script prints the time until the event for that episode arrives, and exits non-zero above 5 seconds.
+- The consumer builds the SHAP explainer at startup (`warm_up`), so the first event is not delayed.
+- Each sensor can be used again only about 17 minutes after its previous demo episode, because the detector skips readings that are not later than the last one it saw. The script remembers this in `output/demo_state.json` and picks a free sensor; `--sensor` overrides it.
+- Requires the shared stack up, the topics `iot.sensor.reading` and `iot.anomaly.detected` created, and `anomaly-detector` running (log shows `consumer ready`). Kafka host address: `localhost:29092`.
+- Measured delivery time, 5 runs on 5 different sensors: 0.81, 0.72, 0.73, 0.75 and 0.66 seconds after episode start (all within the 5-second target). About 0.55 s of each is the Kafka publish of the 9 readings.
+
 # Future Improvements
 
 Potential future enhancements include:
@@ -2414,7 +2424,7 @@ The validated continuous-lifecycle results are:
 ## Test suite
 
 ```text
-689 passed
+694 passed
 3 warnings
 0 failures
 ```

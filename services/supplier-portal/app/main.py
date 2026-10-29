@@ -4,6 +4,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.services.kafka_consumer_runner import kafka_consumer_runner
+from app.services.inventory_goods_received_runner import (
+    inventory_goods_received_runner,
+)
 from app.services.inv_po_approved_consumer_runner import (
     inv_po_approved_consumer_runner,
 )
@@ -46,8 +49,15 @@ from app.core.config import settings
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """
+    Start and stop Supplier Portal Kafka consumers
+    with the FastAPI application lifecycle.
+    """
     if settings.KAFKA_ENABLED:
         kafka_consumer_runner.start()
+
+    if settings.GOODS_RECEIVED_KAFKA_ENABLED:
+        inventory_goods_received_runner.start()
 
     if settings.PO_KAFKA_ENABLED:
         inv_po_approved_consumer_runner.start()
@@ -75,10 +85,11 @@ async def lifespan(app: FastAPI):
 
         if settings.ETA_KAFKA_ENABLED:
             shipment_eta_consumer_runner.stop()
+        if settings.GOODS_RECEIVED_KAFKA_ENABLED:
+            inventory_goods_received_runner.stop()
 
         if settings.KAFKA_ENABLED:
             kafka_consumer_runner.stop()
-
 
 app = FastAPI(
     title="Supplier Portal Service",
@@ -149,7 +160,6 @@ app.include_router(
     tags=["Authentication"],
 )
 
-
 # Goods Receipts
 app.include_router(
     goods_receipt_router,
@@ -215,6 +225,9 @@ def health():
         "shipment_eta_consumer_alive": (
             shipment_eta_consumer_runner.is_alive()
             if settings.ETA_KAFKA_ENABLED
+        "goods_received_consumer_alive": (
+            inventory_goods_received_runner.is_alive()
+            if settings.GOODS_RECEIVED_KAFKA_ENABLED
             else False
         ),
     }
