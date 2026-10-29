@@ -116,16 +116,6 @@ def ensure_schema(client) -> None:
             f"SELECT * FROM {db}.{_target(mart)} FINAL"
         )
 
-    client.command(f"""
-        CREATE VIEW IF NOT EXISTS {db}.kpi_stockouts_by_warehouse AS
-        SELECT
-            warehouse_id,
-            countIf(quantity_on_hand <= 0) AS stockout_sku_count
-        FROM {db}.mart_inventory_position
-        GROUP BY warehouse_id
-    """)
-
-
 
 def _normalise(value):
     if isinstance(value, Decimal):

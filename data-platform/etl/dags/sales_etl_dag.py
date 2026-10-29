@@ -588,9 +588,32 @@ def dbt_build_task(**context):
         )
 def clickhouse_sync_task(**context):
     from etl.src.clickhouse_sink import sync_marts
+    from etl.src.kpi_metrics import refresh_kpi_metrics
+    import importlib.util
+    import os
+
     result = sync_marts()
+
+    # Load the ClickHouse helpers from the existing DDL module.
+    ddl_path = os.path.join(
+        os.path.dirname(__file__), "..", "clickhouse", "apply_ddl.py"
+    )
+    spec = importlib.util.spec_from_file_location("clickhouse_apply_ddl", ddl_path)
+    ddl = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ddl)
+
+    client = None
+    try:
+        client = ddl._client()
+        kpi_rows = refresh_kpi_metrics(client, ddl._database())
+    finally:
+        if client is not None:
+            client.close()
+
+    result = dict(result) if isinstance(result, dict) else {"sync_result": result}
+    result["kpi_metrics_rows"] = kpi_rows
     context["ti"].xcom_push(key="clickhouse_result", value=result)
-    logger.info("ClickHouse sync result: %s", result)
+    logger.info("ClickHouse sync and KPI refresh result: %s", result)
     return result
 
 
