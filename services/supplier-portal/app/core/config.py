@@ -73,10 +73,14 @@ class Settings(BaseSettings):
     KAFKA_RETRY_BACKOFF_SECONDS: float = 1.0
     KAFKA_MAX_RETRIES: int = 5
 
-    # --------------------------------------------------------
-    # Durable Compliance State (R14)
-    # --------------------------------------------------------
+    # Inventory Goods Receipt Consumer (R15)
+    # Separate flag from the Compliance consumer's KAFKA_ENABLED.
+    GOODS_RECEIVED_KAFKA_ENABLED: bool = True
+    KAFKA_GOODS_RECEIVED_TOPIC: str = "inventory.goods.received"
+    KAFKA_GOODS_RECEIVED_CONSUMER_GROUP: str = "supplier-portal-goods-received"
+    KAFKA_GOODS_RECEIVED_DLQ_TOPIC: str = "inventory.goods.received.dlq"
 
+    # Durable Compliance State
     COMPLIANCE_DB_PATH: str = "data/compliance_state.db"
 
     # --------------------------------------------------------
