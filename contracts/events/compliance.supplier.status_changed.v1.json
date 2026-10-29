@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://eaicsp.internal/contracts/events/compliance.supplier.status_changed.v1.json",
+  "title": "compliance.supplier.status_changed",
+  "description": "Emitted by the Compliance service when a supplier's internal screening status is updated.",
+  "type": "object",
+  "allOf": [
+    { "$ref": "envelope.v1.json" },
+    {
+      "properties": {
+        "event_type": { "const": "compliance.supplier.status_changed" },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "supplier_name": {
+              "type": "string",
+              "description": "The compliance event identifies a supplier by name; it has no supplier_id."
+            },
+            "country": {
+              "type": ["string", "null"]
+            },
+            "old_status": {
+              "type": "string",
+              "enum": ["CLEAR", "BLOCK", "REVIEW"]
+            },
+            "new_status": {
+              "type": "string",
+              "enum": ["CLEAR", "BLOCK", "REVIEW"]
+            },
+            "matched_list": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "reason": {
+              "type": "string",
+              "description": "Context for the status change (e.g., sanctions match)."
+            },
+            "screening_run_id": {
+              "type": "string"
+            }
+          },
+          "required": ["supplier_name", "old_status", "new_status", "matched_list", "reason", "screening_run_id"],
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

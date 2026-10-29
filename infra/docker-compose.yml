@@ -1,4 +1,3 @@
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -376,6 +375,51 @@ services:
       start_period: 30s
     networks:
       - shared
+
+  anomaly-detector:
+    build:
+      context: ..
+      dockerfile: ml-services/anomaly-detection/Dockerfile
+    command: ["python", "-m", "src.stream_consumer"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_TOKEN: ${INFLUXDB_ADMIN_TOKEN}
+      INFLUXDB_ORG: ${INFLUXDB_ORG}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET}
+    volumes:
+      - ../ml-services/anomaly-detection/models:/app/ml-services/anomaly-detection/models:ro
+    depends_on:
+      kafka:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+    restart: on-failure
+    networks:
+      - shared
+
+  anomaly-simulator:
+    build:
+      context: ..
+      dockerfile: ml-services/anomaly-detection/Dockerfile
+    command:
+      - python
+      - -m
+      - src.stream_simulator
+      - --publish
+      - --n-per-sensor
+      - "1500"
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+      anomaly-detector:
+        condition: service_started
+    restart: on-failure
+    networks:
+      - shared
+
 networks:
   shared:
 

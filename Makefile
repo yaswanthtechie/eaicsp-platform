@@ -5,7 +5,7 @@ LOW_MEMORY_COMPOSE = $(COMPOSE) -f infra/docker-compose.low-memory.yml
 STORES = postgres kafka redis clickhouse mongodb minio influxdb mlflow
 APP_SERVICES = platform compliance inventory logistics supplier-portal api-gateway
 
-.PHONY: up down up-low-memory down-low-memory buckets seed e2e logs ps reset reset-data
+.PHONY: up down up-low-memory down-low-memory buckets seed e2e demo-anomaly logs ps reset reset-data
 
 # Start infrastructure, create buckets, then start applications.
 up:
@@ -28,6 +28,7 @@ buckets:
 	$(COMPOSE) run --rm minio-init-models
 	$(COMPOSE) run --rm minio-init-reports
 
+# Generate shared seed data, then run any service-owned loaders.
 seed:
 	cd data-platform && python -m seed.generate --out out/
 	python scripts/run_seed_loaders.py
@@ -49,6 +50,7 @@ reset-data:
 	$(MAKE) up
 
 # Placeholder until the cross-service E2E suite exists.
+# Exit non-zero so an unimplemented suite is never reported as passing.
 e2e:
 	@echo "Cross-service E2E suite is not implemented yet."
 	@exit 1
