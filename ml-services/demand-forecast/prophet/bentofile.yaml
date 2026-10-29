@@ -1,4 +1,4 @@
-service: "src.bentoml_service:ForecastService"
+﻿service: "src.bentoml_service:ForecastService"
 
 include:
   - "src/**"
@@ -8,6 +8,7 @@ python:
     - bentoml==1.4.39
     - mlflow==3.15.1
     - fastapi==0.139.1
+    - httpx
     - prophet
     - pandas
     - numpy

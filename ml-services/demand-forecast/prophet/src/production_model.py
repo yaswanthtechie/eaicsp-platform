@@ -1,4 +1,4 @@
-﻿"""Load and invoke the registered MLflow Production forecast model."""
+"""Load and invoke the registered MLflow Production forecast model."""
 
 import os
 
@@ -45,7 +45,7 @@ class ProductionForecastModel:
             )
 
         selected = max(versions, key=lambda item: int(item.version))
-        model_uri = f"models:/{self.model_name}/{self.stage}"
+        model_uri = f"models:/{self.model_name}/{selected.version}"
 
         # Only mark the model loaded after MLflow successfully loads it.
         loaded_model = mlflow.pyfunc.load_model(model_uri)

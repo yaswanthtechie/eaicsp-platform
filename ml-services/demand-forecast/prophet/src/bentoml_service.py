@@ -1,4 +1,4 @@
-"""BentoML service for the A2 daily demand forecast contract."""
+﻿"""BentoML service for the A2 daily demand forecast contract."""
 
 import time
 from datetime import datetime, timezone
@@ -7,11 +7,14 @@ import bentoml
 from fastapi import FastAPI, Header, HTTPException, Path, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.production_model import ProductionForecastModel
+from src.errors import ContractError, register_error_handlers
 from src.platform_auth import verify_platform_api_key
+from src.production_model import ProductionForecastModel
 
+RELOAD_INTERVAL_SECONDS = 30
 
 app = FastAPI(title="Demand Forecast Serving API", version="1.0.0")
+register_error_handlers(app)
 
 
 class ForecastPoint(BaseModel):
@@ -46,19 +49,34 @@ class ForecastService:
         self.total_latency = 0.0
         self.error_count = 0
         self.load_error = None
+        self.last_load_attempt = 0.0
 
+        self.try_load(force=True)
+
+        app.state.forecast_service = self
+
+    def try_load(self, force: bool = False) -> None:
+        """Load the Production model if it isn't loaded yet (rate-limited)."""
+        if self.production_model.is_loaded:
+            return
+
+        now = time.monotonic()
+        if not force and now - self.last_load_attempt < RELOAD_INTERVAL_SECONDS:
+            return
+
+        self.last_load_attempt = now
         try:
             self.production_model.load()
+            self.load_error = None
         except Exception as exc:
             self.load_error = str(exc)
-
-        # The mounted FastAPI handlers use this same service instance.
-        app.state.forecast_service = self
 
 
 @app.get("/health")
 def health(request: Request) -> dict:
     service = request.app.state.forecast_service
+    service.try_load()
+
     if not service.production_model.is_loaded:
         raise HTTPException(
             status_code=503,
@@ -79,8 +97,14 @@ def health(request: Request) -> dict:
 @app.get("/model/readyz")
 def readiness(request: Request) -> dict:
     service = request.app.state.forecast_service
+    service.try_load()
+
     if not service.production_model.is_loaded:
-        raise HTTPException(status_code=503, detail="Production model is unavailable.")
+        raise HTTPException(
+            status_code=503,
+            detail="Production model is unavailable.",
+        )
+
     return {"status": "ready"}
 
 
@@ -92,6 +116,7 @@ def service_metrics(request: Request) -> dict:
         if service.total_predictions
         else 0.0
     )
+
     return {
         "model_version": service.production_model.model_version,
         "model_loaded": service.production_model.is_loaded,
@@ -110,13 +135,20 @@ def forecast(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> ForecastResponse:
     verify_platform_api_key(x_api_key)
+
     service = request.app.state.forecast_service
+    service.try_load()
 
     if not service.production_model.is_loaded:
         service.error_count += 1
-        raise HTTPException(status_code=503, detail="Production forecast model is unavailable.")
+        raise ContractError(
+            503,
+            "MODEL_UNAVAILABLE",
+            "Forecast model is not loaded",
+        )
 
     start = time.perf_counter()
+
     try:
         points = service.production_model.predict(
             sku_id=sku_id,
@@ -141,5 +173,8 @@ def forecast(
         raise
     except Exception as exc:
         service.error_count += 1
-        raise HTTPException(status_code=503, detail="Forecast generation failed.") from exc
-
+        raise ContractError(
+            503,
+            "MODEL_UNAVAILABLE",
+            "Forecast generation failed",
+        ) from exc
