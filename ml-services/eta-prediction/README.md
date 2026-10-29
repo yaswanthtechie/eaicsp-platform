@@ -19,25 +19,28 @@ validation.
 
 - Rebuilt the ETA training feature set using the shared `eaicsp-feature-lib`
   package.
-- Added historical carrier, route, carrier-route, and departure-season
-  features using strict as-of historical joins.
-- Ensured historical ETA features only use information available before the
-  shipment departure time.
-- Added Round 14 leakage-protection tests.
-- Rebuilt and evaluated the Round 14 model using a chronological train/test
-  split.
-- Compared the inherited model and Round 14 model on the same chronological
-  test period.
-- Investigated the inherited model after it achieved lower MAE.
-- Found no evidence of direct future-information leakage in the inspected
-  inherited feature-generation path.
-- Logged both inherited and Round 14 model runs to MLflow.
-- Added SHAP explanations for Round 14 predictions.
-- Preserved the existing public prediction output contract:
-  `{"eta_days", "confidence_low", "confidence_high"}`.
+...
 - Added tests covering Round 14 feature usage, as-of leakage protection,
   same-test-period evaluation, and SHAP explanations.
-- Full test suite passes with `123 passed`.
+- Full test suite passes with `187 passed`.
+
+## R15-H2: seed supplier -> warehouse ETA
+
+Separate model (`eta_seed_routes`) for seed shipments. R14 and `/predict` are unchanged.
+
+- **Train:** `python train_h2.py` (own MLflow run `r15_h2_seed_routes`, registered as `eta_seed_routes` with a signature)
+- **Artifacts:** `models/eta_seed_routes_pipeline.joblib`, `models/eta_seed_routes_interval.joblib`
+- **Serve:** `src/h2_predict.predict_h2(payload, routes)`, where `routes = load_seed_routes(<seed dir>)`
+- **Target:** days from carrier hand-off (`order_delivered_carrier_date`) to delivery, matching `eta_days` from `dispatched_at` in the contract
+- **Features:** `dispatch_month`, `dispatch_day_of_week`, `distance_km` (haversine between seed supplier and warehouse)
+- **Not used:** raw lat/lng, weight, volume, freight, category, route/carrier history, carrier (Olist has no carrier data)
+
+| Metric (Olist chronological test set) | Result |
+|---|---:|
+| MAE | 3.3412 days |
+| Interval coverage (nominal 80%) | 91.60% |
+
+Limitation: predictions for Indian seed routes assume Olist (Brazil) delivery behaviour for the same distance. Validate once real seed shipment outcomes exist.
 
 ## Round 14 Evaluation
 
@@ -194,74 +197,43 @@ time.
 
 The ETA prediction service is organized as follows:
 
-```text
-ml-services/eta-prediction/
-  │-- main.py
-  │-- requirements.txt
-  │-- README.md
-  │
-  ├── data/
-  │   ├── raw/
-  │   │   ├── olist_orders_dataset.csv
-  │   │   ├── olist_order_items_dataset.csv
-  │   │   ├── olist_customers_dataset.csv
-  │   │   ├── olist_sellers_dataset.csv
-  │   │   ├── olist_products_dataset.csv
-  │   │   ├── olist_geolocation_dataset.csv
-  │   │   └── product_category_name_translation.csv
-  │   │
-  │   └── processed/
-  │       └── eta_features.csv
-  │
-  ├── models/
-  │   ├── eta_pipeline.joblib
-  │   ├── eta_prediction_interval.joblib
-  │   ├── eta_seed_routes_pipeline.joblib
-  │   └── eta_seed_routes_interval.joblib
-  │
-  ├── src/
-  │   ├── __init__.py
-  │   ├── config.py
-  │   ├── data.py
-  │   ├── features.py
-  │   ├── preprocess.py
-  │   ├── split.py
-  │   ├── pipeline.py
-  │   ├── train.py
-  │   ├── evaluate.py
-  │   ├── predict.py
-  │   ├── model_loader.py
-  │   ├── xg_boost_model.py
-  │   ├── shap_explainer.py
-  │   ├── mlflow_tracking.py
-  │   ├── route_insights.py
-  │   └── paths.py
-  │
-  ├── dashboard/
-  │   ├── __init__.py
-  │   ├── app.py
-  │   ├── config.py
-  │   └── services/
-  │       ├── __init__.py
-  │       ├── eta_service.py
-  │       └── anomaly_service.py
-  │
-  ├── docs/
-  │   └── ETA_REPREDICTION_CONTRACT.md
-  │
-  └── tests/
-      ├── conftest.py
-      ├── test_api.py
-      ├── test_dashboard_services.py
-      ├── test_evaluate.py
-      ├── test_features.py
-      ├── test_mlflow_tracking.py
-      ├── test_predict.py
-      ├── test_preprocess.py
-      ├── test_route_insights.py
-      ├── test_shap_explainer.py
-      ├── test_split.py
-      └── test_train.py
+    eaicsp-platfrom/
+    ├── main.py
+    ├── requirements.txt
+    ├── README.md
+    ├── src/
+    │   ├── config.py
+    │   ├── data.py
+    │   ├── features.py
+    │   ├── preprocess.py
+    │   ├── split.py
+    │   ├── pipeline.py
+    │   ├── xg_boost_model.py
+    │   ├── train.py
+    │   ├── evaluate.py
+    │   ├── model_loader.py
+    │   ├── predict.py
+    │   ├── shap_explainer.py
+    │   ├── mlflow_tracking.py
+    │   └── paths.py
+    ├── tests/
+    │   ├── conftest.py
+    │   ├── test_api.py
+    │   ├── test_dashboard_services.py
+    │   ├── test_evaluate.py
+    │   ├── test_features.py
+    │   ├── test_mlflow_tracking.py
+    │   ├── test_predict.py
+    │   ├── test_preprocess.py
+    │   ├── test_route_insights.py
+    │   ├── test_shap_explainer.py
+    │   ├── test_split.py
+    │   └── test_train.py
+    ├── artifacts/
+    │   ├── eta_model.joblib
+    │   └── calibration_model.joblib
+    └── data/
+        └── olist/
 
 ## Shared Feature Engineering Library
 
@@ -502,35 +474,8 @@ The model therefore uses:
 - historical route performance
 - historical seasonal performance
 
-The raw purchase timestamp is used for time-derived features and chronological splitting, but is not itself a model feature.
-
-### R15-H2 Seed-Route ETA Features
-
-The R15-H2 model uses only features that are available at shipment dispatch time.
-
-| Feature | Description |
-|---|---|
-| `purchase_year` | Year extracted from the dispatch/purchase timestamp |
-| `purchase_month` | Month extracted from the dispatch/purchase timestamp |
-| `purchase_day_of_week` | Day of week extracted from the dispatch/purchase timestamp |
-| `purchase_hour` | Hour extracted from the dispatch/purchase timestamp |
-| `distance_km` | Haversine distance from supplier location to destination warehouse |
-
-For seed-route serving, the `purchase_*` features are derived from the shipment's `dispatched_at` timestamp.
-
-The model intentionally excludes features that are unavailable or unreliable at prediction time for seed shipments, including:
-
-- Raw latitude/longitude
-- Weight
-- Volume
-- Freight value
-- Item count
-- Product category
-- Historical route features
-- Historical carrier features
-- Carrier as a model feature
-
-The seed route table contains all `60 × 6 = 360` supplier-to-warehouse combinations. Routes are resolved using canonical supplier and warehouse IDs rather than city names.
+The raw purchase timestamp is used for time-derived features and chronological
+splitting, but is not itself a model feature.
 
 # Feature Engineering
 
@@ -881,24 +826,6 @@ The final production artifact is:
 models/eta_pipeline.joblib
 ```
 
-## R15-H2 Seed Supplier-to-Warehouse Routes
-
-The R15-H2 model supports canonical supplier-to-warehouse routes from the seed dataset.
-
-The route table is generated from `suppliers.csv` and `warehouses.csv`.
-
-There are 60 suppliers and 6 warehouses:
-
-60 × 6 = 360 routes
-
-Routes are identified using canonical `supplier_id` and `destination_warehouse` IDs rather than city names.
-
-Unknown supplier or warehouse IDs are rejected with a clear error.
-
-Each route receives a `distance_km` calculated using the Haversine formula.
-
-All 360 seed routes were validated against the trained H2 model and produced non-negative ETA values with valid confidence intervals.
-
 ---
 
 # Honest Baseline
@@ -975,28 +902,11 @@ Round 14 models directly comparable.
 ## Inherited Model
 
 The inherited model achieved:
+
 | Metric | Result |
 |---|---:|
 | MAE | `4.3012` days |
 | Interval coverage | `94.46%` |
-
-### R15-H2 Evaluation
-
-The H2 model is trained on the Olist `delivery_days` target using a leak-free chronological split.
-
-| Metric | Result |
-|---|---:|
-| MAE | `4.5554` days |
-| Interval coverage | `95.21%` |
-| Training rows | `76,792` |
-| Test rows | `19,199` |
-| Model features | `5` |
-
-The higher MAE compared with R14 is expected because H2 intentionally removes features that are unavailable for seed shipments.
-
-Seed-route predictions assume Brazilian Olist delivery behavior for comparable geographic distances. This assumption should be validated when real seed shipment outcomes become available.
-
-## Important Interpretation Caveat:
 
 ## Round 14 Rebuilt Model
 
@@ -1348,32 +1258,6 @@ The run records:
 
 ### Round 14 Rebuilt Model
 
-### R15-H2 MLflow
-
-The H2 model is registered in MLflow as `eta_seed_routes`.
-
-The registered model includes an input/output signature and input example.
-
-H2 MLflow parameters and tags include:
-
-- `training_data=olist`
-- `serving_routes=seed`
-- `carrier_used_as_model_feature=false`
-- `feature_set=h2_seed_routes`
-- `feature_count=5`
-
-The H2 run records:
-
-- `mae`
-- `interval_coverage`
-
-H2 model artifacts:
-
-- `models/eta_seed_routes_pipeline.joblib`
-- `models/eta_seed_routes_interval.joblib`
-
----
-
 The Round 14 model is rebuilt using the shared `eaicsp-feature-lib` package
 and the historical ETA feature set.
 
@@ -1509,35 +1393,6 @@ models on different test periods.
 The SHAP explanation module has dedicated tests covering explanation
 generation and the expected feature/prediction behavior.
 
-### R15-H2 Tests
-
-The H2 implementation includes tests for:
-
-- H2 feature selection and validation
-- H2 preprocessing
-- H2 pipeline creation
-- H2 model training
-- H2 evaluation
-- Seed route generation
-- 60 × 6 = 360 route validation
-- Haversine distance calculation
-- Unknown supplier rejection
-- Unknown warehouse rejection
-- Seed prediction validation
-- Non-negative ETA and confidence bounds
-- MLflow logging and model registration
-
-The complete test suite passes:
-
-143 passed
-
-All 360 seed routes were also validated against the trained H2 model:
-
-Routes tested : 360  
-ALL 360 SEED ROUTES PASSED
-
----
-
 ## Individual Test Modules
 
 Run individual test modules when debugging a specific area:
@@ -1557,6 +1412,7 @@ Run individual test modules when debugging a specific area:
     python -m pytest tests/test_mlflow_tracking.py -v
 
     python -m pytest tests/test_shap_explainer.py -v
+
 # Module Guide
 
 | Module | Responsibility |

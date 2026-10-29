@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
@@ -215,3 +217,18 @@ def get_seed_route(
         )
 
     return matches.iloc[0].copy()
+def load_seed_routes(seed_dir):
+    """
+    Build the route table from a seed folder.
+
+    seed_dir holds suppliers.csv and warehouses.csv: either the
+    committed data-platform/seed/samples, or the full output of
+    `python -m seed.generate --out <dir>` (60 x 6 = 360 routes).
+    """
+
+    seed_dir = Path(seed_dir)
+
+    return build_seed_route_table(
+        pd.read_csv(seed_dir / "suppliers.csv"),
+        pd.read_csv(seed_dir / "warehouses.csv"),
+    )

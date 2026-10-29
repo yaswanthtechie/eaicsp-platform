@@ -11,26 +11,22 @@ PROCESSED_DATA_DIR = DATA_DIR / "processed"
 
 # Model artifacts
 MODELS_DIR = PROJECT_ROOT / "models"
-
-# R14
 MODEL_PATH = MODELS_DIR / "eta_pipeline.joblib"
 
-# R15-H2 seed-route model
-H2_MODEL_PATH = (
-    MODELS_DIR / "eta_seed_routes_pipeline.joblib"
+R14_MODEL_PATH = MODELS_DIR / "eta_pipeline_r14.joblib"
+R14_CALIBRATION_MODEL_PATH = (
+    MODELS_DIR / "eta_prediction_interval_r14.joblib"
 )
 
+# R15-H2 seed-route model: its own pair, never mixed with the files above
+H2_MODEL_PATH = MODELS_DIR / "eta_seed_routes_pipeline.joblib"
 H2_CALIBRATION_MODEL_PATH = (
     MODELS_DIR / "eta_seed_routes_interval.joblib"
 )
 
-# R14 candidate/promotion artifacts
-R14_MODEL_PATH = (
-    MODELS_DIR / "eta_pipeline_r14.joblib"
-)
-
-R14_CALIBRATION_MODEL_PATH = (
-    MODELS_DIR / "eta_prediction_interval_r14.joblib"
+# Committed seed samples (data-platform/seed/samples)
+SEED_SAMPLES_DIR = (
+    PROJECT_ROOT.parents[1] / "data-platform" / "seed" / "samples"
 )
 
 # MLflow

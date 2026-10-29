@@ -7,7 +7,6 @@ from sklearn.metrics import (
 
 from .preprocess import (
     MODEL_FEATURES,
-    H2_MODEL_FEATURES,
     TRAINING_MODEL_FEATURES,
 )
 
@@ -426,106 +425,6 @@ def evaluate_model(
         ),
     }
 
-
-def evaluate_h2_model(
-    model,
-    test,
-    calibration,
-):
-    """
-    Evaluate the H2 ETA model on the chronological Olist test set.
-
-    H2 evaluation uses:
-    - H2 prediction-time features only
-    - delivery_days as the target
-    - calibrated empirical prediction intervals
-
-    Returns:
-        mae
-        interval_coverage
-    """
-
-    X_test = test[
-        H2_MODEL_FEATURES
-    ].copy()
-
-    y_test = test[
-        TARGET_COLUMN
-    ].to_numpy(
-        dtype=float
-    )
-
-    predictions = np.asarray(
-        model.predict(X_test),
-        dtype=float,
-    )
-
-    if not np.isfinite(
-        predictions
-    ).all():
-        raise ValueError(
-            "H2 model produced non-finite predictions."
-        )
-
-    if len(predictions) != len(y_test):
-        raise ValueError(
-            "H2 prediction count does not match test target count."
-        )
-
-    residual_lower = float(
-        calibration["residual_lower"]
-    )
-
-    residual_upper = float(
-        calibration["residual_upper"]
-    )
-
-    if residual_lower > residual_upper:
-        raise ValueError(
-            "H2 prediction interval calibration is invalid: "
-            "lower residual exceeds upper residual."
-        )
-
-    confidence_low = np.maximum(
-        0.0,
-        predictions + residual_lower,
-    )
-
-    confidence_high = np.maximum(
-        confidence_low,
-        predictions + residual_upper,
-    )
-
-    coverage = np.mean(
-        (
-            y_test >= confidence_low
-        )
-        & (
-            y_test <= confidence_high
-        )
-    )
-
-    mae = mean_absolute_error(
-        y_test,
-        predictions,
-    )
-
-    if not np.isfinite(mae):
-        raise ValueError(
-            "H2 MAE is non-finite."
-        )
-
-    if not np.isfinite(coverage):
-        raise ValueError(
-            "H2 interval coverage is non-finite."
-        )
-
-    return {
-        "mae": float(mae),
-        "interval_coverage": float(coverage),
-    }
-
-
 def compare_models(
     y_true,
     inherited_predictions,
@@ -540,16 +439,11 @@ def compare_models(
     prediction-interval width for both models.
     """
 
-    y_true = np.asarray(
-        y_true,
-        dtype=float,
-    )
-
+    y_true = np.asarray(y_true, dtype=float)
     inherited_predictions = np.asarray(
         inherited_predictions,
         dtype=float,
     )
-
     r14_predictions = np.asarray(
         r14_predictions,
         dtype=float,
@@ -563,7 +457,6 @@ def compare_models(
             predictions
             + calibration["residual_lower"]
         )
-
         upper = (
             predictions
             + calibration["residual_upper"]

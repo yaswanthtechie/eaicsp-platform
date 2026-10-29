@@ -585,40 +585,6 @@ def build_eta_features(datasets):
 
     return features
 
-H2_MODEL_FEATURES = [
-    "purchase_year",
-    "purchase_month",
-    "purchase_day_of_week",
-    "purchase_hour",
-    "distance_km",
-]
-
-
-def build_h2_eta_features(datasets):
-    """
-    Build the leak-free H2 ETA training feature dataset.
-
-    H2 uses only features that will be available when a seed
-    shipment is dispatched:
-    - dispatch/purchase date-derived features
-    - Haversine distance between origin and destination
-
-    Raw coordinates, shipment attributes, product category,
-    carrier, and historical route/carrier features are intentionally
-    excluded.
-    """
-    # Reuse the existing Olist feature construction so that
-    # target creation and distance calculation remain consistent
-    # with the existing ETA implementation.
-    features = build_eta_features(datasets)
-
-    h2_columns = [
-        "order_id",
-        *H2_MODEL_FEATURES,
-        TARGET_COLUMN,
-    ]
-
-    return features[h2_columns].copy()
 
 def save_eta_features(features):
     """

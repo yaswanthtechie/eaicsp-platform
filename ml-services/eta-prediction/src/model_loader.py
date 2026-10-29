@@ -3,20 +3,12 @@ import math
 
 import pandas as pd
 from .errors import InvalidPredictionRequest, LocationNotFound
-from .paths import (
-    MODEL_PATH,
-    RAW_DATA_DIR,
-    H2_MODEL_PATH,
-    H2_CALIBRATION_MODEL_PATH,
-)
+from .paths import MODEL_PATH, RAW_DATA_DIR
 
 
 _model = None
 _prediction_interval = None
 _city_coordinates = None
-
-_h2_model = None
-_h2_prediction_interval = None
 
 
 # ---------------------------------------------------------
@@ -101,41 +93,6 @@ def load_prediction_interval():
 
     return _prediction_interval
 
-def load_h2_model():
-    """
-    Load the H2 seed-route ETA model lazily.
-    """
-    global _h2_model
-
-    if _h2_model is None:
-        if not H2_MODEL_PATH.exists():
-            raise FileNotFoundError(
-                f"H2 model not found: {H2_MODEL_PATH}"
-            )
-
-        _h2_model = joblib.load(H2_MODEL_PATH)
-
-    return _h2_model
-
-
-def load_h2_prediction_interval():
-    """
-    Load the H2 seed-route prediction interval calibration lazily.
-    """
-    global _h2_prediction_interval
-
-    if _h2_prediction_interval is None:
-        if not H2_CALIBRATION_MODEL_PATH.exists():
-            raise FileNotFoundError(
-                "H2 prediction interval calibration not found: "
-                f"{H2_CALIBRATION_MODEL_PATH}"
-            )
-
-        _h2_prediction_interval = joblib.load(
-            H2_CALIBRATION_MODEL_PATH
-        )
-
-    return _h2_prediction_interval
 
 def _normalize_city(city):
     """

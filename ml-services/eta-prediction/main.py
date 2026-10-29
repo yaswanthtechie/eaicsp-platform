@@ -3,7 +3,6 @@ import joblib
 import mlflow
 import numpy as np
 from pathlib import Path
-
 from src.data import load_dataset
 from src.route_insights import (
     build_route_insights,
@@ -13,28 +12,19 @@ from src.route_insights import (
 from src.features import (
     build_eta_features,
     save_eta_features,
-    build_h2_eta_features,
-    H2_MODEL_FEATURES,
 )
 from src.preprocess import (
     TARGET_COLUMN,
     MODEL_FEATURES,
     TRAINING_MODEL_FEATURES,
     preprocess_features,
-    preprocess_h2_features,
 )
 from src.split import chronological_split
 from src.train import (
-    train_h2_model,
     train_comparison_model,
     check_production_calibration,
-    H2_CALIBRATION_MODEL_PATH,
 )
-from src.evaluate import (
-    evaluate_model,
-    evaluate_h2_model,
-    compare_models,
-)
+from src.evaluate import compare_models, evaluate_model
 from src.shap_explainer import explain_predictions
 from src.paths import (
     PROJECT_ROOT,
@@ -42,17 +32,15 @@ from src.paths import (
     R14_MODEL_PATH,
     R14_CALIBRATION_MODEL_PATH,
 )
+
 from src.mlflow_tracking import (
     setup_mlflow,
     start_run,
     log_parameters,
     log_metrics,
-    log_h2_metrics,
     log_dataset_metadata,
     log_calibration_metadata,
     log_model,
-    log_h2_parameters,
-    log_h2_model,
 )
 
 
@@ -186,7 +174,6 @@ def main():
     inherited_predictions = inherited_model.predict(
         inherited_X_test
     )
-
     # ---------------------------------------------------------
     # 14. Evaluate Round 14 model against naive baseline
     # ---------------------------------------------------------
@@ -254,7 +241,6 @@ def main():
         r14_predictions=r14_predictions,
         r14_calibration=calibration,
     )
-
     # ---------------------------------------------------------
     # 15c-2. Log inherited model as a separate MLflow run
     #
@@ -314,7 +300,6 @@ def main():
         print(
             f"  {inherited_model_info.model_uri}"
         )
-
     inherited_mae = comparison[
         "inherited"
     ]["mae"]
@@ -390,7 +375,6 @@ def main():
         f"{inherited_interval_width:>15.4f}"
         f"{r14_interval_width:>15.4f}"
     )
-
     # Save the Round 14 comparison metrics as a committed artifact.
     metrics_path = PROJECT_ROOT / "results" / "round14_metrics.json"
     metrics_path.parent.mkdir(parents=True, exist_ok=True)
@@ -410,7 +394,6 @@ def main():
     )
 
     print(f"\nComparison metrics saved to: {metrics_path}")
-
     # ---------------------------------------------------------
     # 17. Log Round 14 model as a separate MLflow run
     # ---------------------------------------------------------
@@ -429,14 +412,12 @@ def main():
         log_metrics(
             results
         )
-
         mlflow.log_metrics(
             {
-                "nominal_coverage": comparison["r14"]["nominal_coverage"],
-                "mean_interval_width": comparison["r14"]["mean_interval_width"],
+            "nominal_coverage": comparison["r14"]["nominal_coverage"],
+            "mean_interval_width": comparison["r14"]["mean_interval_width"],
             }
         )
-
         log_dataset_metadata(
             features=features,
             train=split.train,
@@ -464,140 +445,6 @@ def main():
         print(
             f"  {model_info.model_uri}"
         )
-
-    # ---------------------------------------------------------
-    # 21. Build H2 seed-route ETA features
-    #
-    # H2 uses only features available at shipment dispatch:
-    # date-derived features + supplier-to-warehouse distance.
-    # ---------------------------------------------------------
-    h2_features = build_h2_eta_features(
-        datasets
-    )
-
-    h2_features = preprocess_h2_features(
-        h2_features
-    )
-
-    # ---------------------------------------------------------
-    # 22. Chronological H2 split
-    #
-    # The same Olist time-based split is used so H2 can be
-    # evaluated honestly against the same future period.
-    # ---------------------------------------------------------
-    h2_split = chronological_split(
-        features=h2_features,
-        orders=datasets["orders"],
-        test_size=0.20,
-    )
-
-    # ---------------------------------------------------------
-    # 23. Prepare H2 training data
-    # ---------------------------------------------------------
-
-    h2_X_train = h2_split.train[
-        H2_MODEL_FEATURES
-    ].copy()
-
-    h2_y_train = h2_split.train[
-        TARGET_COLUMN
-    ].copy()
-
-    # ---------------------------------------------------------
-    # 24. Train H2 seed-route model
-    # ---------------------------------------------------------
-    h2_model = train_h2_model(
-        h2_X_train,
-        h2_y_train,
-    )
-
-    # ---------------------------------------------------------
-    # 25. Load H2 interval calibration
-    # ---------------------------------------------------------
-    if not H2_CALIBRATION_MODEL_PATH.exists():
-        raise FileNotFoundError(
-            "H2 prediction interval calibration artifact "
-            "was not created: "
-            f"{H2_CALIBRATION_MODEL_PATH}"
-        )
-
-    h2_calibration = joblib.load(
-        H2_CALIBRATION_MODEL_PATH
-    )
-
-    # ---------------------------------------------------------
-    # 26. Log H2 parameters and tags
-    # ---------------------------------------------------------
-    log_h2_parameters()
-
-    # ---------------------------------------------------------
-    # 27. Evaluate H2 on the Olist future test period
-    # ---------------------------------------------------------
-    h2_results = evaluate_h2_model(
-        h2_model,
-        h2_split.test,
-        h2_calibration,
-    )
-
-    # ---------------------------------------------------------
-    # 28. Log H2 metrics
-    # ---------------------------------------------------------
-    log_h2_metrics(
-        h2_results
-    )
-
-    # ---------------------------------------------------------
-    # 29. Log H2 calibration metadata
-    # ---------------------------------------------------------
-    log_calibration_metadata(
-        h2_calibration
-    )
-
-    # ---------------------------------------------------------
-    # 30. Register H2 model with MLflow signature
-    # ---------------------------------------------------------
-    h2_input_example = h2_X_train.head(1).copy()
-
-    h2_model_info = log_h2_model(
-        h2_model,
-        h2_input_example,
-    )
-
-    print("\nH2 MLflow model logged and registered:")
-    print(
-        f"  {h2_model_info.model_uri}"
-    )
-
-    # ---------------------------------------------------------
-    # 31. Report H2 evaluation
-    # ---------------------------------------------------------
-    print("\nH2 Seed-Route ETA Evaluation")
-    print("============================")
-
-    print(
-        f"\nMAE:"
-        f" {h2_results['mae']:.4f} days"
-    )
-
-    print(
-        f"\nInterval coverage:"
-        f" {h2_results['interval_coverage'] * 100:.2f}%"
-    )
-
-    print(
-        f"\nH2 training rows:"
-        f" {len(h2_split.train)}"
-    )
-
-    print(
-        f"\nH2 test rows:"
-        f" {len(h2_split.test)}"
-    )
-
-    print(
-        "\nH2 features:"
-        f" {H2_MODEL_FEATURES}"
-    )
 
     # ---------------------------------------------------------
     # 18. Promote Round 14 candidate artifacts

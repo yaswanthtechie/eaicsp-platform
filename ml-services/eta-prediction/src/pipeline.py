@@ -1,13 +1,11 @@
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
-
+from .preprocess import ETA_HISTORY_FEATURES
 from .preprocess import (
     NUMERIC_FEATURES,
     CATEGORICAL_FEATURES,
-    ETA_HISTORY_FEATURES,
 )
-
 from .xg_boost_model import XGBoostModel
 
 
@@ -47,47 +45,8 @@ def create_pipeline():
         ]
     )
 
-
-H2_NUMERIC_FEATURES = [
-    "purchase_year",
-    "purchase_month",
-    "purchase_day_of_week",
-    "purchase_hour",
-    "distance_km",
-]
-
-
-def create_h2_pipeline():
-    """Create the H2 ETA preprocessing and XGBoost pipeline."""
-
-    preprocessor = ColumnTransformer(
-        transformers=[
-            (
-                "numeric",
-                "passthrough",
-                H2_NUMERIC_FEATURES,
-            ),
-        ]
-    )
-
-    model = XGBoostModel()
-
-    return Pipeline(
-        steps=[
-            (
-                "preprocessor",
-                preprocessor,
-            ),
-            (
-                "model",
-                model.model,
-            ),
-        ]
-    )
-
-
 def create_eta_history_pipeline(
-    historical_features=None,
+    historical_features=None
 ):
     """Create the Round 14 ETA pipeline with historical feature-lib features."""
 

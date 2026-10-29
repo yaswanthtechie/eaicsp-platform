@@ -6,7 +6,6 @@ from .config import TEST_SIZE
 
 EXPERIMENT_NAME = "ETA Prediction"
 MODEL_NAME = "eta_pipeline"
-H2_MODEL_NAME = "eta_seed_routes"
 
 
 def setup_mlflow():
@@ -56,25 +55,7 @@ def log_parameters(model):
             "n_jobs": model_params["n_jobs"],
         }
     )
-def log_h2_parameters():
-    mlflow.log_params(
-        {
-            "model": "XGBRegressor",
-            "feature_set": "h2_seed_routes",
-            "feature_count": 5,
-            "training_data": "olist",
-            "serving_routes": "seed",
-            "carrier_used_as_model_feature": False,
-        }
-    )
 
-    mlflow.set_tags(
-        {
-            "training_data": "olist",
-            "serving_routes": "seed",
-            "carrier_used_as_model_feature": "false",
-        }
-    )
 
 def log_metrics(results):
     """
@@ -140,14 +121,7 @@ def log_metrics(results):
             ],
         }
     )
-def log_h2_metrics(results):
-    """Log H2 ETA evaluation metrics."""
-    mlflow.log_metrics(
-        {
-            "mae": results["mae"],
-            "interval_coverage": results["interval_coverage"],
-        }
-    )
+
 
 def log_dataset_metadata(
     features,
@@ -254,28 +228,6 @@ def log_model(model):
         serialization_format=(
             mlflow.sklearn.SERIALIZATION_FORMAT_CLOUDPICKLE
         ),
-    )
-
-    return model_info
-def log_h2_model(model, input_example):
-    """Log and register the H2 seed-route ETA model with a signature."""
-
-    from mlflow.models import infer_signature
-
-    prediction_example = model.predict(input_example)
-
-    signature = infer_signature(
-        input_example,
-        prediction_example,
-    )
-
-    model_info = mlflow.sklearn.log_model(
-        sk_model=model,
-        name=H2_MODEL_NAME,
-        serialization_format=mlflow.sklearn.SERIALIZATION_FORMAT_CLOUDPICKLE,
-        signature=signature,
-        input_example=input_example,
-        registered_model_name=H2_MODEL_NAME,
     )
 
     return model_info
