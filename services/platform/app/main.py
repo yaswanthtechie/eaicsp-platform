@@ -25,3 +25,8 @@ Base.metadata.create_all(bind=engine)
 @app.get("/")
 def root():
     return {"message": "Platform Service is running"}
+
+
+@app.get("/health")
+def health():
+    return {"status": "healthy", "service": "platform"}
