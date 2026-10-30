@@ -111,6 +111,32 @@ class Settings(BaseSettings):
     PO_OUTBOX_BATCH_SIZE: int = 50
 
     # --------------------------------------------------------
+    # Shipment Dispatch Outbox + ETA Consumer (R15-R5)
+    # --------------------------------------------------------
+
+    SHIPMENT_OUTBOX_ENABLED: bool = True
+    SHIPMENT_OUTBOX_POLL_SECONDS: float = 2.0
+    SHIPMENT_OUTBOX_BATCH_SIZE: int = 50
+
+    SHIPMENT_DISPATCHED_TOPIC: str = (
+        "supplierportal.shipment.dispatched"
+    )
+    # Separate flag from the Compliance consumer's KAFKA_ENABLED.
+    ETA_KAFKA_ENABLED: bool = True
+    
+    ETA_PREDICTED_TOPIC: str = (
+        "eta.shipment.predicted"
+    )
+
+    ETA_CONSUMER_GROUP: str = (
+        "supplier-portal-eta-predicted-v1"
+    )
+
+    ETA_DLQ_TOPIC: str = (
+        "eta.shipment.predicted.dlq"
+    )
+
+    # --------------------------------------------------------
     # PostgreSQL
     # Required from environment/.env; no default.
     # --------------------------------------------------------

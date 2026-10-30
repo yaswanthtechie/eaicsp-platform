@@ -2,15 +2,16 @@
 
 # Supplier Portal Service
 
-A **FastAPI-based microservice** for supplier-facing purchase orders (POs), invoices, document management, supplier onboarding, contracts, performance scorecards, dispute-resolution suggestions, and procure-to-pay (P2P) workflows.
+A **FastAPI-based microservice** for supplier-facing purchase orders (POs), invoices, document management, supplier onboarding, contracts, performance scorecards, dispute-resolution suggestions, shipment dispatch, ETA tracking, and procure-to-pay (P2P) workflows.
 
+The service integrates with the **Platform Service** for authentication and role-based authorization, the **Compliance Service** for supplier activation checks, **MinIO** for document storage, **Strawberry GraphQL** for portal queries and mutations, and **Apache Kafka** for compliance status changes, approved purchase-order events, shipment dispatch events, and ETA prediction events.
 The service integrates with the **Platform Service** for authentication and role-based authorization, the **Compliance Service** for supplier activation checks, **MinIO** for document storage, **Strawberry GraphQL** for portal queries and mutations, and **Apache Kafka** for supplier compliance status changes and Inventory workflow events.
 
 Invoice PDFs and supplier onboarding documents are stored in MinIO. Authorized downloads use short-lived presigned URLs after authentication, authorization, compliance-access, and supplier-ownership checks.
 
 Round 14 adds Kafka-based compliance status processing, event idempotency, out-of-order event protection, audit history, manual offset management, and dead-letter queue (DLQ) handling.
 
-Round 15 adds the Inventory approved-PO consumer, `po_mirror` persistence, supplier-scoped approved-PO access through REST and GraphQL, and supplier PO acknowledgement backed by a transactional outbox.
+Round 15 adds the Inventory approved-PO consumer, `po_mirror` persistence, supplier-scoped approved-PO access through REST and GraphQL, supplier PO acknowledgement backed by a transactional outbox, shipment dispatch, and ETA prediction consumption.
 
 Round 15 extends the Supplier Portal's procure-to-pay integration with versioned event contracts for supplier PO acknowledgement and shipment dispatch, Inventory-approved PO mirroring, and consumption of Inventory goods-received events for three-way matching.
 
@@ -50,7 +51,7 @@ Round 15 extends the Supplier Portal's procure-to-pay integration with versioned
 
 ---
 
-### Round 15 — Supplier Portal Event Contracts
+### Round 15 —R1 Supplier Portal Event Contracts
 
 - Created versioned JSON Schema contracts for `supplierportal.po.acknowledged.v1` and `supplierportal.shipment.dispatched.v1`.
 - Added example JSON files for both events under `contracts/events/examples/`.
@@ -61,8 +62,36 @@ Round 15 extends the Supplier Portal's procure-to-pay integration with versioned
 
 **Note:** Contract validation passed; Kafka event publishing and end-to-end integration are separate verification steps.
 
-### Round 15 — Inventory Goods Receipt Integration
+### Round 15 - R3 Load 60 Seed Suppliers with Canonical IDs
 
+What was implemented:
+
+Loaded 60 supplier records into the supplier_portal database schema.
+
+Used canonical supplier IDs from the seed dataset.
+
+Verified supplier records through tests.
+
+Verified that the three sanctioned suppliers are blocked during compliance screening.
+
+Result: Supplier Portal has consistent supplier records with canonical IDs.
+**Round 15 –R4 Inventory Approved Purchase Orders and Supplier Acknowledgement**
+
+The Supplier Portal consumes Inventory's `inventory.po.approved` event and persists approved purchase-order data in `po_mirror`. Suppliers can retrieve their authorized approved POs through REST and GraphQL.
+
+When a supplier acknowledges an eligible PO, the acknowledgement service updates the PO mirror and records an outgoing event in the transactional outbox.
+
+Implemented areas:
+
+- Inventory approved-PO Kafka consumer.
+- Approved-PO persistence through `po_mirror`.
+- Event idempotency and consumer retry/DLQ handling.
+- Supplier-scoped REST and GraphQL access.
+- Supplier PO acknowledgement service.
+- Transactional acknowledgement outbox.
+- Automated consumer, API, service, and GraphQL tests.
+
+# Inventory Goods Receipt Integration
 - Added a consumer for `inventory.goods.received` events and persistence of processed receipt events.
 - Receipt processing includes event validation, duplicate-event handling, and invalid-event dead-letter handling.
 - Three-way matching can retrieve Inventory receipt events for the relevant PO and supplier and compare received quantities by `sku_id` for canonical Inventory PO lines.
@@ -74,6 +103,33 @@ Round 15 extends the Supplier Portal's procure-to-pay integration with versioned
 - `tests/test_three_way_match.py`: **65 passed**.
 
 These results verify the targeted consumer/runner tests and existing three-way-match test suite. They do not, by themselves, establish that a dedicated end-to-end test using a canonical Inventory PO, a persisted `inventory.goods.received` event, and a deliberate quantity mismatch has passed. Verify that integration scenario before claiming full end-to-end validation.
+
+**Event publication boundary:** The acknowledgement event is first persisted in the transactional outbox. The outbox publisher (`app/services/po_ack_outbox_publisher.py`) polls pending records at the configured `PO_OUTBOX_POLL_SECONDS` interval and publishes them to Kafka. A record is marked as published only after successful delivery is confirmed; failed deliveries remain eligible for retry. Tests validate the acknowledgement event against `contracts/events/supplierportal.po.acknowledged.v1.json` and exercise the consumer using `contracts/events/examples/inventory.po.approved.v1.json`.
+
+### Round 15 —R5 Shipment Dispatch and ETA Prediction
+
+The Supplier Portal supports shipment dispatch and ETA prediction processing.
+
+- Shipment dispatch creates a shipment with an `SHP-` identifier.
+- The dispatch workflow records the shipment and its outgoing event in the shipment outbox.
+- The outgoing event follows the `supplierportal.shipment.dispatched` contract.
+- The ETA consumer processes `eta.shipment.predicted` events.
+- ETA prediction details, including ETA days, confidence interval, model version, and prediction timestamp, are stored against the corresponding shipment.
+- Event validation, idempotency, retry handling, and DLQ processing protect the consumer workflow.
+
+**Event publication and consumption boundary:** Recording a dispatch event in the outbox and publishing it to Kafka are separate operations. Similarly, consuming an ETA prediction event requires the ETA Kafka consumer and its configured broker and topic to be available.
+
+## Test Results
+
+Supplier Portal test suite execution completed successfully.
+
+```text
+989 passed, 15 deselected in 394.12s (0:06:34)
+```
+
+- **Passed:** 989 tests
+- **Deselected:** 15 tests
+- **Result:** All executed tests passed successfully.
 
 ### Round 12–13 Status
 
@@ -116,26 +172,6 @@ The synchronous Compliance Service check during activation remains unchanged:
 Kafka handles ongoing compliance status changes after activation.
 
 **Event contract boundary:** The compliance event does not carry `supplier_id`. Supplier Portal identifies the matching onboarding record using the producer's `payload.supplier_name`, comparing it with `company_name` after normalization. The Kafka key is not treated as the supplier's identity.
-
-## Round 15 Status
-
-**Round 15 – Inventory Approved Purchase Orders and Supplier Acknowledgement**
-
-The Supplier Portal consumes Inventory's `inventory.po.approved` event and persists approved purchase-order data in `po_mirror`. Suppliers can retrieve their authorized approved POs through REST and GraphQL.
-
-When a supplier acknowledges an eligible PO, the acknowledgement service updates the PO mirror and records an outgoing event in the transactional outbox.
-
-Implemented areas:
-
-- Inventory approved-PO Kafka consumer.
-- Approved-PO persistence through `po_mirror`.
-- Event idempotency and consumer retry/DLQ handling.
-- Supplier-scoped REST and GraphQL access.
-- Supplier PO acknowledgement service.
-- Transactional acknowledgement outbox.
-- Automated consumer, API, service, and GraphQL tests.
-
-**Event publication boundary:** The acknowledgement event is first persisted in the transactional outbox. The outbox publisher (`app/services/po_ack_outbox_publisher.py`) polls pending records at the configured `PO_OUTBOX_POLL_SECONDS` interval and publishes them to Kafka. A record is marked as published only after successful delivery is confirmed; failed deliveries remain eligible for retry. Tests validate the acknowledgement event against `contracts/events/supplierportal.po.acknowledged.v1.json` and exercise the consumer using `contracts/events/examples/inventory.po.approved.v1.json`.
 
 ## Running Locally
 
@@ -235,9 +271,12 @@ The following topics belong to the documented consumer contracts:
 
 - Round 14 input: `compliance.supplier.status_changed`
 - Round 14 DLQ: `compliance.supplier.status_changed.dlq`
-- Round 15 input: `inventory.po.approved`
+- Round 15 approved-PO input: `inventory.po.approved`
+- Round 15 shipment dispatch output: `supplierportal.shipment.dispatched`
+- Round 15 ETA prediction input: `eta.shipment.predicted`
+- Round 15 ETA DLQ: `eta.shipment.predicted.dlq`
 
-Use the exact Round 15 consumer and DLQ settings from `app/core/config.py` and `.env.example`; do not assume that the Round 14 topic or consumer-group settings apply to the Inventory consumer.
+Use the exact consumer and outbox settings from `app/core/config.py` and `.env.example`; do not assume that the Round 14 topic or consumer-group settings apply to other consumers.
 
 Run the Round 14 targeted tests:
 
@@ -245,7 +284,7 @@ Run the Round 14 targeted tests:
 python -m pytest tests/test_kafka_consumer.py tests/test_r14_enforcement.py -q
 ```
 
-Run the Round 15 targeted tests:
+Run the Round 15 approved-PO targeted tests:
 
 ```bash
 python -m pytest tests/test_inventory_po_approved_consumer.py -q
@@ -254,7 +293,16 @@ python -m pytest tests/test_po_acknowledgement_service.py -q
 python -m pytest tests/test_graphql.py -q
 ```
 
-These tests can validate consumer, service, API, and GraphQL behavior without claiming that a live Kafka producer-to-consumer integration has been exercised.
+Run the Round 15 shipment and ETA targeted tests:
+
+```bash
+python -m pytest tests/test_shipment.py -q
+python -m pytest tests/test_eta_shipment_event_schema.py -q
+python -m pytest tests/test_shipment_eta_consumer.py -q
+python -m pytest tests/test_shipment_eta_consumer_runner.py -q
+```
+
+These tests validate the relevant consumer, service, API, schema, and runner behavior. They do not independently prove that a live external producer-to-consumer Kafka integration has been exercised.
 
 ### Document access flow
 
@@ -375,10 +423,95 @@ The external compliance event producer is outside the Supplier Portal implementa
 
 ---
 
+## Round 15 — Shipment Dispatch and ETA Prediction
+
+The shipment workflow connects supplier dispatch with the ETA prediction service.
+
+### Shipment dispatch
+
+The supplier dispatch operation creates a shipment and records its dispatch event in the shipment outbox.
+
+The dispatch event uses:
+
+```text
+Topic: supplierportal.shipment.dispatched
+Producer: supplier-portal
+Event type: supplierportal.shipment.dispatched
+```
+
+The event contains shipment and PO identifiers, supplier ID, origin, destination warehouse, carrier, and dispatch timestamp.
+
+The shipment outbox supports asynchronous publication. The database record and outgoing event are persisted separately from the Kafka delivery operation.
+
+### ETA prediction consumption
+
+The ETA consumer listens for:
+
+```text
+Topic: eta.shipment.predicted
+Consumer group: supplier-portal-eta-predicted-v1
+DLQ: eta.shipment.predicted.dlq
+```
+
+The ETA event contains:
+
+- `shipment_id`
+- `po_number`
+- `eta_days`
+- `confidence_low`
+- `confidence_high`
+- `model_version`
+- `predicted_at`
+- Optional `top_features`
+
+The consumer validates the event before applying the prediction to the shipment.
+
+### ETA processing behaviour
+
+1. Consume the ETA prediction message using manual offset management.
+2. Validate the event type, version, identifiers, timestamps, and prediction fields.
+3. Check the event ID for duplicate processing.
+4. Validate the referenced shipment and PO relationship.
+5. Apply the prediction only when its `predicted_at` timestamp is newer than the stored prediction.
+6. Persist the ETA and confidence interval on the shipment.
+7. Commit the Kafka offset after successful processing.
+
+If processing repeatedly fails, the consumer routes the message to the configured DLQ. If DLQ publication fails, the original offset is not committed.
+
+The ETA consumer is started and stopped through the Supplier Portal application lifecycle when Kafka is enabled.
+
+### Important configuration
+
+| Setting | Purpose |
+|---|---|
+| `KAFKA_ENABLED` | Enables the Kafka integration used by the ETA consumer |
+| `SHIPMENT_OUTBOX_ENABLED` | Enables the shipment outbox publishing workflow |
+| `SHIPMENT_OUTBOX_POLL_SECONDS` | Shipment outbox polling interval |
+| `SHIPMENT_OUTBOX_BATCH_SIZE` | Maximum shipment outbox records processed per batch |
+| `SHIPMENT_DISPATCHED_TOPIC` | Shipment dispatch event topic |
+| `ETA_PREDICTED_TOPIC` | ETA prediction input topic |
+| `ETA_CONSUMER_GROUP` | ETA consumer group |
+| `ETA_DLQ_TOPIC` | ETA consumer dead-letter topic |
+
+Use the actual values configured in `app/core/config.py` and `.env.example`.
+
+---
+
 # 1. Overview
 
 The Supplier Portal Service provides APIs for supplier and procurement workflows, including:
 
+- Purchase orders, approved-PO visibility, supplier acknowledgement, shipment notices, and goods receipts.
+- Shipment dispatch and ETA prediction storage.
+- Invoices, three-way matching, discrepancy review, and payment approval.
+- Supplier registration, onboarding, and activation.
+- Supplier contracts, renewals, and lifecycle history.
+- Supplier statistics, performance scorecards, and self-service analytics.
+- Historical dispute-resolution suggestions.
+- MinIO-backed document storage and secure downloads.
+- REST and GraphQL authorization and supplier isolation.
+- Synchronous compliance checks during activation.
+- Kafka-based compliance status updates, approved-PO consumption, shipment dispatch events, and ETA prediction consumption.
 - Purchase orders, shipment notices, and goods receipts
 - Invoices, three-way matching, discrepancy review, and payment approval
 - Supplier registration, onboarding, and activation
@@ -395,35 +528,55 @@ The Supplier Portal Service provides APIs for supplier and procurement workflows
 
 ```text
 Inventory approves a Purchase Order
-                 ↓
-       inventory.po.approved
-                 ↓
-       Supplier Portal consumer
-                 ↓
-             po_mirror
-                 ↓
-    Supplier REST / GraphQL access
-                 ↓
-       Supplier acknowledges PO
-                 ↓
-       PO state + outbox record
-                 ↓
-  supplierportal.po.acknowledged
+                ↓
+      inventory.po.approved
+                ↓
+      Supplier Portal consumer
+                ↓
+            po_mirror
+                ↓
+   Supplier REST / GraphQL access
+                ↓
+      Supplier acknowledges PO
+                ↓
+      PO state + outbox record
+                ↓
+ supplierportal.po.acknowledged
 ```
 
 The acknowledgement event is persisted in the transactional outbox as part of the PO acknowledgement transaction. The outbox publisher (`app/services/po_ack_outbox_publisher.py`) polls pending records using `PO_OUTBOX_POLL_SECONDS` and publishes them to Kafka. An outbox record is marked as published only after successful delivery is confirmed. Failed deliveries retain their error details and remain eligible for retry.
 
+### Shipment dispatch and ETA prediction workflow
+
+```text
+Supplier dispatches goods
+          ↓
+Shipment record created
+          ↓
+Shipment outbox record
+          ↓
+supplierportal.shipment.dispatched
+          ↓
+ETA prediction service
+          ↓
+eta.shipment.predicted
+          ↓
+Supplier Portal ETA consumer
+          ↓
+Shipment ETA and confidence interval updated
+```
+
 The wider P2P workflow continues as follows:
 
 ```text
-Purchase Order → Acknowledgement → Shipment Notice
-       → Goods Receipt → Invoice → Three-Way Match
-                                     ├── Matched
-                                     └── Discrepancy
-                                            ↓
-                                      Human Review
-                                            ↓
-                                     Payment Approval
+Purchase Order → Acknowledgement → Shipment Dispatch
+      → ETA Prediction → Goods Receipt → Invoice → Three-Way Match
+                                              ├── Matched
+                                              └── Discrepancy
+                                                     ↓
+                                               Human Review
+                                                     ↓
+                                              Payment Approval
 ```
 
 Three-way matching compares the Purchase Order, Goods Receipt, and Invoice to identify quantity or price discrepancies. For canonical Inventory PO lines, the matching service uses the PO line's `sku_id` to compare the PO quantity, quantity received from Inventory goods-received events, and invoice quantity.
@@ -434,9 +587,9 @@ A quantity mismatch must produce a discrepancy requiring review; it must not be 
 
 ```text
 Registration → Document Collection → Verification
-      → Approval → Compliance Check
-                       ├── CLEAR → Active
-                       └── BLOCK / REVIEW / Failure → Not Activated
+     → Approval → Compliance Check
+                      ├── CLEAR → Active
+                      └── BLOCK / REVIEW / Failure → Not Activated
 ```
 
 A supplier must satisfy the onboarding and activation requirements before a new PO can be created for that supplier.
@@ -452,7 +605,7 @@ Onboarding status and compliance access state are distinct. An active supplier m
 | Round 12 | MinIO document storage and presigned downloads |
 | Round 13 | GraphQL queries, cursor pagination, acknowledgement mutation, resolver-level scoping |
 | Round 14 | Kafka compliance events, idempotency, ordering protection, audit history, offset and DLQ handling |
-| Round 15 | Inventory approved-PO consumer, `po_mirror`, supplier-scoped REST/GraphQL access, acknowledgement outbox |
+| Round 15 | Inventory approved-PO consumer, `po_mirror`, supplier-scoped REST/GraphQL access, acknowledgement outbox, shipment dispatch, ETA prediction consumption |
 
 ### Storage limitations
 
@@ -460,6 +613,7 @@ Onboarding status and compliance access state are distinct. An active supplier m
 - Legacy in-memory business records are not durable across application restarts.
 - Round 14 compliance access state, processed-event information, and audit history are SQLite-backed.
 - Round 15 approved-PO mirror and acknowledgement outbox use database persistence and migrations.
+- Shipment records, shipment outbox records, and ETA event processing use database-backed persistence and migrations.
 - Invoice PDFs and onboarding documents are stored in MinIO.
 - Authentication depends on Platform Service; supplier activation depends on Compliance Service.
 - Local Kafka configuration is intended for development and is not production security configuration.
@@ -489,6 +643,22 @@ Supplier compliance rules:
 | `suspended` | Supplier-facing protected access blocked |
 
 The event-consumer flow supplements the existing PO business workflows. Do not assume that every legacy PO record has been migrated into `po_mirror`.
+
+## Shipments and ETA Prediction
+
+- Create shipment records when suppliers dispatch goods.
+- Generate shipment identifiers using the `SHP-` format.
+- Persist shipment information in the database.
+- Record outgoing shipment dispatch events in the shipment outbox.
+- Use the `supplierportal.shipment.dispatched` event contract.
+- Consume ETA prediction events from `eta.shipment.predicted`.
+- Store ETA days and confidence interval on the corresponding shipment.
+- Store prediction metadata, including model version and prediction timestamp.
+- Retain available top-feature information from the ETA prediction event.
+- Apply event idempotency and prediction timestamp ordering.
+- Handle retry and DLQ processing for unsuccessful ETA messages.
+
+The ETA prediction model is an external producer. Supplier Portal consumes and stores the prediction; it does not perform the ETA model calculation.
 
 ## Invoices
 
@@ -535,6 +705,12 @@ Invoice-related scorecard calculations use the `po_number` stored on invoice lin
 
 ## Procure-to-Pay and Three-Way Match
 
+- PO acknowledgement, shipment dispatch, ETA prediction, and Goods Receipt processing.
+- Partial/short receipts and P2P state transitions.
+- PO/Receipt/Invoice matching.
+- Quantity and price discrepancy detection.
+- Human-review handling and prevention of automatic approval when discrepancies exist.
+- Payment-approval workflow states.
 - PO acknowledgement, shipment notice, and Goods Receipt processing
 - Consumption and persistence of Inventory `inventory.goods.received` events
 - Partial/short receipts and P2P state transitions
@@ -584,28 +760,29 @@ The service uses a layered FastAPI architecture with REST routes, GraphQL operat
 
 ```text
 Client
-  ├── REST API
-  └── GraphQL API
-          ↓
+ ├── REST API
+ └── GraphQL API
+         ↓
 Authentication / Role Authorization
-          ↓
+         ↓
 Compliance Access + Supplier Scoping
-          ↓
+         ↓
 Business Services
-  ├── Purchase Orders / P2P
-  ├── Shipments / Goods Receipts
-  ├── Invoices / Three-Way Match
-  ├── Onboarding / Contracts
-  └── Statistics / Scorecards
-          ↓
+ ├── Purchase Orders / P2P
+ ├── Shipments / ETA / Goods Receipts
+ ├── Invoices / Three-Way Match
+ ├── Onboarding / Contracts
+ └── Statistics / Scorecards
+         ↓
 Storage and Integrations
-  ├── Legacy in-memory business records
-  ├── SQLite-backed compliance state/history
-  ├── Database-backed approved-PO mirror/outbox
-  ├── MinIO document objects
-  ├── Platform Service authentication
-  ├── Compliance Service activation check
-  └── Kafka event consumers
+ ├── Legacy in-memory business records
+ ├── SQLite-backed compliance state/history
+ ├── Database-backed approved-PO mirror/outbox
+ ├── Database-backed shipment / ETA records / outbox
+ ├── MinIO document objects
+ ├── Platform Service authentication
+ ├── Compliance Service activation check
+ └── Kafka event consumers and configured publishers
 ```
 
 ## REST and GraphQL authorization
@@ -614,13 +791,13 @@ The authorization flow is:
 
 ```text
 Authentication
-      ↓
+     ↓
 Role Authorization
-      ↓
+     ↓
 Compliance Access
-      ↓
+     ↓
 Supplier Ownership
-      ↓
+     ↓
 Resource / Business Operation
 ```
 
@@ -642,17 +819,17 @@ The document storage service handles object uploads, existence checks, missing o
 
 ```text
 External Compliance Producer
-          ↓
+         ↓
 Kafka: compliance.supplier.status_changed
-          ↓
+         ↓
 Supplier Portal Consumer
-          ↓
+         ↓
 Schema / Identity / Event Validation
-          ↓
+         ↓
 Idempotency + occurred_at Ordering
-          ↓
+         ↓
 SQLite-backed Compliance State and History
-          ↓
+         ↓
 REST / GraphQL Authorization
 ```
 
@@ -661,6 +838,25 @@ Invalid events are routed to the DLQ. Unexpected processing failures do not comm
 ### Inventory goods-received processing — Round 15
 
 ```text
+Inventory Producer
+      ↓
+inventory.po.approved
+      ↓
+Inventory PO Approved Consumer
+      ↓
+Event Validation + Idempotency
+      ↓
+po_mirror Database Persistence
+      ↓
+Supplier-Scoped REST / GraphQL
+      ↓
+Supplier Acknowledgement
+      ↓
+PO Update + Transactional Outbox
+      ↓
+Outbox Publisher (if configured and running)
+      ↓
+supplierportal.po.acknowledged
 Inventory Service
        ↓
 Kafka: inventory.goods.received
@@ -682,6 +878,40 @@ The goods-received consumer stores the received event for later matching. For ca
 
 ### Contracts and dispute suggestions
 
+## Shipment dispatch and ETA prediction — Round 15
+
+```text
+Supplier
+   ↓
+Shipment Dispatch API
+   ↓
+Shipment Service
+   ├── Shipment Database Record
+   └── Shipment Outbox Record
+              ↓
+      Outbox Publishing Workflow
+              ↓
+supplierportal.shipment.dispatched
+              ↓
+       ETA Prediction Service
+              ↓
+       eta.shipment.predicted
+              ↓
+       ETA Consumer
+              ↓
+  Event Validation + Idempotency
+              ↓
+  Shipment ETA Persistence
+              ↓
+   ETA / Confidence Interval
+```
+
+The shipment dispatch workflow stores shipment data and its outgoing event record. The outbox publishing operation is separate from the original database transaction.
+
+The ETA consumer uses manual offset management, event validation, duplicate-event protection, and prediction timestamp ordering. Successful processing persists the prediction details on the shipment before the Kafka offset is committed.
+
+Invalid or repeatedly failing ETA events follow the configured retry and DLQ handling policy.
+
 ## Contracts and dispute suggestions
 
 Contract management uses a separate business service and an in-memory contract store. The dispute-resolution service analyses historical three-way-match dispute information to produce advisory suggestions.
@@ -702,6 +932,10 @@ Contract management uses a separate business service and an in-memory contract s
 | Pytest | Automated testing |
 | `python-multipart` | Multipart file uploads |
 | MinIO / S3-compatible API | Invoice and onboarding document storage |
+| Apache Kafka | Compliance, approved-PO, and ETA event consumption; configured event publishing |
+| `confluent-kafka` | Kafka consumption and DLQ publishing |
+
+Dependency versions are maintained in `requirements.txt`. Supplier Portal consumes external compliance, Inventory, and ETA prediction events; the corresponding external producer implementations are outside this service's scope.
 | Apache Kafka | Supplier compliance and Inventory workflow events |
 | `confluent-kafka` | Kafka consumer and DLQ publishing |
 | SQLAlchemy | Database models and queries for persisted Inventory integration records |
@@ -719,7 +953,12 @@ supplier-portal/
 ├── alembic/
 │   └── versions/
 │       ├── 002_po_mirror.py
-│       └── 003_po_ack_outbox.py
+│       ├── 003_po_ack_outbox.py
+│       ├── 004_inventory_goods_receipt_events.py
+│       ├── 005_shipment_outbox.py
+│       ├── 006_create_shipments_table.py
+│       ├── 007_shipment_details.py
+│       └── 008_create_shipment_eta_events.py
 ├── app/
 │   ├── main.py
 │   ├── core/
@@ -735,7 +974,10 @@ supplier-portal/
 │   ├── models/
 │   │   ├── __init__.py
 │   │   ├── po_mirror.py
-│   │   └── po_ack_outbox.py
+│   │   ├── po_ack_outbox.py
+│   │   ├── shipment.py
+│   │   ├── shipment_outbox.py
+│   │   └── shipment_eta_event.py
 │   ├── routes/
 │   │   ├── purchase_order.py
 │   │   ├── approved_purchase_orders.py
@@ -758,6 +1000,8 @@ supplier-portal/
 │   └── services/
 │       ├── purchase_order_service.py
 │       ├── shipment_service.py
+│       ├── shipment_eta_consumer.py
+│       ├── shipment_eta_consumer_runner.py
 │       ├── goods_receipt_service.py
 │       ├── invoice_service.py
 │       ├── three_way_match_service.py
@@ -781,6 +1025,9 @@ supplier-portal/
 │   ├── test_requires_auth.py
 │   ├── test_supplier_stats.py
 │   ├── test_shipment.py
+│   ├── test_eta_shipment_event_schema.py
+│   ├── test_shipment_eta_consumer.py
+│   ├── test_shipment_eta_consumer_runner.py
 │   ├── test_goods_receipt.py
 │   ├── test_three_way_match.py
 │   ├── test_supplier_onboarding.py
@@ -821,8 +1068,9 @@ This structure reflects the files relevant to the documented workflows. Keep it 
 
 - `app/routes/`: REST endpoint definitions, dependency injection, access checks, HTTP responses, resource validation, and business-service calls.
 - `app/routes/approved_purchase_orders.py`: REST access to persisted approved purchase orders.
+- `app/routes/shipment.py`: Shipment dispatch and shipment-related REST operations.
 - `app/schemas/`: Request/response validation and data models for POs, shipments, receipts, invoices, matching, onboarding, contracts, and events.
-- `app/schemas/events.py`: Event payload validation, including the Inventory approved-PO event contract.
+- `app/schemas/events.py`: Event payload validation, including Inventory approved-PO and ETA prediction event payloads.
 
 ## Business Services
 
@@ -852,6 +1100,20 @@ Relevant tests:
 
 `app/services/three_way_match_service.py` compares PO, receipt, and invoice line quantities and prices. For canonical Inventory POs, receipt quantities are retrieved from persisted Inventory goods-received events using the PO, supplier, and `sku_id`. Legacy PO and receipt handling remains supported.
 
+### Round 15 shipment dispatch and ETA prediction
+
+`app/services/shipment_service.py` creates shipment records and records dispatch events in the shipment outbox.
+
+`app/models/shipment.py` defines the persisted shipment information, including dispatch and ETA prediction fields.
+
+`app/models/shipment_outbox.py` defines the outgoing shipment dispatch event records.
+
+`app/services/shipment_eta_consumer.py` consumes ETA prediction events, validates the message, checks event idempotency and prediction ordering, updates shipment ETA details, and handles retries and DLQ publishing.
+
+`app/services/shipment_eta_consumer_runner.py` manages the ETA consumer's background execution and shutdown through the application lifecycle.
+
+`app/models/shipment_eta_event.py` stores processed ETA event information for event tracking and idempotency.
+
 ### Document storage
 
 `app/services/document_storage_service.py` provides MinIO object uploads, object-existence checks, presigned URLs, missing-object handling, and storage-failure handling. Callers must complete authentication, compliance authorization, and supplier-ownership checks before requesting a presigned URL.
@@ -872,21 +1134,21 @@ POST /api/v1/auth/verify
 
 ```text
 Client
-  │ Authorization: Bearer <token>
-  ▼
+ │ Authorization: Bearer <token>
+ ▼
 Supplier Portal
-  │
-  ▼
+ │
+ ▼
 Platform Service
-  │ Validates token and returns user identity
-  ▼
+ │ Validates token and returns user identity
+ ▼
 Supplier Portal
-  ├── Role authorization
-  ├── Supplier identity validation
-  ├── Compliance access check
-  └── Resource ownership check
-          ▼
-    Protected operation
+ ├── Role authorization
+ ├── Supplier identity validation
+ ├── Compliance access check
+ └── Resource ownership check
+         ▼
+   Protected operation
 ```
 
 The authenticated identity can include:
@@ -989,13 +1251,13 @@ The effective security flow is:
 
 ```text
 Platform Authentication
-        ↓
+       ↓
 Role and Supplier Identity
-        ↓
+       ↓
 Compliance Access
-        ↓
+       ↓
 Resource Ownership
-        ↓
+       ↓
 Business Operation
 ```
 
@@ -1007,15 +1269,15 @@ Invoice and onboarding document downloads require authorization before a presign
 
 ```text
 Authenticated request
-        ↓
+       ↓
 Role and compliance checks
-        ↓
+       ↓
 Supplier ownership check
-        ↓
+       ↓
 Document and object validation
-        ↓
+       ↓
 Generate presigned URL
-        ↓
+       ↓
 Return URL to authorized caller
 ```
 
@@ -1098,65 +1360,127 @@ SUP001 token → SUP002 Document  → 403 Forbidden
 
 SUP001 token → SUP001 approved PO → Allowed, if authorized
 SUP001 token → SUP002 approved PO → 403 Forbidden
+
+SUP001 token → SUP001 Shipment  → Allowed, if authorized
+SUP001 token → SUP002 Shipment  → 403 Forbidden
 ```
 
 The same principle applies to supplier-scoped statistics, scorecards, contracts, onboarding resources, shipments, Goods Receipts, three-way matches, and GraphQL resources.
 
-Round 14 adds compliance restrictions, and Round 15 adds persisted approved-PO access and acknowledgement. Neither replaces the existing authentication, role-authorization, or supplier-scoping model.
-# 7. Purchase Order Management
+Round 14 adds compliance restrictions, and Round 15 adds persisted approved-PO access, acknowledgement, shipment dispatch, and ETA prediction processing. None replaces the existing authentication, role-authorization, or supplier-scoping model.
+7. Purchase Order Management
 
 The Supplier Portal supports legacy Purchase Order (PO) operations and the Round 15 Inventory-approved PO integration. These are separate flows with different data sources and lifecycle rules.
 
-## 7.1 Legacy PO Operations
+7.1 Legacy PO Operations
 
 Legacy PO functionality includes creation, retrieval, updates, cancellation, acknowledgement, state transitions, event history, bulk sending, and delivery tracking.
 
-PO creation is restricted to `procurement_manager`:
+PO creation is restricted to procurement_manager:
 
-```http
 POST /api/v1/purchase-orders
-```
 
 Before creation, the service validates the supplier, onboarding status, PO number, line items, quantities, prices, totals, and duplicate PO numbers.
 
 The legacy lifecycle is:
 
-```text
 draft → sent → acknowledged → fulfilled
   └──────────────┴──────────────→ cancelled
-```
 
-| Current state | Allowed next states |
-|---|---|
-| `draft` | `sent`, `cancelled` |
-| `sent` | `acknowledged`, `cancelled` |
-| `acknowledged` | `fulfilled`, `cancelled` |
-| `fulfilled` | None |
-| `cancelled` | None |
+Current state
+
+Allowed next states
+
+draft
+
+sent, cancelled
+
+sent
+
+acknowledged, cancelled
+
+acknowledged
+
+fulfilled, cancelled
+
+fulfilled
+
+None
+
+cancelled
+
+None
 
 Invalid transitions are rejected. Transition history records the actor, previous state, new state, and timestamp. Historical events are stored separately from the PO record.
 
-## 7.2 Legacy PO REST Endpoints
+7.2 Legacy PO REST Endpoints
 
-| Operation | Endpoint | Authorization |
-|---|---|---|
-| Create | `POST /api/v1/purchase-orders` | `procurement_manager` |
-| List | `GET /api/v1/purchase-orders` | Authenticated and authorized |
-| Retrieve | `GET /api/v1/purchase-orders/{po_number}` | Authenticated and authorized |
-| Update | `PUT /api/v1/purchase-orders/{po_number}` | Role and ownership checks |
-| Delete | `DELETE /api/v1/purchase-orders/{po_number}` | Role and ownership checks |
-| Acknowledge | `POST /api/v1/purchase-orders/{po_number}/acknowledge` | Supplier ownership and write-access checks |
-| Transition | `POST /api/v1/purchase-orders/{po_number}/transition` | `procurement_manager` |
-| Bulk send | `POST /api/v1/purchase-orders/bulk-send` | `procurement_manager` |
-| Event history | `GET /api/v1/purchase-orders/{po_number}/events` | Role, ownership, and compliance checks |
+Operation
+
+Endpoint
+
+Authorization
+
+Create
+
+POST /api/v1/purchase-orders
+
+procurement_manager
+
+List
+
+GET /api/v1/purchase-orders
+
+Authenticated and authorized
+
+Retrieve
+
+GET /api/v1/purchase-orders/{po_number}
+
+Authenticated and authorized
+
+Update
+
+PUT /api/v1/purchase-orders/{po_number}
+
+Role and ownership checks
+
+Delete
+
+DELETE /api/v1/purchase-orders/{po_number}
+
+Role and ownership checks
+
+Acknowledge
+
+POST /api/v1/purchase-orders/{po_number}/acknowledge
+
+Supplier ownership and write-access checks
+
+Transition
+
+POST /api/v1/purchase-orders/{po_number}/transition
+
+procurement_manager
+
+Bulk send
+
+POST /api/v1/purchase-orders/bulk-send
+
+procurement_manager
+
+Event history
+
+GET /api/v1/purchase-orders/{po_number}/events
+
+Role, ownership, and compliance checks
 
 Bulk sending processes each PO independently and reports individual successes and failures.
 
-## 7.3 Round 15: Inventory-Approved POs
+7.3 Round 15: Inventory-Approved POs
 
-The Round 15 integration consumes `inventory.po.approved` events and persists approved PO data in the Supplier Portal's `po_mirror` table.
+The Round 15 integration consumes inventory.po.approved events and persists approved PO data in the Supplier Portal's po_mirror table.
 
-```text
 Inventory
    │ inventory.po.approved
    ▼
@@ -1177,34 +1501,42 @@ Dedicated Supplier Portal consumer
           │
           ▼
    Persist acknowledgement outbox event
-```
 
 The implementation includes:
 
-- A dedicated consumer group.
-- Persistent `po_mirror` records.
-- Duplicate-event handling and retry/DLQ behavior.
-- Supplier-scoped REST and GraphQL access.
-- PO acknowledgement through the acknowledgement service.
-- Transactional persistence of acknowledgement data and its outbox event.
-- Automated consumer, API, service, and GraphQL tests.
+A dedicated consumer group.
+
+Persistent po_mirror records.
+
+Duplicate-event handling and retry/DLQ behavior.
+
+Supplier-scoped REST and GraphQL access.
+
+PO acknowledgement through the acknowledgement service.
+
+Transactional persistence of acknowledgement data and its outbox event.
+
+Automated consumer, API, service, and GraphQL tests.
 
 The Inventory event contract must be checked against the producer's actual example and schema. Passing local tests alone does not establish producer-contract compatibility.
 
-**Outbox note:** Persisting an acknowledgement in the outbox does not, by itself, prove that the event has been published to Kafka. Document publication as implemented only if the corresponding publisher is present and verified.
+Outbox note: Persisting an acknowledgement in the outbox does not, by itself, prove that the event has been published to Kafka. Document publication as implemented only if the corresponding publisher is present and verified.
 
-The mirrored Inventory-approved PO flow is separate from the legacy PO lifecycle described in Section 7.1. Refer to the implemented route and schema definitions for the exact API paths and event fields.
+The mirrored Inventory-approved PO flow is separate from the legacy PO lifecycle described in Section 7.1.
 
-## 7.4 PO and P2P Relationship
+7.4 PO and P2P Relationship
 
 The broader procure-to-pay workflow is:
 
-```text
 Purchase Order
       ↓
 Acknowledgement
       ↓
-Shipment
+Shipment Notice
+      ↓
+Shipment Dispatch
+      ↓
+ETA Prediction
       ↓
 Goods Receipt
       ↓
@@ -1213,25 +1545,114 @@ Invoice
 Three-Way Match
       ↓
 Payment Approval
-```
 
-The legacy PO lifecycle tracks PO status. The P2P workflow tracks transaction progression, including receipt, invoicing, matching, and payment approval.
+The legacy PO lifecycle tracks PO status. The P2P workflow tracks transaction progression, including shipment, estimated delivery, receipt, invoicing, matching, and payment approval.
 
-## 7.5 Delivery Tracking
+7.5 Delivery Tracking
 
 Delivery performance uses the expected delivery date and applicable Goods Receipt records. For fulfilled POs, the actual delivery date is derived from the relevant receipt date rather than the current system date.
 
-| PO condition | Treatment |
-|---|---|
-| Fulfilled | Eligible |
-| Unfulfilled and past due | Eligible and counted as late |
-| Unfulfilled and not yet due | Excluded |
-| Cancelled | Excluded |
-| No applicable expected delivery date | Excluded |
+PO condition
+
+Treatment
+
+Fulfilled
+
+Eligible
+
+Unfulfilled and past due
+
+Eligible and counted as late
+
+Unfulfilled and not yet due
+
+Excluded
+
+Cancelled
+
+Excluded
+
+No applicable expected delivery date
+
+Excluded
 
 These eligibility rules should be consistent across supplier statistics, scorecards, and monthly delivery trends.
 
----
+7.6 Shipment Notice and ETA Integration (R15)
+
+The Supplier Portal provides shipment notice APIs for authenticated suppliers. A supplier can create a shipment notice for a Purchase Order that belongs to that supplier.
+
+The shipment routes are:
+
+Method
+
+Endpoint
+
+Purpose
+
+POST
+
+/shipments
+
+Create a Shipment Notice
+
+GET
+
+/shipments
+
+List shipments
+
+GET
+
+/shipments/{shipment_id}
+
+Retrieve a shipment
+
+GET
+
+/purchase-orders/{po_number}/shipments
+
+Retrieve shipments for a PO
+
+The shipment creation endpoint obtains supplier_id from the authenticated Platform Service user. It does not trust a supplier ID supplied in the request body.
+
+Supplier access is restricted to the authenticated supplier's own shipments. Internal authenticated users can access shipment records according to their authorization.
+
+Shipment records use identifiers in the SHP- format and retain shipment information such as PO number, supplier, dispatch details, carrier, tracking information, origin, destination warehouse, and shipment status.
+
+The shipment dispatch integration uses the event:
+
+supplierportal.shipment.dispatched
+
+The shipment event is persisted through the shipment outbox implementation. The outbox publisher is responsible for publishing pending events to Kafka.
+
+The ETA integration consumes:
+
+eta.shipment.predicted
+
+The ETA consumer validates prediction events and associates them with the corresponding shipment. Supported prediction information includes:
+
+shipment_id
+
+po_number
+
+eta_days
+
+confidence_low
+
+confidence_high
+
+model_version
+
+predicted_at
+
+Optional top_features
+
+The shipment record stores the ETA prediction details, including the ETA, confidence interval, model version, prediction timestamp, and supported feature information.
+
+The ETA consumer implements duplicate-event handling, retry behavior, and dead-letter handling. Repeated predictions are handled using event identity and prediction timestamps so that an older prediction does not overwrite a newer prediction.
+
+The actual producer event example and schema must be checked to establish compatibility. Local tests verify the Supplier Portal implementation but do not independently prove live producer compatibility or successful Kafka end-to-end delivery.
 
 # 8. Invoice Management
 
@@ -1483,14 +1904,17 @@ Supplier ownership
       ↓
 Scorecard results
 ```
-# 12. Procure-to-Pay Lifecycle
+12. Procure-to-Pay Lifecycle
 
 The Supplier Portal supports the Procure-to-Pay (P2P) workflow from Purchase Order acknowledgement through shipment, Goods Receipt, invoicing, three-way matching, and payment approval.
 
-```text
 Acknowledged PO
       ↓
-Shipment
+Shipment Notice
+      ↓
+Shipment Dispatch
+      ↓
+ETA Prediction
       ↓
 Goods Receipt
       ↓
@@ -1499,15 +1923,13 @@ Invoice
 Three-Way Match
       ↓
 Payment Approval
-```
 
 P2P processing state, the legacy Purchase Order lifecycle, and supplier compliance access are separate concerns. Compliance enforcement controls access; it does not make an invalid business-state transition valid.
 
-## 12.1 P2P State Machine
+12.1 P2P State Machine
 
 The P2P processing states are:
 
-```text
 acknowledged
       ↓
 shipped
@@ -1519,52 +1941,124 @@ invoiced
 matched / discrepancy
       ↓
 payment_approved
-```
 
-The separate legacy Purchase Order lifecycle uses statuses such as `draft`, `sent`, `acknowledged`, `fulfilled`, and `cancelled`.
+The separate legacy Purchase Order lifecycle uses statuses such as draft, sent, acknowledged, fulfilled, and cancelled.
 
 Each transition must satisfy the applicable business rules. A discrepancy must be reviewed and resolved before payment approval is permitted.
 
-## 12.2 Shipment and Goods Receipt
+12.2 Shipment Dispatch and ETA Prediction
 
-Shipment processing advances an acknowledged transaction to `shipped`. Goods Receipt records the goods received against a Purchase Order and advances eligible transactions to `received`.
+The Supplier Portal supports shipment notice creation through the shipment API.
+
+POST /shipments
+
+Only authenticated supplier users can create shipment notices. The supplier identity is taken from the authenticated Platform Service user, and the service validates that the supplier owns the referenced Purchase Order.
+
+The shipment creation service persists the shipment record and its corresponding outbox event as part of the database transaction.
+
+The dispatch integration publishes the event:
+
+supplierportal.shipment.dispatched
+
+The event contains shipment and dispatch information, including shipment ID, PO number, supplier ID, origin, destination warehouse, carrier, and dispatch timestamp.
+
+The shipment outbox publisher processes pending outbox records and publishes them to the configured Kafka topic. Outbox persistence and Kafka delivery are separate stages; successful database persistence alone does not establish successful event delivery.
+
+ETA Prediction Consumption
+
+The Supplier Portal consumes ETA prediction events from:
+
+eta.shipment.predicted
+
+The ETA consumer validates the event and verifies the corresponding shipment and PO relationship before applying the prediction.
+
+The prediction payload supports:
+
+Field
+
+Description
+
+shipment_id
+
+Shipment identifier
+
+po_number
+
+Associated Purchase Order
+
+eta_days
+
+Predicted delivery duration in days
+
+confidence_low
+
+Lower confidence bound
+
+confidence_high
+
+Upper confidence bound
+
+model_version
+
+ETA model version
+
+predicted_at
+
+Prediction timestamp
+
+top_features
+
+Optional prediction feature explanations
+
+The consumer stores the prediction details on the shipment, including ETA, confidence interval, model version, prediction timestamp, and optional top features.
+
+The consumer also maintains event-processing history to support idempotency. Duplicate events are not applied again. When multiple predictions exist for the same shipment, the latest valid prediction timestamp is used so an older prediction cannot overwrite a newer one.
+
+Retry and Dead-Letter Handling
+
+The ETA consumer uses manual Kafka offset commits. Successfully processed events and recognized duplicates can be committed after processing.
+
+Failed processing is retried according to the configured retry behavior. When the retry limit is reached, the failed event is sent to the configured dead-letter topic. If dead-letter publishing fails, the original message must not be committed as successfully handled.
+
+12.3 Goods Receipt
+
+Goods Receipt records the goods received against a Purchase Order and advances eligible transactions to received.
 
 Receipt information can include:
 
-- `receipt_id`, `po_number`, and `supplier_id`
-- `receipt_date`, warehouse, and receiving details
-- Received items, quantities, and receipt status
+receipt_id, po_number, and supplier_id
+
+receipt_date, warehouse, and receiving details
+
+Received items, quantities, and receipt status
 
 Validation includes PO existence, supplier ownership, valid item codes, positive quantities, duplicate-item detection, and applicable quantity limits.
 
-### Partial Goods Receipt
+Partial Goods Receipt
 
 Partial receiving is supported. For example, a PO for 100 units can have a receipt for 40 units. A partial receipt may include only the items received; included quantities must satisfy the applicable PO quantity rules.
 
-The recorded `receipt_date` is used for actual delivery-date calculations where supported by the supplier performance implementation.
+The recorded receipt_date is used for actual delivery-date calculations where supported by the supplier performance implementation.
 
-## 12.3 Invoice Integration
+12.4 Invoice Integration
 
-P2P invoicing requires the transaction to reach `received` before progressing to `invoiced`. Duplicate or invalid invoice submissions must not advance the P2P state.
+P2P invoicing requires the transaction to reach received before progressing to invoiced. Duplicate or invalid invoice submissions must not advance the P2P state.
 
 The invoice lifecycle is separate from the P2P state machine:
 
-```text
 submitted
     ├── approved
     ├── rejected
     └── disputed
            ↓
         adjusted
-```
 
 Invoice submission and transitions remain subject to endpoint authorization, supplier ownership, compliance access, and invoice business validation.
 
-## 12.4 Three-Way Match and Payment Approval
+12.5 Three-Way Match and Payment Approval
 
 Three-way matching compares the Purchase Order, Goods Receipt, and invoice, including applicable item codes, quantities, and prices.
 
-```text
 Purchase Order
       +
 Goods Receipt
@@ -1574,25 +2068,41 @@ Invoice
 Three-Way Match
    ├── Matched → Eligible for the next permitted step
    └── Discrepancy → Human review and resolution
-```
 
 A successful match does not bypass payment-approval rules. A discrepancy must not automatically progress to payment approval.
 
-## 12.5 Supplier Compliance Enforcement
+12.6 Supplier Compliance Enforcement
 
 Round 14 adds event-driven compliance access enforcement to protected supplier-facing operations.
 
-| Supplier compliance state | Permitted reads | Protected supplier writes |
-|---|---|---|
-| `cleared` | Allowed, subject to authorization | Allowed when business rules permit |
-| `needs_review` | Allowed, subject to authorization | Restricted |
-| `suspended` | Denied for protected supplier-facing resources | Denied |
+Supplier compliance state
+
+Permitted reads
+
+Protected supplier writes
+
+cleared
+
+Allowed, subject to authorization
+
+Allowed when business rules permit
+
+needs_review
+
+Allowed, subject to authorization
+
+Restricted
+
+suspended
+
+Denied for protected supplier-facing resources
+
+Denied
 
 Typical protected writes include PO acknowledgement, shipment/P2P updates, and invoice submission. Exact enforcement depends on the endpoint and its implemented authorization checks. Internal users remain subject to their existing role permissions.
 
 The enforcement sequence is:
 
-```text
 Authentication
       ↓
 Supplier identity and ownership
@@ -1602,25 +2112,20 @@ Compliance access check
 Role and business validation
       ↓
 Permitted operation
-```
 
-A supplier's onboarding status and compliance access state are independent. An onboarding-active supplier can subsequently become `needs_review` or `suspended` without its onboarding status being overwritten.
+A supplier's onboarding status and compliance access state are independent. An onboarding-active supplier can subsequently become needs_review or suspended without its onboarding status being overwritten.
 
-## 12.6 Supplier Activation Requirement
+12.7 Supplier Activation Requirement
 
-Supplier activation is separate from event-driven compliance enforcement. Before activation, the Supplier Portal calls the Compliance Service's internal check. Only a usable `CLEAR` decision with `cleared: true` permits activation.
+Supplier activation is separate from event-driven compliance enforcement. Before activation, the Supplier Portal calls the Compliance Service's internal check. Only a usable CLEAR decision with cleared: true permits activation.
 
-```text
 Approved supplier
       ↓
 Compliance activation check
       ├── CLEAR + cleared=true → Active
       └── BLOCK / REVIEW / unavailable → Not activated
-```
 
 The later Kafka status-change consumer updates supplier compliance access. It does not replace the onboarding lifecycle or the P2P state machine.
-
----
 
 # 13. Three-Way Match
 
@@ -1822,40 +2327,94 @@ The `auto_renew` field represents configuration; it does not mean that an automa
 Supplier-facing access, where supported, must enforce supplier ownership and compliance policy. Internal procurement operations remain subject to role authorization.
 
 ---
+16. API Reference
 
-# 16. API Reference
-
-The Supplier Portal exposes REST APIs under `/api/v1` and a Strawberry GraphQL endpoint at `/graphql`. The root health/message endpoint `/` is outside the `/api/v1` prefix.
+The Supplier Portal exposes REST APIs under /api/v1 and a Strawberry GraphQL endpoint at /graphql. The root health/message endpoint / is outside the /api/v1 prefix.
 
 Protected requests use the centralized Platform Service authentication mechanism. Authorization can include role checks, supplier ownership, compliance access, and business-state validation.
 
-## 16.1 Root Endpoint
+16.1 Root Endpoint
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| `GET` | `/` | Service health/message response |
+Method
 
-## 16.2 Purchase Order APIs
+Endpoint
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| `POST` | `/api/v1/purchase-orders` | Create a Purchase Order |
-| `GET` | `/api/v1/purchase-orders` | List Purchase Orders |
-| `GET` | `/api/v1/purchase-orders/{po_number}` | Retrieve a Purchase Order |
-| `PUT` | `/api/v1/purchase-orders/{po_number}` | Update a Purchase Order |
-| `DELETE` | `/api/v1/purchase-orders/{po_number}` | Delete a Purchase Order |
-| `POST` | `/api/v1/purchase-orders/{po_number}/acknowledge` | Acknowledge a Purchase Order |
-| `POST` | `/api/v1/purchase-orders/{po_number}/transition` | Transition a Purchase Order |
-| `GET` | `/api/v1/purchase-orders/{po_number}/events` | Retrieve PO events |
-| `POST` | `/api/v1/purchase-orders/bulk-send` | Send Purchase Orders in bulk |
+Purpose
+
+GET
+
+/
+
+Service health/message response
+
+16.2 Purchase Order APIs
+
+Method
+
+Endpoint
+
+Purpose
+
+POST
+
+/api/v1/purchase-orders
+
+Create a Purchase Order
+
+GET
+
+/api/v1/purchase-orders
+
+List Purchase Orders
+
+GET
+
+/api/v1/purchase-orders/{po_number}
+
+Retrieve a Purchase Order
+
+PUT
+
+/api/v1/purchase-orders/{po_number}
+
+Update a Purchase Order
+
+DELETE
+
+/api/v1/purchase-orders/{po_number}
+
+Delete a Purchase Order
+
+POST
+
+/api/v1/purchase-orders/{po_number}/acknowledge
+
+Acknowledge a Purchase Order
+
+POST
+
+/api/v1/purchase-orders/{po_number}/transition
+
+Transition a Purchase Order
+
+GET
+
+/api/v1/purchase-orders/{po_number}/events
+
+Retrieve PO events
+
+POST
+
+/api/v1/purchase-orders/bulk-send
+
+Send Purchase Orders in bulk
 
 Authorization varies by operation. Supplier requests must be scoped to the authenticated supplier; procurement operations require the appropriate role.
 
-### Inventory-approved Purchase Orders — R15
+Inventory-approved Purchase Orders — R15
 
 Round 15 introduces a separate consumer flow for Inventory-approved PO events:
 
-```text
 Inventory
     ↓
 inventory.po.approved
@@ -1869,7 +2428,6 @@ Supplier-scoped PO reads
 Supplier acknowledgement
     ↓
 Acknowledgement outbox
-```
 
 The consumer is expected to process events idempotently, handle failures using the configured retry/DLQ behavior, and persist the PO mirror before committing the Kafka offset.
 
@@ -1877,39 +2435,151 @@ The approved-PO REST paths and GraphQL fields must match the active route and sc
 
 The acknowledgement outbox records acknowledgement work transactionally where implemented. Outbox persistence alone does not prove that an event has been published to Kafka; publication requires a configured publisher and verified delivery behavior.
 
-## 16.3 Invoice APIs
+16.3 Invoice APIs
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| `GET` | `/api/v1/invoices` | List invoices |
-| `POST` | `/api/v1/invoices` | Create an invoice |
-| `GET` | `/api/v1/invoices/{supplier_id}/{invoice_number}` | Retrieve an invoice |
-| `POST` | `/api/v1/invoices/{supplier_id}/{invoice_number}/transition` | Transition an invoice |
-| `POST` | `/api/v1/invoices/{supplier_id}/{invoice_number}/adjust` | Adjust a disputed invoice |
-| `POST` | `/api/v1/invoices/{supplier_id}/{invoice_number}/document` | Upload an invoice PDF |
-| `GET` | `/api/v1/invoices/{supplier_id}/{invoice_number}/document` | Retrieve an invoice document URL |
+Method
 
-Invoice identity is scoped by `(supplier_id, invoice_number)`. Supplier access must verify ownership. Invoice operations also apply the configured role, compliance, and business rules.
+Endpoint
 
-## 16.4 Document APIs
+Purpose
+
+GET
+
+/api/v1/invoices
+
+List invoices
+
+POST
+
+/api/v1/invoices
+
+Create an invoice
+
+GET
+
+/api/v1/invoices/{supplier_id}/{invoice_number}
+
+Retrieve an invoice
+
+POST
+
+/api/v1/invoices/{supplier_id}/{invoice_number}/transition
+
+Transition an invoice
+
+POST
+
+/api/v1/invoices/{supplier_id}/{invoice_number}/adjust
+
+Adjust a disputed invoice
+
+POST
+
+/api/v1/invoices/{supplier_id}/{invoice_number}/document
+
+Upload an invoice PDF
+
+GET
+
+/api/v1/invoices/{supplier_id}/{invoice_number}/document
+
+Retrieve an invoice document URL
+
+Invoice identity is scoped by (supplier_id, invoice_number). Supplier access must verify ownership. Invoice operations also apply the configured role, compliance, and business rules.
+
+16.4 Shipment APIs — R15
+
+Shipment Notice APIs are exposed by the shipment router.
+
+Method
+
+Endpoint
+
+Purpose
+
+Authorization
+
+POST
+
+/shipments
+
+Create a Shipment Notice
+
+Authenticated supplier
+
+GET
+
+/shipments
+
+List shipments
+
+Authenticated user; supplier-scoped
+
+GET
+
+/shipments/{shipment_id}
+
+Retrieve a shipment
+
+Authenticated user; supplier ownership enforced
+
+GET
+
+/purchase-orders/{po_number}/shipments
+
+Retrieve shipments for a PO
+
+Authenticated user; PO ownership enforced for suppliers
+
+The shipment router applies the enforce_not_suspended dependency.
+
+Shipment creation is restricted to users with the supplier role. The supplier_id is taken from the authenticated Platform Service identity rather than trusted from the request.
+
+For supplier users:
+
+Only their own shipments are returned.
+
+Access to another supplier's shipment is denied.
+
+Unknown shipment IDs return a uniform 403 response to avoid revealing whether another supplier's shipment exists.
+
+Access to PO shipments is checked against PO ownership before returning an empty or populated shipment list.
+
+Internal authenticated users can access shipment records according to their authorization. Unknown shipment IDs return 404 for internal users.
+
+Shipment Dispatch and ETA Events
+
+The shipment dispatch integration publishes:
+
+supplierportal.shipment.dispatched
+
+The shipment outbox stores pending dispatch events for publication by the outbox publisher.
+
+The ETA consumer listens for:
+
+eta.shipment.predicted
+
+Validated ETA predictions are associated with the corresponding shipment and stored on the shipment record. Supported fields include eta_days, confidence_low, confidence_high, model_version, predicted_at, and optional top_features.
+
+The ETA consumer uses the configured consumer group and DLQ, supports duplicate-event handling, retries processing failures, and commits offsets after successful handling. The actual Kafka producer contract and end-to-end delivery must be verified independently.
+
+16.5 Document APIs
 
 Invoice documents are PDF-only, with a maximum size of 10 MB. Onboarding documents support the formats allowed by the onboarding validator, also subject to its size and content checks.
 
 Document downloads return short-lived MinIO presigned URLs rather than streaming the object through the Supplier Portal. Authorization and compliance checks must run before generating a URL.
 
-## 16.5 Supplier Onboarding APIs
+16.6 Supplier Onboarding APIs
 
 Onboarding covers registration, document collection, verification, approval, activation, and related document access. Exact route paths should be taken from the active onboarding router.
 
 Activation calls the Compliance Service's internal check. The synchronous check is separate from Round 14's Kafka status-change consumer.
 
-## 16.6 GraphQL API
+16.7 GraphQL API
 
 The GraphQL endpoint is:
 
-```http
 POST /graphql
-```
 
 The documented GraphQL scope includes Purchase Orders, invoices, supplier documents, cursor pagination, and PO acknowledgement. The exact field names and argument types are defined by the active Strawberry schema.
 
@@ -1917,14 +2587,15 @@ GraphQL resolvers must enforce authentication, compliance access, role authoriza
 
 R15 approved-PO query support should be documented using the actual schema fields and resolver implementation. Do not assume all REST resources are also available through GraphQL.
 
-## 16.7 Procure-to-Pay and Three-Way Match
+16.8 Procure-to-Pay and Three-Way Match
 
-The P2P workflow covers shipment, Goods Receipt, invoicing, three-way matching, discrepancy review, and payment approval.
+The P2P workflow covers shipment dispatch, ETA prediction, Goods Receipt, invoicing, three-way matching, discrepancy review, and payment approval.
 
-```text
 acknowledged
     ↓
 shipped
+    ↓
+ETA predicted
     ↓
 received
     ↓
@@ -1933,38 +2604,47 @@ invoiced
 matched / discrepancy
     ↓
 payment_approved
-```
 
 The configured price tolerance is 5%, inclusive. Quantity and price discrepancies require the applicable review process; a discrepancy must not automatically approve payment.
 
 The historical resolution-suggestion endpoint is:
 
-```http
 GET /api/v1/three-way-matches/{supplier_id}/{invoice_number}/resolution-suggestion
-```
 
-Authorization: `compliance_officer`.
+Authorization: compliance_officer.
 
 The suggestion is advisory and must not automatically modify invoice, matching, or payment state.
 
-## 16.8 Supplier Statistics and Scorecard
+16.9 Supplier Statistics and Scorecard
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| `GET` | `/api/v1/suppliers/{supplier_id}/stats` | Supplier operational statistics |
-| `GET` | `/api/v1/suppliers/{supplier_id}/scorecard` | Supplier performance scorecard |
+Method
+
+Endpoint
+
+Purpose
+
+GET
+
+/api/v1/suppliers/{supplier_id}/stats
+
+Supplier operational statistics
+
+GET
+
+/api/v1/suppliers/{supplier_id}/scorecard
+
+Supplier performance scorecard
 
 Supplier users must only access their own supplier-scoped information. The compliance policy and normal authorization rules continue to apply.
 
-## 16.9 Supplier Contract APIs
+16.10 Supplier Contract APIs
 
-Contract endpoints are documented in [Section 15](#15-supplier-contract-lifecycle). Contract management remains REST-based unless contract operations are explicitly added to the GraphQL schema.
+Contract endpoints are documented in Section 15. Contract management remains REST-based unless contract operations are explicitly added to the GraphQL schema.
 
-## 16.10 API Security Summary
+16.11 API Security Summary
 
 Protected API access combines:
 
-```text
 Authentication
       +
 Role authorization
@@ -1974,11 +2654,8 @@ Supplier ownership
 Compliance access enforcement
       +
 Business-state validation
-```
 
-A valid token alone does not authorize access to another supplier's resources. `needs_review` restricts protected supplier writes, while `suspended` denies protected supplier-facing access, subject to the implemented enforcement rules and internal-role policies.
-
----
+A valid token alone does not authorize access to another supplier's resources. needs_review restricts protected supplier writes, while suspended denies protected supplier-facing access, subject to the implemented enforcement rules and internal-role policies.
 
 # 17. HTTP Response Codes
 
@@ -2017,77 +2694,125 @@ Supplier activation follows a fail-closed rule: without a usable clearance decis
 
 Kafka consumer failures use retry, offset-commit, and dead-letter handling rather than HTTP response codes.
 
-# 18. Configuration
+e Service
 
-The Supplier Portal uses environment-based configuration. Use `.env.example` as the starting point for local settings and `app/core/config.py` as the source of truth for supported setting names.
-
-```powershell
-Copy-Item .env.example .env
-```
-
-Do not commit credentials or environment-specific secrets in `.env`.
-
-## 18.1 Platform Authentication
-
-The Supplier Portal delegates token verification to the Platform Service; it does not independently decode authentication tokens.
-
-```env
-PLATFORM_AUTH_URL=http://127.0.0.1:8005
-```
-
-Verification endpoint:
-
-```http
-POST /api/v1/auth/verify
-```
-
-The returned identity and role information is used for authorization and supplier scoping. R14/R15 Supplier Portal changes do not require changes to `services/platform`.
-
-## 18.2 Compliance Service
-
-```env
 COMPLIANCE_SERVICE_URL=http://127.0.0.1:8003
-```
 
 Supplier activation calls:
 
-```http
 POST /api/v1/compliance/internal-check
-```
 
-The request identifies the caller using `X-Caller-Service: supplier-portal`.
+The request identifies the caller using X-Caller-Service: supplier-portal.
 
-A valid `CLEAR` decision with the required positive clearance field permits activation. `BLOCK`, `REVIEW`, timeouts, connection failures, or unusable responses must not activate the supplier. This synchronous activation check is separate from R14 asynchronous compliance-status processing.
+A valid CLEAR decision with the required positive clearance field permits activation. BLOCK, REVIEW, timeouts, connection failures, or unusable responses must not activate the supplier. This synchronous activation check is separate from R14 asynchronous compliance-status processing.
 
-## 18.3 Kafka
+18.3 Kafka
 
-Kafka supports two separate workflows:
+Kafka supports the following Supplier Portal workflows:
 
-| Workflow | Purpose |
-|---|---|
-| R14 compliance events | Consume `compliance.supplier.status_changed` and update compliance access state |
-| R15 approved POs | Consume `inventory.po.approved`, persist approved POs in `po_mirror`, and support supplier acknowledgement |
+Workflow
 
-The R14 status topic and DLQ are:
+Purpose
 
-```text
+R14 compliance events
+
+Consume compliance.supplier.status_changed and update compliance access state
+
+R15 approved POs
+
+Consume inventory.po.approved, persist approved POs in po_mirror, and support supplier acknowledgement
+
+R15 shipment dispatch
+
+Publish supplierportal.shipment.dispatched using the shipment outbox
+
+R15 ETA prediction
+
+Consume eta.shipment.predicted and persist ETA information on shipments
+
+R14 Compliance Topics
+
 compliance.supplier.status_changed
 compliance.supplier.status_changed.dlq
-```
 
-The R14 consumer group documented for the current setup is `supplier-portal-service`. Confirm the effective values in `app/core/config.py` and `.env.example` before changing local settings.
+The R14 consumer group documented for the current setup is supplier-portal-service. Confirm the effective values in app/core/config.py and .env.example before changing local settings.
 
-The R15 approved-PO consumer has its own processing configuration. Do not assume it uses the R14 consumer group or DLQ.
+R15 Shipment Dispatch and ETA Configuration
 
-Consumer processing must validate events, handle duplicates, persist successful changes before committing offsets, and route eligible failures to the configured DLQ. Unexpected processing failures must not be silently acknowledged.
+The shipment outbox and ETA consumer use the following settings:
 
-## 18.4 MinIO Document Storage
+Setting
+
+Default / Value
+
+Purpose
+
+SHIPMENT_OUTBOX_ENABLED
+
+true
+
+Enables shipment outbox processing
+
+SHIPMENT_OUTBOX_POLL_SECONDS
+
+2.0
+
+Outbox polling interval
+
+SHIPMENT_OUTBOX_BATCH_SIZE
+
+50
+
+Maximum records processed per polling batch
+
+SHIPMENT_DISPATCHED_TOPIC
+
+supplierportal.shipment.dispatched
+
+Shipment dispatch event topic
+
+ETA_PREDICTED_TOPIC
+
+eta.shipment.predicted
+
+ETA prediction input topic
+
+ETA_CONSUMER_GROUP
+
+supplier-portal-eta-predicted-v1
+
+Dedicated ETA consumer group
+
+ETA_DLQ_TOPIC
+
+eta.shipment.predicted.dlq
+
+Dead-letter topic for failed ETA events
+
+KAFKA_ENABLED
+
+true
+
+Enables the configured Kafka consumer startup
+
+The effective values are controlled by the application settings and environment configuration. The defaults shown above reflect the current implementation; deployment environments may override them.
+
+Event Processing and Reliability
+
+The shipment outbox separates database persistence from Kafka publication. A shipment and its outbox event are persisted together, and the publisher processes pending outbox records.
+
+The ETA consumer uses manual offset commits and event validation. It supports duplicate-event handling, retry behavior, and dead-letter publishing. A message must not be committed as successfully handled if processing fails and the required DLQ publication also fails.
+
+The approved-PO consumer, compliance consumer, shipment outbox publisher, and ETA consumer are separate workflows. Do not assume they share consumer groups, topics, or DLQ settings.
+
+Local tests verify the implemented processing logic. Live Kafka delivery and compatibility with the actual producer event examples must be verified in an integration environment.
+
+18.4 MinIO Document Storage
 
 MinIO provides S3-compatible storage for invoice and supplier-onboarding documents. Configure its endpoint, credentials, bucket, and presigned-URL expiry using the setting names supported by the project.
 
 The document flow is:
 
-```text
 Upload/download request
         ↓
 Authentication and authorization
@@ -2097,37 +2822,30 @@ Supplier ownership and compliance checks
 MinIO object operation
         ↓
 Document reference or presigned URL
-```
 
 Authorize downloads before generating a presigned URL. Cross-supplier access and suspended-supplier access must be rejected. Do not silently substitute local filesystem storage for MinIO.
 
-## 18.5 Three-Way Match Tolerance
+18.5 Three-Way Match Tolerance
 
-The configured price tolerance is defined in `app/core/config.py`:
+The configured price tolerance is defined in app/core/config.py:
 
-```python
 PRICE_TOLERANCE_PERCENT = 5.0
-```
 
-For a PO unit price of `100`, the inclusive range is `95`–`105`; `106` is outside the price tolerance. This tolerance is used by matching logic, not as a blanket invoice-creation rejection rule.
+For a PO unit price of 100, the inclusive range is 95–105; 106 is outside the price tolerance. This tolerance is used by matching logic, not as a blanket invoice-creation rejection rule.
 
-## 18.6 Supplier Contracts
+18.6 Supplier Contracts
 
 The contract feature supports contract terms, lifecycle status, renewal tracking, and history as implemented by the service. The current implementation stores contract records and history in application memory, so this data is not durable across application restarts.
 
-The `auto_renew` field does not itself provide scheduled automatic renewal.
+The auto_renew field does not itself provide scheduled automatic renewal.
 
-## 18.7 GraphQL
+18.7 GraphQL
 
 The Strawberry GraphQL API is mounted at:
 
-```text
 http://127.0.0.1:8000/graphql
-```
 
 GraphQL operations reuse the Supplier Portal's authenticated request context and enforce applicable role permissions, supplier scope, and compliance access rules.
-
----
 
 # 19. Installation
 
@@ -2171,9 +2889,9 @@ Start the dependencies required for the feature being tested:
 |---|---|
 | Platform Service | Token verification |
 | Compliance Service | Supplier activation clearance |
-| Database | Persistent application data, including approved PO mirror/outbox data |
+| Database | Persistent application data, including approved PO, acknowledgement outbox, shipment, and ETA event data |
 | MinIO | Document storage |
-| Kafka | R14 compliance events and R15 approved-PO events |
+| Kafka | R14 compliance events, R15 approved-PO events, shipment dispatch events, and ETA prediction events |
 
 Some isolated tests use mocks and do not require all external services. Integration tests may require the corresponding services to be running.
 
@@ -2193,10 +2911,10 @@ python -m uvicorn app.main:app --reload --port 8000
 
 Local endpoints:
 
-- REST API: `http://127.0.0.1:8000`
-- Swagger UI: `http://127.0.0.1:8000/docs`
-- ReDoc: `http://127.0.0.1:8000/redoc`
-- GraphQL: `http://127.0.0.1:8000/graphql`
+- REST API: [http://127.0.0.1:8000](http://127.0.0.1:8000)
+- Swagger UI: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+- ReDoc: [http://127.0.0.1:8000/redoc](http://127.0.0.1:8000/redoc)
+- GraphQL: [http://127.0.0.1:8000/graphql](http://127.0.0.1:8000/graphql)
 
 Check the root endpoint:
 
@@ -2218,14 +2936,18 @@ Supplier Portal (:8000)
   │     └── Synchronous activation check
   │
   ├── Database
-  │     └── Approved PO mirror and acknowledgement outbox
+  │     ├── Approved PO mirror and acknowledgement outbox
+  │     ├── Shipment records and shipment outbox
+  │     └── ETA prediction event records
   │
   ├── MinIO
   │     └── Document objects
   │
   └── Apache Kafka (:9092)
         ├── R14 compliance-status consumer
-        └── R15 approved-PO consumer
+        ├── R15 approved-PO consumer
+        ├── Shipment-dispatched event publisher
+        └── ETA-prediction consumer
 ```
 
 The actual database URL, Kafka broker address, topics, consumer groups, MinIO settings, and worker startup behavior depend on the effective configuration.
@@ -2281,7 +3003,63 @@ The acknowledgement outbox records the event for reliable publication. Do not cl
 
 Verify compatibility with the Inventory producer's actual `inventory.po.approved` example and schema; do not infer missing identifiers from unrelated fields.
 
-## 20.5 Documents and Supplier Activation
+## 20.5 R15 — Shipment Dispatch and ETA Prediction
+
+The shipment workflow connects an acknowledged purchase order with the supplier's dispatch and the ETA prediction service.
+
+```text
+Supplier
+   │
+   │ POST /shipments
+   ▼
+Validate PO and supplier ownership
+   │
+   ▼
+Create SHP- shipment record
+   │
+   ▼
+Persist shipment and dispatch outbox
+   │
+   ▼
+supplierportal.shipment.dispatched
+   │
+   ▼
+ETA Prediction Service
+   │
+   │ eta.shipment.predicted
+   ▼
+Supplier Portal ETA consumer
+   │
+   ▼
+Validate event and handle duplicates
+   │
+   ▼
+Persist ETA and confidence interval
+   │
+   ▼
+Supplier shipment reads
+```
+
+The shipment dispatch operation creates a shipment using an `SHP-` identifier and associates it with the relevant PO and authenticated supplier.
+
+The shipment and its dispatch outbox record are persisted as part of the dispatch operation. The outbox is used to publish `supplierportal.shipment.dispatched`.
+
+The ETA consumer processes `eta.shipment.predicted` and stores the prediction details associated with the shipment, including:
+
+- `eta_days`
+- `confidence_low`
+- `confidence_high`
+- `model_version`
+- `predicted_at`
+- `top_features`, when provided
+
+The consumer validates the event, handles duplicate event IDs, and applies a prediction only when it is newer than the prediction already stored for that shipment.
+
+The ETA consumer uses explicit offset handling, retry processing, and a dead-letter topic for messages that cannot be processed after the configured retry policy. A message must not be acknowledged before successful processing or successful DLQ handling.
+
+A persisted outbox record does not by itself prove successful Kafka delivery. Verify the publisher and actual broker delivery separately. Producer compatibility should be checked against the ETA service's actual event example and schema.
+
+## 20.6 Documents and Supplier Activation
 
 For document operations, the Supplier Portal authorizes the caller, checks supplier ownership and compliance access, and then interacts with MinIO. It must not issue a new presigned URL for an unauthorized or suspended supplier.
 
@@ -2293,9 +3071,9 @@ For initial supplier activation, the synchronous Compliance check permits activa
 
 FastAPI provides interactive REST documentation while the service is running:
 
-- Swagger UI: `http://127.0.0.1:8000/docs`
-- ReDoc: `http://127.0.0.1:8000/redoc`
-- GraphQL endpoint: `http://127.0.0.1:8000/graphql`
+- Swagger UI: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+- ReDoc: [http://127.0.0.1:8000/redoc](http://127.0.0.1:8000/redoc)
+- GraphQL endpoint: [http://127.0.0.1:8000/graphql](http://127.0.0.1:8000/graphql)
 
 Swagger displays registered REST routes. GraphQL queries and mutations are submitted through `/graphql`.
 
@@ -2323,14 +3101,15 @@ Inspect the running application's registered routes and schemas for the supporte
 
 - Purchase Orders and supplier acknowledgement
 - Invoices and invoice documents
-- Shipment and Goods Receipt operations
+- Shipment dispatch and shipment retrieval
+- Goods Receipt operations
 - Supplier onboarding and activation
 - Supplier statistics and scorecards
 - Supplier contracts
 - Three-way matching and dispute resolution
 - Compliance-protected supplier operations
 
-R15 approved-PO endpoints and GraphQL fields should be documented according to their actual implementation. Do not assume every business feature has a corresponding REST endpoint.
+R15 approved-PO, shipment, and ETA-related fields should be documented according to their actual implementation. Do not assume every business feature has a corresponding REST endpoint.
 
 ## 21.3 Compliance-Protected Operations
 
@@ -2389,8 +3168,12 @@ Run a focused module when investigating a particular area:
 | R15 approved PO REST | `python -m pytest tests/test_approved_purchase_orders.py -q` |
 | R15 approved PO consumer | `python -m pytest tests/test_inventory_po_approved_consumer.py -q` |
 | R15 acknowledgement/outbox | `python -m pytest tests/test_po_acknowledgement_service.py -q` |
+| R15 shipment operations | `python -m pytest tests/test_shipment.py -q` |
+| ETA event schema | `python -m pytest tests/test_eta_shipment_event_schema.py -q` |
+| ETA consumer | `python -m pytest tests/test_shipment_eta_consumer.py -q` |
+| ETA consumer runner | `python -m pytest tests/test_shipment_eta_consumer_runner.py -q` |
 
-Check that a test file exists before running a command. Run MinIO integration tests only when the integration environment is configured.
+Check that a test file exists before running a command. Run MinIO and Kafka integration tests only when the integration environment is configured.
 
 ## 22.3 Required Coverage
 
@@ -2404,6 +3187,9 @@ The regression suite should cover the implemented behavior for:
 - R14 event validation, idempotency, event ordering, offset handling, DLQ, and audit history
 - R15 approved-PO event validation, duplicate handling, persistence, retry/DLQ, and supplier-scoped reads
 - R15 acknowledgement authorization and durable outbox records
+- Shipment creation, PO association, supplier ownership, and shipment retrieval
+- Shipment dispatch outbox creation and dispatch event schema validation
+- ETA event validation, duplicate handling, latest-prediction ordering, persistence, retry/DLQ, and offset handling
 - GraphQL queries, pagination, mutation authorization, and compliance enforcement
 - Supplier statistics, scorecards, and contract lifecycle where supported
 
@@ -2438,7 +3224,25 @@ The tests should verify:
 
 An outbox record alone does not prove successful Kafka delivery; test the publisher separately if one is implemented.
 
-## 22.6 Final Verification
+## 22.6 R15 Shipment and ETA Expectations
+
+The tests should verify:
+
+- Shipment creation with an `SHP-` identifier
+- Association with the correct PO and authenticated supplier
+- Supplier ownership checks for shipment list, detail, and PO-specific shipment retrieval
+- Rejection of unauthorized or suspended supplier operations
+- Shipment and dispatch outbox persistence
+- Dispatch event schema and required fields
+- ETA event schema validation, including confidence interval constraints
+- Duplicate ETA event handling using event identity
+- Applying only the latest prediction according to `predicted_at`
+- Persistence of ETA, confidence bounds, model version, prediction timestamp, and optional top features
+- Retry and DLQ handling
+- Offset commit only after successful processing or successful DLQ handling
+- Consumer runner startup, shutdown, and health reporting
+
+## 22.7 Final Verification
 
 Before committing README or application changes, run:
 
@@ -2449,6 +3253,9 @@ git status --short
 ```
 
 Review the README against `app/core/config.py`, `.env.example`, the registered routes, GraphQL schema, and the actual test filenames. Run the full suite when the required integration services are available.
+
+---
+
 # 23. Business Rules
 
 ## 23.1 Purchase Orders and Invoices
@@ -2474,12 +3281,12 @@ The P2P workflow is:
 ```text
 Acknowledged → Shipped → Received → Invoiced
                                       ↓
-                              Three-Way Match
-                                ↙         ↘
-                            Matched    Discrepancy
-                                ↓         ↓
-                         Payment Approval
-                                   Human Review
+                               Three-Way Match
+                                 ↙         ↘
+                             Matched    Discrepancy
+                                 ↓         ↓
+                          Payment Approval
+                                    Human Review
 ```
 
 The actual transitions depend on the implemented state machine.
@@ -2560,6 +3367,43 @@ The Strawberry GraphQL API must preserve REST-equivalent authentication, role au
 
 Implemented operations include PO, invoice, and document queries, cursor pagination, and PO acknowledgement. Collection queries must filter supplier-scoped records before returning results. Unauthorized access and invalid-cursor behavior must match the actual resolver contract.
 
+## 23.8 Shipment Dispatch and ETA Prediction
+
+Shipment dispatch is performed by an authenticated supplier against an eligible PO.
+
+The implemented shipment routes are:
+
+```http
+POST /shipments
+GET  /shipments
+GET  /shipments/{shipment_id}
+GET  /purchase-orders/{po_number}/shipments
+```
+
+The dispatch operation creates a shipment with an `SHP-` identifier and associates it with the relevant PO and authenticated supplier. The supplier identity must come from the authenticated context; a caller must not be able to create or retrieve shipments for another supplier by supplying a different supplier ID.
+
+Shipment list, detail, and PO-specific retrieval operations enforce supplier scoping. Shipment operations also use the suspended-supplier access guard.
+
+The dispatch event is:
+
+```text
+supplierportal.shipment.dispatched
+```
+
+The event carries the shipment and PO identifiers, supplier identity, origin, destination warehouse, carrier, and dispatch timestamp according to the event schema.
+
+The ETA prediction event is:
+
+```text
+eta.shipment.predicted
+```
+
+The ETA consumer validates and persists the prediction associated with the shipment. Stored prediction information includes ETA days, confidence interval bounds, model version, prediction timestamp, and optional top features.
+
+Repeated event delivery must be idempotent. When multiple predictions exist for the same shipment, an older prediction must not replace a newer prediction.
+
+The ETA prediction and shipment dispatch event flows do not, by themselves, prove that goods have been received. Goods Receipt remains a separate P2P operation.
+
 ---
 
 # 24. Security Controls
@@ -2598,6 +3442,8 @@ Authenticated suppliers must not access another supplier's POs, invoices, docume
 
 A supplier without the required supplier identity must not gain supplier-scoped access. Collection endpoints must filter results before returning them to the caller.
 
+Shipment creation uses the authenticated supplier identity. Shipment list, detail, and PO-specific shipment retrieval must enforce supplier ownership rather than trusting a supplier identifier supplied by the request.
+
 ## 24.3 Compliance Access — R14
 
 The supplier compliance states are `cleared`, `needs_review`, and `suspended`.
@@ -2614,7 +3460,11 @@ The R14 consumer processes `compliance.supplier.status_changed` and uses `compli
 
 The consumer implements event validation, idempotency, timestamp ordering, persistence, and explicit offset management. The original offset must not be committed before successful processing or successful DLQ handling, according to the implemented path.
 
-**Event identity caveat:** The current producer contract does not include `supplier_id`. The implementation uses supplier name and country to identify the corresponding supplier. This is a limitation: duplicate supplier names or inconsistent country values can make identification ambiguous. The long-term contract should include a stable supplier ID, with producer and consumer contract tests updated together.
+The R15 approved-PO consumer and ETA prediction consumer also use explicit processing and offset-handling logic. Their retry and DLQ behavior must be verified against the configured topics and consumer implementations.
+
+The shipment dispatch outbox stores an event for publication. An outbox record is not evidence of successful broker delivery.
+
+**Event identity caveat:** The current R14 producer contract does not include `supplier_id`. The implementation uses supplier name and country to identify the corresponding supplier. This is a limitation: duplicate supplier names or inconsistent country values can make identification ambiguous. The long-term contract should include a stable supplier ID, with producer and consumer contract tests updated together.
 
 Compliance access state, processed-event information, and audit history are persisted in SQLite. This does not mean all Supplier Portal business entities use durable database storage.
 
@@ -2636,14 +3486,19 @@ Contract retrieval and history access must enforce role authorization and suppli
 
 # 25. Storage Architecture
 
-The current application uses different storage mechanisms for business records, document binaries, and R14 compliance processing.
+The current application uses different storage mechanisms for business records, document binaries, and event processing.
 
 | Data category | Current storage | Restart behavior |
 |---|---|---|
-| Purchase Orders and PO events | In-memory stores | Not durable across restart |
+| Legacy Purchase Orders and related records | In-memory stores, where implemented | Not durable across restart |
 | Invoices and P2P workflow records | In-memory stores, where implemented | Not durable across restart |
 | Onboarding business metadata | In-memory stores, where implemented | Not durable across restart |
 | Supplier contracts and history | In-memory stores | Not durable across restart |
+| Approved PO mirror | Supplier Portal database | Persists according to database configuration |
+| PO acknowledgement outbox | Supplier Portal database | Persists according to database configuration |
+| Shipment records | Supplier Portal database | Persists according to database configuration |
+| Shipment dispatch outbox | Supplier Portal database | Persists according to database configuration |
+| ETA prediction event records | Supplier Portal database | Persists according to database configuration |
 | Invoice and onboarding document binaries | MinIO | Persist independently of the application process |
 | R14 compliance state | SQLite | Persists if the database file is retained |
 | R14 processed-event and audit records | SQLite | Persists if the database file is retained |
@@ -2662,11 +3517,21 @@ R14 persists compliance access state, processed-event/idempotency information, o
 
 Durability depends on retaining and protecting the database file and on correct transaction and deployment configuration. SQLite state and Kafka offsets are not committed as one atomic transaction; recovery and replay must account for possible redelivery.
 
-## 25.3 Production Storage Considerations
+## 25.3 Approved PO and Shipment Storage
 
-Production deployment should provide durable storage for business entities and suitable backup, retention, recovery, and access controls for both SQLite data and MinIO objects.
+The approved PO mirror and acknowledgement outbox use the Supplier Portal database.
 
-Replacing the in-memory stores with durable persistence is future work unless implemented separately. Do not describe all business records as database-backed.
+Shipment records, shipment dispatch outbox records, and ETA prediction event records also use the Supplier Portal database. These records are managed through the application's database models and migrations.
+
+The shipment dispatch outbox provides a durable record for the dispatch event before publication. Successful delivery still depends on the configured publisher and Kafka availability.
+
+ETA event processing records event identity and prediction information so duplicate events can be handled and newer predictions can take precedence over older ones.
+
+## 25.4 Production Storage Considerations
+
+Production deployment should provide durable storage for business entities and suitable backup, retention, recovery, and access controls for database records, SQLite data, and MinIO objects.
+
+Replacing the remaining in-memory stores with durable persistence is future work unless implemented separately. Do not describe all business records as database-backed.
 
 ---
 
@@ -2675,20 +3540,25 @@ Replacing the in-memory stores with durable persistence is future work unless im
 ## 26.1 Procure-to-Pay
 
 ```text
-PO Created → Sent → Acknowledged → Shipment
-                                     ↓
-                               Goods Receipt
-                                     ↓
-                                  Invoice
-                                     ↓
-                              Three-Way Match
-                                ↙         ↘
-                             Matched   Discrepancy
-                                ↓         ↓
-                         Payment Approval  Human Review
+PO Created → Sent → Acknowledged → Shipment Dispatched
+                                      ↓
+                                ETA Prediction
+                                      ↓
+                                Goods Receipt
+                                      ↓
+                                    Invoice
+                                      ↓
+                               Three-Way Match
+                                 ↙         ↘
+                              Matched   Discrepancy
+                                 ↓         ↓
+                         Payment Approval
+                                    Human Review
 ```
 
 The state machine and endpoint validation govern the allowed transitions. Completing a match does not automatically approve a discrepancy.
+
+Shipment dispatch and ETA prediction provide delivery tracking information. An ETA prediction is not a Goods Receipt and must not be treated as proof that goods have arrived.
 
 ## 26.2 Supplier Onboarding
 
@@ -2698,7 +3568,7 @@ Registration → Documents in MinIO → Verification
                                   ↓
                        CLEAR / REVIEW / BLOCK
                                   ↓
-                        Activation decision
+                         Activation decision
 ```
 
 Activation is permitted only for a valid clearance response. The initial synchronous check is separate from the ongoing R14 event consumer.
@@ -2767,6 +3637,42 @@ Contract lifecycle management supports creation, activation, explicit renewal, e
 
 Supplier analytics derive from available PO, Goods Receipt, invoice, and dispute data. Scorecard access remains subject to authentication, supplier ownership, and compliance access.
 
+## 26.7 Shipment Dispatch and ETA Prediction — R15
+
+```text
+Supplier
+   ↓
+POST /shipments
+   ↓
+Validate authenticated supplier and PO
+   ↓
+Create shipment (SHP-...)
+   ↓
+Persist shipment + dispatch outbox
+   ↓
+Publish supplierportal.shipment.dispatched
+   ↓
+ETA Prediction Service
+   ↓
+Publish eta.shipment.predicted
+   ↓
+Supplier Portal ETA consumer
+   ↓
+Validate and deduplicate event
+   ↓
+Persist latest ETA prediction
+   ↓
+Supplier retrieves shipment and ETA
+```
+
+The shipment routes support shipment creation, supplier-scoped shipment listing, shipment detail retrieval, and retrieval of shipments associated with a PO.
+
+The dispatch event includes the shipment and PO identifiers, supplier identity, origin, destination warehouse, carrier, and dispatch timestamp.
+
+The ETA event includes the shipment and PO identifiers, ETA days, confidence interval, model version, prediction timestamp, and optional top features.
+
+The ETA consumer validates events, handles duplicate event IDs, and applies only a newer prediction for a shipment. It uses retry and DLQ handling before committing the corresponding Kafka offset.
+
 ---
 
 # 27. Current Implementation Status
@@ -2776,7 +3682,10 @@ The following table summarizes the intended feature scope. It is not a substitut
 | Capability | Documented scope |
 |---|---|
 | Purchase Orders and P2P workflow | Implemented scope |
-| Shipment and Goods Receipt processing | Implemented scope |
+| Shipment dispatch and shipment retrieval | Implemented scope |
+| Shipment dispatch outbox | Implemented scope |
+| ETA prediction event consumer and persistence | Implemented scope |
+| Goods Receipt processing | Implemented scope |
 | Three-way matching and discrepancy review | Implemented scope |
 | Supplier onboarding and synchronous compliance check | Implemented scope |
 | Supplier performance analytics and scorecards | Implemented scope |
@@ -2789,6 +3698,7 @@ The following table summarizes the intended feature scope. It is not a substitut
 | Strawberry GraphQL queries and PO acknowledgement | Implemented scope |
 | R14 Kafka compliance consumer and DLQ handling | Implemented scope |
 | R14 compliance state and audit persistence in SQLite | Implemented scope |
+| R15 approved-PO consumption and acknowledgement | Implemented scope |
 | Durable persistence for all business entities | Not currently provided by in-memory stores |
 | Complete repeated-partial-invoice P2P lifecycle | Limitation |
 | Automatic contract renewal scheduler | Not implemented |
@@ -2802,9 +3712,9 @@ The following table summarizes the intended feature scope. It is not a substitut
 - **R12:** MinIO-backed document storage and protected download URLs.
 - **R13:** Strawberry GraphQL operations, pagination, and resolver-level supplier scoping.
 - **R14:** Event-driven compliance access enforcement, SQLite-backed state and audit records, idempotency, ordering protection, and DLQ handling.
-- **R15:** Approved-PO consumption and supplier acknowledgement should be documented separately, using the actual event schema, routes, outbox implementation, and test results from the current branch.
+- **R15:** Approved-PO consumption and supplier acknowledgement, shipment dispatch, dispatch outbox, ETA prediction consumption, and shipment ETA persistence.
 
-Feature status must be confirmed against the current code and test results before describing a feature as verified or production-ready.
+Feature status must be confirmed against the current code and test results before describing a feature as verified or production-ready. Kafka producer delivery and cross-service end-to-end compatibility must be verified against the actual producer contracts and running integration environment.
 
 ---
 
@@ -2812,9 +3722,9 @@ Feature status must be confirmed against the current code and test results befor
 
 ## In-Memory Business Data
 
-POs, invoices, P2P records, onboarding metadata, contracts, contract history, and other business entities held in in-memory stores are not durable across application restarts.
+Legacy POs, invoices, P2P records, onboarding metadata, contracts, contract history, and other business entities held in in-memory stores are not durable across application restarts.
 
-This limitation does not apply to MinIO document binaries or the SQLite-backed R14 compliance records, which use separate storage mechanisms.
+This limitation does not apply to the database-backed approved PO mirror, acknowledgement outbox, shipment records, shipment dispatch outbox, and ETA prediction event records. It also does not apply to MinIO document binaries or the SQLite-backed R14 compliance records, which use separate storage mechanisms.
 
 ## R14 Supplier Identification
 
@@ -2826,7 +3736,19 @@ A `BLOCK` event that fails processing and is routed to the DLQ is not applied to
 
 R14 requires Kafka to receive ongoing status-change events. If the broker or consumer is unavailable, the stored compliance state may not reflect the latest Compliance decision until processing resumes.
 
+The approved-PO consumer and ETA prediction consumer also depend on Kafka availability for event processing.
+
 Database writes and Kafka offset commits are not one atomic transaction. Idempotency, recovery, replay, and offset reconciliation are important for reliable operation.
+
+The shipment dispatch outbox stores the event for publication, but an outbox record alone does not guarantee that Kafka has received the event. Publisher availability and delivery outcomes must be monitored.
+
+## Shipment and ETA Integration
+
+Shipment dispatch and ETA prediction use separate event directions: the Supplier Portal produces the shipment-dispatched event, while it consumes the ETA prediction event.
+
+Successful local schema validation and consumer tests do not by themselves prove live compatibility with the external ETA producer. Verify the actual producer event example, field names, timestamp format, and event version through contract or integration tests.
+
+The ETA prediction is an estimate. It does not confirm physical delivery or replace Goods Receipt processing.
 
 ## Partial Invoice Lifecycle
 
@@ -2843,7 +3765,8 @@ A presigned URL already issued to a client may remain valid until expiry. Immedi
 - Platform Service availability affects centralized token verification.
 - Compliance Service availability affects supplier activation; the integration fails closed when clearance cannot be confirmed.
 - MinIO availability affects document operations.
-- Kafka availability affects ongoing compliance event processing.
+- Kafka availability affects ongoing compliance, approved-PO, and ETA event processing.
+- ETA Prediction Service availability affects the production of new ETA predictions.
 
 The exact HTTP response for each dependency failure depends on the relevant endpoint's exception mapping.
 
@@ -2856,6 +3779,7 @@ Automatic contract renewal and immutable contract versioning are not implemented
 The documented GraphQL scope covers the implemented PO, invoice, document, pagination, and acknowledgement operations. Additional domains, subscriptions, and production-grade query-complexity controls are potential future work.
 
 ---
+
 # 29. Future Enhancements
 
 The following enhancements build on the Supplier Portal capabilities delivered across Rounds 1–15.
@@ -2866,24 +3790,30 @@ Replace any remaining in-memory business stores with durable database persistenc
 
 ## Event Reliability and Integration
 
-- Harden Kafka outbox publishing, retries, idempotency, and dead-letter handling.
-- Complete and verify the shipment dispatch and ETA prediction workflow.
+- Harden Kafka outbox publishing, retries, idempotency, monitoring, and dead-letter handling.
+- Verify shipment dispatch event delivery and ETA prediction compatibility against the actual external producer contract.
+- Add automated contract tests between the Supplier Portal and ETA Prediction Service.
+- Improve recovery and operational replay procedures for failed ETA prediction events.
 - Maintain versioned event contracts and automated compatibility tests.
 
 ## Compliance and Security
 
 - Improve compliance failure recovery, auditability, and monitoring.
 - Review service authentication, secrets management, and least-privilege access.
+- Improve supplier identification in compliance events by using a stable supplier ID.
 
 ## API and Document Management
 
 - Add GraphQL query-complexity limits and improve API performance.
 - Strengthen document retention, backup, and recovery procedures.
+- Continue validating supplier ownership and compliance access on all shipment and document operations.
 
 ## Testing and Observability
 
 - Expand cross-service integration and regression tests.
+- Add live Kafka integration coverage for shipment dispatch and ETA prediction.
 - Improve structured logging, metrics, health checks, and operational alerts.
+- Monitor outbox delivery, consumer health, retry counts, and DLQ messages.
 - Document deployment, migration, and recovery procedures.
 
 ## Scalability
