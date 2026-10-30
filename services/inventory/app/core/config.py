@@ -17,7 +17,8 @@ class Settings(BaseSettings):
 
     # Forecast Service integration (Flow A, blueprint section 4)
     FORECAST_SERVICE_URL: str = "http://localhost:8007"
-    FORECAST_SERVICE_API_KEY: str = "service-key-inventory"
+    # Set via env (service key issued by Platform). Never commit a real key.
+    FORECAST_SERVICE_API_KEY: str = ""
     FORECAST_TIMEOUT_SECONDS: float = 2.0
     FORECAST_RETRY_COUNT: int = 1
     FORECAST_HORIZON_DAYS: int = 30

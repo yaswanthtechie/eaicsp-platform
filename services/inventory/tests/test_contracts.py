@@ -1,3 +1,4 @@
+from unittest.mock import patch
 import pytest
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
@@ -343,7 +344,8 @@ def test_optimization_recommendations_endpoint_200(client):
     Contract test: GET /api/v1/inventory/optimization/recommendations returns 200 OK
     and conforms to OptimizationRecommendationsResponse schema (Flow A).
     """
-    resp = client.get("/api/v1/inventory/optimization/recommendations")
+    with patch("app.services.optimization_service.forecast_client.fetch_forecast", return_value=None):
+        resp = client.get("/api/v1/inventory/optimization/recommendations")
     assert resp.status_code == 200
     data = resp.json()
     assert "generated_at" in data

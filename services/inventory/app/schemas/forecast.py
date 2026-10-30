@@ -142,16 +142,6 @@ class DailyForecastPoint(BaseModel):
     lower_bound: float = Field(..., ge=0)
     upper_bound: float = Field(..., ge=0)
 
-    @model_validator(mode="before")
-    @classmethod
-    def populate_bounds_aliases(cls, data):
-        if isinstance(data, dict):
-            if "lower_bound" not in data and "lower" in data:
-                data["lower_bound"] = data["lower"]
-            if "upper_bound" not in data and "upper" in data:
-                data["upper_bound"] = data["upper"]
-        return data
-
     @model_validator(mode="after")
     def check_bounds(self):
         if not (self.lower_bound <= self.predicted <= self.upper_bound):

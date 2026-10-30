@@ -51,6 +51,8 @@ def generate_recommendations(
     items = query.order_by(Inventory.warehouse_id, Inventory.sku_id).all()
 
     recommendations: List[RecommendationLineItem] = []
+    # Once the Forecast Service is down, stop calling it for the rest of this request.
+    forecast_down = False
 
     for item in items:
         # Resolve demand via model forecast or 28-day history fallback
@@ -60,9 +62,12 @@ def generate_recommendations(
             warehouse_id=item.warehouse_id,
             horizon=h,
             fallback_days=fb_days,
+            use_remote=not forecast_down,
         )
+        if demand_res.service_unavailable:
+            forecast_down = True
 
-        lead_time = item.lead_time_days if item.lead_time_days and item.lead_time_days > 0 else 7
+        lead_time = item.lead_time_days if item.lead_time_days is not None else 7
         safety = item.safety_stock if item.safety_stock and item.safety_stock >= 0 else 0
 
         reorder_point = int(demand_res.daily_demand * lead_time + safety)
@@ -75,16 +80,17 @@ def generate_recommendations(
             # Determine supplier and unit cost
             try:
                 supplier = select_supplier(db, sku_id=item.sku_id)
-                supplier_id = supplier.supplier_id
-                unit_cost = float(supplier.unit_cost)
-            except Exception as exc:
+            except ValueError as exc:
                 logger.warning(
-                    "No supplier found for SKU %s, defaulting to SUP-00001: %s",
+                    "Skipping recommendation for SKU %s at %s: %s",
                     item.sku_id,
+                    item.warehouse_id,
                     exc,
                 )
-                supplier_id = "SUP-00001"
-                unit_cost = 0.0
+                continue
+
+            supplier_id = supplier.supplier_id
+            unit_cost = float(supplier.unit_cost)
 
             estimated_total_cost = round(recommended_order_quantity * unit_cost, 2)
 
@@ -113,4 +119,3 @@ def generate_recommendations(
         recommendations=recommendations,
         total_recommended_spend=total_recommended_spend,
     )
-

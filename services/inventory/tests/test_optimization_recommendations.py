@@ -20,6 +20,7 @@ from app.models.sales_history import SalesHistory
 from app.models.supplier import Supplier
 from app.schemas.forecast import ForecastServingResponse
 from app.services.forecast_client import ForecastClient
+from app.services.optimization_service import generate_recommendations
 
 
 @pytest.fixture
@@ -298,6 +299,8 @@ def test_items_above_reorder_point_are_not_recommended(client, db_session, mock_
         lead_time=2,
     )
 
+    mock_forecast_payload["sku_id"] = sku_id
+    mock_forecast_payload["warehouse_id"] = warehouse_id
     parsed_forecast = ForecastServingResponse.model_validate(mock_forecast_payload)
 
     with patch("app.services.optimization_service.forecast_client.fetch_forecast", return_value=parsed_forecast):
@@ -314,3 +317,73 @@ def test_recommendations_unauthenticated_returns_401(client_raw):
     resp = client_raw.get("/api/v1/inventory/optimization/recommendations")
     assert resp.status_code == 401
 
+
+
+def test_forecast_down_is_called_only_once_per_request(db_session):
+    """After the first row exhausts its retries, the other rows go straight to fallback."""
+    seed_inventory_and_supplier(db_session, "SKU-000123", "WH-BLR-01", qty_on_hand=0)
+    seed_inventory_and_supplier(db_session, "SKU-000124", "WH-DEL-01", qty_on_hand=0)
+
+    with patch("app.services.forecast_client.httpx.Client") as mock_client_cls:
+        mock_instance = MagicMock()
+        mock_client_cls.return_value.__enter__.return_value = mock_instance
+        mock_instance.get.side_effect = httpx.ConnectError("Connection refused")
+
+        fc = ForecastClient(base_url="http://localhost:8007", timeout_seconds=1.0, max_retries=1)
+        result = generate_recommendations(db=db_session, client=fc)
+
+        # 1 row x (1 attempt + 1 retry); later rows never call the service
+        assert mock_instance.get.call_count == 2
+        assert all(r.forecast_source == "fallback" for r in result.recommendations)
+
+
+def test_sku_without_supplier_is_skipped(client, db_session):
+    """No supplier for a SKU -> no recommendation, never a made-up SUP-00001."""
+    seed_inventory_and_supplier(db_session, "SKU-000123", "WH-BLR-01", qty_on_hand=0)
+    db_session.add(
+        Inventory(
+            sku_id="SKU-000777",
+            warehouse_id="WH-BLR-01",
+            product_name="No Supplier Product",
+            category="Electronics",
+            quantity_on_hand=0,
+            safety_stock=10,
+            lead_time_days=5,
+        )
+    )
+    db_session.commit()
+
+    with patch("app.services.optimization_service.forecast_client.fetch_forecast", return_value=None):
+        resp = client.get("/api/v1/inventory/optimization/recommendations")
+
+    assert resp.status_code == 200
+    recs = resp.json()["recommendations"]
+    assert any(r["sku_id"] == "SKU-000123" for r in recs)
+    assert not any(r["sku_id"] == "SKU-000777" for r in recs)
+    assert not any(r["supplier_id"] == "SUP-00001" for r in recs)
+
+
+def test_forecast_for_other_sku_is_not_used(db_session, mock_forecast_payload):
+    seed_28_day_sales(db_session, "SKU-000124", "WH-BLR-01", daily_qty=5)
+    parsed = ForecastServingResponse.model_validate(mock_forecast_payload)  # SKU-000123
+    fc = ForecastClient(base_url="http://localhost:8007")
+
+    with patch.object(fc, "fetch_forecast", return_value=parsed):
+        res = fc.resolve_demand(db=db_session, sku_id="SKU-000124", warehouse_id="WH-BLR-01")
+
+    assert res.forecast_source == "fallback"
+    assert res.daily_demand == 5.0
+
+
+def test_stale_forecast_is_not_used(db_session, mock_forecast_payload):
+    seed_28_day_sales(db_session, "SKU-000123", "WH-BLR-01", daily_qty=5)
+    mock_forecast_payload["generated_at"] = (
+        datetime.now(timezone.utc) - timedelta(days=settings.FORECAST_MAX_AGE_DAYS + 1)
+    ).isoformat()
+    parsed = ForecastServingResponse.model_validate(mock_forecast_payload)
+    fc = ForecastClient(base_url="http://localhost:8007")
+
+    with patch.object(fc, "fetch_forecast", return_value=parsed):
+        res = fc.resolve_demand(db=db_session, sku_id="SKU-000123", warehouse_id="WH-BLR-01")
+
+    assert res.forecast_source == "fallback"

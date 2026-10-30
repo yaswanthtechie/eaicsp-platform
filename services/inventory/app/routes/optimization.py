@@ -29,7 +29,6 @@ router = APIRouter(
     responses={
         401: {"description": "Missing or invalid token"},
         403: {"description": "Insufficient permissions"},
-        501: {"description": "Not implemented yet (Round 15 stub)"},
     },
     dependencies=[
         Depends(require_permission("inventory:read")),
