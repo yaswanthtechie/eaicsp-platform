@@ -1,3 +1,4 @@
+from unittest.mock import patch
 import pytest
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
