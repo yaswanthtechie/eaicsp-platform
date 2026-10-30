@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - 'contracts/**'
+      - '.github/workflows/contracts.yml'
+
+permissions:
+  contents: read
 
 jobs:
   validate-contracts:
