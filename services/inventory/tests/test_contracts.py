@@ -1,3 +1,4 @@
+from unittest.mock import patch
 import pytest
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
@@ -338,14 +339,19 @@ def test_optimization_recommendations_unauthenticated(client_raw):
     assert resp.status_code == 401
 
 
-def test_optimization_recommendations_endpoint_501(client):
+def test_optimization_recommendations_endpoint_200(client):
     """
-    Contract test: GET /api/v1/inventory/optimization/recommendations returns 501 Not Implemented
-    when called with required permission (Flow A stub).
+    Contract test: GET /api/v1/inventory/optimization/recommendations returns 200 OK
+    and conforms to OptimizationRecommendationsResponse schema (Flow A).
     """
-    resp = client.get("/api/v1/inventory/optimization/recommendations")
-    assert resp.status_code == 501
-    assert "under construction" in resp.json()["detail"].lower()
+    with patch("app.services.optimization_service.forecast_client.fetch_forecast", return_value=None):
+        resp = client.get("/api/v1/inventory/optimization/recommendations")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "generated_at" in data
+    assert "recommendations" in data
+    assert "total_recommended_spend" in data
+    assert isinstance(data["recommendations"], list)
 
 
 def test_goods_receipts_unauthenticated(client_raw):

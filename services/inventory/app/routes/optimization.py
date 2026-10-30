@@ -1,8 +1,12 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status
+
+from fastapi import APIRouter, Depends, status
+from sqlalchemy.orm import Session
 
 from app.core.auth import require_permission
+from app.database import get_db
 from app.schemas.optimization import OptimizationRecommendationsResponse
+from app.services.optimization_service import generate_recommendations
 
 logger = logging.getLogger(__name__)
 
@@ -25,18 +29,16 @@ router = APIRouter(
     responses={
         401: {"description": "Missing or invalid token"},
         403: {"description": "Insufficient permissions"},
-        501: {"description": "Not implemented yet (Round 15 stub)"},
     },
     dependencies=[
         Depends(require_permission("inventory:read")),
     ],
 )
-def get_optimization_recommendations():
+def get_optimization_recommendations(
+    db: Session = Depends(get_db),
+) -> OptimizationRecommendationsResponse:
     """
     Returns reorder recommendations for inventory optimization (Flow A).
-    Returns 501 until Flow A calculation engine is wired.
+    Queries model forecast or falls back to 28-day moving average.
     """
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Flow A optimization recommendation engine is under construction.",
-    )
+    return generate_recommendations(db=db)
