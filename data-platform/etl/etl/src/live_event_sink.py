@@ -66,6 +66,8 @@ def validate_event(event):
                 raise ValueError(f"invalid {key}")
         if payload.get("status") != "received":
             raise ValueError("status must be received")
+        if not isinstance(payload.get("received_by"), str) or not payload["received_by"].strip():
+            raise ValueError("received_by is required")
         _parse_time(payload.get("received_at"))
         items = payload.get("items")
         if not isinstance(items, list) or not items:
@@ -219,25 +221,32 @@ class ClickHouseEventSink:
                 WHERE shipment_id = {{shipment_id:String}}""",
             parameters={"shipment_id": payload["shipment_id"]},
         )
-        if result.result_rows:
-            current = list(result.result_rows[0])
-            eta = (predicted_at + timedelta(days=float(payload["eta_days"])))
-            current[6] = eta.replace(tzinfo=None)
-            current[10] = version
-            self._insert(
-                "transport_performance",
-                [tuple(current)],
-                [
-                    "shipment_id", "po_id", "supplier_id", "warehouse_id",
-                    "carrier", "dispatched_at", "predicted_eta", "delivered_at",
-                    "on_time", "delay_hours", "version",
-                ],
+        if not result.result_rows:
+            LOGGER.warning(
+                "No transport_performance row for %s; predicted_eta not updated",
+                payload["shipment_id"],
             )
+            return
+
+        current = list(result.result_rows[0])
+        dispatched_at = current[5]
+        if dispatched_at.tzinfo is None:
+            dispatched_at = dispatched_at.replace(tzinfo=timezone.utc)
+        eta = dispatched_at + timedelta(days=float(payload["eta_days"]))
+        current[6] = eta.astimezone(timezone.utc).replace(tzinfo=None)
+        current[10] = version
+        self._insert(
+            "transport_performance",
+            [tuple(current)],
+            [
+                "shipment_id", "po_id", "supplier_id", "warehouse_id",
+                "carrier", "dispatched_at", "predicted_eta", "delivered_at",
+                "on_time", "delay_hours", "version",
+            ],
+        )
 
     def _dead_letter(self, message, reason, raw):
         source_topic = message.topic
-        if callable(source_topic):
-            source_topic = source_topic()
         topic = f"{source_topic}.dlq"
         record = {
             "source_topic": source_topic,
@@ -255,8 +264,6 @@ class ClickHouseEventSink:
 
     def process_message(self, message):
         raw = message.value
-        if callable(raw):
-            raw = raw()
         try:
             event = json.loads(raw.decode("utf-8") if isinstance(raw, bytes) else raw)
             validate_event(event)
@@ -312,12 +319,17 @@ def main():
             value, separators=(",", ":")
         ).encode("utf-8"),
     )
+    password = os.getenv("CLICKHOUSE_PASSWORD")
+    if not password:
+        raise ValueError("CLICKHOUSE_PASSWORD must be set.")
+
     client = clickhouse_connect.get_client(
         host=os.getenv("CLICKHOUSE_HOST", "clickhouse"),
         port=int(os.getenv("CLICKHOUSE_PORT", "8123")),
         username=os.getenv("CLICKHOUSE_USER", "default"),
-        password=os.getenv("CLICKHOUSE_PASSWORD", ""),
+        password=password,
         database=database,
+        connect_timeout=5,
     )
     sink = ClickHouseEventSink(consumer, producer, client, database)
     sink.ensure_schema()

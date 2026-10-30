@@ -1,66 +1,33 @@
 ﻿import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from live_event_sink import ClickHouseEventSink, validate_event
 
+EXAMPLES = Path(__file__).resolve().parents[3] / "contracts" / "events" / "examples"
+
+
+def _example(name):
+    return json.loads((EXAMPLES / f"{name}.v1.json").read_text(encoding="utf-8"))
+
 
 def goods_event():
-    return {
-        "event_id": "123e4567-e89b-42d3-a456-426614174000",
-        "event_type": "inventory.goods.received",
-        "event_version": 1,
-        "occurred_at": "2026-10-15T14:15:00Z",
-        "producer": "inventory-service",
-        "payload": {
-            "receipt_id": "GR-2026-000077",
-            "po_id": "PO-2026-000123",
-            "supplier_id": "SUP-00045",
-            "warehouse_id": "WH-BLR-01",
-            "received_at": "2026-10-15T14:15:00Z",
-            "status": "received",
-            "items": [{"sku_id": "SKU-000123", "quantity_received": 100}],
-        },
-    }
+    return _example("inventory.goods.received")
 
 
 def eta_event():
-    return {
-        "event_id": "123e4567-e89b-42d3-a456-426614174001",
-        "event_type": "eta.shipment.predicted",
-        "event_version": 1,
-        "occurred_at": "2026-10-15T06:31:04Z",
-        "producer": "eta-prediction",
-        "payload": {
-            "shipment_id": "SHP-2026-000077",
-            "po_number": "PO-2026-000123",
-            "eta_days": 5.2,
-            "confidence_low": 4.1,
-            "confidence_high": 7.3,
-            "model_version": "eta_pipeline/3",
-            "predicted_at": "2026-10-15T06:31:04Z",
-        },
-    }
+    return _example("eta.shipment.predicted")
 
 
 class FakeMessage:
     def __init__(self, event, topic="inventory.goods.received"):
-        self.raw = json.dumps(event).encode()
-        self._topic = topic
-
-    def value(self):
-        return self.raw
-
-    def topic(self):
-        return self._topic
-
-    def partition(self):
-        return 0
-
-    def offset(self):
-        return 4
+        self.value = json.dumps(event).encode()
+        self.topic = topic
+        self.partition = 0
+        self.offset = 4
 
 
 class FakeConsumer:
@@ -111,6 +78,20 @@ class FakeClient:
         pass
 
 
+class TransportClient(FakeClient):
+    def __init__(self, dispatched_at):
+        super().__init__()
+        self.row = (
+            "SHP-2026-000077", "PO-2026-000123", "SUP-00045", "WH-BLR-01",
+            "BlueDart", dispatched_at, None, None, None, None, dispatched_at,
+        )
+
+    def query(self, sql, parameters=None):
+        if "transport_performance" in sql:
+            return SimpleNamespace(result_rows=[self.row])
+        return super().query(sql, parameters)
+
+
 def make_sink(fail_table=None, dlq_fail=False):
     consumer = FakeConsumer()
     producer = FakeProducer(fail=dlq_fail)
@@ -127,6 +108,13 @@ def test_rejects_invalid_goods_quantity():
     event = goods_event()
     event["payload"]["items"][0]["quantity_received"] = 0
     with pytest.raises(ValueError):
+        validate_event(event)
+
+
+def test_rejects_goods_event_without_received_by():
+    event = goods_event()
+    del event["payload"]["received_by"]
+    with pytest.raises(ValueError, match="received_by"):
         validate_event(event)
 
 
@@ -154,6 +142,30 @@ def test_eta_event_writes_prediction_and_commits():
     ) == "processed"
     assert len(client.tables["analytics.shipment_eta_predictions"]) == 1
     assert consumer.commits == 1
+
+
+def test_predicted_eta_counts_from_dispatched_at():
+    dispatched_at = datetime(2026, 10, 14, 6, 0)
+    client = TransportClient(dispatched_at)
+    sink = ClickHouseEventSink(FakeConsumer(), FakeProducer(), client)
+
+    sink.process_message(
+        FakeMessage(eta_event(), topic="eta.shipment.predicted")
+    )
+
+    (row,) = client.tables["analytics.transport_performance"]
+    assert row[6] == dispatched_at + timedelta(days=5.2)
+
+
+def test_eta_without_transport_row_is_logged(caplog):
+    sink, _, _, client = make_sink()
+    with caplog.at_level("WARNING"):
+        result = sink.process_message(
+            FakeMessage(eta_event(), topic="eta.shipment.predicted")
+        )
+    assert result == "processed"
+    assert "analytics.transport_performance" not in client.tables
+    assert "No transport_performance row" in caplog.text
 
 
 def test_invalid_event_goes_to_dlq_before_commit():
