@@ -3,7 +3,7 @@ Gateway routes for forwarding incoming requests
 to downstream microservices.
 """
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, WebSocket
 
 from app.services.proxy import ProxyService
 
@@ -32,7 +32,7 @@ SUPPORTED_METHODS = (
 
 
 # --------------------------------------------------
-# Catch-All Gateway Route
+# Catch-All Gateway Route (HTTP)
 # --------------------------------------------------
 
 async def gateway_proxy(
@@ -47,6 +47,26 @@ async def gateway_proxy(
 
     return await ProxyService.forward_request(
         request,
+        path,
+    )
+
+
+# --------------------------------------------------
+# Catch-All Gateway Route (WebSocket)
+# --------------------------------------------------
+
+@router.websocket("/{path:path}")
+async def gateway_websocket_proxy(
+    websocket: WebSocket,
+    path: str,
+):
+    """
+    Catch all incoming WebSocket requests and
+    forward them to the appropriate downstream microservice.
+    """
+
+    await ProxyService.forward_websocket(
+        websocket,
         path,
     )
 

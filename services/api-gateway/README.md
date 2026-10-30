@@ -275,14 +275,63 @@ Supported proxy methods: `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `OPTIONS`, `HE
 
 ### Default Downstream Service Routes
 
-| Prefix                    | Default Target          |
-|---------------------------|-------------------------|
-| `/api/v1/inventory`       | http://localhost:8001   |
-| `/api/v1/shipments`       | http://localhost:8002   |
-| `/api/v1/compliance`      | http://localhost:8003   |
-| `/api/v1/purchase-orders` | http://localhost:8004   |
-| `/api/v1/auth`            | http://localhost:8005   |
-| `/api/v1/supplier-risk`   | http://localhost:8006   |
+| Prefix                              | Default Target          | Service Name            |
+|-------------------------------------|-------------------------|-------------------------|
+| `/api/v1/inventory`                 | http://localhost:8001   | Inventory Service       |
+| `/api/v1/shipments`                 | http://localhost:8002   | Shipments Service       |
+| `/api/v1/compliance`                | http://localhost:8003   | Compliance Service      |
+| `/api/v1/purchase-orders`           | http://localhost:8004   | Purchase Order Service  |
+| `/api/v1/auth`                      | http://localhost:8005   | Auth Service            |
+| `/api/v1/supplier-risk`             | http://localhost:8006   | Supplier Risk Service   |
+| `/api/v1/suppliers`                 | http://localhost:8004   | Supplier Portal Service |
+| `/api/v1/demand`                    | http://localhost:8007   | Demand Forecast Service |
+| `/api/v1/analytics`                 | http://localhost:8008   | Analytics Service       |
+
+> [!NOTE]
+> `/api/v1/suppliers/{supplier_id}/risk-score` is matched by `SERVICE_ROUTE_PATTERNS` before prefix matching and routed to Supplier Risk on port 8006.
+
+### Round 15 Required Endpoints & Downstream Mappings
+
+| Round 15 Required Endpoint | Method | Gateway Prefix | Default Downstream Target | Contract / Specification | Downstream Status / Limitations |
+|---|---|---|---|---|---|
+| Demand Forecast | `GET /api/v1/demand/forecast/{sku_id}?horizon=30` | `/api/v1/demand` | `http://localhost:8007` | `contracts/openapi/forecast.yaml` | Contract published; downstream serving implementation in progress (Issue #225 [R15-A3]). |
+| Inventory Optimization Recommendations | `GET /api/v1/inventory/optimization/recommendations` | `/api/v1/inventory` | `http://localhost:8001` | Blueprint Section 4 & Flow A | Downstream recommendation endpoint in progress (Issue #204 [R15-B3]). |
+| Goods Receipts | `POST /api/v1/inventory/goods-receipts` | `/api/v1/inventory` | `http://localhost:8001` | Blueprint Section 4 & Flow B | Routes directly to Inventory Service on port 8001 with no path rewrite. Downstream warehouse goods receipt in progress (Issue #206 [R15-B5]). |
+| Supplier Risk Score | `GET /api/v1/suppliers/{supplier_id}/risk-score` | `SERVICE_ROUTE_PATTERNS` | `http://localhost:8006` | `contracts/openapi/supplier-risk.yaml` | Routes to Supplier Risk on port 8006 through `SERVICE_ROUTE_PATTERNS` before prefix matching. Other supplier endpoints such as `/stats` and `/scorecard` remain on Supplier Portal port 8004. Malformed supplier IDs are forwarded so downstream validation can return 422. Contract published; downstream HTTP scoring endpoint in progress (Issue #222 [R15-MP2]). |
+| Analytics KPIs | `GET /api/v1/analytics/kpis` | `/api/v1/analytics` | `http://localhost:8008` | `contracts/openapi/analytics-kpis.yaml` | Contract published; ClickHouse mart aggregation in progress (Issue #220 [R15-M4]). |
+| Real-Time Analytics | `WS /api/v1/analytics/kpis/real-time` | `/api/v1/analytics` | `ws://localhost:8008` | `contracts/openapi/analytics-realtime.md` | Gateway WebSocket proxy implemented with W3C tracing; downstream Kafka consumer / event stream in progress (Issue #219 [R15-M3]). |
+
+### Path Rewriting (SERVICE_ROUTE_REWRITES) and Pattern Overrides (SERVICE_ROUTE_PATTERNS)
+
+Configured via `SERVICE_ROUTE_REWRITES` and `SERVICE_ROUTE_PATTERNS` dicts in settings or environment.
+
+**Path Rewriting (`SERVICE_ROUTE_REWRITES`)**:
+Allows rewriting public gateway path prefixes to different downstream target paths:
+- Keys must match configured `SERVICE_ROUTES` prefixes.
+- Suffix paths, parameters, and query strings are preserved.
+- `SERVICE_ROUTE_REWRITES` is empty by default and no route is currently rewritten.
+
+**Pattern Overrides (`SERVICE_ROUTE_PATTERNS`)**:
+- `SERVICE_ROUTE_PATTERNS` uses regex full matching and is evaluated before prefix matching.
+- Maps request path regex patterns to owner prefixes in `SERVICE_ROUTES`.
+- **Supplier Risk pattern**:
+  `/api/v1/suppliers/[^/]+/risk-score/?` -> `/api/v1/supplier-risk`
+
+
+### Correlation and Distributed Tracing Propagation
+
+- **`X-Request-ID`**: Propagated through every HTTP and WebSocket downstream call. If missing from the client, the Gateway generates a unique UUID4 and passes it downstream and echoes it back in the response headers.
+- **W3C `traceparent`**: OpenTelemetry distributed tracing context is extracted from incoming requests, tracked in a proxy client span, and injected into downstream request headers.
+- **Hop-by-hop headers**: Stripped before forwarding to ensure internal protocol compliance. Gateway identity headers (`x-caller-service: api-gateway`) are stamped.
+
+### WebSocket Proxying
+
+The Gateway provides full bidirectional WebSocket streaming at `/{path:path}` (e.g. `WS /api/v1/analytics/kpis/real-time`).
+- Translates `http://` / `https://` downstream URLs to `ws://` / `wss://`.
+- Preserves handshake query parameters (e.g. `?token=<JWT>`).
+- Forwards client headers (`X-Request-ID`, `X-Caller-Service`, `Authorization`).
+- Concurrently forwards text and binary frames bidirectionally.
+- Closes cleanly when either peer disconnects.
 
 ---
 
