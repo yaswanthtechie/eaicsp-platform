@@ -13,7 +13,7 @@
           "type": "object",
           "properties": {
             "supplier_name": {
-              "type": "integer",
+              "type": "string",
               "description": "The compliance event identifies a supplier by name; it has no supplier_id."
             },
             "country": {
