@@ -1,10 +1,20 @@
 from fastapi import FastAPI
 from app.routes.shipment import router
 
-app=FastAPI()
+app = FastAPI()
 app.include_router(router)
+
+
 @app.get("/")
 def home():
-    return{
-        "message":"Logistics Service is running"
+    return {
+        "message": "Logistics Service is running"
+    }
+
+
+@app.get("/health")
+def health_check():
+    return {
+        "status": "ok",
+        "service": "logistics-service"
     }

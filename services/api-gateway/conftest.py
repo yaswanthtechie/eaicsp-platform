@@ -1,4 +1,11 @@
 import os
+import tempfile
+
+# Tests must never write into logs/access.log (Filebeat ships that file to Kibana).
+os.environ.setdefault(
+    "GATEWAY_ACCESS_LOG_PATH",
+    os.path.join(tempfile.mkdtemp(prefix="gateway-test-logs-"), "access.log"),
+)
 
 # Must happen at IMPORT time, before any `app` import: pytest loads
 # tests/conftest.py (which imports app and builds Settings()) before any
@@ -14,6 +21,14 @@ os.environ.setdefault("METRICS_BEARER_TOKEN", "test-metrics-bearer-token")
 # Suppress OTel SDK internal self-diagnostics metrics export to localhost:4318
 os.environ.setdefault("OTEL_METRICS_EXPORTER", "none")
 os.environ.setdefault("OTEL_TRACES_EXPORTER", "none")
+
+# Prevent OpenTelemetry from attempting network connections to unavailable localhost:4318 during tests
+os.environ.setdefault("OTEL_TRACES_EXPORTER", "none")
+os.environ.setdefault("OTEL_METRICS_EXPORTER", "none")
+os.environ.setdefault("OTEL_LOGS_EXPORTER", "none")
+os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = ""
+os.environ["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] = ""
+os.environ["OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"] = ""
 
 import pytest  # noqa: E402
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter  # noqa: E402

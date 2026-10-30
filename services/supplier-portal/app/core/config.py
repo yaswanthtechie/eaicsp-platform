@@ -73,10 +73,14 @@ class Settings(BaseSettings):
     KAFKA_RETRY_BACKOFF_SECONDS: float = 1.0
     KAFKA_MAX_RETRIES: int = 5
 
-    # --------------------------------------------------------
-    # Durable Compliance State (R14)
-    # --------------------------------------------------------
+    # Inventory Goods Receipt Consumer (R15)
+    # Separate flag from the Compliance consumer's KAFKA_ENABLED.
+    GOODS_RECEIVED_KAFKA_ENABLED: bool = True
+    KAFKA_GOODS_RECEIVED_TOPIC: str = "inventory.goods.received"
+    KAFKA_GOODS_RECEIVED_CONSUMER_GROUP: str = "supplier-portal-goods-received"
+    KAFKA_GOODS_RECEIVED_DLQ_TOPIC: str = "inventory.goods.received.dlq"
 
+    # Durable Compliance State
     COMPLIANCE_DB_PATH: str = "data/compliance_state.db"
 
     # --------------------------------------------------------
@@ -105,6 +109,32 @@ class Settings(BaseSettings):
     PO_OUTBOX_ENABLED: bool = True
     PO_OUTBOX_POLL_SECONDS: float = 2.0
     PO_OUTBOX_BATCH_SIZE: int = 50
+
+    # --------------------------------------------------------
+    # Shipment Dispatch Outbox + ETA Consumer (R15-R5)
+    # --------------------------------------------------------
+
+    SHIPMENT_OUTBOX_ENABLED: bool = True
+    SHIPMENT_OUTBOX_POLL_SECONDS: float = 2.0
+    SHIPMENT_OUTBOX_BATCH_SIZE: int = 50
+
+    SHIPMENT_DISPATCHED_TOPIC: str = (
+        "supplierportal.shipment.dispatched"
+    )
+    # Separate flag from the Compliance consumer's KAFKA_ENABLED.
+    ETA_KAFKA_ENABLED: bool = True
+    
+    ETA_PREDICTED_TOPIC: str = (
+        "eta.shipment.predicted"
+    )
+
+    ETA_CONSUMER_GROUP: str = (
+        "supplier-portal-eta-predicted-v1"
+    )
+
+    ETA_DLQ_TOPIC: str = (
+        "eta.shipment.predicted.dlq"
+    )
 
     # --------------------------------------------------------
     # PostgreSQL

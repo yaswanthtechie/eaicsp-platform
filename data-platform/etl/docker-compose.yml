@@ -112,6 +112,16 @@ x-airflow-common:
     postgres:
       condition: service_healthy
 services:
+  dashboard-event-sink:
+    <<: *airflow-common
+    command: python /opt/airflow/etl/src/live_event_sink.py
+    restart: unless-stopped
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+
   postgres:
     image: postgres:13
     ports:

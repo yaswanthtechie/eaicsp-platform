@@ -238,3 +238,9 @@ data/*.db
 # Generated seed dataset output
 data-platform/seed/out/
 data-platform/out/
+
+# Local MLflow tracking data
+mlruns/
+
+# Temporary source backups
+*.py.bak

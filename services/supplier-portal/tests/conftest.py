@@ -23,6 +23,9 @@ os.environ.setdefault(
 # Unit tests must not start the R15 Kafka consumer or outbox publisher.
 os.environ.setdefault("PO_KAFKA_ENABLED", "false")
 os.environ.setdefault("PO_OUTBOX_ENABLED", "false")
+os.environ.setdefault("SHIPMENT_OUTBOX_ENABLED", "false")
+os.environ.setdefault("ETA_KAFKA_ENABLED", "false")
+os.environ.setdefault("GOODS_RECEIVED_KAFKA_ENABLED", "false")
 
 import pytest
 from fastapi.testclient import TestClient
@@ -37,7 +40,7 @@ from app.services.document_storage_service import (
 from app.services.supplier_compliance_service import (
     supplier_compliance_service,
 )
-
+from app.models.shipment import Shipment
 
 class FakeMinioClient:
     """
@@ -347,12 +350,14 @@ def compliance_db(tmp_path, monkeypatch):
     )
     yield
 
+
 @pytest.fixture
 def po_db(monkeypatch):
     """
-    In-memory SQLite with the supplier_portal schema attached, holding
-    po_mirror and po_ack_outbox. Every module that opens its own
-    SessionLocal is pointed at it, so no PostgreSQL is needed.
+    In-memory SQLite database with the supplier_portal schema.
+
+    Includes PO mirror and both outbox tables.
+    All relevant service modules share the same test session factory.
     """
     from sqlalchemy import create_engine, event
     from sqlalchemy.orm import sessionmaker
@@ -360,8 +365,13 @@ def po_db(monkeypatch):
 
     from app.core.config import settings
     from app.database import Base
+    from app.models.inventory_goods_receipt_event import (
+        InventoryGoodsReceiptEvent,
+    )
     from app.models.po_ack_outbox import POAckOutbox
     from app.models.po_mirror import POMirror
+    from app.models.shipment_outbox import ShipmentOutbox
+    from app.models.shipment_eta_event import ShipmentETAEvent
 
     schema_name = settings.SUPPLIER_DB_SCHEMA
 
@@ -369,7 +379,7 @@ def po_db(monkeypatch):
         raise ValueError(
             f"Unsupported SQLite schema name: {schema_name!r}"
         )
-    
+
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -384,7 +394,14 @@ def po_db(monkeypatch):
 
     Base.metadata.create_all(
         engine,
-        tables=[POMirror.__table__, POAckOutbox.__table__],
+        tables=[
+            POMirror.__table__,
+            POAckOutbox.__table__,
+            ShipmentOutbox.__table__,
+            Shipment.__table__,
+            ShipmentETAEvent.__table__,
+            InventoryGoodsReceiptEvent.__table__,
+        ],
     )
 
     factory = sessionmaker(
@@ -393,14 +410,25 @@ def po_db(monkeypatch):
         expire_on_commit=False,
     )
 
-    for module in (
+    modules_to_patch = (
         "app.database",
         "app.graphql.queries",
         "app.graphql.mutations",
         "app.services.inventory_po_approved_consumer",
         "app.services.po_ack_outbox_publisher",
-    ):
-        monkeypatch.setattr(f"{module}.SessionLocal", factory)
+        "app.services.shipment_service",
+        "app.services.shipment_outbox_publisher",
+        "app.services.shipment_eta_consumer",
+        "app.services.canonical_po_service",
+        "app.services.three_way_match_service",
+        "app.services.inventory_goods_received_consumer",
+    )
+
+    for module in modules_to_patch:
+        monkeypatch.setattr(
+            f"{module}.SessionLocal",
+            factory,
+        )
 
     yield factory
 

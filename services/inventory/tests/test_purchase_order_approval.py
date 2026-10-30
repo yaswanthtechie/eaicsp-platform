@@ -195,6 +195,7 @@ def test_pending_po_cannot_be_received(db_session):
         receive_purchase_order(
             db=db_session,
             po_id="PO-2026-900003",
+            received_by="1",
         )
         assert False, (
             "Expected ValueError for pending approval PO"
