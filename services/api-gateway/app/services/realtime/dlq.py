@@ -66,6 +66,10 @@ def resolve_dlq_topic(source_topic: Optional[str], event_type: Optional[str] = N
     return f"{clean_topic}.dlq"
 
 
+class DLQPublishError(RuntimeError):
+    """An invalid message could not be published to its DLQ topic."""
+
+
 class DLQService:
     """
     Service responsible for routing invalid messages to DLQ topics.

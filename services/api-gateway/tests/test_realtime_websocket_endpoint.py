@@ -11,14 +11,47 @@ Verifies:
 - Clean eviction of failed or disconnected clients without disrupting other clients.
 """
 
+import asyncio
+import copy
 import json
+import uuid
 from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
+from fastapi import WebSocketDisconnect
 from fastapi.testclient import TestClient
 
 from app.main import app
 from app.services.realtime.connection_manager import connection_manager
+from app.services.realtime.deduplicator import Deduplicator
+from app.services.realtime.dlq import DLQService
+from app.services.realtime.kafka_consumer import RealtimeKafkaConsumerService
+from tests.test_realtime_events_validation import (
+    ALL_SAMPLES,
+    IOT_ANOMALY_DETECTED_SAMPLE,
+)
+
+
+def assert_accepted_then_closed(client, url, expected_code):
+    """
+    Verify that the WebSocket handshake is accepted
+    before the connection is closed with the expected code.
+    """
+    with client.websocket_connect(url) as ws:
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            ws.receive_text()
+
+    assert exc_info.value.code == expected_code
+
+
+def _fresh_consumer():
+    """A consumer wired to the real connection manager with its own dedup cache."""
+    return RealtimeKafkaConsumerService(
+        conn_mgr=connection_manager,
+        dedup=Deduplicator(max_size=100),
+        dlq_svc=DLQService(producer=AsyncMock()),
+        enabled=False,
+    )
 
 
 @pytest.fixture
@@ -64,9 +97,11 @@ def test_websocket_connect_success_with_subprotocol(mock_post, client):
 
 def test_websocket_missing_token_closed_4401(client):
     """Connection without token is rejected with close code 4401."""
-    with pytest.raises(Exception):
-        with client.websocket_connect("/api/v1/analytics/kpis/real-time") as ws:
-            ws.receive_text()
+    assert_accepted_then_closed(
+        client,
+        "/api/v1/analytics/kpis/real-time",
+        4401,
+    )
 
 
 @patch("httpx.AsyncClient.post", new_callable=AsyncMock)
@@ -74,9 +109,11 @@ def test_websocket_invalid_token_closed_4401(mock_post, client):
     """Connection with invalid/expired token is rejected with 4401."""
     mock_post.return_value = httpx.Response(401, json={"detail": "Token expired"})
 
-    with pytest.raises(Exception):
-        with client.websocket_connect("/api/v1/analytics/kpis/real-time?token=expired") as ws:
-            ws.receive_text()
+    assert_accepted_then_closed(
+        client,
+        "/api/v1/analytics/kpis/real-time?token=expired",
+        4401,
+    )
 
 
 @patch("httpx.AsyncClient.post", new_callable=AsyncMock)
@@ -87,9 +124,11 @@ def test_websocket_unauthorized_role_closed_4403(mock_post, client):
         json={"valid": True, "role": "supplier", "is_active": True},
     )
 
-    with pytest.raises(Exception):
-        with client.websocket_connect("/api/v1/analytics/kpis/real-time?token=supplier-token") as ws:
-            ws.receive_text()
+    assert_accepted_then_closed(
+        client,
+        "/api/v1/analytics/kpis/real-time?token=supplier-token",
+        4403,
+    )
 
 
 @patch("httpx.AsyncClient.post", new_callable=AsyncMock)
@@ -97,9 +136,11 @@ def test_websocket_platform_unavailable_closed_1013(mock_post, client):
     """When Platform service is unavailable, handshake is closed with 1013."""
     mock_post.side_effect = httpx.ConnectError("Platform service down")
 
-    with pytest.raises(Exception):
-        with client.websocket_connect("/api/v1/analytics/kpis/real-time?token=any-token") as ws:
-            ws.receive_text()
+    assert_accepted_then_closed(
+        client,
+        "/api/v1/analytics/kpis/real-time?token=any-token",
+        1013,
+    )
 
 
 @patch("httpx.AsyncClient.post", new_callable=AsyncMock)
@@ -146,3 +187,78 @@ async def test_connection_manager_failed_send_eviction():
     sent_count = await cm.broadcast('{"hello": "world"}')
     assert sent_count == 1
     assert await cm.count() == 1  # broken_ws was evicted
+
+
+@pytest.mark.parametrize(
+    "example",
+    ALL_SAMPLES,
+    ids=[sample["event_type"] for sample in ALL_SAMPLES],
+)
+@patch("httpx.AsyncClient.post", new_callable=AsyncMock)
+def test_contract_examples_reach_connected_websocket_clients(mock_post, client, example):
+    """Every contract example event processed by the consumer reaches a connected client."""
+    mock_post.return_value = httpx.Response(
+        200,
+        json={"valid": True, "role": "analyst", "is_active": True},
+    )
+
+    consumer = _fresh_consumer()
+
+    with client.websocket_connect("/api/v1/analytics/kpis/real-time?token=valid-jwt") as ws:
+        handled = asyncio.run(
+            consumer.process_message(
+                topic=example["event_type"],
+                value=json.dumps(example),
+            )
+        )
+        assert handled is True
+        assert json.loads(ws.receive_text()) == example
+
+
+@patch("httpx.AsyncClient.post", new_callable=AsyncMock)
+def test_replayed_iot_anomaly_episode_delivered_once(mock_post, client):
+    """A replayed IoT anomaly with same episode_id but different event_id is delivered only once."""
+    mock_post.return_value = httpx.Response(
+        200,
+        json={"valid": True, "role": "analyst", "is_active": True},
+    )
+
+    consumer = _fresh_consumer()
+
+    first = copy.deepcopy(IOT_ANOMALY_DETECTED_SAMPLE)
+    replay = copy.deepcopy(IOT_ANOMALY_DETECTED_SAMPLE)
+    replay["event_id"] = str(uuid.uuid4())
+    # Keep the same episode_id
+    assert replay["payload"]["episode_id"] == first["payload"]["episode_id"]
+
+    marker = {
+        "event_id": str(uuid.uuid4()),
+        "event_type": "marker.event",
+        "payload": {"marker": True},
+    }
+
+    with client.websocket_connect("/api/v1/analytics/kpis/real-time?token=valid-jwt") as ws:
+        async def run_scenario():
+            h1 = await consumer.process_message(
+                topic=first["event_type"],
+                value=json.dumps(first),
+            )
+            h2 = await consumer.process_message(
+                topic=replay["event_type"],
+                value=json.dumps(replay),
+            )
+            await connection_manager.broadcast(json.dumps(marker))
+            return h1, h2
+
+        h1, h2 = asyncio.run(run_scenario())
+        assert h1 is True
+        assert h2 is True
+
+        # Assert the first WebSocket frame contains the original event ID
+        msg1 = json.loads(ws.receive_text())
+        assert msg1["event_id"] == first["event_id"]
+
+        # Assert the next frame is the marker, proving the replay was not broadcast
+        msg2 = json.loads(ws.receive_text())
+        assert msg2["event_id"] == marker["event_id"]
+        assert msg2["event_type"] == "marker.event"

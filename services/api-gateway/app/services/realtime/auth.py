@@ -62,9 +62,6 @@ class WebSocketAuthService:
             parts = [p.strip() for p in protocol_header.split(",") if p.strip()]
             if len(parts) >= 2 and parts[0].lower() == "bearer":
                 return parts[1], "bearer"
-            elif len(parts) == 1 and parts[0].lower() != "bearer":
-                # Single non-bearer token format
-                return parts[0], None
 
         return None, None
 

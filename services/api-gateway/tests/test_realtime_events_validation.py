@@ -321,3 +321,53 @@ def test_missing_payload_field_fails():
     valid, dedup_key, error = validate_realtime_event(event)
     assert valid is False
     assert "Field required" in error
+
+
+@pytest.mark.parametrize(
+    "base_sample,field_name,invalid_id",
+    [
+        (INVENTORY_STOCK_LOW_SAMPLE, "sku_id", "SKU-0001"),
+        (INVENTORY_STOCK_LOW_SAMPLE, "warehouse_id", "WH-1"),
+        (IOT_ANOMALY_DETECTED_SAMPLE, "warehouse_id", "BLR-01"),
+        (SUPPLIER_RISK_SCORE_CHANGED_SAMPLE, "supplier_id", "SUP045"),
+        (ETA_SHIPMENT_PREDICTED_SAMPLE, "shipment_id", "SHP-77"),
+        (ETA_SHIPMENT_PREDICTED_SAMPLE, "po_number", "PO123"),
+    ],
+    ids=[
+        "invalid_sku_id",
+        "invalid_warehouse_id_inventory",
+        "invalid_warehouse_id_iot",
+        "invalid_supplier_id",
+        "invalid_shipment_id",
+        "invalid_po_number",
+    ],
+)
+def test_non_canonical_ids_fail(base_sample, field_name, invalid_id):
+    """Payloads with non-canonical IDs must fail schema validation."""
+    event = copy.deepcopy(base_sample)
+    event["payload"][field_name] = invalid_id
+    valid, dedup_key, error = validate_realtime_event(event)
+    assert valid is False
+    assert dedup_key is None
+    assert f"Payload validation error for '{event['event_type']}'" in error
+
+
+@pytest.mark.parametrize(
+    "invalid_version",
+    [True, 1.0, "1"],
+    ids=["bool_true", "float_one", "string_one"],
+)
+def test_event_version_must_be_integer_one(invalid_version):
+    """event_version must be strictly integer 1; True, 1.0, and '1' must be rejected."""
+    event = copy.deepcopy(INVENTORY_STOCK_LOW_SAMPLE)
+    event["event_version"] = invalid_version
+    valid, dedup_key, error = validate_realtime_event(event)
+    assert valid is False
+    assert dedup_key is None
+    assert "Unsupported event_version" in error
+
+    # Ensure integer 1 remains accepted
+    event["event_version"] = 1
+    valid_ok, _, error_ok = validate_realtime_event(event)
+    assert valid_ok is True
+    assert error_ok is None

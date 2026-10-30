@@ -24,9 +24,13 @@ from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.prometheus_middleware import PrometheusMiddleware
 from app.middleware.tracing import TracingMiddleware, setup_tracing, shutdown_tracing
 from app.routes.metrics_route import router as metrics_router
+from app.core.log_redaction import install_token_redaction
 from app.routes import aggregation, dashboard, gateway, health, realtime, v2
 from app.schemas.responses import RootResponse
 from app.services.realtime import connection_manager, realtime_consumer_service
+
+# Keep JWT tokens out of Uvicorn access and WebSocket logs.
+install_token_redaction()
 
 # --------------------------------------------------
 # Application Lifespan

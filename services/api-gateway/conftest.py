@@ -11,8 +11,12 @@ os.environ.setdefault(
 # Prevent locust from monkey-patching socket/threading in pytest runs
 os.environ.setdefault("LOCUST_SKIP_MONKEY_PATCH", "1")
 os.environ.setdefault("METRICS_BEARER_TOKEN", "test-metrics-bearer-token")
+# Suppress OTel SDK internal self-diagnostics metrics export to localhost:4318
+os.environ.setdefault("OTEL_METRICS_EXPORTER", "none")
+os.environ.setdefault("OTEL_TRACES_EXPORTER", "none")
 
 import pytest  # noqa: E402
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter  # noqa: E402
 
 TEST_METRICS_BEARER_TOKEN = "test-metrics-bearer-token"
 
@@ -24,6 +28,25 @@ def metrics_auth_headers():
 
 
 from app.middleware import tracing as tracing_module  # noqa: E402
+
+
+class _TestOTLPSpanExporter(InMemorySpanExporter):
+    """
+    Drop-in test replacement for OTLPSpanExporter.
+    Accepts arbitrary kwargs (including endpoint=...) and buffers spans in-memory,
+    guaranteeing zero socket connections to localhost:4318 if setup_tracing() falls back.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+
+
+# Replace OTLPSpanExporter in the tracing module namespace for all tests
+tracing_module.OTLPSpanExporter = _TestOTLPSpanExporter
+
+import app.main  # noqa: E402
+
+# Prevent FastAPI TestClient lifespan exit from prematurely tearing down test providers
+app.main.shutdown_tracing = lambda: None
 
 
 def pytest_collection_modifyitems(config, items):
@@ -43,10 +66,12 @@ def pytest_collection_modifyitems(config, items):
 @pytest.fixture(autouse=True)
 def isolate_tracing():
     """
-    Ensure every test runs with an isolated in-memory TracerProvider when no
-    custom provider is set. This prevents background thread leakage from
-    BatchSpanProcessor and connection attempts to unreachable Jaeger endpoints.
-    Also ensures clean Prometheus metrics state between test modules.
+    Ensure every test runs with an isolated in-memory TracerProvider.
+    Cleans up any stale or already-shutdown provider state from previous tests,
+    and provisions a fresh in-memory TracerProvider.
+    Any custom test fixture (such as memory_exporter in test_round10_m2_tracing.py or
+    memory_tracer in test_jaeger_privacy.py) executes after this setup and will safely
+    replace this provider with its own.
     """
     try:
         from app.services.prometheus_metrics import reset_prometheus_metrics
@@ -54,16 +79,18 @@ def isolate_tracing():
     except Exception:
         pass
 
-    if tracing_module._tracer_provider is None and not tracing_module._tracing_configured:
-        from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-        from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-        from opentelemetry.sdk.resources import Resource, SERVICE_NAME
+    # Cleanly shut down any stale, leaked, or already-shutdown provider from a previous test
+    tracing_module.shutdown_tracing()
 
-        resource = Resource.create({SERVICE_NAME: "api-gateway-test"})
-        provider = TracerProvider(resource=resource)
-        provider.add_span_processor(SimpleSpanProcessor(InMemorySpanExporter()))
-        tracing_module.setup_tracing(provider=provider)
+    # Always provision a fresh, active in-memory TracerProvider for the upcoming test
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.resources import Resource, SERVICE_NAME
+
+    resource = Resource.create({SERVICE_NAME: "api-gateway-test"})
+    provider = TracerProvider(resource=resource)
+    provider.add_span_processor(SimpleSpanProcessor(InMemorySpanExporter()))
+    tracing_module.setup_tracing(provider=provider)
 
     yield
 

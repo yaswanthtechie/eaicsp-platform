@@ -58,6 +58,27 @@ def test_missing_token_extract():
     assert subproto is None
 
 
+def test_lone_subprotocol_not_treated_as_token():
+    """A single subprotocol like 'graphql-ws' must not be extracted as an auth token."""
+    ws = make_mock_websocket(subprotocol_header="graphql-ws")
+    token, subproto = WebSocketAuthService.extract_token(ws)
+    assert token is None
+    assert subproto is None
+
+
+@pytest.mark.asyncio
+async def test_authenticate_lone_subprotocol_rejected_as_missing_token():
+    """WebSocket with lone non-bearer subprotocol is rejected without calling Platform."""
+    ws = make_mock_websocket(subprotocol_header="graphql-ws")
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+
+    is_auth, code, reason, user_data, subproto = await ws_auth_service.authenticate(ws, client=mock_client)
+    assert is_auth is False
+    assert code == CLOSE_UNAUTHORIZED
+    assert "Missing authentication token" in reason
+    mock_client.post.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_authenticate_missing_token():
     ws = make_mock_websocket()

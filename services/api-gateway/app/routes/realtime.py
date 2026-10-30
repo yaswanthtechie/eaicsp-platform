@@ -49,7 +49,13 @@ async def realtime_kpis_websocket(websocket: WebSocket) -> None:
             close_code,
             close_reason,
         )
-        await websocket.close(code=close_code or 4401, reason=close_reason or "Unauthorized")
+
+        await websocket.accept(subprotocol=subprotocol)
+
+        await websocket.close(
+            code=close_code or 4401,
+            reason=close_reason or "Unauthorized",
+        )
         return
 
     # 2. Accept connection

@@ -22,7 +22,7 @@ from app.core.config import settings
 from app.main import app
 from app.services.realtime.connection_manager import ConnectionManager
 from app.services.realtime.deduplicator import Deduplicator
-from app.services.realtime.dlq import DLQService
+from app.services.realtime.dlq import DLQPublishError, DLQService
 from app.services.realtime.kafka_consumer import RealtimeKafkaConsumerService
 
 
@@ -261,7 +261,7 @@ async def test_process_message_invalid_schema_routed_to_dlq(mock_components):
 
 @pytest.mark.asyncio
 async def test_dlq_publish_failure_handled_safely(mock_components):
-    """When DLQ producer fails, consumer handles it safely without crashing."""
+    """When DLQ producer fails, consumer raises DLQPublishError and does not commit offset."""
     service, conn_mgr, dedup, dlq_svc, mock_producer = mock_components
     mock_producer.send_and_wait.side_effect = RuntimeError("Broker down")
 
@@ -271,15 +271,14 @@ async def test_dlq_publish_failure_handled_safely(mock_components):
         nonlocal commit_called
         commit_called = True
 
-    # Should not raise exception
-    handled = await service.process_message(
-        topic="inventory.stock.low",
-        value=b"bad json",
-        commit_callback=mock_commit,
-    )
+    with pytest.raises(DLQPublishError):
+        await service.process_message(
+            topic="inventory.stock.low",
+            value=b"bad json",
+            commit_callback=mock_commit,
+        )
 
-    assert handled is False
-    assert commit_called is True
+    assert commit_called is False
 
 
 @pytest.mark.asyncio

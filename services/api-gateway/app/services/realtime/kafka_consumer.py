@@ -18,7 +18,7 @@ from app.core.config import settings
 from app.schemas.realtime_events import CANONICAL_EVENT_TYPES, validate_realtime_event
 from app.services.realtime.connection_manager import ConnectionManager, connection_manager
 from app.services.realtime.deduplicator import Deduplicator
-from app.services.realtime.dlq import DLQService, dlq_service
+from app.services.realtime.dlq import DLQPublishError, DLQService, dlq_service
 
 logger = logging.getLogger("api_gateway.realtime.kafka_consumer")
 
@@ -66,6 +66,36 @@ class RealtimeKafkaConsumerService:
         self._consumer: Optional[Any] = None
         self._producer: Optional[Any] = None
 
+    async def _route_to_dlq_then_commit(
+        self,
+        raw_message: Union[str, bytes, Dict[str, Any]],
+        source_topic: str,
+        error_reason: str,
+        partition: Optional[int] = None,
+        offset: Optional[int] = None,
+        event_type: Optional[str] = None,
+        commit_callback: Optional[Callable[[], Coroutine[Any, Any, None]]] = None,
+    ) -> None:
+        """
+        Route invalid message to DLQ and commit offset only on successful DLQ publish.
+        Raises DLQPublishError if DLQ publishing fails.
+        """
+        success = await self.dlq_service.route(
+            raw_message=raw_message,
+            source_topic=source_topic,
+            error_reason=error_reason,
+            partition=partition,
+            offset=offset,
+            event_type=event_type,
+        )
+        if not success:
+            raise DLQPublishError(
+                f"Failed to publish invalid message to DLQ for topic '{source_topic}', offset={offset}"
+            )
+
+        if commit_callback:
+            await commit_callback()
+
     async def process_message(
         self,
         topic: str,
@@ -102,15 +132,14 @@ class RealtimeKafkaConsumerService:
                     raw_str = value.decode("utf-8")
                 except UnicodeDecodeError as u_err:
                     logger.warning("Message on topic '%s' is not valid UTF-8: %s", topic, u_err)
-                    await self.dlq_service.route(
+                    await self._route_to_dlq_then_commit(
                         raw_message=value,
                         source_topic=topic,
                         error_reason=f"Unicode decode error: {u_err}",
                         partition=partition,
                         offset=offset,
+                        commit_callback=commit_callback,
                     )
-                    if commit_callback:
-                        await commit_callback()
                     return False
             else:
                 raw_str = str(value)
@@ -119,15 +148,14 @@ class RealtimeKafkaConsumerService:
                 data = json.loads(raw_str)
             except json.JSONDecodeError as j_err:
                 logger.warning("Malformed JSON on topic '%s': %s", topic, j_err)
-                await self.dlq_service.route(
+                await self._route_to_dlq_then_commit(
                     raw_message=raw_str,
                     source_topic=topic,
                     error_reason=f"Malformed JSON: {j_err}",
                     partition=partition,
                     offset=offset,
+                    commit_callback=commit_callback,
                 )
-                if commit_callback:
-                    await commit_callback()
                 return False
 
         # 2. Validate envelope & payload against M1 contract
@@ -135,16 +163,15 @@ class RealtimeKafkaConsumerService:
         if not is_valid:
             logger.info("Invalid event on topic '%s': %s", topic, error_reason)
             event_type = data.get("event_type") if isinstance(data, dict) else None
-            await self.dlq_service.route(
+            await self._route_to_dlq_then_commit(
                 raw_message=data,
                 source_topic=topic,
                 error_reason=error_reason or "Schema validation failed",
                 partition=partition,
                 offset=offset,
                 event_type=event_type,
+                commit_callback=commit_callback,
             )
-            if commit_callback:
-                await commit_callback()
             return False
 
         # 3. Deduplication check

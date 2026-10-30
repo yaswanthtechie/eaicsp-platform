@@ -20,6 +20,13 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 
+SKU_ID_PATTERN = r"^SKU-\d{6}$"
+WAREHOUSE_ID_PATTERN = r"^WH-[A-Z]{3}-\d{2}$"
+SUPPLIER_ID_PATTERN = r"^SUP-\d{5}$"
+SHIPMENT_ID_PATTERN = r"^SHP-\d{4}-\d{6}$"
+PO_NUMBER_PATTERN = r"^PO-\d{4}-\d{6}$"
+
+
 CANONICAL_EVENT_TYPES: Set[str] = {
     "inventory.stock.low",
     "iot.anomaly.detected",
@@ -38,8 +45,8 @@ CANONICAL_EVENT_TYPES: Set[str] = {
 class InventoryStockLowPayload(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    sku_id: str
-    warehouse_id: str
+    sku_id: str = Field(..., pattern=SKU_ID_PATTERN)
+    warehouse_id: str = Field(..., pattern=WAREHOUSE_ID_PATTERN)
     quantity_on_hand: int
     reorder_point: int
     safety_stock: int
@@ -52,7 +59,7 @@ class IotAnomalyDetectedPayload(BaseModel):
 
     episode_id: str = Field(..., min_length=1)
     sensor_id: str = Field(..., min_length=1)
-    warehouse_id: str = Field(..., min_length=1)
+    warehouse_id: str = Field(..., pattern=WAREHOUSE_ID_PATTERN)
     severity: str
     message: str = Field(..., min_length=1, max_length=300)
     window_start: str
@@ -81,7 +88,7 @@ class SupplierRiskScoreChangedPayload(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     supplier: str
-    supplier_id: str
+    supplier_id: str = Field(..., pattern=SUPPLIER_ID_PATTERN)
     previous_tier: str
     new_tier: str
     risk_score: float = Field(..., ge=0.0, le=100.0)
@@ -101,8 +108,8 @@ class SupplierRiskScoreChangedPayload(BaseModel):
 class EtaShipmentPredictedPayload(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    shipment_id: str
-    po_number: str
+    shipment_id: str = Field(..., pattern=SHIPMENT_ID_PATTERN)
+    po_number: str = Field(..., pattern=PO_NUMBER_PATTERN)
     eta_days: float = Field(..., ge=0.0)
     confidence_low: float
     confidence_high: float
@@ -226,7 +233,7 @@ def validate_realtime_event(data: Any) -> Tuple[bool, Optional[str], Optional[st
 
     # 4. Validate event_version (Major version 1 only)
     event_version = data.get("event_version")
-    if event_version != 1:
+    if type(event_version) is not int or event_version != 1:
         return False, None, f"Unsupported event_version '{event_version}'. Only major version 1 is supported."
 
     # 5. Validate occurred_at timestamp
