@@ -976,9 +976,9 @@ def test_shipments_migration_stores_eta_as_float():
         Path(__file__).resolve().parents[1]
         / "alembic"
         / "versions"
-        / "005_create_shipments_table.py"
+        / "006_create_shipments_table.py"
     )
-    spec = importlib.util.spec_from_file_location("migration_005", path)
+    spec = importlib.util.spec_from_file_location("migration_006", path)
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
     migration.op = MagicMock()
@@ -992,4 +992,3 @@ def test_shipments_migration_stores_eta_as_float():
     }
     for name in ("eta_days", "confidence_low", "confidence_high"):
         assert isinstance(columns[name].type, sa.Float), name
-

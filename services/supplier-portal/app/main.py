@@ -85,6 +85,7 @@ async def lifespan(app: FastAPI):
 
         if settings.ETA_KAFKA_ENABLED:
             shipment_eta_consumer_runner.stop()
+
         if settings.GOODS_RECEIVED_KAFKA_ENABLED:
             inventory_goods_received_runner.stop()
 
@@ -198,6 +199,7 @@ def root():
 
 
 
+
 @app.get("/health")
 def health():
     return {
@@ -225,6 +227,8 @@ def health():
         "shipment_eta_consumer_alive": (
             shipment_eta_consumer_runner.is_alive()
             if settings.ETA_KAFKA_ENABLED
+            else False
+        ),
         "goods_received_consumer_alive": (
             inventory_goods_received_runner.is_alive()
             if settings.GOODS_RECEIVED_KAFKA_ENABLED

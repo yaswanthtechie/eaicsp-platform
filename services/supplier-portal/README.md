@@ -51,7 +51,7 @@ Round 15 extends the Supplier Portal's procure-to-pay integration with versioned
 
 ---
 
-### Round 15 — Supplier Portal Event Contracts
+### Round 15 —R1 Supplier Portal Event Contracts
 
 - Created versioned JSON Schema contracts for `supplierportal.po.acknowledged.v1` and `supplierportal.shipment.dispatched.v1`.
 - Added example JSON files for both events under `contracts/events/examples/`.
@@ -62,20 +62,36 @@ Round 15 extends the Supplier Portal's procure-to-pay integration with versioned
 
 **Note:** Contract validation passed; Kafka event publishing and end-to-end integration are separate verification steps.
 
-### Round 15 — Shipment Dispatch and ETA Prediction
+### Round 15 - R3 Load 60 Seed Suppliers with Canonical IDs
 
-The Supplier Portal supports shipment dispatch and ETA prediction processing.
+What was implemented:
 
-- Shipment dispatch creates a shipment with an `SHP-` identifier.
-- The dispatch workflow records the shipment and its outgoing event in the shipment outbox.
-- The outgoing event follows the `supplierportal.shipment.dispatched` contract.
-- The ETA consumer processes `eta.shipment.predicted` events.
-- ETA prediction details, including ETA days, confidence interval, model version, and prediction timestamp, are stored against the corresponding shipment.
-- Event validation, idempotency, retry handling, and DLQ processing protect the consumer workflow.
+Loaded 60 supplier records into the supplier_portal database schema.
 
-**Event publication and consumption boundary:** Recording a dispatch event in the outbox and publishing it to Kafka are separate operations. Similarly, consuming an ETA prediction event requires the ETA Kafka consumer and its configured broker and topic to be available.
-### Round 15 — Inventory Goods Receipt Integration
+Used canonical supplier IDs from the seed dataset.
 
+Verified supplier records through tests.
+
+Verified that the three sanctioned suppliers are blocked during compliance screening.
+
+Result: Supplier Portal has consistent supplier records with canonical IDs.
+**Round 15 –R4 Inventory Approved Purchase Orders and Supplier Acknowledgement**
+
+The Supplier Portal consumes Inventory's `inventory.po.approved` event and persists approved purchase-order data in `po_mirror`. Suppliers can retrieve their authorized approved POs through REST and GraphQL.
+
+When a supplier acknowledges an eligible PO, the acknowledgement service updates the PO mirror and records an outgoing event in the transactional outbox.
+
+Implemented areas:
+
+- Inventory approved-PO Kafka consumer.
+- Approved-PO persistence through `po_mirror`.
+- Event idempotency and consumer retry/DLQ handling.
+- Supplier-scoped REST and GraphQL access.
+- Supplier PO acknowledgement service.
+- Transactional acknowledgement outbox.
+- Automated consumer, API, service, and GraphQL tests.
+
+# Inventory Goods Receipt Integration
 - Added a consumer for `inventory.goods.received` events and persistence of processed receipt events.
 - Receipt processing includes event validation, duplicate-event handling, and invalid-event dead-letter handling.
 - Three-way matching can retrieve Inventory receipt events for the relevant PO and supplier and compare received quantities by `sku_id` for canonical Inventory PO lines.
@@ -87,6 +103,33 @@ The Supplier Portal supports shipment dispatch and ETA prediction processing.
 - `tests/test_three_way_match.py`: **65 passed**.
 
 These results verify the targeted consumer/runner tests and existing three-way-match test suite. They do not, by themselves, establish that a dedicated end-to-end test using a canonical Inventory PO, a persisted `inventory.goods.received` event, and a deliberate quantity mismatch has passed. Verify that integration scenario before claiming full end-to-end validation.
+
+**Event publication boundary:** The acknowledgement event is first persisted in the transactional outbox. The outbox publisher (`app/services/po_ack_outbox_publisher.py`) polls pending records at the configured `PO_OUTBOX_POLL_SECONDS` interval and publishes them to Kafka. A record is marked as published only after successful delivery is confirmed; failed deliveries remain eligible for retry. Tests validate the acknowledgement event against `contracts/events/supplierportal.po.acknowledged.v1.json` and exercise the consumer using `contracts/events/examples/inventory.po.approved.v1.json`.
+
+### Round 15 —R5 Shipment Dispatch and ETA Prediction
+
+The Supplier Portal supports shipment dispatch and ETA prediction processing.
+
+- Shipment dispatch creates a shipment with an `SHP-` identifier.
+- The dispatch workflow records the shipment and its outgoing event in the shipment outbox.
+- The outgoing event follows the `supplierportal.shipment.dispatched` contract.
+- The ETA consumer processes `eta.shipment.predicted` events.
+- ETA prediction details, including ETA days, confidence interval, model version, and prediction timestamp, are stored against the corresponding shipment.
+- Event validation, idempotency, retry handling, and DLQ processing protect the consumer workflow.
+
+**Event publication and consumption boundary:** Recording a dispatch event in the outbox and publishing it to Kafka are separate operations. Similarly, consuming an ETA prediction event requires the ETA Kafka consumer and its configured broker and topic to be available.
+
+## Test Results
+
+Supplier Portal test suite execution completed successfully.
+
+```text
+989 passed, 15 deselected in 394.12s (0:06:34)
+```
+
+- **Passed:** 989 tests
+- **Deselected:** 15 tests
+- **Result:** All executed tests passed successfully.
 
 ### Round 12–13 Status
 
@@ -129,65 +172,6 @@ The synchronous Compliance Service check during activation remains unchanged:
 Kafka handles ongoing compliance status changes after activation.
 
 **Event contract boundary:** The compliance event does not carry `supplier_id`. Supplier Portal identifies the matching onboarding record using the producer's `payload.supplier_name`, comparing it with `company_name` after normalization. The Kafka key is not treated as the supplier's identity.
-
-### Round 15 Status
-
-**Round 15 – Inventory Approved Purchase Orders and Supplier Acknowledgement**
-
-The Supplier Portal consumes Inventory's `inventory.po.approved` event and persists approved purchase-order data in `po_mirror`. Suppliers can retrieve their authorized approved POs through REST and GraphQL.
-
-When a supplier acknowledges an eligible PO, the acknowledgement service updates the PO mirror and records an outgoing event in the transactional outbox.
-
-Implemented areas:
-
-- Inventory approved-PO Kafka consumer.
-- Approved-PO persistence through `po_mirror`.
-- Event idempotency and consumer retry/DLQ handling.
-- Supplier-scoped REST and GraphQL access.
-- Supplier PO acknowledgement service.
-- Transactional acknowledgement outbox.
-- Automated consumer, API, service, and GraphQL tests.
-
-**Event publication boundary:** The acknowledgement event is first persisted in the transactional outbox. The outbox publisher (`app/services/po_ack_outbox_publisher.py`) polls pending records at the configured `PO_OUTBOX_POLL_SECONDS` interval and publishes them to Kafka. A record is marked as published only after successful delivery is confirmed; failed deliveries remain eligible for retry. Tests validate the acknowledgement event against `contracts/events/supplierportal.po.acknowledged.v1.json` and exercise the consumer using `contracts/events/examples/inventory.po.approved.v1.json`.
-
-### Round 15 — Shipment Dispatch and ETA Prediction Status
-
-**Round 15 – Flow B: Shipment Dispatch and ETA Prediction**
-
-The Supplier Portal provides shipment dispatch functionality and consumes ETA predictions from the ETA model service.
-
-The shipment dispatch workflow:
-
-1. Creates a shipment with an `SHP-` identifier.
-2. Persists shipment details in the database.
-3. Records the `supplierportal.shipment.dispatched` event in the shipment outbox.
-4. Makes the dispatch event available for the configured outbox publishing workflow.
-
-The ETA prediction workflow:
-
-1. Consumes `eta.shipment.predicted` events from Kafka.
-2. Validates the event schema and required prediction fields.
-3. Identifies the corresponding shipment.
-4. Applies event idempotency and prediction timestamp ordering.
-5. Persists ETA days, confidence interval, model version, prediction timestamp, and available top features.
-6. Uses retry and DLQ handling for unsuccessful message processing.
-
-Implemented areas:
-
-- Shipment database model and persistence.
-- Shipment outbox model and migration.
-- Shipment ETA event model and migration.
-- Versioned dispatch and ETA event schema validation.
-- ETA Kafka consumer with manual offset management.
-- Duplicate-event protection.
-- Latest-prediction timestamp ordering.
-- Retry and DLQ handling.
-- Background consumer runner and application lifecycle integration.
-- Automated shipment, schema, consumer, and runner tests.
-
-**ETA event boundary:** The ETA model service is the producer of `eta.shipment.predicted`. Supplier Portal is responsible for validating and consuming the prediction event and storing its result. Producer-side model execution is outside the Supplier Portal implementation scope.
-
-**Verification:** The Supplier Portal automated test suite completed with `929 passed, 15 deselected`. This result does not by itself establish live Kafka producer-to-consumer integration or external producer compatibility.
 
 ## Running Locally
 
@@ -970,10 +954,11 @@ supplier-portal/
 │   └── versions/
 │       ├── 002_po_mirror.py
 │       ├── 003_po_ack_outbox.py
-│       ├── 004_shipment_outbox.py
-│       ├── 005_create_shipments.py
-│       ├── 006_shipment_details.py
-│       └── 007_create_shipment_eta_events.py
+│       ├── 004_inventory_goods_receipt_events.py
+│       ├── 005_shipment_outbox.py
+│       ├── 006_create_shipments_table.py
+│       ├── 007_shipment_details.py
+│       └── 008_create_shipment_eta_events.py
 ├── app/
 │   ├── main.py
 │   ├── core/

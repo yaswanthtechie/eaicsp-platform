@@ -3,8 +3,8 @@ import sqlalchemy as sa
 
 from app.core.config import settings
 
-revision = "006_shipment_details"
-down_revision = "005_create_shipments"
+revision = "007_shipment_details"
+down_revision = "006_create_shipments"
 branch_labels = None
 depends_on = None
 

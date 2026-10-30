@@ -419,6 +419,9 @@ def po_db(monkeypatch):
         "app.services.shipment_service",
         "app.services.shipment_outbox_publisher",
         "app.services.shipment_eta_consumer",
+        "app.services.canonical_po_service",
+        "app.services.three_way_match_service",
+        "app.services.inventory_goods_received_consumer",
     )
 
     for module in modules_to_patch:

@@ -1,7 +1,7 @@
 """create shipment eta events
 
-Revision ID: 007_shipment_eta_events
-Revises: 006_shipment_details
+Revision ID: 008_shipment_eta_events
+Revises: 007_shipment_details
 """
 
 from alembic import op
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 from app.core.config import settings
 
 
-revision = "007_shipment_eta_events"
-down_revision = "006_shipment_details"
+revision = "008_shipment_eta_events"
+down_revision = "007_shipment_details"
 branch_labels = None
 depends_on = None
 
