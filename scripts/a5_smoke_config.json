@@ -1,0 +1,76 @@
+{
+  "name": "Round 15 Flow A and Flow B",
+  "description": "Fill in exact request bodies, response capture paths, supplier/procurement headers, and event names from the service schemas before running.",
+  "po_number": null,
+  "steps": [
+    {
+      "name": "Flow A - inventory recommendations",
+      "method": "GET",
+      "path": "/api/v1/inventory/optimization/recommendations",
+      "expected_status": 200
+    },
+    {
+      "name": "Flow A - create purchase order",
+      "method": "POST",
+      "path": "/api/v1/purchase-orders/purchase-orders",
+      "expected_status": 201,
+      "body": {},
+      "save_as": "po_number",
+      "save_from": "po_number"
+    },
+    {
+      "name": "Flow A - approve purchase order",
+      "method": "POST",
+      "path": "/api/v1/purchase-orders/purchase-orders/{{po_number}}/transition",
+      "expected_status": 200,
+      "body": {}
+    },
+    {
+      "name": "Flow A - supplier acknowledges purchase order",
+      "method": "POST",
+      "path": "/api/v1/purchase-orders/purchase-orders/{{po_number}}/acknowledge",
+      "expected_status": 200,
+      "body": {},
+      "headers": {
+        "Authorization": "Bearer {{supplier_token}}"
+      }
+    },
+    {
+      "name": "Flow B - create shipment / dispatch",
+      "method": "POST",
+      "path": "/api/v1/purchase-orders/shipments",
+      "expected_status": 201,
+      "body": {},
+      "headers": {
+        "Authorization": "Bearer {{supplier_token}}"
+      },
+      "save_as": "shipment_id",
+      "save_from": "shipment_id"
+    },
+    {
+      "name": "Flow B - check shipment / ETA",
+      "method": "GET",
+      "path": "/api/v1/purchase-orders/shipments/{{shipment_id}}",
+      "expected_status": 200,
+      "headers": {
+        "Authorization": "Bearer {{supplier_token}}"
+      }
+    },
+    {
+      "name": "Flow B - create goods receipt",
+      "method": "POST",
+      "path": "/api/v1/inventory/goods-receipts",
+      "expected_status": 201,
+      "body": {}
+    },
+    {
+      "name": "Flow B - execute three-way match",
+      "method": "POST",
+      "path": "/api/v1/purchase-orders/three-way-match",
+      "expected_status": 200,
+      "body": {}
+    }
+  ],
+  "expected_events": [],
+  "event_headers": {}
+}

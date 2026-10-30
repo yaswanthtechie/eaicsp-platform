@@ -5,13 +5,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     DATABASE_URL: str                      # required: fail loudly if missing
     TEST_DATABASE_URL: str | None = None   # only the test suite needs this
+
     PLATFORM_AUTH_URL: str = "http://localhost:8005"
     COMPLIANCE_SERVICE_URL: str = "http://localhost:8003"
+    FORECAST_SERVICE_URL: str = "http://localhost:8006"
+
     # Supplier has no country column yet; every supplier is
     # screened with this country until one is added.
     DEFAULT_SUPPLIER_COUNTRY: str = "India"
+
     # z-score for network safety stock (1.65 ~ 95% service level).
     NETWORK_SERVICE_LEVEL_Z: float = 1.65
+
     # Forecasts older than this fall back to sales history.
     FORECAST_MAX_AGE_DAYS: int = 35
 
@@ -49,9 +54,19 @@ class Settings(BaseSettings):
         if v is None:
             return v
         if v.startswith("postgresql+psycopg://"):
-            return v.replace("postgresql+psycopg://", "postgresql+psycopg2://", 1)
-        if v.startswith("postgresql://") and not v.startswith("postgresql+psycopg2://"):
-            return v.replace("postgresql://", "postgresql+psycopg2://", 1)
+            return v.replace(
+                "postgresql+psycopg://",
+                "postgresql+psycopg2://",
+                1,
+            )
+        if v.startswith("postgresql://") and not v.startswith(
+            "postgresql+psycopg2://"
+        ):
+            return v.replace(
+                "postgresql://",
+                "postgresql+psycopg2://",
+                1,
+            )
         return v
 
 

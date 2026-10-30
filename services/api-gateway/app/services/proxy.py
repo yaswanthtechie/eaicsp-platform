@@ -317,6 +317,12 @@ class ProxyService:
         # ------------------------------------------------------------------
         base = target_base_url.rstrip('/')
         path_part = request.url.path
+
+        # Supplier Portal is exposed under a dedicated gateway prefix.
+        # Its downstream application routes are mounted under /api/v1.
+        if route_prefix == "/api/v1/supplier-portal":
+            path_part = "/api/v1" + path_part[len(route_prefix):]
+
         query = str(request.url.query)
 
         if query:

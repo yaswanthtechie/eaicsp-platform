@@ -1,7 +1,7 @@
 """Create products and warehouses tables for canonical master data
 
 Revision ID: 006_create_products_and_warehouses_tables
-Revises: 005_po_hold_source
+Revises: 007_pack_size_text
 """
 from typing import Sequence, Union
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 revision: str = "006_create_products_and_warehouses_tables"
-down_revision: Union[str, None] = "005_po_hold_source"
+down_revision: Union[str, None] = "007_pack_size_text"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

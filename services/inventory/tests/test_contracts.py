@@ -338,14 +338,19 @@ def test_optimization_recommendations_unauthenticated(client_raw):
     assert resp.status_code == 401
 
 
-def test_optimization_recommendations_endpoint_501(client):
+def test_optimization_recommendations_endpoint_200(client):
     """
-    Contract test: GET /api/v1/inventory/optimization/recommendations returns 501 Not Implemented
-    when called with required permission (Flow A stub).
+    Contract test: Flow A recommendations endpoint is implemented
+    and returns a successful response.
     """
     resp = client.get("/api/v1/inventory/optimization/recommendations")
-    assert resp.status_code == 501
-    assert "under construction" in resp.json()["detail"].lower()
+
+    assert resp.status_code == 200
+
+    data = resp.json()
+    assert "generated_at" in data
+    assert "recommendations" in data
+    assert "total_recommended_spend" in data
 
 
 def test_goods_receipts_unauthenticated(client_raw):

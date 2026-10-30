@@ -46,3 +46,38 @@ def test_health_pings_supplier_portal(mock_ping):
 
     pinged_urls = [call.args[2] for call in mock_ping.call_args_list]
     assert "http://localhost:8004" in pinged_urls
+
+@patch("httpx.AsyncClient.send", new_callable=AsyncMock)
+def test_supplier_portal_shipment_route_rewrites_path(mock_send, client):
+    mock_send.return_value = httpx.Response(
+        status_code=200,
+        content=b"{}",
+        headers={"content-type": "application/json"},
+        request=httpx.Request("POST", "http://test"),
+    )
+
+    response = client.post(
+        "/api/v1/supplier-portal/shipments",
+        json={"test": True},
+    )
+
+    assert response.status_code == 200
+    called_request = mock_send.call_args[0][0]
+    assert str(called_request.url) == "http://localhost:8004/api/v1/shipments"
+
+
+@patch("httpx.AsyncClient.send", new_callable=AsyncMock)
+def test_existing_shipments_route_still_targets_logistics(mock_send, client):
+    mock_send.return_value = httpx.Response(
+        status_code=200,
+        content=b"{}",
+        headers={"content-type": "application/json"},
+        request=httpx.Request("GET", "http://test"),
+    )
+
+    response = client.get("/api/v1/shipments")
+
+    assert response.status_code == 200
+    called_request = mock_send.call_args[0][0]
+    assert str(called_request.url) == "http://localhost:8002/api/v1/shipments"
+
