@@ -19,7 +19,22 @@ validation.
 
 - Rebuilt the ETA training feature set using the shared `eaicsp-feature-lib`
   package.
-...
+- Added historical carrier, route, carrier-route, and departure-season
+  features using strict as-of historical joins.
+- Ensured historical ETA features only use information available before the
+  shipment departure time.
+- Added Round 14 leakage-protection tests.
+- Rebuilt and evaluated the Round 14 model using a chronological train/test
+  split.
+- Compared the inherited model and Round 14 model on the same chronological
+  test period.
+- Investigated the inherited model after it achieved lower MAE.
+- Found no evidence of direct future-information leakage in the inspected
+  inherited feature-generation path.
+- Logged both inherited and Round 14 model runs to MLflow.
+- Added SHAP explanations for Round 14 predictions.
+- Preserved the existing public prediction output contract:
+  `{"eta_days", "confidence_low", "confidence_high"}`.
 - Added tests covering Round 14 feature usage, as-of leakage protection,
   same-test-period evaluation, and SHAP explanations.
 - Full test suite passes with `187 passed`.
