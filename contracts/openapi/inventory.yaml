@@ -232,9 +232,8 @@ paths:
       tags:
       - Optimization
       summary: Get reorder recommendations using demand forecast (Flow A)
-      description: 'Flow A: Computes replenishment recommendations by querying Forecast
-        Service (GET /api/v1/demand/forecast/{sku_id}?horizon=30) and current inventory
-        levels. Falls back to 28-day moving average if forecast is unavailable.'
+      description: Uses Forecast Service demand when available and falls back to 28-day
+        historical demand.
       operationId: get_optimization_recommendations_api_v1_inventory_optimization_recommendations_get
       responses:
         '200':
@@ -767,7 +766,7 @@ components:
       properties:
         file:
           type: string
-          format: binary
+          contentMediaType: application/octet-stream
           title: File
       type: object
       required:
@@ -1543,6 +1542,11 @@ components:
         type:
           type: string
           title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
       type: object
       required:
       - loc

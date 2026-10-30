@@ -55,6 +55,7 @@ class Settings(BaseSettings):
         "/api/v1/shipments": "Shipments Service",
         "/api/v1/compliance": "Compliance Service",
         "/api/v1/purchase-orders": "Purchase Order Service",
+        "/api/v1/supplier-portal": "Supplier Portal Service",
         "/api/v1/auth": "Auth Service",
         "/api/v1/supplier-risk": "Supplier Risk Service",
     }
@@ -197,6 +198,7 @@ class Settings(BaseSettings):
             "/api/v1/shipments": "SHIPMENTS_SERVICE_URL",
             "/api/v1/compliance": "COMPLIANCE_SERVICE_URL",
             "/api/v1/purchase-orders": "PURCHASE_ORDERS_SERVICE_URL",
+            "/api/v1/supplier-portal": "PURCHASE_ORDERS_SERVICE_URL",
             "/api/v1/supplier-risk": "SUPPLIER_RISK_SERVICE_URL",
         }
 
