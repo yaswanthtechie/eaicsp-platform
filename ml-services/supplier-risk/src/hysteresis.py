@@ -16,6 +16,8 @@ import logging
 import math
 from typing import Any, Deque, Dict, List, Optional, Tuple
 
+from pymongo.errors import PyMongoError
+
 from src.config import (
     DEFAULT_HYSTERESIS_ENTER_HIGH,
     DEFAULT_HYSTERESIS_ENTER_MEDIUM,
@@ -28,6 +30,7 @@ from src.config import (
 )
 from src.events import (
     EventPublisher,
+    UnresolvedSupplierError,
     build_score_changed_event,
     format_supporting_articles,
     map_tier_to_event_tier,
@@ -433,6 +436,7 @@ class SupplierHysteresisTracker:
         self,
         *,
         supplier: str,
+        supplier_id: Optional[str] = None,
         risk_score: float,
         supporting_articles: Optional[List[Dict[str, Any]]] = None,
         occurred_at: Optional[str | datetime] = None,
@@ -574,20 +578,42 @@ class SupplierHysteresisTracker:
             window_count=window_count,
         )
 
-        event = build_score_changed_event(
-            supplier=clean_supplier,
-            previous_tier=current_accepted,
-            new_tier=candidate_tier,
-            risk_score=display_score,
-            supporting_articles=top_articles,
-            evidence_count=supporting_count,
-            explanation=explanation,
-            occurred_at=iso_timestamp,
-            producer=producer or "supplier-risk-service",
-        )
+        try:
+            event = build_score_changed_event(
+                supplier=clean_supplier,
+                supplier_id=supplier_id,
+                previous_tier=current_accepted,
+                new_tier=candidate_tier,
+                risk_score=display_score,
+                supporting_articles=top_articles,
+                evidence_count=supporting_count,
+                explanation=explanation,
+                occurred_at=iso_timestamp,
+                producer=producer or "supplier-risk-service",
+            )
+        except (UnresolvedSupplierError, PyMongoError) as exc:
+            reason = "unresolved_supplier" if isinstance(exc, UnresolvedSupplierError) else "mapping_unavailable"
+            logger.warning(
+                "Suppressed transition for '%s' %s -> %s: %s (%s). Retaining '%s'.",
+                clean_supplier,
+                current_accepted,
+                candidate_tier,
+                reason,
+                exc,
+                current_accepted,
+            )
+            state.record_suppressed_transition(
+                candidate_tier=candidate_tier,
+                score=display_score,
+                reason=reason,
+                evidence_count=supporting_count,
+                timestamp=iso_timestamp,
+            )
+            return None
 
         # If publishing fails, keep the old tier so the next run retries the transition.
-        if self.publisher is not None and not self.publisher.publish(event):
+        routing_key = supplier_id or event.get("payload", {}).get("supplier_id") or clean_supplier
+        if self.publisher is not None and not self.publisher.publish(event, key=routing_key):
             logger.error(
                 "Publish failed for '%s' %s -> %s; transition not committed, will retry next run.",
                 clean_supplier,
