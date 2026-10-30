@@ -18,6 +18,17 @@ R14_CALIBRATION_MODEL_PATH = (
     MODELS_DIR / "eta_prediction_interval_r14.joblib"
 )
 
+# R15-H2 seed-route model: its own pair, never mixed with the files above
+H2_MODEL_PATH = MODELS_DIR / "eta_seed_routes_pipeline.joblib"
+H2_CALIBRATION_MODEL_PATH = (
+    MODELS_DIR / "eta_seed_routes_interval.joblib"
+)
+
+# Committed seed samples (data-platform/seed/samples)
+SEED_SAMPLES_DIR = (
+    PROJECT_ROOT.parents[1] / "data-platform" / "seed" / "samples"
+)
+
 # MLflow
 MLFLOW_DIR = PROJECT_ROOT / "mlruns"
 

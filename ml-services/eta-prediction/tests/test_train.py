@@ -588,9 +588,7 @@ def test_committed_artifact_passes_production_gate():
 
     assert "training_rows" in calibration, (
         "Artifact predates provenance tracking; retrain with python main.py"
-    )  
-
-
+    )
 def test_main_trains_r14_as_candidate_before_promotion():
     """
     main.py must train the Round 14 model as an in-memory candidate
@@ -712,4 +710,4 @@ def test_committed_model_serves_with_inference_features():
 
     predictions = model.predict(pd.DataFrame([row])[MODEL_FEATURES])
 
-    assert len(predictions) == 1    
+    assert len(predictions) == 1

@@ -37,7 +37,25 @@ validation.
   `{"eta_days", "confidence_low", "confidence_high"}`.
 - Added tests covering Round 14 feature usage, as-of leakage protection,
   same-test-period evaluation, and SHAP explanations.
-- Full test suite passes with `123 passed`.
+- Full test suite passes with `187 passed`.
+
+## R15-H2: seed supplier -> warehouse ETA
+
+Separate model (`eta_seed_routes`) for seed shipments. R14 and `/predict` are unchanged.
+
+- **Train:** `python train_h2.py` (own MLflow run `r15_h2_seed_routes`, registered as `eta_seed_routes` with a signature)
+- **Artifacts:** `models/eta_seed_routes_pipeline.joblib`, `models/eta_seed_routes_interval.joblib`
+- **Serve:** `src/h2_predict.predict_h2(payload, routes)`, where `routes = load_seed_routes(<seed dir>)`
+- **Target:** days from carrier hand-off (`order_delivered_carrier_date`) to delivery, matching `eta_days` from `dispatched_at` in the contract
+- **Features:** `dispatch_month`, `dispatch_day_of_week`, `distance_km` (haversine between seed supplier and warehouse)
+- **Not used:** raw lat/lng, weight, volume, freight, category, route/carrier history, carrier (Olist has no carrier data)
+
+| Metric (Olist chronological test set) | Result |
+|---|---:|
+| MAE | 3.3412 days |
+| Interval coverage (nominal 80%) | 91.60% |
+
+Limitation: predictions for Indian seed routes assume Olist (Brazil) delivery behaviour for the same distance. Validate once real seed shipment outcomes exist.
 
 ## Round 14 Evaluation
 
