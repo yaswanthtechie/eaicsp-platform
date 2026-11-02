@@ -371,7 +371,7 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 ### 4.5 Event 5: `forecast.batch.completed`
 
 - **Producer:** `demand-forecast-service` (Demand Forecasting, Uday)
-- **Status:** **Proposed event contract** (Serving contract proposed in PR #241 (contracts/openapi/forecast.yaml, not yet merged); event payload proposed per Issue #228).
+- **Status:** **Contract owned by producer**: `contracts/events/forecast.batch.completed.v1.json`. The example below is copied from `contracts/events/examples/forecast.batch.completed.v1.json`. If they differ, the producer contract wins.
 - **Trigger:** Published when the nightly or scheduled batch forecasting pipeline finishes training/inferring SKU demand across warehouses and persists output to ClickHouse / Redis.
 - **Routing Key:** `{run_id}` (e.g. `BATCH-20261015-01`)
 
@@ -381,16 +381,16 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 |:---|:---|:---|:---|:---|
 | `run_id` | `string` | **Yes** | Batch Run Identifier | Unique execution run ID (e.g. `BATCH-20261015-01`). |
 | `model_version` | `string` | **Yes** | Model release tag | Production forecast ensemble version (e.g. `prophet-xgb-r5`). |
-| `granularity` | `string` | **Yes** | Time interval enum | Time aggregation bucket (`"monthly"` or `"daily"`). |
+| `granularity` | `string` | **Yes** | Time interval enum | Time aggregation bucket (`daily` or `monthly`). |
 | `sku_count` | `integer` | **Yes** | Count | Number of distinct canonical SKUs forecasted (e.g. `500`). |
 | `warehouse_count` | `integer` | **Yes** | Count | Number of distinct canonical warehouses covered (e.g. `6`). |
 | `horizon` | `integer` | **Yes** | Horizon periods | Forecast horizon length in months or days (e.g. `30`). |
 | `completed_at` | `string` | **Yes** | UTC ISO-8601 | Completion timestamp (`YYYY-MM-DDTHH:MM:SSZ`). |
 | `status` | `string` | **Yes** | Status enum | Batch status: `"SUCCESS"` or `"PARTIAL"`. |
-| `metrics` | `object` | *No* (Proposed) | Accuracy metrics | Summary evaluation metrics (`mape`, `wape`, `rmse`). |
-| `duration_seconds` | `number` | *No* (Proposed) | Seconds | Total batch execution duration in seconds. |
-| `destination_mart` | `string` | *No* (Proposed) | Target table | Destination storage (e.g. `clickhouse.demand_forecast_history`). |
-| `message` | `string` | *No* (Proposed) | Human-readable text | Summary notification of batch completion. |
+| `metrics` | `object` | *No* | Accuracy metrics | Summary evaluation metrics (`mape`, `wape`, `rmse`). |
+| `duration_seconds` | `number` | *No* | Seconds | Total batch execution duration in seconds. |
+| `destination_mart` | `string` | *No* | Target table | Destination storage (e.g. `clickhouse.demand_forecast_history`). |
+| `message` | `string` | *No* | Human-readable text | Summary notification of batch completion. |
 
 #### Realistic JSON Example
 
@@ -404,8 +404,8 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
   "trace_id": "2d8f99ab114e410b9918c5e003ba7251",
   "payload": {
     "run_id": "BATCH-20261015-01",
-    "model_version": "prophet-xgb-r5",
-    "granularity": "monthly",
+    "model_version": "demand_forecast/4",
+    "granularity": "daily",
     "sku_count": 500,
     "warehouse_count": 6,
     "horizon": 30,
@@ -418,7 +418,7 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
     },
     "duration_seconds": 142.6,
     "destination_mart": "clickhouse.demand_forecast_history",
-    "message": "Monthly demand forecast batch BATCH-20261015-01 completed for 500 SKUs across 6 warehouses (MAPE: 11.8%)."
+    "message": "Daily demand forecast BATCH-20261015-01 completed for 500 SKUs across 6 warehouses (MAPE 11.8%)."
   }
 }
 ```
