@@ -49,11 +49,11 @@ reset-data:
 	$(FULL_COMPOSE) down -v
 	$(MAKE) up
 
-# Placeholder until the cross-service E2E suite exists.
-# Exit non-zero so an unimplemented suite is never reported as passing.
+# A5: drive Flow A and B through the gateway and check every Kafka event.
+# Needs `make up && make seed` and A5_PROCUREMENT_TOKEN, A5_SUPPLIER_TOKEN,
+# A5_WAREHOUSE_TOKEN set.
 e2e:
-	@echo "Cross-service E2E suite is not implemented yet."
-	@exit 1
+	python scripts/a5_e2e_smoke.py
 
 # Inject one anomaly episode and measure how long the event takes to reach
 # iot.anomaly.detected. Needs the stack up and anomaly-detector running
