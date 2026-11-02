@@ -109,7 +109,7 @@ def to_markdown(results: list[dict], seed_dir: Path, data: dict[str, pd.DataFram
     lines = [
         "# R15 seed dataset findings (issue #200)",
         "",
-        f"Source: `{seed_dir}`. Rows: "
+        f"Source: `{seed_dir.as_posix()}`. Rows: "
         + ", ".join(f"{name} {len(df)}" for name, df in data.items()),
         "",
         "| Check | Result | Count | Example / note |",
@@ -133,7 +133,7 @@ def main() -> None:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(to_markdown(results, args.seed_dir, data), encoding="utf-8")
     failed = [r for r in results if not r["ok"]]
-    print(f"{len(results) - len(failed)} passed, {len(failed)} failed -> {args.out}")
+    print(f"\n{len(results) - len(failed)} passed, {len(failed)} failed -> {args.out}")
     raise SystemExit(1 if failed else 0)
 
 

@@ -39,7 +39,7 @@ def main() -> None:
         df = pd.read_csv(source)
         target = args.out_dir / f"{name}_report.html"
         profiler.profile(df).save_html(str(target))
-        print(f"{name}: {len(df)} rows -> {target}")
+        print(f"\n{name}: {len(df)} rows -> {target}")
 
 
 if __name__ == "__main__":

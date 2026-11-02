@@ -769,24 +769,6 @@ h1 {{
 
             for finding in anomaly["findings"]:
                 file.write(_finding_row(finding))
-                # likelihood = finding["likelihood"]
-                likelihood = finding.get("likelihood")
-
-                likelihood_text = (
-                    f"{likelihood}x"
-                    if likelihood is not None
-                    else "N/A"
-                )
-
-                file.write(f"""
-<tr>
-<td>{finding['column']}</td>
-<td>{finding['issue']}</td>
-<td>{finding['outlier_row_rate']}%</td>
-<td>{finding.get('normal_row_rate', 'N/A')}%</td>
-<td>{likelihood_text}</td>
-</tr>
-""")
 
             file.write("""
 </table>

@@ -1,6 +1,6 @@
 # R15 seed dataset findings (issue #200)
 
-Source: `..\seed\out`. Rows: skus 500, suppliers 60, warehouses 6, sales_daily 2190000, opening_stock 3000, current_stock 3000
+Source: `../seed/out`. Rows: skus 500, suppliers 60, warehouses 6, sales_daily 2190000, opening_stock 3000, current_stock 3000
 
 | Check | Result | Count | Example / note |
 |---|---|---|---|
