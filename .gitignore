@@ -244,3 +244,5 @@ mlruns/
 
 # Temporary source backups
 *.py.bak
+ml-services/demand-forecast/prophet/models/registry/
+ml-services/demand-forecast/prophet/models/registry/

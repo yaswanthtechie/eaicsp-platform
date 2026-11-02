@@ -1,12 +1,18 @@
 """Configuration for daily multi-horizon forecasting. No magic numbers elsewhere."""
 
+import os
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = PROJECT_ROOT.parents[2]
 
-DATA_PATH = PROJECT_ROOT / "data" / "m5_daily_sales.csv"
-RAW_DATA_DIR = PROJECT_ROOT / "data" / "raw"
+# R15 seed: one row per date x canonical SKU x canonical warehouse.
+# Generate with: cd data-platform && python -m seed.generate --out seed/out/
+SEED_SALES_PATH = Path(os.getenv(
+    "SEED_SALES_PATH",
+    REPO_ROOT / "data-platform" / "seed" / "out" / "sales_daily.csv",
+))
 
 MODEL_DIR = PROJECT_ROOT / "models" / "multi_horizon"
 PROPHET_MODEL_PATH = MODEL_DIR / "prophet_daily.json"
@@ -45,15 +51,27 @@ XGB_PARAMS = {
     "random_state": RANDOM_SEED,
 }
 
-# Rolling-origin backtest:
+# Rolling-origin backtest on the aggregate series:
 # refit at each cutoff, forecast 90 days, score each horizon.
-BACKTEST_CUTOFFS = 24
-BACKTEST_STEP_DAYS = 30
-CALIBRATION_CUTOFFS = 16
-MIN_TRAINING_DAYS = 730
+# 730 days of seed history: 365 min training + 90 horizon leaves 275 days,
+# so 19 cutoffs every 14 days.
+BACKTEST_CUTOFFS = 19
+BACKTEST_STEP_DAYS = 14
+CALIBRATION_CUTOFFS = 6
+MIN_TRAINING_DAYS = 365
 
 # 80% empirical prediction interval: 10th and 90th percentile of the
 # signed backtest error (actual / predicted - 1), per horizon.
 INTERVAL_QUANTILES = (0.10, 0.90)
 
 MLFLOW_EXPERIMENT = "demand_forecast_multi_horizon"
+# R15 production model (issue #229), served by forecast-service (Ajith, A2).
+REGISTERED_MODEL_NAME = "demand_forecast"
+REGISTRY_DIR = PROJECT_ROOT / "models" / "registry"
+SHARE_WINDOW_DAYS = 90
+HOLDOUT_DAYS = 90
+HORIZON_BUCKETS = ((1, 1), (2, 7), (8, 30), (31, 90))
+
+# Pair-days with a smaller prediction are left out of interval calibration,
+# since actual/predicted is unstable near zero.
+MIN_CALIBRATION_PREDICTION = 0.5

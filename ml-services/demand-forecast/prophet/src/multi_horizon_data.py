@@ -1,12 +1,13 @@
 import numpy as np
 import pandas as pd
 
-from src.multi_horizon_config import DATA_PATH
+from src.seed_demand import aggregate_daily, load_seed_sales
 
 
 def load_daily_data():
     """
-    Load the aggregated M5 daily demand dataset.
+    Load total daily demand across all canonical SKU/warehouse pairs
+    in the R15 seed (data-platform/seed/out/sales_daily.csv).
 
     Returns
     -------
@@ -16,12 +17,7 @@ def load_daily_data():
         - quantity_sold
     """
 
-    if not DATA_PATH.exists():
-        raise FileNotFoundError(
-            f"Daily M5 dataset not found: {DATA_PATH}"
-        )
-
-    df = pd.read_csv(DATA_PATH)
+    df = aggregate_daily(load_seed_sales())
 
     required = [
         "date",
