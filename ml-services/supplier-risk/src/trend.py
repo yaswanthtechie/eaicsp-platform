@@ -475,7 +475,11 @@ def calculate_supplier_trend(
                 config=cfg,
             )
             headline_count = len(unique_date_headlines)
-            date_evidence = prediction.get("top_worst_3", [])
+            date_evidence = []
+            for ev_item in prediction.get("top_worst_3", []):
+                ev_copy = dict(ev_item)
+                ev_copy.setdefault("date", date_str)
+                date_evidence.append(ev_copy)
 
         risk_trend.append(
             {
