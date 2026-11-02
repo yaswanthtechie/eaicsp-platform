@@ -1,6 +1,17 @@
+import json
+from pathlib import Path
+
 import pytest
 
-from scripts.a5_e2e_smoke import EventWatcher, SmokeFailure, get_path, render
+from scripts.a5_e2e_smoke import (
+    EventWatcher,
+    SmokeFailure,
+    collect_topics,
+    get_path,
+    render,
+)
+
+CONFIG = Path(__file__).resolve().parents[1] / "a5_smoke_config.json"
 
 
 def test_render_nested_placeholders():
@@ -29,6 +40,20 @@ def test_render_nested_placeholders():
     assert result["body"]["metadata"][1]["sku"] == "SKU-000123"
 
 
+def test_render_keeps_type_for_whole_placeholder():
+    assert render({"quantity": "{{qty}}"}, {"qty": 10}) == {"quantity": 10}
+
+
+def test_render_raises_on_unresolved_placeholder():
+    with pytest.raises(SmokeFailure, match="warehouse_token"):
+        render("Bearer {{warehouse_token}}", {})
+
+
+def test_render_raises_on_typo_inside_longer_string():
+    with pytest.raises(SmokeFailure, match="po_numbr"):
+        render("/purchase-orders/{{po_numbr}}/acknowledge", {"po_number": "PO-2026-000123"})
+
+
 def test_get_path_supports_list_index():
     data = {
         "payload": {
@@ -49,13 +74,37 @@ def test_get_path_raises_key_error_for_missing_key():
         get_path(data, "payload.missing")
 
 
+def test_collect_topics_falls_back_to_event_type():
+    steps = [
+        {"expect_event": {"type": "inventory.po.approved"}},
+        {"expect_event": {"type": "x", "topic": "custom.topic"}},
+        {"name": "no event"},
+    ]
+    assert collect_topics(steps) == ["custom.topic", "inventory.po.approved"]
+
+
+def test_shipped_config_subscribes_to_all_flow_events():
+    steps = json.loads(CONFIG.read_text(encoding="utf-8"))["steps"]
+    assert collect_topics(steps) == [
+        "eta.shipment.predicted",
+        "inventory.goods.received",
+        "inventory.po.approved",
+        "supplierportal.po.acknowledged",
+        "supplierportal.shipment.dispatched",
+    ]
+
+
+def test_shipped_config_has_no_placeholders_left_to_fill():
+    assert "FILL" not in CONFIG.read_text(encoding="utf-8")
+
+
 def test_event_watcher_wait_for_returns_matching_seen_event():
     watcher = EventWatcher.__new__(EventWatcher)
 
     expected = {
         "event_type": "inventory.po.approved",
         "payload": {
-            "purchase_order_id": "PO-2026-000123",
+            "po_id": "PO-2026-000123",
             "sku_id": "SKU-000123",
         },
     }
@@ -67,7 +116,7 @@ def test_event_watcher_wait_for_returns_matching_seen_event():
 
     result = watcher.wait_for(
         event_type="inventory.po.approved",
-        match={"purchase_order_id": "PO-2026-000123"},
+        match={"po_id": "PO-2026-000123"},
         timeout=1,
     )
 
@@ -79,15 +128,15 @@ def test_event_watcher_timeout_message():
 
     watcher.seen = [
         {
-            "event_type": "inventory.updated",
-            "payload": {"sku_id": "SKU-000123"},
+            "event_type": "inventory.goods.received",
+            "payload": {"po_id": "PO-2026-000999"},
         }
     ]
 
     with pytest.raises(SmokeFailure) as exc_info:
         watcher.wait_for(
             event_type="inventory.po.approved",
-            match={"purchase_order_id": "PO-2026-000123"},
+            match={"po_id": "PO-2026-000123"},
             timeout=0,
         )
 
@@ -96,4 +145,4 @@ def test_event_watcher_timeout_message():
     assert "Timed out after 0s" in message
     assert "inventory.po.approved" in message
     assert "PO-2026-000123" in message
-    assert "inventory.updated" in message
+    assert "inventory.goods.received" in message
