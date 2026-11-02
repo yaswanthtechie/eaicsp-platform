@@ -60,6 +60,7 @@ app = FastAPI(
     version=settings.VERSION,
     openapi_url="/api/v1/openapi.json",
     lifespan=lifespan,
+    telemetry={"auto_configure": False},
 )
 
 # --------------------------------------------------
