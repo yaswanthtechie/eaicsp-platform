@@ -397,7 +397,19 @@ services:
     restart: on-failure
     networks:
       - shared
-
+  eta-consumer:
+    build:
+      context: ..
+      dockerfile: ml-services/eta-prediction/Dockerfile
+    command: ["python", "-m", "src.stream_consumer"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: on-failure
+    networks:
+      - shared
   anomaly-simulator:
     build:
       context: ..

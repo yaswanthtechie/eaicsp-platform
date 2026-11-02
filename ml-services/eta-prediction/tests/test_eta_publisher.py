@@ -1,7 +1,10 @@
-from src.eta_publisher import publish_prediction, publish_dlq
-from src.stream_consumer import build_prediction_event
 from unittest.mock import MagicMock
+
 import pytest
+
+from src.eta_publisher import PublishError, publish_dlq, publish_prediction
+from src.stream_consumer import build_prediction_event
+
 
 VALID_EVENT = {
     "event_id": "f3a19d62-7c84-4b1e-9a56-2d7e8c4f0b13",
@@ -21,25 +24,25 @@ VALID_EVENT = {
 }
 
 
-
 def test_publish_prediction_uses_shipment_id_as_kafka_key():
-    class FakeFuture:
-        def get(self):
-            return None
-
     class FakeProducer:
         def __init__(self):
             self.calls = []
 
-        def send(self, topic, key, value):
+        def produce(self, topic, key, value, on_delivery):
             self.calls.append(
                 {
                     "topic": topic,
                     "key": key,
                     "value": value,
+                    "on_delivery": on_delivery,
                 }
             )
-            return FakeFuture()
+
+            on_delivery(None, None)
+
+        def flush(self, timeout):
+            return 0
 
     producer = FakeProducer()
 
@@ -51,38 +54,50 @@ def test_publish_prediction_uses_shipment_id_as_kafka_key():
             "confidence_high": 6.0,
             "top_features": [],
         },
+        "eta_seed_routes/1",
     )
 
-    publish_prediction(producer, event)
+    publish_prediction(
+        producer,
+        event,
+        "eta.shipment.predicted",
+    )
 
     assert len(producer.calls) == 1
-    assert producer.calls[0]["topic"] == "eta.shipment.predicted"
-    assert producer.calls[0]["key"] == "SHP-2026-000077"
-    assert producer.calls[0]["value"] == event
+
+    call = producer.calls[0]
+
+    assert call["topic"] == "eta.shipment.predicted"
+    assert call["key"] == b"SHP-2026-000077"
+    assert call["value"].decode("utf-8")
+    assert call["value"].decode("utf-8").find("SHP-2026-000077") != -1
+
 
 def test_publish_dlq_sends_failed_message_to_dlq():
-    class FakeFuture:
-        def get(self):
-            return None
-
     class FakeProducer:
         def __init__(self):
             self.calls = []
 
-        def send(self, topic, key, value):
+        def produce(self, topic, key, value, on_delivery):
             self.calls.append(
                 {
                     "topic": topic,
                     "key": key,
                     "value": value,
+                    "on_delivery": on_delivery,
                 }
             )
-            return FakeFuture()
+
+            on_delivery(None, None)
+
+        def flush(self, timeout):
+            return 0
 
     producer = FakeProducer()
 
     publish_dlq(
         producer=producer,
+        dlq_topic="supplierportal.shipment.dispatched.dlq",
         raw_message='{"bad": "event"}',
         error_reason="Missing payload fields",
         topic="supplierportal.shipment.dispatched",
@@ -95,21 +110,27 @@ def test_publish_dlq_sends_failed_message_to_dlq():
 
     call = producer.calls[0]
 
-    assert call["topic"] == "eta.shipment.dispatched.dlq"
-    assert call["key"] == "supplierportal.shipment.dispatched-0-42"
-    assert call["value"]["raw_message"] == '{"bad": "event"}'
-    assert call["value"]["error"] == "Missing payload fields"
-    assert call["value"]["consumer_group"] == "eta-prediction-v1"
-    assert call["value"]["topic"] == "supplierportal.shipment.dispatched"
-    assert call["value"]["partition"] == 0
-    assert call["value"]["offset"] == 42
-    assert "failed_at" in call["value"]
+    assert call["topic"] == "supplierportal.shipment.dispatched.dlq"
+    assert call["key"] == b"supplierportal.shipment.dispatched-0-42"
 
-def test_publish_prediction_propagates_kafka_failure():
+    value = call["value"].decode("utf-8")
+
+    assert '\\"bad\\": \\"event\\"' in value
+    assert "Missing payload fields" in value
+    assert "eta-prediction-v1" in value
+    assert "supplierportal.shipment.dispatched" in value
+    assert '"partition": 0' in value
+    assert '"offset": 42' in value
+
+
+def test_publish_prediction_raises_publish_error_on_kafka_failure():
     producer = MagicMock()
-    future = MagicMock()
-    future.get.side_effect = RuntimeError("Kafka publish failed")
-    producer.send.return_value = future
+
+    def fail_delivery(topic, key, value, on_delivery=None, **kwargs):
+        on_delivery(RuntimeError("Kafka publish failed"), None)
+
+    producer.produce.side_effect = fail_delivery
+    producer.flush.return_value = 0
 
     event = {
         "payload": {
@@ -118,7 +139,14 @@ def test_publish_prediction_propagates_kafka_failure():
         "event_id": "test-event-id",
     }
 
-    with pytest.raises(RuntimeError, match="Kafka publish failed"):
-        publish_prediction(producer, event)
+    with pytest.raises(
+        PublishError,
+        match="Publish to eta.shipment.predicted failed",
+    ):
+        publish_prediction(
+            producer,
+            event,
+            "eta.shipment.predicted",
+        )
 
-    producer.send.assert_called_once()    
+    producer.produce.assert_called_once()

@@ -3,18 +3,20 @@ import logging
 import os
 import re
 import time
+from collections import OrderedDict
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from .eta_publisher import create_producer, publish_dlq, publish_prediction
-from .h2_predict import predict_h2
+from .h2_predict import load_h2_artifacts, predict_h2
+from .paths import SEED_SAMPLES_DIR
 from .seed_routes import load_seed_routes
 
 log = logging.getLogger(__name__)
 
 INPUT_TOPIC = "supplierportal.shipment.dispatched"
 OUTPUT_TOPIC = "eta.shipment.predicted"
-DLQ_TOPIC = "eta.shipment.dispatched.dlq"
+DLQ_TOPIC = f"{INPUT_TOPIC}.dlq"
 
 CONSUMER_GROUP = "eta-prediction-v1"
 
@@ -43,7 +45,17 @@ def load_settings(env=None):
             "KAFKA_DLQ_TOPIC",
             DLQ_TOPIC,
         ),
+        "seed_dir": env.get(
+            "ETA_SEED_DIR",
+            str(SEED_SAMPLES_DIR),
+        ),
+        "model_version": env.get(
+            "ETA_MODEL_VERSION",
+            "eta_seed_routes/1",
+        ),
     }
+
+
 REQUIRED_EVENT_FIELDS = (
     "event_id",
     "event_type",
@@ -76,7 +88,9 @@ def validate_event(event):
         raise ValueError(f"Unexpected event_type: {event['event_type']!r}")
 
     if event["event_version"] != 1:
-        raise ValueError(f"Unsupported event_version: {event['event_version']!r}")
+        raise ValueError(
+            f"Unsupported event_version: {event['event_version']!r}"
+        )
 
     if event["producer"] != "supplier-portal":
         raise ValueError(f"Unexpected producer: {event['producer']!r}")
@@ -89,9 +103,13 @@ def validate_event(event):
         raise ValueError("Invalid event_id: expected UUID v4.")
 
     try:
-        datetime.fromisoformat(event["occurred_at"].replace("Z", "+00:00"))
+        datetime.fromisoformat(
+            event["occurred_at"].replace("Z", "+00:00")
+        )
     except (ValueError, AttributeError):
-        raise ValueError("Invalid occurred_at: expected an ISO 8601 datetime.")
+        raise ValueError(
+            "Invalid occurred_at: expected an ISO 8601 datetime."
+        )
 
     payload = event["payload"]
 
@@ -111,7 +129,8 @@ def validate_event(event):
 
     for field, pattern in patterns.items():
         if not isinstance(payload[field], str) or not re.fullmatch(
-            pattern, payload[field]
+            pattern,
+            payload[field],
         ):
             raise ValueError(f"Invalid {field} format.")
 
@@ -120,7 +139,9 @@ def validate_event(event):
             raise ValueError(f"{field} must be a non-empty string.")
 
     try:
-        datetime.fromisoformat(payload["dispatched_at"].replace("Z", "+00:00"))
+        datetime.fromisoformat(
+            payload["dispatched_at"].replace("Z", "+00:00")
+        )
     except (ValueError, AttributeError):
         raise ValueError(
             "Invalid dispatched_at: expected an ISO 8601 datetime."
@@ -128,7 +149,8 @@ def validate_event(event):
 
     return event
 
-def build_prediction_event(event, prediction):
+
+def build_prediction_event(event, prediction, model_version):
     """Build the eta.shipment.predicted event from a dispatched shipment."""
 
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -144,25 +166,39 @@ def build_prediction_event(event, prediction):
             "shipment_id": event["payload"]["shipment_id"],
             "po_number": event["payload"]["po_number"],
             **prediction,
-            "model_version": "eta_seed_routes/1",
+            "model_version": model_version,
             "predicted_at": now,
         },
     }
 
-class EventDeduplicator:
-    """Keep track of event_ids already processed by this consumer."""
 
-    def __init__(self):
-        self._processed = set()
+class EventDeduplicator:
+    """Remember the last max_size processed event_ids (LRU)."""
+
+    def __init__(self, max_size=10_000):
+        self._processed = OrderedDict()
+        self._max_size = max_size
 
     def is_duplicate(self, event_id):
-        return event_id in self._processed
+        if event_id in self._processed:
+            self._processed.move_to_end(event_id)
+            return True
+        return False
 
     def mark_processed(self, event_id):
-        self._processed.add(event_id)
+        self._processed[event_id] = None
+        self._processed.move_to_end(event_id)
+
+        if len(self._processed) > self._max_size:
+            self._processed.popitem(last=False)
+
 
 def run(settings):
     from confluent_kafka import Consumer, KafkaException
+
+    # Fail at startup, not on the first message, if data or model is missing.
+    routes = load_seed_routes(settings["seed_dir"])
+    load_h2_artifacts()
 
     consumer = Consumer(
         {
@@ -183,6 +219,28 @@ def run(settings):
         settings["group_id"],
     )
 
+    def send_to_dlq(message, reason):
+        raw_message = (message.value() or b"").decode(
+            "utf-8",
+            errors="replace",
+        )
+
+        publish_dlq(
+            producer,
+            dlq_topic=settings["dlq_topic"],
+            raw_message=raw_message,
+            error_reason=reason,
+            topic=message.topic(),
+            consumer_group=settings["group_id"],
+            partition=message.partition(),
+            offset=message.offset(),
+        )
+
+        consumer.commit(
+            message=message,
+            asynchronous=False,
+        )
+
     try:
         while True:
             message = consumer.poll(1.0)
@@ -193,8 +251,16 @@ def run(settings):
             if message.error():
                 raise KafkaException(message.error())
 
+            start_time = time.perf_counter()
+
+            # 1. Parse and validate. Bad input -> DLQ, commit, move on.
             try:
-                event = json.loads(message.value().decode("utf-8"))
+                if message.value() is None:
+                    raise ValueError("Empty message value (tombstone).")
+
+                event = json.loads(
+                    message.value().decode("utf-8")
+                )
                 validate_event(event)
 
             except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
@@ -205,23 +271,7 @@ def run(settings):
                     message.offset(),
                     exc,
                 )
-
-                raw_message = message.value().decode("utf-8", errors="replace")
-
-                publish_dlq(
-                    producer=producer,
-                    raw_message=raw_message,
-                    error_reason=str(exc),
-                    topic=message.topic(),
-                    consumer_group=settings["group_id"],
-                    partition=message.partition(),
-                    offset=message.offset(),
-                )
-
-                consumer.commit(
-                    message=message,
-                    asynchronous=False,
-                )
+                send_to_dlq(message, str(exc))
                 continue
 
             event_id = event["event_id"]
@@ -235,40 +285,76 @@ def run(settings):
                 continue
 
             log.info("Received event_id=%s", event_id)
-            start_time = time.perf_counter()
-            routes = load_seed_routes()
 
-            prediction = predict_h2(
-                event["payload"],
-                routes,
-            )
+            # 2. Predict. A valid event we cannot predict -> DLQ.
+            try:
+                prediction = predict_h2(
+                    event["payload"],
+                    routes,
+                )
+            except (ValueError, KeyError) as exc:
+                log.warning(
+                    "Cannot predict ETA for event_id=%s: %s",
+                    event_id,
+                    exc,
+                )
+                send_to_dlq(
+                    message,
+                    f"Prediction failed: {exc}",
+                )
+                continue
+
             prediction_event = build_prediction_event(
                 event,
                 prediction,
+                settings["model_version"],
             )
 
-            publish_prediction(producer, prediction_event)
+            # 3. Publish. Broker failure raises and prevents offset commit.
+            publish_prediction(
+                producer,
+                prediction_event,
+                settings["output_topic"],
+            )
+
             deduplicator.mark_processed(event_id)
 
-            latency_ms = (time.perf_counter() - start_time) * 1000
+            processing_ms = (
+                time.perf_counter() - start_time
+            ) * 1000
+
+            occurred_at = datetime.fromisoformat(
+                event["occurred_at"].replace("Z", "+00:00")
+            )
+
+            end_to_end_ms = (
+                datetime.now(timezone.utc) - occurred_at
+            ).total_seconds() * 1000
 
             log.info(
-                "ETA event latency: event_id=%s latency_ms=%.2f",
+                "ETA event latency: event_id=%s "
+                "processing_ms=%.2f end_to_end_ms=%.2f",
                 event_id,
-                latency_ms,
+                processing_ms,
+                end_to_end_ms,
             )
 
             consumer.commit(
                 message=message,
                 asynchronous=False,
             )
+
             log.info(
                 "ETA prediction completed for event_id=%s: %s",
                 event_id,
                 prediction,
             )
 
-        
-
     finally:
+        producer.flush(10)
         consumer.close()
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    run(load_settings())

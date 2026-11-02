@@ -90,7 +90,7 @@ The ETA prediction service consumes `supplierportal.shipment.dispatched` events,
 - Prediction event construction
 - Kafka publisher behavior
 
-The complete ETA service test suite passes with 214 tests.
+The complete ETA service test suite passes with 219 tests.
 
 ## Round 14 Evaluation
 

@@ -1,41 +1,69 @@
 import json
 import logging
 import os
-from datetime import UTC, datetime
-from kafka import KafkaProducer
+from datetime import datetime, timezone
+
+from confluent_kafka import Producer
 
 log = logging.getLogger(__name__)
 
-OUTPUT_TOPIC = "eta.shipment.predicted"
+
+class PublishError(RuntimeError):
+    """A message could not be delivered to Kafka."""
 
 
-def create_producer() -> KafkaProducer:
+def create_producer() -> Producer:
     """Create the Kafka producer used by the ETA service."""
-    return KafkaProducer(
-        bootstrap_servers=os.getenv(
-            "KAFKA_BOOTSTRAP_SERVERS",
-            "localhost:9092",
-        ),
-        value_serializer=lambda value: json.dumps(value).encode("utf-8"),
-        key_serializer=lambda key: key.encode("utf-8"),
-        acks="all",
-        retries=3,
+    return Producer(
+        {
+            "bootstrap.servers": os.getenv(
+                "KAFKA_BOOTSTRAP_SERVERS",
+                "localhost:9092",
+            ),
+            "acks": "all",
+            "enable.idempotence": True,
+        }
     )
 
 
+def _send(
+    producer: Producer,
+    topic: str,
+    key: str,
+    value: dict,
+    timeout: float = 10.0,
+) -> None:
+    errors = []
+
+    def on_delivery(err, _msg):
+        if err is not None:
+            errors.append(err)
+
+    producer.produce(
+        topic,
+        key=key.encode("utf-8"),
+        value=json.dumps(value).encode("utf-8"),
+        on_delivery=on_delivery,
+    )
+
+    remaining = producer.flush(timeout)
+
+    if errors or remaining:
+        raise PublishError(
+            f"Publish to {topic} failed: "
+            f"{errors or 'flush timed out'}"
+        )
+
+
 def publish_prediction(
-    producer: KafkaProducer,
+    producer: Producer,
     event: dict,
+    topic: str,
 ) -> None:
     """Publish an ETA prediction event using shipment_id as the Kafka key."""
-
     shipment_id = event["payload"]["shipment_id"]
 
-    producer.send(
-        OUTPUT_TOPIC,
-        key=shipment_id,
-        value=event,
-    ).get()
+    _send(producer, topic, shipment_id, event)
 
     log.info(
         "Published ETA prediction: shipment_id=%s event_id=%s",
@@ -43,8 +71,11 @@ def publish_prediction(
         event["event_id"],
     )
 
+
 def publish_dlq(
-    producer: KafkaProducer,
+    producer: Producer,
+    *,
+    dlq_topic: str,
     raw_message: str,
     error_reason: str,
     topic: str,
@@ -52,20 +83,18 @@ def publish_dlq(
     partition: int,
     offset: int,
 ) -> None:
-    """Publish a failed ETA message to the dead-letter queue."""
-
-    dlq_payload = {
-        "raw_message": raw_message,
-        "error": error_reason,
-        "failed_at": datetime.now(UTC).isoformat(),
-        "consumer_group": consumer_group,
-        "topic": topic,
-        "partition": partition,
-        "offset": offset,
-    }
-
-    producer.send(
-        "eta.shipment.dispatched.dlq",
-        key=f"{topic}-{partition}-{offset}",
-        value=dlq_payload,
-    ).get()
+    """Publish a failed message to the dead-letter queue."""
+    _send(
+        producer,
+        dlq_topic,
+        f"{topic}-{partition}-{offset}",
+        {
+            "raw_message": raw_message,
+            "error": error_reason,
+            "failed_at": datetime.now(timezone.utc).isoformat(),
+            "consumer_group": consumer_group,
+            "topic": topic,
+            "partition": partition,
+            "offset": offset,
+        },
+    )

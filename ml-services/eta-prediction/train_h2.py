@@ -84,7 +84,7 @@ def main():
             sk_model=model,
             name=H2_MODEL_NAME,
             serialization_format=(
-                mlflow.sklearn.SERIALIZATION_FORMAT_CLOUDPICKLE
+            mlflow.sklearn.SERIALIZATION_FORMAT_CLOUDPICKLE
             ),
             signature=infer_signature(
                 example,
