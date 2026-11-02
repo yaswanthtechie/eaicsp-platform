@@ -939,14 +939,17 @@ def compute_canonical_supplier_risk_score(
         _save_assessment(supplier_id, supplier_name, response)
         return response
 
-    # 3. Check for adverse news headlines matching this supplier
+    # 3. Adverse news filed under the seed name or any reviewed alias
     trend_data = load_active_trend_headlines()
+    known_names = {supplier_name.casefold()}
+    known_names.update(alias.casefold() for alias in supplier_rec.get("aliases") or [])
 
-    matching_records = None
-    for name, records in trend_data.items():
-        if name.casefold() == supplier_name.casefold():
-            matching_records = records
-            break
+    matching_records = [
+        record
+        for name, records in trend_data.items()
+        if name.casefold() in known_names
+        for record in records
+    ]
 
     if matching_records:
         trend_result = calculate_supplier_trend(supplier_name, matching_records)

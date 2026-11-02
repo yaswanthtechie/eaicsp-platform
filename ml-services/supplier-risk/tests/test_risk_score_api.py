@@ -79,7 +79,18 @@ def mock_sentiment():
     """Mock FinBERT model initialization and sentiment to avoid test latency."""
     with patch("src.predict.analyze_sentiment") as mock_sa, \
          patch("src.analyze.init_model") as mock_im:
-        mock_sa.return_value = {"label": "neutral", "confidence": 0.99}
+        def side_effect(text):
+            lower_text = text.lower()
+            if any(w in lower_text for w in [
+                "bankruptcy", "fraud", "strike", "lawsuit", "sanction",
+                "disruption", "recall", "layoff", "default", "insolvency",
+                "downgrade", "restructuring"
+            ]):
+                return {"label": "negative", "confidence": 0.99}
+            if "positive" in lower_text or "record" in lower_text or "profit" in lower_text:
+                return {"label": "positive", "confidence": 0.95}
+            return {"label": "neutral", "confidence": 0.99}
+        mock_sa.side_effect = side_effect
         yield mock_sa, mock_im
 
 
@@ -1033,3 +1044,27 @@ def test_sanction_factor_names_the_suppliers_list(client, supplier_id, sanctions
     assert res.json()["top_factors"][0]["description"] == (
         f"Designated on {sanctions_list} (seed master data)."
     )
+
+
+def test_risk_score_uses_headlines_filed_under_an_alias(client):
+    rec = {
+        "supplier_id": "SUP-00019",
+        "name": "Unity Manufacturing GmbH",
+        "sanctions_flag": False,
+        "aliases": ["Foxconn", "Hon Hai Precision"],
+    }
+    headlines = {
+        "Foxconn": [
+            {"headline": "Foxconn hit by strike at main plant.", "date": "2026-10-15", "score": 75.0}
+        ]
+    }
+    with patch("src.analyze.resolve_canonical_supplier", return_value=rec), \
+         patch("src.analyze.fetch_risk_assessment", return_value=None), \
+         patch("src.analyze.load_active_trend_headlines", return_value=headlines), \
+         patch("src.analyze._save_assessment"):
+        res = client.get("/api/v1/suppliers/SUP-00019/risk-score")
+
+    assert res.status_code == 200
+    assert res.json()["supplier_id"] == "SUP-00019"
+    assert res.json()["score"] is not None
+    assert res.json()["top_evidence_articles"][0]["headline"] == "Foxconn hit by strike at main plant."

@@ -362,6 +362,21 @@ def isolated_mlflow(tmp_path, monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+def sample_seed_csv(monkeypatch):
+    """Use the committed sample seed; data-platform/seed/out/ is gitignored."""
+    monkeypatch.setenv(
+        "SUPPLIER_SEED_CSV",
+        str(
+            Path(__file__).resolve().parents[3]
+            / "data-platform"
+            / "seed"
+            / "samples"
+            / "suppliers.csv"
+        ),
+    )
+
+
 @pytest.fixture
 def mongo_test_collection():
     """A throwaway collection, dropped after the test. Never the runtime one."""
