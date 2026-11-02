@@ -16,9 +16,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import uuid
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -116,17 +118,44 @@ def load_json(path: Path) -> dict[str, Any]:
     return data
 
 
+_PLACEHOLDER = re.compile(r"\\{\\{(\\w+)\\}\\}")
+
+
 def render(value: Any, context: dict[str, Any]) -> Any:
-    """Replace {{name}} placeholders recursively in strings."""
+    """Replace {{name}} placeholders recursively.
+
+    A string that is exactly one placeholder keeps the context value's type
+    (so quantities stay ints). Any placeholder left unresolved is an error.
+    """
     if isinstance(value, str):
+        whole = _PLACEHOLDER.fullmatch(value)
+        if whole and whole.group(1) in context:
+            return context[whole.group(1)]
         for key, replacement in context.items():
             value = value.replace("{{" + key + "}}", str(replacement))
+        leftover = _PLACEHOLDER.search(value)
+        if leftover:
+            raise SmokeFailure(
+                f"Unresolved placeholder {leftover.group(0)} in {value!r}"
+            )
         return value
     if isinstance(value, list):
         return [render(item, context) for item in value]
     if isinstance(value, dict):
         return {key: render(item, context) for key, item in value.items()}
     return value
+
+
+def collect_topics(steps: list[dict[str, Any]]) -> list[str]:
+    """Kafka topic per expectation; on this platform the topic is the event_type."""
+    return sorted({
+        str(
+            step["expect_event"].get("topic")
+            or step["expect_event"]["type"]
+        )
+        for step in steps
+        if step.get("expect_event")
+    })
 
 
 def response_summary(response: requests.Response) -> str:
@@ -214,6 +243,15 @@ def run_step(
                 f"Response={response_summary(response)}"
             ) from exc
 
+    for variable, source in step.get("save", {}).items():
+        try:
+            context[str(variable)] = get_path(payload, str(source))
+        except (KeyError, IndexError, ValueError, TypeError) as exc:
+            raise SmokeFailure(
+                f"{name}: response did not contain '{source}'. "
+                f"Response={response_summary(response)}"
+            ) from exc
+
     return payload
 
 
@@ -233,7 +271,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--kafka",
-        default=os.getenv("A5_KAFKA_BOOTSTRAP", "localhost:9092"),
+        default=os.getenv("A5_KAFKA_BOOTSTRAP", "localhost:29092"),
         help="Kafka bootstrap servers.",
     )
     parser.add_argument(
@@ -262,12 +300,24 @@ def main() -> int:
         if api_key:
             session.headers["X-API-Key"] = api_key
 
-        context: dict[str, Any] = dict(config.get("variables", {}))
-        context.setdefault("supplier_token", os.getenv("A5_SUPPLIER_TOKEN", ""))
-        context.setdefault(
-            "procurement_token",
-            os.getenv("A5_PROCUREMENT_TOKEN", token or ""),
-        )
+        now = datetime.now(timezone.utc)
+        context: dict[str, Any] = {
+            "today": date.today().isoformat(),
+            "today_plus_7": (date.today() + timedelta(days=7)).isoformat(),
+            "run_id": now.strftime("%Y%m%d%H%M%S"),
+            **config.get("variables", {}),
+        }
+        for name, env_var in (
+            ("procurement_token", "A5_PROCUREMENT_TOKEN"),
+            ("supplier_token", "A5_SUPPLIER_TOKEN"),
+            ("warehouse_token", "A5_WAREHOUSE_TOKEN"),
+        ):
+            value = os.getenv(env_var) or (
+                token if name == "procurement_token" else None
+            )
+            if not value:
+                raise SmokeFailure(f"{env_var} is not set.")
+            context[name] = value
 
         all_steps = config.get("steps", [])
         if not isinstance(all_steps, list) or not all_steps:
@@ -275,16 +325,11 @@ def main() -> int:
         if any(not isinstance(step, dict) for step in all_steps):
             raise SmokeFailure("Every item in 'steps' must be an object.")
 
-        expected_steps = [step for step in all_steps if step.get("expect_event")]
-        topics = sorted({
-            str(step["expect_event"]["topic"])
-            for step in expected_steps
-            if step["expect_event"].get("topic")
-        })
-        if not expected_steps or len(topics) == 0:
+        topics = collect_topics(all_steps)
+        if not topics:
             raise SmokeFailure(
-                "No Kafka event expectations configured. Add expect_event with "
-                "'topic' and 'type' to the relevant steps in the JSON config."
+                "No Kafka event expectations configured. Add expect_event "
+                "with 'type' to the relevant steps in the JSON config."
             )
 
         print(f"A5 smoke test -> {args.gateway}")
@@ -332,10 +377,13 @@ def main() -> int:
                     except SmokeFailure as exc:
                         raise SmokeFailure(f"{name}: {exc}") from exc
 
+                    event_payload = event.get("payload") or {}
                     for variable, field in expect.get("save", {}).items():
-                        context[str(variable)] = (
-                            event.get("payload") or {}
-                        ).get(str(field))
+                        if field not in event_payload:
+                            raise SmokeFailure(
+                                f"{name}: event {event_type} has no payload field '{field}'."
+                            )
+                        context[str(variable)] = event_payload[field]
                     print(f"  PASS {name}: Kafka event {event_type}")
         finally:
             watcher.close()

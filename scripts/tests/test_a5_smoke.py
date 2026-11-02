@@ -1,4 +1,3 @@
-
 import pytest
 
 from scripts.a5_e2e_smoke import EventWatcher, SmokeFailure, get_path, render
@@ -8,7 +7,7 @@ def test_render_nested_placeholders():
     context = {
         "sku_id": "SKU-000123",
         "warehouse_id": "WH-BLR-01",
-        "po_id": "PO-1001",
+        "po_id": "PO-2026-000123",
     }
 
     value = {
@@ -26,7 +25,7 @@ def test_render_nested_placeholders():
 
     assert result["path"] == "/inventory/SKU-000123"
     assert result["body"]["warehouse"] == "WH-BLR-01"
-    assert result["body"]["metadata"][0]["purchase_order"] == "PO-1001"
+    assert result["body"]["metadata"][0]["purchase_order"] == "PO-2026-000123"
     assert result["body"]["metadata"][1]["sku"] == "SKU-000123"
 
 
@@ -54,9 +53,9 @@ def test_event_watcher_wait_for_returns_matching_seen_event():
     watcher = EventWatcher.__new__(EventWatcher)
 
     expected = {
-        "event_type": "purchase_order.created",
+        "event_type": "inventory.po.approved",
         "payload": {
-            "purchase_order_id": "PO-1001",
+            "purchase_order_id": "PO-2026-000123",
             "sku_id": "SKU-000123",
         },
     }
@@ -67,8 +66,8 @@ def test_event_watcher_wait_for_returns_matching_seen_event():
     ]
 
     result = watcher.wait_for(
-        event_type="purchase_order.created",
-        match={"purchase_order_id": "PO-1001"},
+        event_type="inventory.po.approved",
+        match={"purchase_order_id": "PO-2026-000123"},
         timeout=1,
     )
 
@@ -77,6 +76,7 @@ def test_event_watcher_wait_for_returns_matching_seen_event():
 
 def test_event_watcher_timeout_message():
     watcher = EventWatcher.__new__(EventWatcher)
+
     watcher.seen = [
         {
             "event_type": "inventory.updated",
@@ -86,13 +86,14 @@ def test_event_watcher_timeout_message():
 
     with pytest.raises(SmokeFailure) as exc_info:
         watcher.wait_for(
-            event_type="purchase_order.created",
-            match={"purchase_order_id": "PO-1001"},
+            event_type="inventory.po.approved",
+            match={"purchase_order_id": "PO-2026-000123"},
             timeout=0,
         )
 
     message = str(exc_info.value)
+
     assert "Timed out after 0s" in message
-    assert "purchase_order.created" in message
-    assert "PO-1001" in message
+    assert "inventory.po.approved" in message
+    assert "PO-2026-000123" in message
     assert "inventory.updated" in message
