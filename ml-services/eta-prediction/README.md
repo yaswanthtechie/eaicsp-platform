@@ -37,7 +37,6 @@ validation.
   `{"eta_days", "confidence_low", "confidence_high"}`.
 - Added tests covering Round 14 feature usage, as-of leakage protection,
   same-test-period evaluation, and SHAP explanations.
-- Full test suite passes with `187 passed`.
 
 ## R15-H2: seed supplier -> warehouse ETA
 
@@ -56,6 +55,42 @@ Separate model (`eta_seed_routes`) for seed shipments. R14 and `/predict` are un
 | Interval coverage (nominal 80%) | 91.60% |
 
 Limitation: predictions for Indian seed routes assume Olist (Brazil) delivery behaviour for the same distance. Validate once real seed shipment outcomes exist.
+
+## R15-H3: Shipment Dispatched → ETA Prediction
+
+The ETA prediction service consumes `supplierportal.shipment.dispatched` events, uses the R15-H2 seed-route ETA model for prediction, and publishes `eta.shipment.predicted` events.
+
+- Input topic: `supplierportal.shipment.dispatched`
+- Output topic: `eta.shipment.predicted`
+- Consumer group: `eta-prediction-v1`
+- Validates the dispatched shipment event and required payload fields.
+- Validates event version, producer, event ID, shipment ID, PO number, supplier ID, warehouse ID, and timestamps.
+- Uses the existing H2 `predict_h2()` inference path without retraining the model.
+- Publishes the prediction using `shipment_id` as the Kafka partition key.
+- Generates a new UUID v4 for each prediction event.
+- Preserves `trace_id` when provided.
+- Returns `eta_days`, `confidence_low`, `confidence_high`, `top_features`, `model_version`, and `predicted_at`.
+- Handles duplicate events using event ID deduplication during the consumer runtime.
+- Sends invalid messages to the ETA DLQ.
+- Commits offsets after successful processing.
+- Does not commit messages when prediction or publishing fails, allowing them to be retried.
+- Measures and logs event processing latency.
+
+### H3 Tests
+
+- Valid dispatched shipment event processing
+- Event validation and invalid event handling
+- DLQ handling
+- Duplicate event handling
+- Prediction failure handling
+- Prediction publishing failure handling
+- Latency logging
+- Consumer configuration
+- Environment-based configuration
+- Prediction event construction
+- Kafka publisher behavior
+
+The complete ETA service test suite passes with 214 tests.
 
 ## Round 14 Evaluation
 
@@ -230,7 +265,13 @@ The ETA prediction service is organized as follows:
     │   ├── predict.py
     │   ├── shap_explainer.py
     │   ├── mlflow_tracking.py
-    │   └── paths.py
+    │   ├── paths.py
+    │   ├── h2_features.py
+    │   ├── h2_train.py
+    │   ├── h2_predict.py
+    │   ├── seed_routes.py
+    │   ├── eta_publisher.py
+    │   └── stream_consumer.py
     ├── tests/
     │   ├── conftest.py
     │   ├── test_api.py
@@ -243,10 +284,18 @@ The ETA prediction service is organized as follows:
     │   ├── test_route_insights.py
     │   ├── test_shap_explainer.py
     │   ├── test_split.py
-    │   └── test_train.py
+    │   ├── test_train.py
+    │   ├── test_h2_features.py
+    │   ├── test_h2_predict.py
+    │   ├── test_h2_train.py
+    │   ├── test_seed_routes.py
+    │   ├── test_eta_publisher.py
+    │   └── test_h3_stream_consumer.py
     ├── artifacts/
     │   ├── eta_model.joblib
-    │   └── calibration_model.joblib
+    │   ├── calibration_model.joblib
+    │   ├── eta_seed_routes_pipeline.joblib
+    │   └── eta_seed_routes_interval.joblib
     └── data/
         └── olist/
 
