@@ -380,7 +380,7 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 | Field Name | Type | Required | Units / Meaning | Description |
 |:---|:---|:---|:---|:---|
 | `run_id` | `string` | **Yes** | Batch Run Identifier | Unique execution run ID (e.g. `BATCH-20261015-01`). |
-| `model_version` | `string` | **Yes** | Model release tag | Production forecast ensemble version (e.g. `prophet-xgb-r5`). |
+| `model_version` | `string` | **Yes** | MLflow model name/version | Registered model used for the batch, `<name>/<version>` (e.g. `demand_forecast/4`). |
 | `granularity` | `string` | **Yes** | Time interval enum | Time aggregation bucket (`daily` or `monthly`). |
 | `sku_count` | `integer` | **Yes** | Count | Number of distinct canonical SKUs forecasted (e.g. `500`). |
 | `warehouse_count` | `integer` | **Yes** | Count | Number of distinct canonical warehouses covered (e.g. `6`). |
@@ -400,8 +400,7 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
   "event_type": "forecast.batch.completed",
   "event_version": 1,
   "occurred_at": "2026-10-15T06:15:30Z",
-  "producer": "demand-forecast-service",
-  "trace_id": "2d8f99ab114e410b9918c5e003ba7251",
+  "producer": "demand-forecast-service",  
   "payload": {
     "run_id": "BATCH-20261015-01",
     "model_version": "demand_forecast/4",

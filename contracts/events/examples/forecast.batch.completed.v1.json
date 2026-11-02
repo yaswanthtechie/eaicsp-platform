@@ -18,4 +18,5 @@
     "destination_mart": "clickhouse.demand_forecast_history",
     "message": "Daily demand forecast BATCH-20261015-01 completed for 500 SKUs across 6 warehouses (MAPE 11.8%)."
   }
+  
 }
