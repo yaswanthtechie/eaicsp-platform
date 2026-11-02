@@ -1,3 +1,4 @@
+
 """
 Tests for Canonical Supplier ID mapping, normalization, and MongoDB persistence.
 Validates Fix 1 requirements:
@@ -460,6 +461,15 @@ def test_missing_alias_csv_raises_file_not_found(tmp_path):
     missing_csv = tmp_path / "nonexistent_aliases.csv"
     with pytest.raises(FileNotFoundError, match="not found"):
         load_supplier_aliases(missing_csv)
+
+
+def test_missing_alias_csv_in_seed_supplier_mappings_raises_file_not_found(tmp_path):
+    """Missing alias CSV causes seed_supplier_mappings to fail loudly with FileNotFoundError."""
+    missing_csv = tmp_path / "nonexistent_aliases.csv"
+    mock_col = MagicMock()
+    with patch.dict(os.environ, {"SUPPLIER_ALIASES_CSV": str(missing_csv)}):
+        with pytest.raises(FileNotFoundError, match="not found"):
+            seed_supplier_mappings(records=[], collection=mock_col)
 
 
 def test_seed_supplier_mappings_rejects_conflicting_aliases_in_list():

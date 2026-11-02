@@ -564,6 +564,12 @@ def test_hysteresis_thresholds_edge_cases_and_type_validation():
     assert s_high.hysteresis_exit_high <= 95.0 <= s_high.hysteresis_enter_high <= 100.0
 
 
+def _test_only_supplier_ids():
+    """Stable SUP-9xxxx IDs, assigned in the order names are first resolved."""
+    ids = {}
+    return lambda name: ids.setdefault(name, f"SUP-{90100 + len(ids):05d}")
+
+
 def test_historical_comparison_deterministic(tmp_path):
     """Verify historical replay produces deterministic metrics and generates valid report."""
     from src.historical_comparison import generate_markdown_report, run_historical_comparison
@@ -571,7 +577,7 @@ def test_historical_comparison_deterministic(tmp_path):
     # Mock canonical supplier ID resolution for the 25 historical test suppliers
     with patch(
         "src.supplier_mapping.resolve_canonical_supplier_id",
-        side_effect=lambda name: f"SUP-{abs(hash(name)) % 50000 + 1:05d}",
+        side_effect=_test_only_supplier_ids(),
     ):
         # Run replay using default dataset
         results = run_historical_comparison()
@@ -610,7 +616,7 @@ def test_historical_comparison_cached_and_uncached_identical():
 
     with patch(
         "src.supplier_mapping.resolve_canonical_supplier_id",
-        side_effect=lambda name: f"SUP-{abs(hash(name)) % 50000 + 1:05d}",
+        side_effect=_test_only_supplier_ids(),
     ):
         cached_res = run_historical_comparison(use_cache=True)
         uncached_res = run_historical_comparison(use_cache=False)
@@ -950,3 +956,33 @@ def test_invalid_legacy_supplier_id_in_event_raises_value_error():
             supporting_articles=_articles(80.0),
             supplier_id="SUP001",
         )
+
+
+# ------------------------------------------------------------------
+# Contract Validation Test
+# ------------------------------------------------------------------
+
+from pathlib import Path
+from jsonschema import Draft202012Validator, FormatChecker
+
+CONTRACT = (
+    Path(__file__).resolve().parents[3]
+    / "contracts" / "events" / "supplierrisk.score.changed.v1.json"
+)
+
+
+def test_score_changed_event_matches_contract():
+    event = build_score_changed_event(
+        supplier="Unity Manufacturing GmbH",
+        supplier_id="SUP-00019",
+        previous_tier="Medium",
+        new_tier="Critical",
+        risk_score=78.5,
+        supporting_articles=[{"headline": "Supplier reports insolvency.", "date": "2026-10-13", "score": 72.0}],
+    )
+    validator = Draft202012Validator(
+        json.loads(CONTRACT.read_text(encoding="utf-8")),
+        format_checker=FormatChecker(),
+    )
+    assert [e.message for e in validator.iter_errors(event)] == []
+    assert event["payload"]["new_tier"] == "high"

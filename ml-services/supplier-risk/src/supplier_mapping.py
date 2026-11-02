@@ -346,9 +346,7 @@ def seed_supplier_mappings(
     elif isinstance(aliases, (str, Path)):
         alias_map = load_supplier_aliases(aliases)
     elif aliases is None:
-        alias_path = get_aliases_csv_path()
-        if alias_path.exists():
-            alias_map = load_supplier_aliases(alias_path)
+        alias_map = load_supplier_aliases(get_aliases_csv_path())
 
     # Group aliases by canonical supplier_id
     supplier_aliases_map: Dict[str, List[str]] = defaultdict(list)

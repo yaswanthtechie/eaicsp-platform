@@ -54,8 +54,16 @@ def client():
 @pytest.fixture
 def raw_client():
     """Raw client that does not override require_caller, exercising real authentication."""
-    app.dependency_overrides.pop(require_caller, None)
-    with TestClient(app) as test_client:
+    class RawTestClient(TestClient):
+        def request(self, *args, **kwargs):
+            saved = app.dependency_overrides.pop(require_caller, None)
+            try:
+                return super().request(*args, **kwargs)
+            finally:
+                if saved is not None:
+                    app.dependency_overrides[require_caller] = saved
+
+    with RawTestClient(app) as test_client:
         yield test_client
 
 
@@ -91,6 +99,8 @@ def test_get_risk_score_sanctioned_supplier_200(client):
         data = response.json()
 
         # Required contract fields
+        assert "supplier_id" in data
+        assert data["supplier_id"] == "SUP-00045"
         assert "score" in data
         assert "tier" in data
         assert "top_factors" in data
@@ -122,6 +132,7 @@ def test_get_risk_score_no_recent_evidence_returns_null_score(client):
     assert response.status_code == 200
     data = response.json()
 
+    assert data["supplier_id"] == "SUP-00019"
     assert data["score"] is None
     assert data["tier"] is None
     assert data["top_factors"] == []
@@ -161,6 +172,7 @@ def test_get_risk_score_persisted_mongodb_document(client):
         response = client.get("/api/v1/suppliers/SUP-00031/risk-score", headers=VALID_SERVICE_HEADERS)
         assert response.status_code == 200
         data = response.json()
+        assert data["supplier_id"] == "SUP-00031"
         assert data["score"] == 64.5
         assert data["tier"] == "Medium"
         assert len(data["top_factors"]) == 1
@@ -198,7 +210,7 @@ def test_unknown_canonical_supplier_returns_404(client):
     """A syntactically valid ID that does not exist in master data returns 404."""
     response = client.get("/api/v1/suppliers/SUP-99999/risk-score", headers=VALID_SERVICE_HEADERS)
     assert response.status_code == 404
-    assert "not found" in response.json()["detail"].lower()
+    assert "not found" in response.json()["message"].lower()
 
 
 # ----------------------------------------------------------------------
@@ -210,7 +222,7 @@ def test_mongodb_failure_during_canonical_lookup_returns_503(client):
     with patch("src.analyze.resolve_canonical_supplier", side_effect=PyMongoError("Mongo unreachable")):
         response = client.get("/api/v1/suppliers/SUP-00045/risk-score", headers=VALID_SERVICE_HEADERS)
         assert response.status_code == 503
-        assert "temporarily unavailable" in response.json()["detail"].lower()
+        assert "temporarily unavailable" in response.json()["message"].lower()
 
 
 def test_mongodb_failure_during_assessment_retrieval_returns_503(client):
@@ -218,7 +230,7 @@ def test_mongodb_failure_during_assessment_retrieval_returns_503(client):
     with patch("src.analyze.fetch_risk_assessment", side_effect=PyMongoError("Connection timed out")):
         response = client.get("/api/v1/suppliers/SUP-00045/risk-score", headers=VALID_SERVICE_HEADERS)
         assert response.status_code == 503
-        assert "temporarily unavailable" in response.json()["detail"].lower()
+        assert "temporarily unavailable" in response.json()["message"].lower()
 
 
 def test_mongodb_failure_during_trend_headline_loading_returns_503(client):
@@ -227,7 +239,7 @@ def test_mongodb_failure_during_trend_headline_loading_returns_503(client):
          patch("src.analyze.load_active_trend_headlines", side_effect=PyMongoError("Mongo collection failure")):
         response = client.get("/api/v1/suppliers/SUP-00019/risk-score", headers=VALID_SERVICE_HEADERS)
         assert response.status_code == 503
-        assert "temporarily unavailable" in response.json()["detail"].lower()
+        assert "temporarily unavailable" in response.json()["message"].lower()
 
 
 def test_runtime_error_during_trend_headline_loading_returns_503(client):
@@ -236,7 +248,7 @@ def test_runtime_error_during_trend_headline_loading_returns_503(client):
          patch("src.analyze.load_active_trend_headlines", side_effect=RuntimeError("MongoDB query failed")):
         response = client.get("/api/v1/suppliers/SUP-00019/risk-score", headers=VALID_SERVICE_HEADERS)
         assert response.status_code == 503
-        assert "temporarily unavailable" in response.json()["detail"].lower()
+        assert "temporarily unavailable" in response.json()["message"].lower()
 
 
 def test_simulated_mongodb_failure_returns_503_for_supplier_sup00019(client):
@@ -244,7 +256,7 @@ def test_simulated_mongodb_failure_returns_503_for_supplier_sup00019(client):
     with patch("src.analyze.resolve_canonical_supplier", side_effect=PyMongoError("Mongo connection lost")):
         response = client.get("/api/v1/suppliers/SUP-00019/risk-score")
         assert response.status_code == 503
-        assert "temporarily unavailable" in response.json()["detail"].lower()
+        assert "temporarily unavailable" in response.json()["message"].lower()
 
 
 def test_database_failures_not_converted_into_404_or_empty_evidence(client):
@@ -288,7 +300,7 @@ def test_missing_credentials_returns_401(raw_client):
     """Requests with no credentials must always receive HTTP 401."""
     res = raw_client.get("/api/v1/suppliers/SUP-00045/risk-score")
     assert res.status_code == 401
-    assert "authentication credentials" in res.json()["detail"].lower()
+    assert "authentication credentials" in res.json()["message"].lower()
 
 
 def test_valid_service_caller_and_key_accepted(raw_client):
@@ -394,7 +406,7 @@ def test_platform_timeout_returns_503(raw_client):
             headers={"Authorization": "Bearer some-token"},
         )
         assert res.status_code == 503
-        assert "temporarily unavailable" in res.json()["detail"].lower() or "timed out" in res.json()["detail"].lower()
+        assert "temporarily unavailable" in res.json()["message"].lower() or "timed out" in res.json()["message"].lower()
 
 
 def test_platform_network_failure_returns_503(raw_client):
@@ -415,7 +427,7 @@ def test_platform_unreachable_returns_503(raw_client):
             headers={"Authorization": "Bearer some-token"},
         )
         assert res.status_code == 503
-        assert "unavailable" in res.json()["detail"].lower()
+        assert "unavailable" in res.json()["message"].lower()
 
 
 def test_unexpected_platform_response_fails_closed(raw_client):
@@ -556,6 +568,7 @@ def test_both_call_sites_call_save_assessment(client):
         assert args2[0] == "SUP-00098"
         assert args2[1] == "Acme Risk Corp"
         assert resp.score is not None
+        assert resp.supplier_id == "SUP-00098"
 
 
 def test_save_assessment_exact_persisted_dictionary():
@@ -569,6 +582,7 @@ def test_save_assessment_exact_persisted_dictionary():
         signals=[EvidenceSignal(keyword="strike", weight=25.0)],
     )
     response = SupplierRiskScoreResponse(
+        supplier_id="SUP-00001",
         score=75.0,
         tier="High",
         top_factors=[factor],
@@ -610,6 +624,7 @@ def test_save_assessment_exact_persisted_dictionary():
 def test_save_risk_assessment_receives_exactly_one_dictionary_argument():
     """save_risk_assessment must receive exactly one positional dictionary argument."""
     response = SupplierRiskScoreResponse(
+        supplier_id="SUP-00002",
         score=50.0,
         tier="Low",
         top_factors=[],
@@ -921,3 +936,100 @@ def test_get_risk_assessment_ttl_seconds_falls_back_on_invalid_env():
 
     with patch.dict(os.environ, {"RISK_ASSESSMENT_TTL_SECONDS": "invalid"}):
         assert get_risk_assessment_ttl_seconds() > 0
+
+
+# ----------------------------------------------------------------------
+# 10. Fix 2: SupplierRiskScoreResponse Includes Canonical supplier_id
+# ----------------------------------------------------------------------
+
+def test_fix2_response_includes_canonical_supplier_id_across_all_paths(client):
+    """
+    Verify Fix 2: SupplierRiskScoreResponse includes canonical supplier_id
+    across all four response construction pathways.
+    """
+    # Pathway 1: Fresh persisted MongoDB assessment
+    fresh_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    mock_doc = {
+        "supplier_id": "SUP-00031",
+        "supplier_name": "Apex Industries Pvt Ltd",
+        "score": 64.5,
+        "tier": "Medium",
+        "top_factors": [],
+        "top_evidence_articles": [],
+        "computed_at": fresh_time,
+    }
+    with patch("src.analyze.fetch_risk_assessment", return_value=mock_doc):
+        res1 = client.get("/api/v1/suppliers/SUP-00031/risk-score", headers=VALID_SERVICE_HEADERS)
+        assert res1.status_code == 200
+        assert res1.json()["supplier_id"] == "SUP-00031"
+
+    # Pathway 2: Sanctioned supplier (master data designation)
+    with patch("src.analyze.fetch_risk_assessment", return_value=None), \
+         patch("src.analyze._save_assessment"):
+        res2 = client.get("/api/v1/suppliers/SUP-00045/risk-score", headers=VALID_SERVICE_HEADERS)
+        assert res2.status_code == 200
+        assert res2.json()["supplier_id"] == "SUP-00045"
+
+    # Pathway 3: Adverse news headlines matching
+    mock_headlines = {
+        "Acme Risk Corp": [
+            {
+                "headline": "Acme Risk Corp faces product recall.",
+                "date": "2026-10-15",
+                "score": 75.0,
+            }
+        ]
+    }
+    with patch("src.analyze.fetch_risk_assessment", return_value=None), \
+         patch("src.analyze.load_active_trend_headlines", return_value=mock_headlines), \
+         patch("src.analyze._save_assessment"):
+        rec3 = {
+            "supplier_id": "SUP-00098",
+            "name": "Acme Risk Corp",
+            "sanctions_flag": False,
+        }
+        resp3 = compute_canonical_supplier_risk_score(rec3)
+        assert resp3.supplier_id == "SUP-00098"
+
+    # Pathway 4: No recent evidence available (null score & tier)
+    with patch("src.analyze.fetch_risk_assessment", return_value=None), \
+         patch("src.analyze.load_active_trend_headlines", return_value={}):
+        res4 = client.get("/api/v1/suppliers/SUP-00019/risk-score", headers=VALID_SERVICE_HEADERS)
+        assert res4.status_code == 200
+        assert res4.json()["supplier_id"] == "SUP-00019"
+        assert res4.json()["score"] is None
+        assert res4.json()["tier"] is None
+
+
+def test_risk_score_echoes_supplier_id(client):
+    res = client.get("/api/v1/suppliers/SUP-00019/risk-score")
+    assert res.status_code == 200
+    assert res.json()["supplier_id"] == "SUP-00019"
+
+
+def test_errors_match_contract_error_response(client, raw_client):
+    not_found = client.get("/api/v1/suppliers/SUP-99999/risk-score")
+    assert not_found.json() == {
+        "error_code": "SUPPLIER_NOT_FOUND",
+        "message": "Supplier SUP-99999 was not found.",
+    }
+
+    invalid = client.get("/api/v1/suppliers/SUP001/risk-score")
+    assert invalid.status_code == 422
+    assert invalid.json()["error_code"] == "INVALID_SUPPLIER_ID"
+
+    unauthorized = raw_client.get("/api/v1/suppliers/SUP-00019/risk-score")
+    assert unauthorized.status_code == 401
+    assert unauthorized.json()["error_code"] == "UNAUTHORIZED"
+
+
+@pytest.mark.parametrize(
+    "supplier_id, sanctions_list",
+    [("SUP-00007", "OFAC-SDN"), ("SUP-00023", "EU-CONSOLIDATED"), ("SUP-00045", "UN-SC")],
+)
+def test_sanction_factor_names_the_suppliers_list(client, supplier_id, sanctions_list):
+    with patch("src.analyze.fetch_risk_assessment", return_value=None):
+        res = client.get(f"/api/v1/suppliers/{supplier_id}/risk-score")
+    assert res.json()["top_factors"][0]["description"] == (
+        f"Designated on {sanctions_list} (seed master data)."
+    )

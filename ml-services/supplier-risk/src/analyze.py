@@ -6,6 +6,9 @@ from typing import Any, Dict, List, Optional
 
 import secrets
 from fastapi import Depends, FastAPI, HTTPException, Header, Path, Request, status
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pymongo.errors import ConnectionFailure, PyMongoError, ServerSelectionTimeoutError
 import httpx
@@ -378,6 +381,7 @@ class RiskFactor(BaseModel):
 class SupplierRiskScoreResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
+    supplier_id: str
     score: Optional[float] = None
     tier: Optional[str] = None
     top_factors: List[RiskFactor] = Field(default_factory=list)
@@ -414,6 +418,40 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+
+class ContractError(Exception):
+    """Returned as the contract's ErrorResponse: {error_code, message}."""
+
+    def __init__(self, status_code: int, error_code: str, message: str):
+        self.status_code = status_code
+        self.error_code = error_code
+        self.message = message
+
+
+UNAUTHORIZED = (401, "UNAUTHORIZED", "Missing or invalid authentication credentials.")
+RISK_UNAVAILABLE = (503, "RISK_UNAVAILABLE", "The supplier risk score is temporarily unavailable.")
+
+
+@app.exception_handler(ContractError)
+async def contract_error_handler(request: Request, exc: ContractError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error_code": exc.error_code, "message": exc.message},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    if request.url.path.endswith("/risk-score"):
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={
+                "error_code": "INVALID_SUPPLIER_ID",
+                "message": "The supplier identifier is invalid.",
+            },
+        )
+    return await request_validation_exception_handler(request, exc)
 
 
 # ----------------------------------------------------
@@ -643,10 +681,6 @@ def post_supplier_risk_trend(request: TrendAnalysisRequest):
 # contracts/openapi/supplier-risk.yaml
 # ----------------------------------------------------
 
-# ----------------------------------------------------
-# Canonical Supplier Risk Endpoints (OpenAPI Contract)
-# contracts/openapi/supplier-risk.yaml
-# ----------------------------------------------------
 
 # Risk Assessment TTL & Freshness
 RISK_ASSESSMENT_TTL_SECONDS: int = DEFAULT_RISK_ASSESSMENT_TTL_SECONDS
@@ -781,26 +815,17 @@ def require_caller(
         key = (x_service_key or "").strip()
         if not caller or not key:
             logger.warning("Rejected service call: missing caller or service key")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Missing or invalid authentication credentials.",
-            )
+            raise ContractError(*UNAUTHORIZED)
 
         service_keys = parse_service_keys()
         expected_key = service_keys.get(caller)
         if expected_key is None:
             logger.warning("Rejected service call: unknown caller service '%s'", caller)
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Missing or invalid authentication credentials.",
-            )
+            raise ContractError(*UNAUTHORIZED)
 
         if not secrets.compare_digest(key.encode("utf-8"), expected_key.encode("utf-8")):
             logger.warning("Rejected service call: invalid key for service '%s'", caller)
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Missing or invalid authentication credentials.",
-            )
+            raise ContractError(*UNAUTHORIZED)
 
         return caller
 
@@ -810,10 +835,7 @@ def require_caller(
         parts = auth_str.split(" ", 1)
         if len(parts) != 2 or parts[0].lower() != "bearer" or not parts[1].strip():
             logger.warning("Rejected user auth: malformed Authorization header")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Missing or invalid authentication credentials.",
-            )
+            raise ContractError(*UNAUTHORIZED)
 
         token = parts[1].strip()
 
@@ -833,70 +855,40 @@ def require_caller(
             )
         except (httpx.TimeoutException, httpx.ConnectTimeout) as exc:
             logger.warning("Platform auth verification timed out: %s", type(exc).__name__)
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Authentication service timed out.",
-            ) from exc
+            raise ContractError(*RISK_UNAVAILABLE) from exc
         except (httpx.RequestError, httpx.NetworkError) as exc:
             logger.warning("Platform auth verification network error: %s", type(exc).__name__)
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Authentication service is unavailable.",
-            ) from exc
+            raise ContractError(*RISK_UNAVAILABLE) from exc
         except Exception as exc:
             logger.warning("Platform auth verification failed: %s", type(exc).__name__)
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Authentication service is unavailable.",
-            ) from exc
+            raise ContractError(*RISK_UNAVAILABLE) from exc
 
         if resp.status_code == 200:
             try:
                 data = resp.json()
             except Exception:
                 logger.warning("Platform auth verification returned non-JSON response with 200 OK")
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Missing or invalid authentication credentials.",
-                )
+                raise ContractError(*UNAUTHORIZED)
 
             if isinstance(data, dict) and data.get("valid") is False:
                 logger.warning("Platform auth verification marked token invalid")
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Missing or invalid authentication credentials.",
-                )
+                raise ContractError(*UNAUTHORIZED)
 
             user_id = (data.get("email") or str(data.get("user_id", "platform-user"))) if isinstance(data, dict) else "platform-user"
             return user_id
 
         if resp.status_code in (401, 403):
             logger.warning("Platform auth verification rejected token with HTTP %s", resp.status_code)
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Missing or invalid authentication credentials.",
-            )
+            raise ContractError(*UNAUTHORIZED)
 
         # Other unexpected Platform responses must fail closed; do not allow the request through.
         logger.warning("Platform auth verification unexpected status %s", resp.status_code)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid authentication credentials.",
-        )
+        raise ContractError(*UNAUTHORIZED)
 
     # C. Missing credentials -> always receive HTTP 401
     logger.warning("Rejected request: missing authentication credentials")
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Missing or invalid authentication credentials.",
-    )
+    raise ContractError(*UNAUTHORIZED)
 
-
-def verify_bearer_auth(
-    authorization: Optional[str] = Header(None, alias="Authorization"),
-) -> str:
-    """Deprecated: Backward-compatibility shim that delegates to require_caller."""
-    return require_caller(authorization=authorization)
 
 
 def compute_canonical_supplier_risk_score(
@@ -905,7 +897,7 @@ def compute_canonical_supplier_risk_score(
     """
     Compute or retrieve canonical risk score response matching the OpenAPI contract.
     Returns:
-        SupplierRiskScoreResponse with score, tier, top_factors, top_evidence_articles, and computed_at.
+        SupplierRiskScoreResponse with supplier_id, score, tier, top_factors, top_evidence_articles, and computed_at.
     """
     supplier_id = supplier_rec["supplier_id"]
     supplier_name = supplier_rec.get("name") or supplier_rec.get("supplier_name", supplier_id)
@@ -914,6 +906,7 @@ def compute_canonical_supplier_risk_score(
     saved_doc = fetch_risk_assessment(supplier_id)
     if saved_doc and _is_fresh(saved_doc.get("computed_at")):
         return SupplierRiskScoreResponse(
+            supplier_id=supplier_id,
             score=saved_doc.get("score"),
             tier=saved_doc.get("tier"),
             top_factors=[RiskFactor(**f) for f in saved_doc.get("top_factors", [])],
@@ -924,17 +917,19 @@ def compute_canonical_supplier_risk_score(
     # 2. Check if supplier has sanctions designation in master data
     is_sanctioned = bool(supplier_rec.get("sanctions_flag", False))
     if is_sanctioned:
+        sanctions_list = (supplier_rec.get("sanctions_list") or "").strip() or "a sanctions list"
         score = 85.0
         tier = "Critical"
         factor = RiskFactor(
             factor="sanction",
             category="Security",
             weight=85.0,
-            description="Designated on UN-SC (seed master data).",
+            description=f"Designated on {sanctions_list} (seed master data).",
         )
         computed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         response = SupplierRiskScoreResponse(
+            supplier_id=supplier_id,
             score=score,
             tier=tier,
             top_factors=[factor],
@@ -989,6 +984,7 @@ def compute_canonical_supplier_risk_score(
 
         computed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         response = SupplierRiskScoreResponse(
+            supplier_id=supplier_id,
             score=score,
             tier=tier,
             top_factors=dedup_factors[:5],
@@ -1001,6 +997,7 @@ def compute_canonical_supplier_risk_score(
     # 4. No recent evidence available (score and tier are null per contract)
     computed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     return SupplierRiskScoreResponse(
+        supplier_id=supplier_id,
         score=None,
         tier=None,
         top_factors=[],
@@ -1033,41 +1030,20 @@ def get_supplier_risk_score_endpoint(
     Retrieve current supplier risk score matching OpenAPI contract:
     contracts/openapi/supplier-risk.yaml
     """
-
-    # 1. Canonical regex validation
-    if not CANONICAL_ID_REGEX.match(supplier_id):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Invalid supplier identifier '{supplier_id}'. Must match pattern '^SUP-[0-9]{{5}}$'.",
-        )
-
-    # 2. Canonical supplier resolution
     try:
         supplier_rec = resolve_canonical_supplier(supplier_id)
     except PyMongoError as exc:
         logger.error("MongoDB unavailable while resolving supplier %s: %s", supplier_id, exc)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Supplier risk score is temporarily unavailable.",
-        ) from exc
+        raise ContractError(*RISK_UNAVAILABLE) from exc
 
     if not supplier_rec:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Supplier '{supplier_id}' not found.",
-        )
+        raise ContractError(404, "SUPPLIER_NOT_FOUND", f"Supplier {supplier_id} was not found.")
 
-    # 3. Compute risk score response
     try:
         return compute_canonical_supplier_risk_score(supplier_rec)
     except (PyMongoError, RuntimeError) as exc:
         logger.error("Database or data loading error calculating risk score for %s: %s", supplier_id, exc)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Supplier risk score is temporarily unavailable.",
-        ) from exc
-    except HTTPException:
-        raise
+        raise ContractError(*RISK_UNAVAILABLE) from exc
 
 
 @app.post(

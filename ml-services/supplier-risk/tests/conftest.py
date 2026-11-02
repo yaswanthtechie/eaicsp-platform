@@ -239,15 +239,13 @@ def _load_sample_suppliers() -> List[Dict[str, Any]]:
     """
     from src.supplier_mapping import parse_suppliers_csv
 
-    # Resolve samples CSV path
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[3]
     sample_path = repo_root / "data-platform" / "seed" / "samples" / "suppliers.csv"
-    if not sample_path.exists():
-        sample_path = Path("D:/eaicsp-platform/data-platform/seed/samples/suppliers.csv")
 
-    records: List[Dict[str, Any]] = []
-    if sample_path.exists():
-        records = parse_suppliers_csv(sample_path)
+    if not sample_path.exists():
+        raise FileNotFoundError(f"Seed sample CSV not found at {sample_path}")
+
+    records = parse_suppliers_csv(sample_path)
 
     for r in records:
         if "aliases" not in r:
