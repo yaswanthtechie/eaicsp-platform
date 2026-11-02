@@ -1,9 +1,11 @@
 """Configuration for daily multi-horizon forecasting. No magic numbers elsewhere."""
 
+import os
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = PROJECT_ROOT.parents[2]
 
 DATA_PATH = (
     PROJECT_ROOT.parent.parent.parent
@@ -50,7 +52,7 @@ XGB_PARAMS = {
     "random_state": RANDOM_SEED,
 }
 
-# Rolling-origin backtest:
+# Rolling-origin backtest on the aggregate series:
 # refit at each cutoff, forecast 90 days, score each horizon.
 BACKTEST_CUTOFFS = 8
 BACKTEST_STEP_DAYS = 30
@@ -64,3 +66,13 @@ MIN_TRAINING_DAYS = 365
 INTERVAL_QUANTILES = (0.10, 0.90)
 
 MLFLOW_EXPERIMENT = "demand_forecast_multi_horizon"
+# R15 production model (issue #229), served by forecast-service (Ajith, A2).
+REGISTERED_MODEL_NAME = "demand_forecast"
+REGISTRY_DIR = PROJECT_ROOT / "models" / "registry"
+SHARE_WINDOW_DAYS = 90
+HOLDOUT_DAYS = 90
+HORIZON_BUCKETS = ((1, 1), (2, 7), (8, 30), (31, 90))
+
+# Pair-days with a smaller prediction are left out of interval calibration,
+# since actual/predicted is unstable near zero.
+MIN_CALIBRATION_PREDICTION = 0.5
