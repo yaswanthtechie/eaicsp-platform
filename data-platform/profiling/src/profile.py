@@ -434,6 +434,24 @@ def profile(df, consistency_rules=None):
 
     return report
 
+
+def _finding_row(finding: dict) -> str:
+    """One HTML table row. 'Other outliers' findings have no normal rate or likelihood."""
+    normal = finding.get("normal_row_rate")
+    likelihood = finding.get("likelihood")
+    normal_text = f"{normal}%" if normal is not None else "N/A"
+    likelihood_text = f"{likelihood}x" if likelihood is not None else "N/A"
+    return f"""
+<tr>
+<td>{finding['column']}</td>
+<td>{finding['issue']}</td>
+<td>{finding['outlier_row_rate']}%</td>
+<td>{normal_text}</td>
+<td>{likelihood_text}</td>
+</tr>
+"""
+
+
 def generate_html(
     report=None,
     drift_report=None,
@@ -750,6 +768,7 @@ h1 {{
             ))
 
             for finding in anomaly["findings"]:
+                file.write(_finding_row(finding))
                 # likelihood = finding["likelihood"]
                 likelihood = finding.get("likelihood")
 
