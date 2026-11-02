@@ -1,0 +1,58 @@
+{
+  "name": "Round 15 Flow A and Flow B",
+  "steps": [
+    { "name": "A1 recommendations", "method": "GET",
+      "path": "/api/v1/inventory/optimization/recommendations",
+      "expected_status": 200,
+      "headers": {"Authorization": "Bearer {{procurement_token}}"} },
+
+    { "name": "A2 create PO", "method": "POST",
+      "path": "/api/v1/inventory/purchase-orders/draft",
+      "expected_status": 201,
+      "headers": {"Authorization": "Bearer {{procurement_token}}"},
+      "body": {"sku_id": "SKU-000001", "warehouse_id": "WH-BLR-01"},
+      "save_as": "po_id", "save_from": "po_id" },
+
+    { "name": "A3 approve PO", "method": "POST",
+      "path": "/api/v1/inventory/purchase-orders/{{po_id}}/approve",
+      "expected_status": 200,
+      "headers": {"Authorization": "Bearer {{procurement_token}}"},
+      "expect_event": { "type": "inventory.po.approved",
+        "match": {"po_id": "{{po_id}}"},
+        "save": {"po_number": "po_number", "supplier_id": "supplier_id"} } },
+
+    { "name": "B1 supplier acknowledges", "method": "POST",
+      "path": "/api/v1/supplier-portal/purchase-orders/{{po_number}}/acknowledge",
+      "expected_status": 200,
+      "headers": {"Authorization": "Bearer {{supplier_token}}"},
+      "expect_event": { "type": "supplierportal.po.acknowledged",
+        "match": {"po_number": "{{po_number}}"} } },
+
+    { "name": "B2 dispatch", "method": "POST",
+      "path": "/api/v1/supplier-portal/shipments",
+      "expected_status": [200, 201],
+      "headers": {"Authorization": "Bearer {{supplier_token}}"},
+      "body": { "FILL FROM": "ShipmentCreate in services/supplier-portal/app/schemas/shipment*.py; must include po_number={{po_number}}" },
+      "expect_event": { "type": "supplierportal.shipment.dispatched",
+        "match": {"po_number": "{{po_number}}"},
+        "save": {"shipment_id": "shipment_id"} } },
+
+    { "name": "B3 ETA arrives",
+      "expect_event": { "type": "eta.shipment.predicted",
+        "match": {"shipment_id": "{{shipment_id}}"} } },
+
+    { "name": "B4 goods receipt", "method": "POST",
+      "path": "/api/v1/inventory/goods-receipts",
+      "expected_status": 201,
+      "headers": {"Authorization": "Bearer {{warehouse_token}}"},
+      "body": { "FILL FROM": "services/inventory/app/schemas/goods_receipt.py" },
+      "expect_event": { "type": "inventory.goods.received",
+        "match": {"po_number": "{{po_number}}"} } },
+
+    { "name": "B5 three-way match", "method": "POST",
+      "path": "/api/v1/supplier-portal/three-way-matches/{{supplier_id}}/{{invoice_number}}",
+      "expected_status": 200,
+      "headers": {"Authorization": "Bearer {{supplier_token}}"} }
+  ],
+  "variables": {"invoice_number": "FILL-AFTER-INVOICE-STEP"}
+}
