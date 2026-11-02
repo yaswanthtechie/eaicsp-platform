@@ -24,7 +24,6 @@ import logging
 import re
 from typing import Any, Callable
 
-from fastapi import HTTPException
 import redis.asyncio as aioredis
 
 from app.core.config import settings
@@ -44,6 +43,10 @@ logger = logging.getLogger("api_gateway.analytics")
 
 # Canonical warehouse identifier regex per contract: WH-[A-Z]{3}-\\d{2}
 CANONICAL_WAREHOUSE_RE = re.compile(r"^WH-[A-Z]{3}-\d{2}$")
+
+
+class KpiUnavailableError(Exception):
+    """ClickHouse could not be queried; the route returns 503 SERVICE_UNAVAILABLE."""
 
 
 class AnalyticsKpiService:
@@ -154,16 +157,6 @@ class AnalyticsKpiService:
             finally:
                 self._redis_client = None
 
-        ch_client = getattr(self, "_ch_client", None)
-        if ch_client is not None:
-            try:
-                if hasattr(ch_client, "close"):
-                    ch_client.close()
-            except Exception as exc:
-                logger.debug("Error closing ClickHouse client: %s", exc)
-            finally:
-                self._ch_client = None
-
     async def _get_from_cache(self, cache_key: str) -> dict[str, Any] | None:
         """
         Retrieve cached KPI payload from Redis.
@@ -219,7 +212,47 @@ class AnalyticsKpiService:
             )
 
     def _query_clickhouse_sync(
+        self, warehouse_id, category, start_date, end_date, window_days
+    ) -> dict[str, Any]:
+        client = self.get_clickhouse_client()
+        try:
+            return self._run_queries(
+                client, warehouse_id, category, start_date, end_date, window_days
+            )
+        finally:
+            client.close()
+
+    @staticmethod
+    def _rows(result: Any) -> list[Any]:
+        return result.result_rows if hasattr(result, "result_rows") else (result or [])
+
+    @staticmethod
+    def _rate_and_trend(series: dict[str, float]) -> tuple[float | None, str, float | None]:
+        """Latest rate, trend and change vs the previous day; kpi_metrics rates are already 0-100."""
+        if not series:
+            return None, "stable", None
+        dates = sorted(series, reverse=True)
+        current = min(100.0, max(0.0, round(series[dates[0]], 2)))
+        if len(dates) == 1:
+            return current, "stable", None
+        previous = min(100.0, max(0.0, round(series[dates[1]], 2)))
+        change = round(current - previous, 2)
+        trend = "up" if change > 0.05 else "down" if change < -0.05 else "stable"
+        return current, trend, change
+
+    @staticmethod
+    def _rate_status(rate: float | None, target: float) -> str:
+        if rate is None:
+            return "no_data"
+        if rate >= target:
+            return "on_target"
+        if rate >= target - 5.0:
+            return "warning"
+        return "critical"
+
+    def _run_queries(
         self,
+        client: Any,
         warehouse_id: str | None,
         category: str | None,
         start_date: str | None,
@@ -230,8 +263,6 @@ class AnalyticsKpiService:
         Synchronous database queries against ClickHouse.
         Must be executed in a separate worker thread to avoid blocking the async event loop.
         """
-        client = self.get_clickhouse_client()
-
         # Resolve date boundaries
         eff_end_date = end_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
         if start_date:
@@ -273,120 +304,53 @@ class AnalyticsKpiService:
                     "end_date": eff_end_date,
                 },
             )
-            kpi_rows = result.result_rows if hasattr(result, "result_rows") else (result or [])
+            kpi_rows = self._rows(result)
         except Exception as exc:
             logger.error("ClickHouse query error on kpi_metrics: %s", exc)
             raise
 
-        # 2. Query warehouse-level stockout counts from kpi_metrics
-        # Only select warehouse rows (warehouse_id != '')
-        wh_stockouts_sql = """
-        SELECT
-            warehouse_id,
-            value,
-            metric_date
-        FROM kpi_metrics FINAL
-        WHERE metric_name = 'stockout_count'
-          AND warehouse_id != ''
-          AND (%(warehouse_id)s = '' OR warehouse_id = %(warehouse_id)s)
-          AND (%(category)s = '' OR category = %(category)s)
-          AND metric_date >= %(start_date)s
-          AND metric_date <= %(end_date)s
-        ORDER BY metric_date DESC, computed_at DESC
-        """
-        wh_kpi_rows: list[Any] = []
-        try:
-            wh_result = client.query(
-                wh_stockouts_sql,
-                parameters={
-                    "warehouse_id": wh_filter,
-                    "category": cat_filter,
-                    "start_date": eff_start_date,
-                    "end_date": eff_end_date,
-                },
-            )
-            wh_kpi_rows = wh_result.result_rows if hasattr(wh_result, "result_rows") else (wh_result or [])
-        except Exception as exc:
-            logger.debug("ClickHouse query on warehouse stockouts notice: %s", exc)
-
-        # 3. Query inventory_snapshots for the single latest snapshot_date within range
-        # Note: inventory_snapshots does NOT have category column
-        snapshot_rows: list[Any] = []
-        try:
-            snapshot_sql = """
-            SELECT
-                warehouse_id,
-                count(DISTINCT sku_id) as total_skus,
-                countIf(quantity_on_hand <= 0) as stockout_count
-            FROM inventory_snapshots FINAL
-            WHERE snapshot_date = (
-                SELECT max(snapshot_date)
-                FROM inventory_snapshots FINAL
-                WHERE snapshot_date >= %(start_date)s
-                  AND snapshot_date <= %(end_date)s
-                  AND (%(warehouse_id)s = '' OR warehouse_id = %(warehouse_id)s)
-            )
-              AND (%(warehouse_id)s = '' OR warehouse_id = %(warehouse_id)s)
-            GROUP BY warehouse_id
+        # 2. Counts come from Vivek's KPI views (current state, not windowed).
+        wh_params = {"warehouse_id": wh_filter}
+        stockout_rows = self._rows(client.query(
+            """
+            SELECT warehouse_id, stockout_count, total_skus
+            FROM kpi_stockouts_by_warehouse
+            WHERE (%(warehouse_id)s = '' OR warehouse_id = %(warehouse_id)s)
             ORDER BY warehouse_id
+            """,
+            parameters=wh_params,
+        ))
+        fill_rows = self._rows(client.query(
             """
-            s_result = client.query(
-                snapshot_sql,
-                parameters={
-                    "warehouse_id": wh_filter,
-                    "start_date": eff_start_date,
-                    "end_date": eff_end_date,
-                },
-            )
-            snapshot_rows = s_result.result_rows if hasattr(s_result, "result_rows") else (s_result or [])
-        except Exception as exc:
-            logger.debug("inventory_snapshots query notice: %s", exc)
-
-        # 4. Query transport_performance for actual shipment counts within range
-        # Filter on toDate(dispatched_at); transport_performance does NOT have category column
-        transport_data: dict[str, Any] = {}
-        try:
-            transport_sql = """
-            SELECT
-                count() as total_shipments,
-                countIf(on_time = 1) as delivered_on_time,
-                countIf(on_time = 0) as delayed,
-                countIf(on_time IS NULL) as unknown_count
-            FROM transport_performance FINAL
-            WHERE toDate(dispatched_at) >= %(start_date)s
-              AND toDate(dispatched_at) <= %(end_date)s
-              AND (%(warehouse_id)s = '' OR warehouse_id = %(warehouse_id)s)
+            SELECT sum(total_lines_ordered), sum(lines_fulfilled)
+            FROM kpi_fill_rate_by_warehouse
+            WHERE (%(warehouse_id)s = '' OR warehouse_id = %(warehouse_id)s)
+            """,
+            parameters=wh_params,
+        ))
+        po_rows = self._rows(client.query(
             """
-            t_result = client.query(
-                transport_sql,
-                parameters={
-                    "warehouse_id": wh_filter,
-                    "start_date": eff_start_date,
-                    "end_date": eff_end_date,
-                },
-            )
-            t_rows = t_result.result_rows if hasattr(t_result, "result_rows") else (t_result or [])
-            if t_rows and len(t_rows[0]) >= 4 and t_rows[0][0] > 0:
-                tot = int(t_rows[0][0])
-                ontime = int(t_rows[0][1])
-                late = int(t_rows[0][2])
-                known = ontime + late
-                rate = round((ontime * 100.0) / known, 2) if known > 0 else 0.0
-                transport_data = {
-                    "total_shipments": tot,
-                    "delivered_on_time": ontime,
-                    "delayed": late,
-                    "known_shipments": known,
-                    "current_rate": rate,
-                }
-        except Exception as exc:
-            logger.debug("transport_performance query notice: %s", exc)
-
+            SELECT status, sum(open_po_count)
+            FROM kpi_open_pos_by_status
+            WHERE (%(warehouse_id)s = '' OR warehouse_id = %(warehouse_id)s)
+            GROUP BY status
+            """,
+            parameters=wh_params,
+        ))
+        otd_rows = self._rows(client.query(
+            """
+            SELECT sum(total_shipments), sum(delivered_on_time), sum(delayed)
+            FROM kpi_on_time_delivery_by_warehouse
+            WHERE (%(warehouse_id)s = '' OR warehouse_id = %(warehouse_id)s)
+            """,
+            parameters=wh_params,
+        ))
         return {
             "kpi_rows": kpi_rows,
-            "wh_kpi_rows": wh_kpi_rows,
-            "snapshot_rows": snapshot_rows,
-            "transport_data": transport_data,
+            "stockout_rows": stockout_rows,
+            "fill_counts": fill_rows[0] if fill_rows else (0, 0),
+            "po_by_status": {str(status): int(count) for status, count in po_rows},
+            "otd_counts": otd_rows[0] if otd_rows else (0, 0, 0),
         }
 
     def _extract_metric_series(
@@ -488,53 +452,21 @@ class AnalyticsKpiService:
         Assemble the response model strictly complying with contract_version 'v1'.
         Never uses synthetic/fabricated values.
         """
-        kpi_rows = db_results.get("kpi_rows", [])
-        wh_kpi_rows = db_results.get("wh_kpi_rows", [])
-        snapshot_rows = db_results.get("snapshot_rows", [])
-        transport_data = db_results.get("transport_data", {})
+        kpi_rows = db_results["kpi_rows"]
 
         # --- 1. Fill Rate ---
-        fill_series = self._extract_metric_series(kpi_rows, "fill_rate", warehouse_id, category)
         target_fill_rate = 95.0
-        fill_current_rate = 0.0
-        fill_trend: str = "stable"
-        fill_change_pct: float | None = None
-
-        if fill_series:
-            sorted_dates = sorted(fill_series.keys(), reverse=True)
-            raw_fill = fill_series[sorted_dates[0]]
-            if 0.0 < raw_fill <= 1.0:
-                raw_fill = raw_fill * 100.0
-            fill_current_rate = min(100.0, max(0.0, round(raw_fill, 2)))
-
-            # Compare with immediate preceding period
-            if len(sorted_dates) > 1:
-                prev_raw = fill_series[sorted_dates[1]]
-                if 0.0 < prev_raw <= 1.0:
-                    prev_raw = prev_raw * 100.0
-                prev_fill = min(100.0, max(0.0, round(prev_raw, 2)))
-                diff = round(fill_current_rate - prev_fill, 2)
-                fill_change_pct = diff
-                if diff > 0.05:
-                    fill_trend = "up"
-                elif diff < -0.05:
-                    fill_trend = "down"
-
-        if fill_current_rate >= target_fill_rate:
-            fill_status = "on_target"
-        elif fill_current_rate >= (target_fill_rate - 5.0):
-            fill_status = "warning"
-        else:
-            fill_status = "critical"
-
-        # Do not fabricate total_lines_ordered or lines_fulfilled
+        fill_current_rate, fill_trend, fill_change_pct = self._rate_and_trend(
+            self._extract_metric_series(kpi_rows, "fill_rate", warehouse_id, category)
+        )
+        lines_ordered, lines_fulfilled = (int(v or 0) for v in db_results["fill_counts"])
         fill_kpi = FillRateKpi(
             current_rate=fill_current_rate,
             target_rate=target_fill_rate,
-            total_lines_ordered=None,
-            lines_fulfilled=None,
-            status=fill_status,
-            trend=fill_trend,  # type: ignore[arg-type]
+            total_lines_ordered=lines_ordered,
+            lines_fulfilled=lines_fulfilled,
+            status=self._rate_status(fill_current_rate, target_fill_rate),
+            trend=fill_trend,
             change_percentage=fill_change_pct,
         )
 
@@ -560,48 +492,16 @@ class AnalyticsKpiService:
         else:
             stockouts_status = "critical"
 
-        # Build by_warehouse breakdown from real sources without synthetic SKU counts
-        by_warehouse_list: list[WarehouseStockout] = []
-        seen_warehouses: set[str] = set()
-
-        # Prioritize real snapshot rows from inventory_snapshots (from latest snapshot date)
-        for s_row in snapshot_rows:
-            if len(s_row) >= 3:
-                wh_id = str(s_row[0])
-                if CANONICAL_WAREHOUSE_RE.match(wh_id) and wh_id not in seen_warehouses:
-                    seen_warehouses.add(wh_id)
-                    tot_skus = max(0, int(s_row[1]))
-                    st_count = max(0, int(s_row[2]))
-                    by_warehouse_list.append(
-                        WarehouseStockout(
-                            warehouse_id=wh_id,
-                            stockout_count=st_count,
-                            at_risk_count=None,
-                            total_skus=tot_skus,
-                        )
-                    )
-
-        # Supplement with warehouse rows from kpi_metrics if not already in list
-        if wh_kpi_rows:
-            # Find latest metric date among wh_kpi_rows
-            latest_wh_date = str(wh_kpi_rows[0][2]) if len(wh_kpi_rows[0]) >= 3 else None
-            for row in wh_kpi_rows:
-                if len(row) >= 2:
-                    wh_id = str(row[0])
-                    row_date = str(row[2]) if len(row) >= 3 else None
-                    if latest_wh_date and row_date != latest_wh_date:
-                        continue
-                    if CANONICAL_WAREHOUSE_RE.match(wh_id) and wh_id not in seen_warehouses:
-                        seen_warehouses.add(wh_id)
-                        st_count = max(0, int(round(float(row[1]))))
-                        by_warehouse_list.append(
-                            WarehouseStockout(
-                                warehouse_id=wh_id,
-                                stockout_count=st_count,
-                                at_risk_count=None,
-                                total_skus=None,
-                            )
-                        )
+        by_warehouse_list = [
+            WarehouseStockout(
+                warehouse_id=str(wh_id),
+                stockout_count=int(stockouts),
+                at_risk_count=None,
+                total_skus=int(total_skus),
+            )
+            for wh_id, stockouts, total_skus in db_results["stockout_rows"]
+            if CANONICAL_WAREHOUSE_RE.match(str(wh_id))
+        ]
 
         # Do not fabricate critical_skus or at_risk_skus without verified source
         stockouts_kpi = StockoutsKpi(
@@ -620,67 +520,35 @@ class AnalyticsKpiService:
             sorted_dates = sorted(po_series.keys(), reverse=True)
             total_open_orders = int(round(po_series[sorted_dates[0]]))
 
-        # Do not fabricate status breakdowns, pending_approval, or monetary values
+        po_by_status = db_results["po_by_status"]
         open_orders_kpi = OpenPurchaseOrdersKpi(
             total_open_orders=total_open_orders,
             total_value_usd=None,
             pending_approval=None,
-            by_status=None,
+            by_status=POByStatus(
+                draft=None,
+                approved=po_by_status.get("approved", 0),
+                acknowledged=po_by_status.get("acknowledged", 0),
+                in_transit=po_by_status.get("in_transit", 0),
+            ),
         )
 
         # --- 4. Logistics On-Time Delivery ---
         target_delivery_rate = 95.0
-        delivery_current_rate = 0.0
-        delivery_trend: str = "stable"
-        delivery_change_pct: float | None = None
-        total_shipments: int | None = None
-        delivered_on_time: int | None = None
-        delayed_shipments: int | None = None
-
-        # Check historical on_time_delivery_pct from kpi_metrics for rate and trend
-        deliv_series = self._extract_metric_series(kpi_rows, "on_time_delivery_pct", warehouse_id, category)
-        if deliv_series:
-            sorted_dates = sorted(deliv_series.keys(), reverse=True)
-            raw_del = deliv_series[sorted_dates[0]]
-            if 0.0 < raw_del <= 1.0:
-                raw_del = raw_del * 100.0
-            delivery_current_rate = min(100.0, max(0.0, round(raw_del, 2)))
-
-            if len(sorted_dates) > 1:
-                prev_raw = deliv_series[sorted_dates[1]]
-                if 0.0 < prev_raw <= 1.0:
-                    prev_raw = prev_raw * 100.0
-                prev_del = min(100.0, max(0.0, round(prev_raw, 2)))
-                d_diff = round(delivery_current_rate - prev_del, 2)
-                delivery_change_pct = d_diff
-                if d_diff > 0.05:
-                    delivery_trend = "up"
-                elif d_diff < -0.05:
-                    delivery_trend = "down"
-
-        # Prefer real shipment data from transport_performance when available
-        if transport_data and transport_data.get("total_shipments", 0) > 0:
-            total_shipments = transport_data["total_shipments"]
-            delivered_on_time = transport_data["delivered_on_time"]
-            delayed_shipments = transport_data["delayed"]
-            if transport_data.get("known_shipments", 0) > 0:
-                delivery_current_rate = min(100.0, max(0.0, transport_data["current_rate"]))
-
-        if delivery_current_rate >= target_delivery_rate:
-            delivery_status = "on_target"
-        elif delivery_current_rate >= (target_delivery_rate - 5.0):
-            delivery_status = "warning"
-        else:
-            delivery_status = "critical"
-
+        delivery_current_rate, delivery_trend, delivery_change_pct = self._rate_and_trend(
+            self._extract_metric_series(kpi_rows, "on_time_delivery_pct", warehouse_id, category)
+        )
+        total_shipments, delivered_on_time, delayed_shipments = (
+            int(v or 0) for v in db_results["otd_counts"]
+        )
         delivery_kpi = OnTimeDeliveryKpi(
             current_rate=delivery_current_rate,
             target_rate=target_delivery_rate,
             total_shipments=total_shipments,
             delivered_on_time=delivered_on_time,
             delayed=delayed_shipments,
-            status=delivery_status,  # type: ignore[arg-type]
-            trend=delivery_trend,  # type: ignore[arg-type]
+            status=self._rate_status(delivery_current_rate, target_delivery_rate),
+            trend=delivery_trend,
             change_percentage=delivery_change_pct,
         )
 
@@ -696,7 +564,7 @@ class AnalyticsKpiService:
             contract_version="v1",
             generated_at=datetime.now(timezone.utc).isoformat(),
             cached=False,
-            cache_ttl_seconds=settings.LIVE_KPIS_CACHE_TTL_SECONDS,
+            cache_ttl_seconds=None,
             filters_applied=filters_applied,
             kpis=KpisPayload(
                 fill_rate=fill_kpi,
@@ -713,6 +581,7 @@ class AnalyticsKpiService:
         start_date: str | None = None,
         end_date: str | None = None,
         window_days: int = 30,
+        force_refresh: bool = False,
     ) -> dict[str, Any]:
         """
         Main entry point for retrieving KPIs.
@@ -726,12 +595,11 @@ class AnalyticsKpiService:
             window_days=window_days,
         )
 
-        # 1. Attempt cache lookup
-        cached_response = await self._get_from_cache(cache_key)
-        if cached_response is not None:
-            return cached_response
+        if not force_refresh:
+            cached_response = await self._get_from_cache(cache_key)
+            if cached_response is not None:
+                return cached_response
 
-        # 2. Cache miss -> Query ClickHouse asynchronously in worker thread
         try:
             db_results = await asyncio.to_thread(
                 self._query_clickhouse_sync,
@@ -743,12 +611,8 @@ class AnalyticsKpiService:
             )
         except Exception as exc:
             logger.error("ClickHouse connection or query failure: %s", exc)
-            raise HTTPException(
-                status_code=503,
-                detail="ClickHouse analytics data source unavailable",
-            ) from exc
+            raise KpiUnavailableError() from exc
 
-        # 3. Construct and validate response schema
         response_model = self._build_kpi_response(
             db_results=db_results,
             warehouse_id=warehouse_id,
@@ -759,7 +623,6 @@ class AnalyticsKpiService:
         )
         response_dict = response_model.model_dump()
 
-        # 4. Save to Redis cache
         await self._save_to_cache(
             cache_key=cache_key,
             response_dict=response_dict,

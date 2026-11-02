@@ -15,45 +15,45 @@ export interface KpiDashboardResponse {
   };
   kpis: {
     fill_rate: {
-      current_rate: number;
+      current_rate: number | null;
       target_rate: number;
-      total_lines_ordered?: number | null;
-      lines_fulfilled?: number | null;
-      status: "on_target" | "warning" | "critical";
+      total_lines_ordered: number;
+      lines_fulfilled: number;
+      status: "on_target" | "warning" | "critical" | "no_data";
       trend: "up" | "down" | "stable";
       change_percentage?: number | null;
     };
     stockouts: {
       total_stockouts: number;
-      critical_skus?: number | null;
-      at_risk_skus?: number | null;
+      critical_skus: number | null;
+      at_risk_skus: number | null;
       status: "normal" | "warning" | "critical";
       trend: "improving" | "worsening" | "stable";
       by_warehouse: Array<{
         warehouse_id: string;
         stockout_count: number;
-        at_risk_count?: number | null;
-        total_skus?: number | null;
+        at_risk_count: number | null;
+        total_skus: number;
       }>;
     };
     open_purchase_orders: {
       total_open_orders: number;
-      total_value_usd?: number | null;
-      pending_approval?: number | null;
-      by_status?: {
-        draft?: number | null;
-        approved?: number | null;
-        acknowledged?: number | null;
-        in_transit?: number | null;
-      } | null;
+      total_value_usd: number | null;
+      pending_approval: number | null;
+      by_status: {
+        draft: number | null;
+        approved: number;
+        acknowledged: number;
+        in_transit: number;
+      };
     };
     on_time_delivery: {
-      current_rate: number;
+      current_rate: number | null;
       target_rate: number;
-      total_shipments?: number | null;
-      delivered_on_time?: number | null;
-      delayed?: number | null;
-      status: "on_target" | "warning" | "critical";
+      total_shipments: number;
+      delivered_on_time: number;
+      delayed: number;
+      status: "on_target" | "warning" | "critical" | "no_data";
       trend: "up" | "down" | "stable";
       change_percentage?: number | null;
     };
@@ -70,9 +70,9 @@ export interface KpiQueryFilters {
 
 export interface AnalyticsKpi {
   title: string;
-  value: number;
+  value: number | null;
   format: "percent" | "number";
-  status?: "on_target" | "normal" | "warning" | "critical";
+  status?: "on_target" | "normal" | "warning" | "critical" | "no_data";
 }
 
 export const MOCK_KPI_RESPONSE: KpiDashboardResponse = {
@@ -182,12 +182,19 @@ function isOptionalChangePercentage(value: unknown): boolean {
   );
 }
 
-function isOptionalCount(value: unknown): boolean {
-  return value === undefined || value === null || isCount(value);
+function isNullableRate(value: unknown): boolean {
+  return (
+    value === null ||
+    (isFiniteNumber(value) && value >= 0 && value <= 100)
+  );
 }
 
-function isOptionalNonNegativeNumber(value: unknown): boolean {
-  return value === undefined || value === null || isNonNegativeNumber(value);
+function isNullableCount(value: unknown): boolean {
+  return value === null || isCount(value);
+}
+
+function isNullableNonNegativeNumber(value: unknown): boolean {
+  return value === null || isNonNegativeNumber(value);
 }
 
 function isValidResponse(
@@ -250,15 +257,13 @@ function isValidResponse(
 
   if (
     !isRecord(fill) ||
-    !isFiniteNumber(fill.current_rate) ||
-    fill.current_rate < 0 ||
-    fill.current_rate > 100 ||
+    !isNullableRate(fill.current_rate) ||
     !isFiniteNumber(fill.target_rate) ||
     fill.target_rate < 0 ||
     fill.target_rate > 100 ||
-    !isOptionalCount(fill.total_lines_ordered) ||
-    !isOptionalCount(fill.lines_fulfilled) ||
-    !["on_target", "warning", "critical"].includes(
+    !isCount(fill.total_lines_ordered) ||
+    !isCount(fill.lines_fulfilled) ||
+    !["on_target", "warning", "critical", "no_data"].includes(
       String(fill.status),
     ) ||
     !["up", "down", "stable"].includes(
@@ -272,8 +277,8 @@ function isValidResponse(
   if (
     !isRecord(stockouts) ||
     !isCount(stockouts.total_stockouts) ||
-    !isOptionalCount(stockouts.critical_skus) ||
-    !isOptionalCount(stockouts.at_risk_skus) ||
+    !isNullableCount(stockouts.critical_skus) ||
+    !isNullableCount(stockouts.at_risk_skus) ||
     !["normal", "warning", "critical"].includes(
       String(stockouts.status),
     ) ||
@@ -291,8 +296,8 @@ function isValidResponse(
       typeof warehouse.warehouse_id !== "string" ||
       !/^WH-[A-Z]{3}-\d{2}$/.test(warehouse.warehouse_id) ||
       !isCount(warehouse.stockout_count) ||
-      !isOptionalCount(warehouse.at_risk_count) ||
-      !isOptionalCount(warehouse.total_skus)
+      !isNullableCount(warehouse.at_risk_count) ||
+      !isCount(warehouse.total_skus)
     ) {
       return false;
     }
@@ -301,31 +306,27 @@ function isValidResponse(
   if (
     !isRecord(orders) ||
     !isCount(orders.total_open_orders) ||
-    !isOptionalNonNegativeNumber(orders.total_value_usd) ||
-    !isOptionalCount(orders.pending_approval) ||
-    (orders.by_status !== undefined &&
-      orders.by_status !== null &&
-      (!isRecord(orders.by_status) ||
-        !isOptionalCount(orders.by_status.draft) ||
-        !isOptionalCount(orders.by_status.approved) ||
-        !isOptionalCount(orders.by_status.acknowledged) ||
-        !isOptionalCount(orders.by_status.in_transit)))
+    !isNullableNonNegativeNumber(orders.total_value_usd) ||
+    !isNullableCount(orders.pending_approval) ||
+    !isRecord(orders.by_status) ||
+    !isNullableCount(orders.by_status.draft) ||
+    !isCount(orders.by_status.approved) ||
+    !isCount(orders.by_status.acknowledged) ||
+    !isCount(orders.by_status.in_transit)
   ) {
     return false;
   }
 
   if (
     !isRecord(delivery) ||
-    !isFiniteNumber(delivery.current_rate) ||
-    delivery.current_rate < 0 ||
-    delivery.current_rate > 100 ||
+    !isNullableRate(delivery.current_rate) ||
     !isFiniteNumber(delivery.target_rate) ||
     delivery.target_rate < 0 ||
     delivery.target_rate > 100 ||
-    !isOptionalCount(delivery.total_shipments) ||
-    !isOptionalCount(delivery.delivered_on_time) ||
-    !isOptionalCount(delivery.delayed) ||
-    !["on_target", "warning", "critical"].includes(
+    !isCount(delivery.total_shipments) ||
+    !isCount(delivery.delivered_on_time) ||
+    !isCount(delivery.delayed) ||
+    !["on_target", "warning", "critical", "no_data"].includes(
       String(delivery.status),
     ) ||
     !["up", "down", "stable"].includes(

@@ -23,7 +23,7 @@ function readSnapshot(): AnalyticsKpi[] | null {
         "title" in item &&
         typeof item.title === "string" &&
         "value" in item &&
-        typeof item.value === "number" &&
+        (typeof item.value === "number" || item.value === null) &&
         "format" in item &&
         (item.format === "percent" || item.format === "number"),
     );
@@ -44,6 +44,9 @@ function saveSnapshot(kpis: AnalyticsKpi[]) {
 }
 
 function formatValue(kpi: AnalyticsKpi) {
+  if (kpi.value === null) {
+    return "No data";
+  }
   return kpi.format === "percent"
     ? `${kpi.value}%`
     : new Intl.NumberFormat("en-US").format(kpi.value);
@@ -60,6 +63,9 @@ function getStatusColor(status?: string): string {
 
     case "critical":
       return colors.danger;
+
+    case "no_data":
+      return colors.textMuted;
 
     default:
       return colors.text;

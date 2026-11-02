@@ -17,7 +17,7 @@ import asyncio
 from contextlib import asynccontextmanager
 import json
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -32,6 +32,45 @@ from app.services.proxy import (
     _safe_websocket_exception_detail,
     build_downstream_url,
 )
+
+
+@pytest.fixture(autouse=True)
+def isolate_gateway_proxy_and_mock_analytics():
+    """
+    1. Removes realtime.router so test_round15_gateway_routes tests the Gateway
+       WebSocket proxy handlers in app/services/proxy.py rather than the BFF router.
+    2. Provides mock ClickHouse and Redis dependencies for in-process analytics routes.
+    """
+    from fastapi.routing import _IncludedRouter
+    from app.routes import realtime
+    from app.services.analytics import analytics_kpi_service
+
+    original_routes = list(app.router.routes)
+    app.router.routes[:] = [
+        r for r in original_routes
+        if not (isinstance(r, _IncludedRouter) and getattr(r, "original_router", None) == realtime.router)
+    ]
+
+    mock_ch = MagicMock()
+    mock_ch.query.side_effect = lambda sql, parameters=None: MagicMock(
+        result_rows=(
+            [("WH-BLR-01", 6, 500)] if "kpi_stockouts_by_warehouse" in sql
+            else [(12500, 11850)] if "kpi_fill_rate_by_warehouse" in sql
+            else [("approved", 12)] if "kpi_open_pos_by_status" in sql
+            else [(340, 314, 26)] if "kpi_on_time_delivery_by_warehouse" in sql
+            else [("fill_rate", "2026-10-27", "", "", 94.8, "2026-10-27 10:00:00")]
+        )
+    )
+    mock_redis = AsyncMock()
+    mock_redis.get.return_value = None
+    mock_redis.set.return_value = True
+
+    with patch.object(analytics_kpi_service, "get_clickhouse_client", return_value=mock_ch), \
+         patch.object(analytics_kpi_service, "get_redis_client", return_value=mock_redis):
+        try:
+            yield
+        finally:
+            app.router.routes[:] = original_routes
 
 
 # ---------------------------------------------------------------------------
@@ -459,6 +498,12 @@ def test_correlation_and_tracing_propagation_across_required_endpoints(
 
     assert response.status_code == 200
     assert response.headers.get("x-request-id") == client_request_id
+
+    if endpoint.startswith("/api/v1/analytics/kpis"):
+        # The analytics KPI endpoint is handled in-process by analytics.router;
+        # correlation ID and tracing are verified via response headers.
+        return
+
     assert len(sent_requests) == 1
 
     downstream_req = sent_requests[0]
@@ -487,8 +532,15 @@ def test_request_id_generated_when_missing():
 
     with patch("httpx.AsyncClient.send", new=AsyncMock(side_effect=fake_send)):
         with TestClient(app, raise_server_exceptions=True) as client:
-            resp = client.get("/api/v1/analytics/kpis")
+            resp = client.get("/api/v1/demand/forecast/SKU-000123?horizon=30")
             assert resp.status_code == 200
+
+            # Also verify in-process analytics route generates and returns request ID
+            kpi_resp = client.get("/api/v1/analytics/kpis")
+            assert kpi_resp.status_code == 200
+            kpi_req_id = kpi_resp.headers.get("x-request-id")
+            assert kpi_req_id
+            uuid.UUID(kpi_req_id)
 
     assert len(sent_requests) == 1
     downstream_id = sent_requests[0].headers.get("x-request-id")
@@ -498,6 +550,25 @@ def test_request_id_generated_when_missing():
     assert downstream_id == client_resp_id
     # Validate UUID format
     uuid.UUID(downstream_id)
+
+
+def test_analytics_kpis_clickhouse_unavailable_returns_contract_503_with_correlation():
+    """Verify that when ClickHouse is unavailable, analytics endpoint returns contract 503 and propagates correlation ID."""
+    from app.services.analytics import KpiUnavailableError, analytics_kpi_service
+
+    client_request_id = f"r15-503-test-{uuid.uuid4()}"
+    headers = {"X-Request-ID": client_request_id}
+
+    with patch.object(
+        analytics_kpi_service,
+        "get_kpis",
+        side_effect=KpiUnavailableError("ClickHouse connection failed"),
+    ):
+        with TestClient(app, raise_server_exceptions=True) as client:
+            resp = client.get("/api/v1/analytics/kpis", headers=headers)
+            assert resp.status_code == 503
+            assert resp.json()["error_code"] == "SERVICE_UNAVAILABLE"
+            assert resp.headers.get("x-request-id") == client_request_id
 
 
 # ---------------------------------------------------------------------------
