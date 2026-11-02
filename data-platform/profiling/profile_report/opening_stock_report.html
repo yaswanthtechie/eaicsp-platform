@@ -1,0 +1,288 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+<title>Data Profiling Report</title>
+<link rel="stylesheet"
+href="https://cdn.datatables.net/2.3.7/css/dataTables.dataTables.min.css">
+
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+<script src="https://cdn.datatables.net/2.3.7/js/dataTables.min.js"></script>
+
+<style>
+body {
+    font-family: Arial;
+    margin: 30px;
+}
+table {
+    border-collapse: collapse;
+    width: 100%;
+    margin-bottom: 30px;
+}
+th, td {
+    border: 1px solid black;
+    padding: 8px;
+    text-align: center;
+}
+th {
+    background-color: lightblue;
+}
+h1 {
+    color: darkblue;
+}
+</style>
+</head>
+<body>
+
+
+
+<h1>Data Profiling Report</h1>
+
+<h2>Data Quality Score</h2>
+
+<p><b>Score:</b> 90 / 100</p>
+<p><b>Missing Values:</b> 0</p>
+<p><b>Duplicate Rows:</b> 0</p>
+<p><b>Total Outliers:</b> 344</p>
+
+
+<h2>Worst Issues</h2>
+
+<table>
+<tr>
+<th>Rank</th>
+<th>Column</th>
+<th>Problems</th>
+<th>Severity</th>
+</tr>
+
+<tr>
+<td>1</td>
+<td>quantity_on_hand</td>
+<td>344 outliers</td>
+<td>High</td>
+</tr>
+
+<tr>
+<td>2</td>
+<td>snapshot_date</td>
+<td>No major issues</td>
+<td>Low</td>
+</tr>
+
+<tr>
+<td>3</td>
+<td>sku_id</td>
+<td>No major issues</td>
+<td>Low</td>
+</tr>
+
+<tr>
+<td>4</td>
+<td>warehouse_id</td>
+<td>No major issues</td>
+<td>Low</td>
+</tr>
+
+</table>
+
+<h2>Dataset Summary</h2>
+
+<p><b>Rows:</b> 3000</p>
+<p><b>Columns:</b> 4</p>
+<p><b>Earliest Date:</b> 2026-10-12T00:00:00</p>
+<p><b>Latest Date:</b> 2026-10-12T00:00:00</p>
+
+
+<h2>Column Summary</h2>
+
+<table id="columnTable">
+
+<thead>
+<tr>
+<th>Column</th>
+<th>Data Type</th>
+<th>Null Count</th>
+<th>Null %</th>
+<th>Unique Count</th>
+<th>Role</th>
+<th>Cardinality</th>
+</tr>
+</thead>
+
+<tbody>
+
+<tr>
+<td>snapshot_date</td>
+<td>datetime64[us]</td>
+<td>0</td>
+<td>0.0</td>
+<td>1</td>
+<td>Category</td>
+<td>Category</td>
+</tr>
+
+<tr>
+<td>sku_id</td>
+<td>str</td>
+<td>0</td>
+<td>0.0</td>
+<td>500</td>
+<td>Foreign Key</td>
+<td>High Cardinality</td>
+</tr>
+
+<tr>
+<td>warehouse_id</td>
+<td>str</td>
+<td>0</td>
+<td>0.0</td>
+<td>6</td>
+<td>Foreign Key</td>
+<td>Category</td>
+</tr>
+
+<tr>
+<td>quantity_on_hand</td>
+<td>int64</td>
+<td>0</td>
+<td>0.0</td>
+<td>510</td>
+<td>Measure</td>
+<td>High Cardinality</td>
+</tr>
+
+</tbody>
+</table>
+
+<h2>Distribution Statistics</h2>
+
+<table>
+<tr>
+<th>Column</th>
+<th>Count</th>
+<th>Mean</th>
+<th>Std</th>
+<th>Min</th>
+<th>25%</th>
+<th>50%</th>
+<th>75%</th>
+<th>Max</th>
+<th>Distribution </th>
+</tr>
+
+<tr>
+<td>quantity_on_hand</td>
+<td>3000</td>
+<td>134.61</td>
+<td>186.25</td>
+<td>0</td>
+<td>45.0</td>
+<td>74.0</td>
+<td>132.0</td>
+<td>1636</td>
+<td><svg width="120" height="35" viewBox="0 0 120 35" xmlns="http://www.w3.org/2000/svg"><rect x="0.0" y="0.0" width="11.0" height="35.0" /><rect x="12.0" y="30.1" width="11.0" height="4.9" /><rect x="24.0" y="33.5" width="11.0" height="1.5" /><rect x="36.0" y="34.1" width="11.0" height="0.9" /><rect x="48.0" y="34.4" width="11.0" height="0.6" /><rect x="60.0" y="34.7" width="11.0" height="0.3" /><rect x="72.0" y="34.7" width="11.0" height="0.3" /><rect x="84.0" y="34.9" width="11.0" height="0.1" /><rect x="96.0" y="34.9" width="11.0" height="0.1" /><rect x="108.0" y="34.9" width="11.0" height="0.1" /></svg></td>
+</tr>
+
+</table>
+
+<h2>Correlation Analysis</h2>
+
+<table>
+<tr>
+<th>Column 1</th>
+<th>Column 2</th>
+<th>Correlation</th>
+</tr>
+
+        <tr>
+        <td>quantity_on_hand</td>
+        <td>quantity_on_hand</td>
+        <td>1.0</td>
+        </tr>
+        
+</table>
+
+<h2>Top 5 Strongest Correlations</h2>
+
+<table>
+<tr>
+<th>Column 1</th>
+<th>Column 2</th>
+<th>Correlation</th>
+</tr>
+
+</table>
+
+<h2>PII Detection</h2>
+
+<table>
+<tr>
+<th>Column</th>
+<th>Severity</th>
+<th>Reason</th>
+</tr>
+
+<tr>
+<td>snapshot_date</td>
+<td>LOW</td>
+<td>No PII detected</td>
+</tr>
+
+<tr>
+<td>sku_id</td>
+<td>LOW</td>
+<td>No PII detected</td>
+</tr>
+
+<tr>
+<td>warehouse_id</td>
+<td>LOW</td>
+<td>No PII detected</td>
+</tr>
+
+<tr>
+<td>quantity_on_hand</td>
+<td>LOW</td>
+<td>No PII detected</td>
+</tr>
+
+</table>
+
+<h2>Outlier Report</h2>
+
+<table>
+<tr>
+<th>Column</th>
+<th>Lower Limit</th>
+<th>Upper Limit</th>
+<th>Outlier Count</th>
+</tr>
+
+<tr>
+<td>quantity_on_hand</td>
+<td>-85.50</td>
+<td>262.50</td>
+<td>344</td>
+</tr>
+
+</table>
+
+</table>
+
+<h2>Historical Null Rate Trend</h2>
+
+<p><b>Column:</b> quantity_sold</p>
+
+<img src="quantity_sold_null_trend.png" alt="Quantity Sold Null Rate Trend"
+     style="max-width: 800px;">
+
+<script>
+$(document).ready(function() {
+    $('#columnTable').DataTable();
+});
+</script>
+
+</body>
+</html>

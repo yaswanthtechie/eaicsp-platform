@@ -750,7 +750,8 @@ h1 {{
             ))
 
             for finding in anomaly["findings"]:
-                likelihood = finding["likelihood"]
+                # likelihood = finding["likelihood"]
+                likelihood = finding.get("likelihood")
 
                 likelihood_text = (
                     f"{likelihood}x"
@@ -763,7 +764,7 @@ h1 {{
 <td>{finding['column']}</td>
 <td>{finding['issue']}</td>
 <td>{finding['outlier_row_rate']}%</td>
-<td>{finding['normal_row_rate']}%</td>
+<td>{finding.get('normal_row_rate', 'N/A')}%</td>
 <td>{likelihood_text}</td>
 </tr>
 """)
