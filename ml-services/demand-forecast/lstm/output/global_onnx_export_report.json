@@ -1,0 +1,20 @@
+{
+  "checkpoint": "output\\global_best_model.pt",
+  "onnx_model": "output\\global_best_model.onnx",
+  "opset": 17,
+  "lookback": 45,
+  "horizon": 7,
+  "sample_batch_size": 2,
+  "pytorch_output_shape": [
+    2,
+    7
+  ],
+  "onnx_output_shape": [
+    2,
+    7
+  ],
+  "max_absolute_difference": 1.1920928955078125e-07,
+  "parity_passed": true,
+  "onnx_validation_passed": true,
+  "execution_provider": "CPUExecutionProvider"
+}

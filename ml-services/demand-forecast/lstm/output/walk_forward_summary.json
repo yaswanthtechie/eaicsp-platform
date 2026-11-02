@@ -1,0 +1,182 @@
+{
+  "evaluation": "five-fold expanding-window walk-forward",
+  "dataset": "data\\global_sku_demand_synthetic.csv",
+  "lookback": 45,
+  "horizon": 7,
+  "folds": [
+    {
+      "fold": 1,
+      "train_end": "2025-10-14",
+      "validation_end": "2025-12-12",
+      "test_end": "2026-02-09",
+      "train_windows": 1894,
+      "validation_windows": 446,
+      "test_windows": 493,
+      "eligible_skus": 7,
+      "global_training_seconds": 76.2923965,
+      "global_best_validation_mse": 0.13139183726161718,
+      "global_best_epoch": 33,
+      "per_sku_total_training_seconds": 33.75581920000013,
+      "global_all_test_metrics": {
+        "MAE": 12.195207878252072,
+        "RMSE": 17.471983780415798,
+        "MAPE_percent": 13.722416942264584
+      },
+      "global_common_sku_metrics": {
+        "MAE": 9.21549018915681,
+        "RMSE": 12.20109817541171,
+        "MAPE_percent": 11.250894467354161
+      },
+      "per_sku_common_metrics": {
+        "MAE": 11.565358331949838,
+        "RMSE": 15.277945525980222,
+        "MAPE_percent": 13.47781881080661
+      }
+    },
+    {
+      "fold": 2,
+      "train_end": "2025-12-12",
+      "validation_end": "2026-02-09",
+      "test_end": "2026-04-09",
+      "train_windows": 2388,
+      "validation_windows": 493,
+      "test_windows": 545,
+      "eligible_skus": 9,
+      "global_training_seconds": 52.02486719999979,
+      "global_best_validation_mse": 0.16631019301712513,
+      "global_best_epoch": 17,
+      "per_sku_total_training_seconds": 70.21399840000004,
+      "global_all_test_metrics": {
+        "MAE": 10.826132140153357,
+        "RMSE": 14.631782303243288,
+        "MAPE_percent": 13.694872822947325
+      },
+      "global_common_sku_metrics": {
+        "MAE": 10.799484116976116,
+        "RMSE": 14.745550822468484,
+        "MAPE_percent": 13.355691720236013
+      },
+      "per_sku_common_metrics": {
+        "MAE": 11.664595706479282,
+        "RMSE": 16.109634640671732,
+        "MAPE_percent": 13.675869417865098
+      }
+    },
+    {
+      "fold": 3,
+      "train_end": "2026-02-09",
+      "validation_end": "2026-04-09",
+      "test_end": "2026-06-07",
+      "train_windows": 2935,
+      "validation_windows": 545,
+      "test_windows": 597,
+      "eligible_skus": 9,
+      "global_training_seconds": 144.25569320000022,
+      "global_best_validation_mse": 0.10360888913273811,
+      "global_best_epoch": 41,
+      "per_sku_total_training_seconds": 73.59519370000044,
+      "global_all_test_metrics": {
+        "MAE": 10.212532721686289,
+        "RMSE": 13.261068385534367,
+        "MAPE_percent": 13.915170523716627
+      },
+      "global_common_sku_metrics": {
+        "MAE": 10.484463309270602,
+        "RMSE": 13.703627075724219,
+        "MAPE_percent": 13.062082086714444
+      },
+      "per_sku_common_metrics": {
+        "MAE": 11.1531530164894,
+        "RMSE": 14.983423138634512,
+        "MAPE_percent": 14.05018740716314
+      }
+    },
+    {
+      "fold": 4,
+      "train_end": "2026-04-09",
+      "validation_end": "2026-06-07",
+      "test_end": "2026-08-05",
+      "train_windows": 3540,
+      "validation_windows": 597,
+      "test_windows": 636,
+      "eligible_skus": 10,
+      "global_training_seconds": 181.19767720000027,
+      "global_best_validation_mse": 0.09935278818011284,
+      "global_best_epoch": 42,
+      "per_sku_total_training_seconds": 170.02831649999962,
+      "global_all_test_metrics": {
+        "MAE": 9.429546415323838,
+        "RMSE": 12.864595216190072,
+        "MAPE_percent": 14.284723687276246
+      },
+      "global_common_sku_metrics": {
+        "MAE": 9.88212271636387,
+        "RMSE": 13.49426860530969,
+        "MAPE_percent": 12.607751698305252
+      },
+      "per_sku_common_metrics": {
+        "MAE": 11.656193806733082,
+        "RMSE": 16.597215216220608,
+        "MAPE_percent": 15.042588667863555
+      }
+    },
+    {
+      "fold": 5,
+      "train_end": "2026-06-07",
+      "validation_end": "2026-08-05",
+      "test_end": "2026-09-30",
+      "train_windows": 4203,
+      "validation_windows": 636,
+      "test_windows": 648,
+      "eligible_skus": 11,
+      "global_training_seconds": 122.0960012000005,
+      "global_best_validation_mse": 0.10102399364113808,
+      "global_best_epoch": 13,
+      "per_sku_total_training_seconds": 139.80420310000045,
+      "global_all_test_metrics": {
+        "MAE": 9.22970955796553,
+        "RMSE": 12.683459773420964,
+        "MAPE_percent": 14.221497500761535
+      },
+      "global_common_sku_metrics": {
+        "MAE": 9.859274503039074,
+        "RMSE": 13.426428192677948,
+        "MAPE_percent": 12.543327874616184
+      },
+      "per_sku_common_metrics": {
+        "MAE": 10.668931849095728,
+        "RMSE": 14.759770630211266,
+        "MAPE_percent": 13.494518846006018
+      }
+    }
+  ],
+  "mean_fold_metrics": {
+    "global_all_test_skus": {
+      "MAE": 10.378625742676217,
+      "RMSE": 14.182577891760896,
+      "MAPE_percent": 13.967736295393262
+    },
+    "global_common_eligible_skus": {
+      "MAE": 10.048166966961295,
+      "RMSE": 13.514194574318413,
+      "MAPE_percent": 12.56394956944521
+    },
+    "per_sku_common_eligible_skus": {
+      "MAE": 11.341646542149466,
+      "RMSE": 15.545597830343667,
+      "MAPE_percent": 13.948196629940885
+    }
+  },
+  "mean_training_seconds": {
+    "global": 115.17332706000016,
+    "per_sku_total": 97.47950618000013
+  },
+  "notes": [
+    "Scaler is fit only on each fold training period.",
+    "Validation and test target horizons stay inside their split.",
+    "Common-SKU metrics compare eligible per-SKU models on the same test windows.",
+    "Short-history SKUs and exclusion reasons are recorded in CSV.",
+    "Global LSTM metrics are recorded per SKU, including short-history SKUs.",
+    "MAPE excludes zero-valued actuals."
+  ]
+}

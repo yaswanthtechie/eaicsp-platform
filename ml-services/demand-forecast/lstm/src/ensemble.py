@@ -32,7 +32,7 @@ from sklearn.preprocessing import MinMaxScaler
 from torch.utils.data import DataLoader, TensorDataset
 from xgboost import XGBRegressor
 
-from config import (
+from src.config import (
     BATCH_SIZE,
     DATASET_DAYS,
     DROPOUT,
@@ -45,9 +45,9 @@ from config import (
     OUTPUT_DIR,
     RANDOM_SEED,
 )
-from data import create_sequences, generate_data
-from evaluate import calculate_metrics
-from model import MultiStepLSTM
+from src.data import create_sequences, generate_data
+from src.evaluate import calculate_metrics
+from src.model import MultiStepLSTM
 
 
 MODEL_NAMES = ("Prophet", "XGBoost", "LSTM")
