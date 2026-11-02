@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://eaicsp.internal/contracts/events/forecast.batch.completed.v1.json",
+  "title": "ForecastBatchCompletedEvent",
+  "description": "Event emitted when a nightly forecasting batch completes successfully.",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "envelope.v1.json"
+    },
+    {
+      "properties": {
+        "event_type": {
+          "const": "forecast.batch.completed"
+        },
+        "producer": {
+          "const": "forecasting-service"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "run_id": {
+              "type": "string",
+              "description": "Unique identifier for the completed forecasting batch run."
+            },
+            "model_version": {
+              "type": "string",
+              "description": "Version of the forecasting model used for this batch."
+            },
+            "sku_count": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of SKUs processed in the batch."
+            },
+            "horizon": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Forecast horizon produced by the batch."
+            },
+            "completed_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "UTC ISO-8601 timestamp when the batch completed."
+            }
+          },
+          "required": [
+            "run_id",
+            "model_version",
+            "sku_count",
+            "horizon",
+            "completed_at"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

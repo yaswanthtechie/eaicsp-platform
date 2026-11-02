@@ -1,0 +1,14 @@
+{
+    "event_id":  "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+    "event_type":  "forecast.batch.completed",
+    "event_version":  1,
+    "occurred_at":  "2026-10-15T02:30:00Z",
+    "producer":  "forecasting-service",
+    "payload":  {
+                    "run_id":  "forecast-run-2026-10-15-001",
+                    "model_version":  "R5",
+                    "sku_count":  150,
+                    "horizon":  30,
+                    "completed_at":  "2026-10-15T02:30:00Z"
+                }
+}
