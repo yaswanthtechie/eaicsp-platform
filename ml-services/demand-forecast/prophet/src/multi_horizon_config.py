@@ -5,7 +5,12 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-DATA_PATH = PROJECT_ROOT / "data" / "m5_daily_sales.csv"
+DATA_PATH = (
+    PROJECT_ROOT.parent.parent.parent
+    / "data-platform"
+    / "out"
+    / "daily_demand.csv"
+)
 RAW_DATA_DIR = PROJECT_ROOT / "data" / "raw"
 
 MODEL_DIR = PROJECT_ROOT / "models" / "multi_horizon"
@@ -47,10 +52,12 @@ XGB_PARAMS = {
 
 # Rolling-origin backtest:
 # refit at each cutoff, forecast 90 days, score each horizon.
-BACKTEST_CUTOFFS = 24
+BACKTEST_CUTOFFS = 8
 BACKTEST_STEP_DAYS = 30
-CALIBRATION_CUTOFFS = 16
-MIN_TRAINING_DAYS = 730
+CALIBRATION_CUTOFFS = 4
+# Minimum history required before a rolling-origin forecast cutoff.
+# Set to 365 because the current dataset contains 730 daily observations.
+MIN_TRAINING_DAYS = 365
 
 # 80% empirical prediction interval: 10th and 90th percentile of the
 # signed backtest error (actual / predicted - 1), per horizon.
