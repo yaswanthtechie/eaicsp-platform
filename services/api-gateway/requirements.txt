@@ -16,3 +16,6 @@ opentelemetry-exporter-otlp-proto-http==1.45.0
 
 # Round 10 Milestone 3 — Load testing
 locust==2.46.6
+
+# Round 15 Milestone 3 — BFF Events to Live WebSocket
+aiokafka==0.14.0

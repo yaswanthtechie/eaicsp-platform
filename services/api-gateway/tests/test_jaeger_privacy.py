@@ -17,7 +17,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 
 from app.main import app
 from app.middleware.ratelimit import limiter
-from app.middleware.tracing import sanitize_url_for_tracing, set_tracer_provider, shutdown_tracing
+from app.middleware.tracing import sanitize_url_for_tracing, setup_tracing, shutdown_tracing
 from app.services.circuit_breaker import circuit_breaker_manager
 from app.services.metrics import metrics_collector
 
@@ -27,7 +27,7 @@ def memory_tracer():
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
-    set_tracer_provider(provider)
+    setup_tracing(provider=provider)
     yield exporter
     shutdown_tracing()
 
@@ -44,7 +44,7 @@ def reset_state():
 
 
 @pytest.fixture
-def client():
+def client(memory_tracer):
     with TestClient(app) as test_client:
         yield test_client
 

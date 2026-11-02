@@ -191,7 +191,12 @@ def sanitize_url_for_tracing(url: str | None) -> str:
 
 
 @contextmanager
-def start_proxy_span(method: str, service_name: str, target_url: str):
+def start_proxy_span(
+    method: str,
+    service_name: str,
+    target_url: str,
+    parent_context: object | None = None,
+):
     """
     Context manager to start a child CLIENT span for downstream proxy calls.
     Gracefully falls back to a no-op if OTel is not available or disabled.
@@ -205,7 +210,11 @@ def start_proxy_span(method: str, service_name: str, target_url: str):
         return
 
     span_name = f"proxy {method} {service_name}"
-    with tracer.start_as_current_span(span_name, kind=SpanKind.CLIENT) as span:
+    span_kwargs: dict = {"kind": SpanKind.CLIENT}
+    if parent_context is not None:
+        span_kwargs["context"] = parent_context
+
+    with tracer.start_as_current_span(span_name, **span_kwargs) as span:
         clean_url = sanitize_url_for_tracing(target_url)
         span.set_attribute("http.method", method)
         span.set_attribute("http.url", clean_url)
