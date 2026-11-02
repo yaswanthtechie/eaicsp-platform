@@ -72,7 +72,8 @@ describe("mapAnalyticsEventToAlert", () => {
   it("maps supplierrisk.score.changed from the new tier", () => {
     const result = mapAnalyticsEventToAlert(
       createEvent("supplierrisk.score.changed", {
-        supplier: "SUP-00023",
+        supplier_id: "SUP-00023",
+        supplier: "ABC Suppliers",
         previous_tier: "low",
         new_tier: "high",
         risk_score: 82,
@@ -81,6 +82,23 @@ describe("mapAnalyticsEventToAlert", () => {
 
     expect(result?.type).toBe("supplier-risk-change");
     expect(result?.severity).toBe("critical");
+    expect(result?.supplierId).toBe("SUP-00023");
+    expect(result?.message).toContain("ABC Suppliers");
+  });
+
+  it("maps supplier-risk events without an optional supplier ID", () => {
+    const result = mapAnalyticsEventToAlert(
+      createEvent("supplierrisk.score.changed", {
+        supplier: "ABC Suppliers",
+        previous_tier: "low",
+        new_tier: "high",
+        risk_score: 82,
+      }),
+    );
+
+    expect(result?.type).toBe("supplier-risk-change");
+    expect(result?.supplierId).toBeUndefined();
+    expect(result?.message).toContain("ABC Suppliers");
   });
 
   it("maps eta.shipment.predicted high_risk to warning", () => {
@@ -94,7 +112,7 @@ describe("mapAnalyticsEventToAlert", () => {
     );
 
     expect(result?.type).toBe("shipment-eta-update");
-    expect(result?.severity).toBe("warning");
+    expect(result?.severity).toBe("info");
   });
 
   it("maps forecast.batch.completed SUCCESS to success", () => {

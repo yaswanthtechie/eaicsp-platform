@@ -187,7 +187,10 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
   }, []);
 
   useEffect(() => {
-    if (import.meta.env.DEV) {
+    if (
+      import.meta.env.DEV &&
+      import.meta.env.VITE_USE_MOCK_WS === "true"
+    ) {
       startMockWebSocketServer();
     }
   }, []);
@@ -213,11 +216,51 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
         return;
       }
 
-      setAlerts((prev) => [data, ...prev]);
-    },
-    [],
-  );
+      setAlerts((prev) => {
+        if (data.type !== "shipment-eta-update") {
+          return [data, ...prev];
+        }
 
+        if (!data.shipmentId  || !data.predictedAt) {
+          return [data, ...prev]
+        }
+        const incomingTime = Date.parse(data.predictedAt);
+
+        if (!Number.isFinite(incomingTime)) {
+          return prev;
+        }
+
+        const existing = prev.find(
+          (alert) =>
+            alert.type === "shipment-eta-update" &&
+            alert.shipmentId === data.shipmentId,
+        );
+
+        if (existing?.predictedAt) {
+          const existingTime = Date.parse(existing.predictedAt);
+
+        if (
+          Number.isFinite(existingTime) &&
+          incomingTime <= existingTime
+        ) {
+          return prev;
+        }
+      }
+
+      return [
+        data,
+        ...prev.filter(
+          (alert) =>
+            !(
+              alert.type === "shipment-eta-update" &&
+              alert.shipmentId === data.shipmentId
+            ),
+        ),
+      ];
+    });
+  },
+  [],
+);
   const removeAlert = useCallback((id: string) => {
     setAlerts((prev) =>
       prev.filter((alert) => alert.id !== id),
@@ -250,7 +293,7 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
     failed,
     retryConnection,
   } = useWebSocket({
-    url: import.meta.env.VITE_ALERTS_WS_URL // "ws://localhost:8080",
+    url: import.meta.env.VITE_ALERTS_WS_URL || "ws://localhost:8080",
     onMessage: handleMessage,
     autoReconnect: true,
     maxRetries: 5,

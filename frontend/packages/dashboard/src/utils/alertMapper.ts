@@ -92,7 +92,6 @@ export function mapAnalyticsEventToAlert(
         title: "Supplier Risk Change",
         severity,
         message:
-          getString(payload, "explanation") ??
           `Supplier ${
             getString(payload, "supplier") ?? "unknown"
           } risk tier changed` +
@@ -102,16 +101,13 @@ export function mapAnalyticsEventToAlert(
     }
 
     case "eta.shipment.predicted": {
-      const delayRisk = getString(payload, "delay_risk");
-      const severity: AlertSeverity =
-        delayRisk === "high_risk" ? "warning" : "info";
+      const severity: AlertSeverity = "info";
 
       mapping = {
         type: "shipment-eta-update",
         title: "Shipment ETA Update",
         severity,
         message:
-          getString(payload, "message") ??
           `Shipment ${getString(payload, "shipment_id") ?? "unknown"} ETA updated` +
             (getNumber(payload, "eta_days") === undefined
               ? "."
@@ -161,5 +157,16 @@ export function mapAnalyticsEventToAlert(
     message: mapping.message,
     timestamp: event.occurred_at,
     title: mapping.title,
+    ...(event.event_type === "eta.shipment.predicted"
+      ? {
+        shipmentId: getString(payload, "shipment_id"),
+        predictedAt: getString(payload, "predicted_at"),
+        }
+      : {}),
+    ...(event.event_type === "supplierrisk.score.changed"
+      ? {
+        supplierId: getString(payload, "supplier_id"),
+        }
+      : {}),
   };
 }

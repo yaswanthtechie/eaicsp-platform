@@ -7,6 +7,7 @@ import type {
   WebSocketMessage,
 } from "../types/forecast";
 import { mapAnalyticsEventToAlert } from "../utils/alertMapper";
+import { getAuthSession } from "../api/auth";
 interface UseWebSocketOptions {
   url: string;
   onMessage: (data: WebSocketMessage) => void;
@@ -61,6 +62,15 @@ function isAnalyticsEvent(value: unknown): value is AnalyticsEventEnvelope {
       value.trace_id === null ||
       typeof value.trace_id === "string")
   );
+}
+
+function getDedupKey(event: AnalyticsEventEnvelope): string {
+  const episodeId = event.payload.episode_id;
+
+  return event.event_type === "iot.anomaly.detected" &&
+    typeof episodeId === "string"
+    ? `iot.anomaly.detected:${episodeId}`
+    : event.event_id;
 }
 
 export function useWebSocket({
@@ -158,8 +168,22 @@ export function useWebSocket({
 
       let socket: WebSocket;
       try {
-        socket = new WebSocket(url);
-      } catch {
+        const session = getAuthSession();
+        const token = session?.access_token;
+
+        if (!token) {
+          console.error("[C3 WS] No valid access token. Connection skipped.");
+          setConnected(false);
+          setIsConnecting(false);
+          setFailed(true);
+          return;
+        }
+        const wsUrl = new URL(url);
+        wsUrl.searchParams.set("token", token);
+        
+        socket = new WebSocket(wsUrl.toString());
+      } catch (error:unknown) {
+        console.error("[C3 WS] Connection creation failed:", error);
         setConnected(false);
         setIsConnecting(false);
 
@@ -207,9 +231,11 @@ export function useWebSocket({
           return;
         }
 
-        if (seenEventIdsRef.current.has(data.event_id)) return;
+        const dedupKey = getDedupKey(data);
 
-        seenEventIdsRef.current.add(data.event_id);
+        if (seenEventIdsRef.current.has(dedupKey)) return;
+
+        seenEventIdsRef.current.add(dedupKey);
 
         if (seenEventIdsRef.current.size > 100) {
           const oldestId = seenEventIdsRef.current.values().next().value;
@@ -226,11 +252,19 @@ export function useWebSocket({
 
       socket.onerror = (error: Event) => {
         if (isUnmounted) return;
+
+        console.error("[C3 WS] Gateway WebSocket error:", error);
         onErrorRef.current?.(error);
       };
 
       socket.onclose = (event: CloseEvent) => {
         if (isUnmounted) return;
+
+      console.error("[C3 WS] Gateway WebSocket closed:", {
+        code: event.code,
+        reason: event.reason,
+        wasClean: event.wasClean,
+      });
 
         socketRef.current = null;
         setConnected(false);

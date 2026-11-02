@@ -1,6 +1,15 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useWebSocket } from "../hooks/useWebSocket";
+
+vi.mock("../api/auth", () => ({
+  getAuthSession: vi.fn(() => ({
+    access_token: "test-access-token",
+    refresh_token: "test-refresh-token",
+    token_type: "bearer",
+    role: "ceo",
+  })),
+}));
 interface MockSocket {
   url: string;
   onopen: (() => void) | null;
@@ -57,7 +66,7 @@ describe("useWebSocket", () => {
     vi.restoreAllMocks();
   });
 
-  it("connects to WebSocket", () => {
+  it("connects to WebSocket with an auth token", () => {
     renderHook(() =>
       useWebSocket({
         url: "ws://localhost:8080",
@@ -66,7 +75,11 @@ describe("useWebSocket", () => {
     );
 
     expect(sockets).toHaveLength(1);
-    expect(sockets[0].url).toBe("ws://localhost:8080");
+
+    const socketUrl = new URL(sockets[0].url);
+    expect(socketUrl.origin).toBe("ws://localhost:8080");
+    expect(socketUrl.searchParams.get("token")).toBe("test-access-token");
+
   });
 
   it("shows connected when socket opens", () => {
