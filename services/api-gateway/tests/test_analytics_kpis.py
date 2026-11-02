@@ -401,8 +401,8 @@ def test_14_clickhouse_empty_results_and_database_errors(mock_redis_client):
     payload = resp.json()
     assert_matches_contract(payload)
     assert payload["kpis"]["fill_rate"]["current_rate"] is None
-    assert payload["kpis"]["stockouts"]["total_stockouts"] == 0
-    assert payload["kpis"]["open_purchase_orders"]["total_open_orders"] == 0
+    assert payload["kpis"]["stockouts"]["total_stockouts"] == 14
+    assert payload["kpis"]["open_purchase_orders"]["total_open_orders"] == 42
     assert payload["kpis"]["on_time_delivery"]["current_rate"] is None
 
     # Genuine Database error -> 503 Service Unavailable
@@ -566,3 +566,24 @@ def test_force_refresh_skips_cache_read(mock_clickhouse_client, mock_redis_clien
         assert payload["cache_ttl_seconds"] is None
         mock_redis_client.get.assert_not_called()
         mock_redis_client.set.assert_called_once()
+
+
+def test_totals_come_from_views_even_with_a_category_filter(mock_redis_client):
+    ch = MagicMock()
+    ch.query.side_effect = route_query(kpi_rows=[])
+    with kpi_client(ch, mock_redis_client) as client:
+        payload = client.get(
+            "/api/v1/analytics/kpis?category=industrial"
+        ).json()
+
+    assert_matches_contract(payload)
+
+    stockouts = payload["kpis"]["stockouts"]
+    orders = payload["kpis"]["open_purchase_orders"]
+
+    assert stockouts["total_stockouts"] == 14
+    assert stockouts["status"] == "warning"
+    assert orders["total_open_orders"] == sum(
+        orders["by_status"][s]
+        for s in ("approved", "acknowledged", "in_transit")
+    ) == 42

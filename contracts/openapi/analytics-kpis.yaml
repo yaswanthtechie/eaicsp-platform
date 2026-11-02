@@ -13,10 +13,11 @@ info:
     Blueprint reference: docs/architecture/integration-blueprint.md (Sections 4 & 6).
 
     Data sources: rates and trends come from `kpi_metrics` (fill_rate, stockout_count,
-    open_pos, on_time_delivery_pct). Counts come from the KPI views:
+    open_pos, on_time_delivery_pct) over the requested window. Counts and totals come from
+    the KPI views and show the current state (they are not windowed):
     `kpi_fill_rate_by_warehouse` (total_lines_ordered, lines_fulfilled),
-    `kpi_stockouts_by_warehouse` (by_warehouse stockout_count, total_skus),
-    `kpi_open_pos_by_status` (by_status approved, acknowledged, in_transit) and
+    `kpi_stockouts_by_warehouse` (total_stockouts, by_warehouse stockout_count, total_skus),
+    `kpi_open_pos_by_status` (total_open_orders, by_status approved, acknowledged, in_transit) and
     `kpi_on_time_delivery_by_warehouse` (total_shipments, delivered_on_time, delayed).
     Fields marked PROPOSED are null until a source is agreed.
 

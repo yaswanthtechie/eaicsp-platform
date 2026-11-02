@@ -60,7 +60,6 @@ class AnalyticsKpiService:
         clickhouse_client_factory: Callable[[], Any] | None = None,
     ):
         self._redis_client = redis_client
-        self._ch_client: Any = None
         self._clickhouse_client_factory = clickhouse_client_factory
 
     def get_redis_client(self) -> aioredis.Redis:
@@ -471,27 +470,7 @@ class AnalyticsKpiService:
         )
 
         # --- 2. Inventory Stockouts ---
-        stockout_series = self._extract_metric_series(kpi_rows, "stockout_count", warehouse_id, category)
-        total_stockouts = 0
-        stockout_trend: str = "stable"
-
-        if stockout_series:
-            sorted_dates = sorted(stockout_series.keys(), reverse=True)
-            total_stockouts = int(round(stockout_series[sorted_dates[0]]))
-            if len(sorted_dates) > 1:
-                prev_val = stockout_series[sorted_dates[1]]
-                if total_stockouts < prev_val:
-                    stockout_trend = "improving"
-                elif total_stockouts > prev_val:
-                    stockout_trend = "worsening"
-
-        if total_stockouts == 0:
-            stockouts_status = "normal"
-        elif total_stockouts <= 20:
-            stockouts_status = "warning"
-        else:
-            stockouts_status = "critical"
-
+        # Totals come from the view (current state); kpi_metrics only drives the trend.
         by_warehouse_list = [
             WarehouseStockout(
                 warehouse_id=str(wh_id),
@@ -502,8 +481,29 @@ class AnalyticsKpiService:
             for wh_id, stockouts, total_skus in db_results["stockout_rows"]
             if CANONICAL_WAREHOUSE_RE.match(str(wh_id))
         ]
+        total_stockouts = sum(w.stockout_count for w in by_warehouse_list)
 
-        # Do not fabricate critical_skus or at_risk_skus without verified source
+        stockout_trend: str = "stable"
+        stockout_series = self._extract_metric_series(
+            kpi_rows, "stockout_count", warehouse_id, category
+        )
+        if len(stockout_series) > 1:
+            latest, previous = (
+                stockout_series[d]
+                for d in sorted(stockout_series, reverse=True)[:2]
+            )
+            if latest < previous:
+                stockout_trend = "improving"
+            elif latest > previous:
+                stockout_trend = "worsening"
+
+        if total_stockouts == 0:
+            stockouts_status = "normal"
+        elif total_stockouts <= 20:
+            stockouts_status = "warning"
+        else:
+            stockouts_status = "critical"
+
         stockouts_kpi = StockoutsKpi(
             total_stockouts=total_stockouts,
             critical_skus=None,
@@ -514,22 +514,20 @@ class AnalyticsKpiService:
         )
 
         # --- 3. Open Purchase Orders ---
-        po_series = self._extract_metric_series(kpi_rows, "open_pos", warehouse_id, category)
-        total_open_orders = 0
-        if po_series:
-            sorted_dates = sorted(po_series.keys(), reverse=True)
-            total_open_orders = int(round(po_series[sorted_dates[0]]))
-
         po_by_status = db_results["po_by_status"]
+        approved = po_by_status.get("approved", 0)
+        acknowledged = po_by_status.get("acknowledged", 0)
+        in_transit = po_by_status.get("in_transit", 0)
+
         open_orders_kpi = OpenPurchaseOrdersKpi(
-            total_open_orders=total_open_orders,
+            total_open_orders=approved + acknowledged + in_transit,
             total_value_usd=None,
             pending_approval=None,
             by_status=POByStatus(
                 draft=None,
-                approved=po_by_status.get("approved", 0),
-                acknowledged=po_by_status.get("acknowledged", 0),
-                in_transit=po_by_status.get("in_transit", 0),
+                approved=approved,
+                acknowledged=acknowledged,
+                in_transit=in_transit,
             ),
         )
 
