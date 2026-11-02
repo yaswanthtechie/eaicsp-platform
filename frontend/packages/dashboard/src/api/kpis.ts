@@ -15,56 +15,64 @@ export interface KpiDashboardResponse {
   };
   kpis: {
     fill_rate: {
-      current_rate: number;
+      current_rate: number | null;
       target_rate: number;
       total_lines_ordered: number;
       lines_fulfilled: number;
-      status: "on_target" | "warning" | "critical";
+      status: "on_target" | "warning" | "critical" | "no_data";
       trend: "up" | "down" | "stable";
       change_percentage?: number | null;
     };
     stockouts: {
       total_stockouts: number;
-      critical_skus: number;
-      at_risk_skus: number;
+      critical_skus: number | null;
+      at_risk_skus: number | null;
       status: "normal" | "warning" | "critical";
       trend: "improving" | "worsening" | "stable";
       by_warehouse: Array<{
         warehouse_id: string;
         stockout_count: number;
-        at_risk_count: number;
+        at_risk_count: number | null;
         total_skus: number;
       }>;
     };
     open_purchase_orders: {
       total_open_orders: number;
-      total_value_usd: number;
-      pending_approval: number;
+      total_value_usd: number | null;
+      pending_approval: number | null;
       by_status: {
-        draft: number;
+        draft: number | null;
         approved: number;
         acknowledged: number;
         in_transit: number;
       };
     };
     on_time_delivery: {
-      current_rate: number;
+      current_rate: number | null;
       target_rate: number;
       total_shipments: number;
       delivered_on_time: number;
       delayed: number;
-      status: "on_target" | "warning" | "critical";
+      status: "on_target" | "warning" | "critical" | "no_data";
       trend: "up" | "down" | "stable";
       change_percentage?: number | null;
     };
   };
 }
 
+export interface KpiQueryFilters {
+  warehouse_id?: string | null;
+  category?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  window_days?: number | null;
+}
+
 export interface AnalyticsKpi {
   title: string;
-  value: number;
+  value: number | null;
   format: "percent" | "number";
-  status?: "on_target" | "normal" | "warning" | "critical";
+  status?: "on_target" | "normal" | "warning" | "critical" | "no_data";
 }
 
 export const MOCK_KPI_RESPONSE: KpiDashboardResponse = {
@@ -174,6 +182,21 @@ function isOptionalChangePercentage(value: unknown): boolean {
   );
 }
 
+function isNullableRate(value: unknown): boolean {
+  return (
+    value === null ||
+    (isFiniteNumber(value) && value >= 0 && value <= 100)
+  );
+}
+
+function isNullableCount(value: unknown): boolean {
+  return value === null || isCount(value);
+}
+
+function isNullableNonNegativeNumber(value: unknown): boolean {
+  return value === null || isNonNegativeNumber(value);
+}
+
 function isValidResponse(
   value: unknown,
 ): value is KpiDashboardResponse {
@@ -234,15 +257,13 @@ function isValidResponse(
 
   if (
     !isRecord(fill) ||
-    !isFiniteNumber(fill.current_rate) ||
-    fill.current_rate < 0 ||
-    fill.current_rate > 100 ||
+    !isNullableRate(fill.current_rate) ||
     !isFiniteNumber(fill.target_rate) ||
     fill.target_rate < 0 ||
     fill.target_rate > 100 ||
     !isCount(fill.total_lines_ordered) ||
     !isCount(fill.lines_fulfilled) ||
-    !["on_target", "warning", "critical"].includes(
+    !["on_target", "warning", "critical", "no_data"].includes(
       String(fill.status),
     ) ||
     !["up", "down", "stable"].includes(
@@ -256,8 +277,8 @@ function isValidResponse(
   if (
     !isRecord(stockouts) ||
     !isCount(stockouts.total_stockouts) ||
-    !isCount(stockouts.critical_skus) ||
-    !isCount(stockouts.at_risk_skus) ||
+    !isNullableCount(stockouts.critical_skus) ||
+    !isNullableCount(stockouts.at_risk_skus) ||
     !["normal", "warning", "critical"].includes(
       String(stockouts.status),
     ) ||
@@ -275,7 +296,7 @@ function isValidResponse(
       typeof warehouse.warehouse_id !== "string" ||
       !/^WH-[A-Z]{3}-\d{2}$/.test(warehouse.warehouse_id) ||
       !isCount(warehouse.stockout_count) ||
-      !isCount(warehouse.at_risk_count) ||
+      !isNullableCount(warehouse.at_risk_count) ||
       !isCount(warehouse.total_skus)
     ) {
       return false;
@@ -285,10 +306,10 @@ function isValidResponse(
   if (
     !isRecord(orders) ||
     !isCount(orders.total_open_orders) ||
-    !isNonNegativeNumber(orders.total_value_usd) ||
-    !isCount(orders.pending_approval) ||
+    !isNullableNonNegativeNumber(orders.total_value_usd) ||
+    !isNullableCount(orders.pending_approval) ||
     !isRecord(orders.by_status) ||
-    !isCount(orders.by_status.draft) ||
+    !isNullableCount(orders.by_status.draft) ||
     !isCount(orders.by_status.approved) ||
     !isCount(orders.by_status.acknowledged) ||
     !isCount(orders.by_status.in_transit)
@@ -298,16 +319,14 @@ function isValidResponse(
 
   if (
     !isRecord(delivery) ||
-    !isFiniteNumber(delivery.current_rate) ||
-    delivery.current_rate < 0 ||
-    delivery.current_rate > 100 ||
+    !isNullableRate(delivery.current_rate) ||
     !isFiniteNumber(delivery.target_rate) ||
     delivery.target_rate < 0 ||
     delivery.target_rate > 100 ||
     !isCount(delivery.total_shipments) ||
     !isCount(delivery.delivered_on_time) ||
     !isCount(delivery.delayed) ||
-    !["on_target", "warning", "critical"].includes(
+    !["on_target", "warning", "critical", "no_data"].includes(
       String(delivery.status),
     ) ||
     !["up", "down", "stable"].includes(
@@ -351,7 +370,9 @@ export function mapKpiResponse(
   ];
 }
 
-export async function fetchKpiDashboard(): Promise<KpiDashboardResponse> {
+export async function fetchKpiDashboard(
+  filters?: KpiQueryFilters,
+): Promise<KpiDashboardResponse> {
   if (USE_MOCK_KPIS) {
     return MOCK_KPI_RESPONSE;
   }
@@ -366,6 +387,25 @@ export async function fetchKpiDashboard(): Promise<KpiDashboardResponse> {
   }
 
   const baseUrl = KPI_API_BASE_URL.replace(/\/+$/, "");
+  const queryParams = new URLSearchParams();
+  if (filters?.warehouse_id) {
+    queryParams.set("warehouse_id", filters.warehouse_id);
+  }
+  if (filters?.category) {
+    queryParams.set("category", filters.category);
+  }
+  if (filters?.start_date) {
+    queryParams.set("start_date", filters.start_date);
+  }
+  if (filters?.end_date) {
+    queryParams.set("end_date", filters.end_date);
+  }
+  if (filters?.window_days !== undefined && filters.window_days !== null && filters.window_days >= 1) {
+    queryParams.set("window_days", String(filters.window_days));
+  }
+
+  const queryString = queryParams.toString();
+  const requestUrl = `${baseUrl}/api/v1/analytics/kpis${queryString ? `?${queryString}` : ""}`;
   let response: Response;
 
   const controller = new AbortController();
@@ -375,7 +415,7 @@ export async function fetchKpiDashboard(): Promise<KpiDashboardResponse> {
   );
   try {
     response = await fetch(
-      `${baseUrl}/api/v1/analytics/kpis`,
+      requestUrl,
       {
         headers: {
           Authorization: `Bearer ${session.access_token}`,

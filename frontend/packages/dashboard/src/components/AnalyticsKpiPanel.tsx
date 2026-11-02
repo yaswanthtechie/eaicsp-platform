@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { colors, radius, space } from "../tokens";
-import {fetchKpiDashboard, mapKpiResponse, type AnalyticsKpi } from "../api/kpis";
+import { fetchKpiDashboard, mapKpiResponse, type AnalyticsKpi, type KpiQueryFilters } from "../api/kpis";
 import Skeleton from "./Skeleton";
 
 const SNAPSHOT_KEY = "analytics-kpi-snapshot:v1";
@@ -23,7 +23,7 @@ function readSnapshot(): AnalyticsKpi[] | null {
         "title" in item &&
         typeof item.title === "string" &&
         "value" in item &&
-        typeof item.value === "number" &&
+        (typeof item.value === "number" || item.value === null) &&
         "format" in item &&
         (item.format === "percent" || item.format === "number"),
     );
@@ -44,6 +44,9 @@ function saveSnapshot(kpis: AnalyticsKpi[]) {
 }
 
 function formatValue(kpi: AnalyticsKpi) {
+  if (kpi.value === null) {
+    return "No data";
+  }
   return kpi.format === "percent"
     ? `${kpi.value}%`
     : new Intl.NumberFormat("en-US").format(kpi.value);
@@ -61,12 +64,19 @@ function getStatusColor(status?: string): string {
     case "critical":
       return colors.danger;
 
+    case "no_data":
+      return colors.textMuted;
+
     default:
       return colors.text;
   }
 }
 
-export default function AnalyticsKpiPanel() {
+interface AnalyticsKpiPanelProps {
+  filters?: KpiQueryFilters;
+}
+
+export default function AnalyticsKpiPanel({ filters }: AnalyticsKpiPanelProps = {}) {
   const [kpis, setKpis] = useState<AnalyticsKpi[] | null>(null);
   const [state, setState] = useState<KpiPanelState>(null);
   const [errorMessage, setErrorMessage] = useState("");
@@ -83,7 +93,7 @@ export default function AnalyticsKpiPanel() {
     }
 
     try {
-      const response = await fetchKpiDashboard();
+      const response = await fetchKpiDashboard(filters);
       const data = mapKpiResponse(response);
       setLastRefreshedAt(new Date().toLocaleTimeString());
       setKpis(data);
@@ -108,14 +118,14 @@ export default function AnalyticsKpiPanel() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [filters]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadInitialKpis() {
       try {
-        const response = await fetchKpiDashboard();
+        const response = await fetchKpiDashboard(filters);
         if (cancelled) return;
 
         const data = mapKpiResponse(response);
@@ -150,7 +160,7 @@ export default function AnalyticsKpiPanel() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [filters]);
 
   const hasKpis = kpis !== null && kpis.length > 0;
 

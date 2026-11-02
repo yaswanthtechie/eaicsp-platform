@@ -25,7 +25,7 @@ from app.middleware.prometheus_middleware import PrometheusMiddleware
 from app.middleware.tracing import TracingMiddleware, setup_tracing, shutdown_tracing
 from app.routes.metrics_route import router as metrics_router
 from app.core.log_redaction import install_token_redaction
-from app.routes import aggregation, dashboard, gateway, health, realtime, v2
+from app.routes import aggregation, analytics, dashboard, gateway, health, realtime, v2
 from app.schemas.responses import RootResponse
 from app.services.realtime import connection_manager, realtime_consumer_service
 
@@ -55,6 +55,7 @@ async def lifespan(app: FastAPI):
         await realtime_consumer_service.stop()
         await connection_manager.close_all()
         await app.state.http_client.aclose()
+        await analytics.analytics_kpi_service.close()
         shutdown_tracing()
 
 
@@ -162,6 +163,7 @@ app.include_router(v2.router)
 # so /api/v1/dashboard/summary is not intercepted.
 
 app.include_router(aggregation.router)
+app.include_router(analytics.router)
 
 
 # --------------------------------------------------
