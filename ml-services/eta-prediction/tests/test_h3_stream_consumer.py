@@ -17,22 +17,15 @@ from src.stream_consumer import (
     validate_event,
 )
 
-VALID_EVENT = {
-    "event_id": "f3a19d62-7c84-4b1e-9a56-2d7e8c4f0b13",
-    "event_type": "supplierportal.shipment.dispatched",
-    "event_version": 1,
-    "occurred_at": "2026-10-15T06:30:00Z",
-    "producer": "supplier-portal",
-    "payload": {
-        "shipment_id": "SHP-2026-000077",
-        "po_number": "PO-2026-000123",
-        "supplier_id": "SUP-00045",
-        "origin": "Supplier Warehouse, Bengaluru",
-        "destination_warehouse": "WH-BLR-01",
-        "carrier": "BlueDart",
-        "dispatched_at": "2026-10-15T06:30:00Z",
-    },
-}
+EXAMPLE_EVENT_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "contracts"
+    / "events"
+    / "examples"
+    / "supplierportal.shipment.dispatched.v1.json"
+)
+
+VALID_EVENT = json.loads(EXAMPLE_EVENT_PATH.read_text())
 
 
 def test_validate_event_accepts_valid_dispatched_event():
@@ -419,6 +412,7 @@ def test_deduplicator_evicts_oldest():
     assert deduplicator.is_duplicate("a") is False
     assert deduplicator.is_duplicate("b") is True
     assert deduplicator.is_duplicate("c") is True
+
 def test_run_does_not_commit_when_publish_fails():
     message = MagicMock()
     message.value.return_value = json.dumps(VALID_EVENT).encode("utf-8")
@@ -457,6 +451,7 @@ def test_run_does_not_commit_when_publish_fails():
             run(settings)
 
     consumer.commit.assert_not_called()
+
 def test_run_sends_tombstone_to_dlq():
     message = MagicMock()
     message.value.return_value = None
@@ -487,6 +482,7 @@ def test_run_sends_tombstone_to_dlq():
 
     mock_dlq.assert_called_once()
     consumer.commit.assert_called_once()
+
 def test_real_route_prediction_matches_output_contract():
     routes = load_seed_routes(SEED_SAMPLES_DIR)
     route = routes.iloc[0]
@@ -519,7 +515,13 @@ def test_real_route_prediction_matches_output_contract():
     )
 
     schema = json.loads(contract_path.read_text())
-    jsonschema.validate(result, schema)
+    jsonschema.validate(
+        result,
+        schema,
+        format_checker=jsonschema.FormatChecker(),
+    )
+
+
 def test_unknown_supplier_raises_value_error():
     routes = load_seed_routes(SEED_SAMPLES_DIR)
 
@@ -533,3 +535,150 @@ def test_unknown_supplier_raises_value_error():
             },
             routes,
         )
+def test_validate_event_rejects_timezone_less_occurred_at():
+    event = VALID_EVENT.copy()
+    event["occurred_at"] = "2026-10-15T06:30:00"
+
+    with pytest.raises(ValueError, match="timezone is required"):
+        validate_event(event)
+
+
+def test_validate_event_rejects_date_only_occurred_at():
+    event = VALID_EVENT.copy()
+    event["occurred_at"] = "2026-10-15"
+
+    with pytest.raises(ValueError, match="timezone is required"):
+        validate_event(event)
+
+
+def test_validate_event_rejects_timezone_less_dispatched_at():
+    event = VALID_EVENT.copy()
+    event["payload"] = event["payload"].copy()
+    event["payload"]["dispatched_at"] = "2026-10-15T06:30:00"
+
+    with pytest.raises(ValueError, match="timezone is required"):
+        validate_event(event)
+
+def test_run_sends_timezone_less_occurred_at_to_dlq_and_commits():
+    event = json.loads(json.dumps(VALID_EVENT))
+    event["occurred_at"] = "2026-10-15T06:30:00"
+
+    message = MagicMock()
+    message.value.return_value = json.dumps(event).encode("utf-8")
+    message.error.return_value = None
+    message.topic.return_value = "supplierportal.shipment.dispatched"
+    message.partition.return_value = 0
+    message.offset.return_value = 15
+
+    consumer = MagicMock()
+    consumer.poll.side_effect = [message, KeyboardInterrupt]
+
+    producer = MagicMock()
+
+    settings = {
+        "bootstrap_servers": "localhost:9092",
+        "group_id": "test-group",
+        "input_topic": "supplierportal.shipment.dispatched",
+        "output_topic": "eta.shipment.predicted",
+        "dlq_topic": "supplierportal.shipment.dispatched.dlq",
+        "seed_dir": str(SEED_SAMPLES_DIR),
+        "model_version": "eta_seed_routes/1",
+    }
+
+    with patch("confluent_kafka.Consumer", return_value=consumer), \
+         patch("src.stream_consumer.create_producer", return_value=producer), \
+         patch("src.stream_consumer.load_seed_routes", return_value=MagicMock()), \
+         patch("src.stream_consumer.load_h2_artifacts"), \
+         patch("src.stream_consumer.publish_dlq") as dlq_mock, \
+         patch("src.stream_consumer.publish_prediction") as publish_mock:
+
+        with pytest.raises(KeyboardInterrupt):
+            run(settings)
+
+    dlq_mock.assert_called_once()
+    publish_mock.assert_not_called()
+    consumer.commit.assert_called_once_with(
+        message=message,
+        asynchronous=False,
+    )
+
+def test_run_continues_on_non_fatal_kafka_error():
+    kafka_error = MagicMock()
+    kafka_error.fatal.return_value = False
+
+    error_message = MagicMock()
+    error_message.error.return_value = kafka_error
+
+    valid_message = MagicMock()
+    valid_message.value.return_value = json.dumps(VALID_EVENT).encode("utf-8")
+    valid_message.error.return_value = None
+    valid_message.topic.return_value = "supplierportal.shipment.dispatched"
+    valid_message.partition.return_value = 0
+    valid_message.offset.return_value = 16
+
+    consumer = MagicMock()
+    consumer.poll.side_effect = [
+        error_message,
+        valid_message,
+        KeyboardInterrupt,
+    ]
+
+    producer = MagicMock()
+
+    prediction = {
+        "eta_days": 4.5,
+        "confidence_low": 3.0,
+        "confidence_high": 6.0,
+        "top_features": [],
+    }
+
+    settings = {
+        "bootstrap_servers": "localhost:9092",
+        "group_id": "test-group",
+        "input_topic": "supplierportal.shipment.dispatched",
+        "output_topic": "eta.shipment.predicted",
+        "dlq_topic": "supplierportal.shipment.dispatched.dlq",
+        "seed_dir": str(SEED_SAMPLES_DIR),
+        "model_version": "eta_seed_routes/1",
+    }
+
+    with patch("confluent_kafka.Consumer", return_value=consumer), \
+         patch("src.stream_consumer.create_producer", return_value=producer), \
+         patch("src.stream_consumer.load_seed_routes", return_value=MagicMock()), \
+         patch("src.stream_consumer.load_h2_artifacts"), \
+         patch("src.stream_consumer.predict_h2", return_value=prediction), \
+         patch("src.stream_consumer.publish_prediction") as publish_mock:
+
+        with pytest.raises(KeyboardInterrupt):
+            run(settings)
+
+    publish_mock.assert_called_once()
+def test_run_stops_on_fatal_kafka_error():
+    kafka_error = MagicMock()
+    kafka_error.fatal.return_value = True
+
+    error_message = MagicMock()
+    error_message.error.return_value = kafka_error
+
+    consumer = MagicMock()
+    consumer.poll.return_value = error_message
+
+    producer = MagicMock()
+
+    settings = {
+        "bootstrap_servers": "localhost:9092",
+        "group_id": "test-group",
+        "input_topic": "supplierportal.shipment.dispatched",
+        "output_topic": "eta.shipment.predicted",
+        "dlq_topic": "supplierportal.shipment.dispatched.dlq",
+        "seed_dir": str(SEED_SAMPLES_DIR),
+        "model_version": "eta_seed_routes/1",
+    }
+
+    with patch("confluent_kafka.Consumer", return_value=consumer), \
+         patch("src.stream_consumer.create_producer", return_value=producer), \
+         patch("src.stream_consumer.load_seed_routes", return_value=MagicMock()), \
+         patch("src.stream_consumer.load_h2_artifacts"):
+
+        with pytest.raises(Exception):
+            run(settings)

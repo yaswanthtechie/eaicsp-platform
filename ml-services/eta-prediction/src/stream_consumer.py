@@ -74,7 +74,18 @@ REQUIRED_PAYLOAD_FIELDS = (
     "carrier",
     "dispatched_at",
 )
-
+def _parse_aware_datetime(value, field):
+    """Parse an ISO 8601 datetime and require a timezone (the contract's date-time format)."""
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        raise ValueError(f"Invalid {field}: expected an ISO 8601 datetime.")
+    if parsed.tzinfo is None:
+        raise ValueError(
+            f"Invalid {field}: a timezone is required, "
+            "e.g. 2026-10-15T06:30:00Z."
+        )
+    return parsed
 
 def validate_event(event):
     if not isinstance(event, dict):
@@ -102,14 +113,7 @@ def validate_event(event):
     except (ValueError, AttributeError):
         raise ValueError("Invalid event_id: expected UUID v4.")
 
-    try:
-        datetime.fromisoformat(
-            event["occurred_at"].replace("Z", "+00:00")
-        )
-    except (ValueError, AttributeError):
-        raise ValueError(
-            "Invalid occurred_at: expected an ISO 8601 datetime."
-        )
+    _parse_aware_datetime(event["occurred_at"], "occurred_at")
 
     payload = event["payload"]
 
@@ -138,17 +142,9 @@ def validate_event(event):
         if not isinstance(payload[field], str) or not payload[field].strip():
             raise ValueError(f"{field} must be a non-empty string.")
 
-    try:
-        datetime.fromisoformat(
-            payload["dispatched_at"].replace("Z", "+00:00")
-        )
-    except (ValueError, AttributeError):
-        raise ValueError(
-            "Invalid dispatched_at: expected an ISO 8601 datetime."
-        )
+    _parse_aware_datetime(payload["dispatched_at"], "dispatched_at")
 
     return event
-
 
 def build_prediction_event(event, prediction, model_version):
     """Build the eta.shipment.predicted event from a dispatched shipment."""
@@ -249,7 +245,13 @@ def run(settings):
                 continue
 
             if message.error():
-                raise KafkaException(message.error())
+                err = message.error()
+
+                if err.fatal():
+                    raise KafkaException(err)
+
+                log.warning("Kafka error, continuing: %s", err)
+                continue
 
             start_time = time.perf_counter()
 
@@ -319,6 +321,11 @@ def run(settings):
 
             deduplicator.mark_processed(event_id)
 
+            consumer.commit(
+                message=message,
+                asynchronous=False,
+            )
+
             processing_ms = (
                 time.perf_counter() - start_time
             ) * 1000
@@ -337,11 +344,6 @@ def run(settings):
                 event_id,
                 processing_ms,
                 end_to_end_ms,
-            )
-
-            consumer.commit(
-                message=message,
-                asynchronous=False,
             )
 
             log.info(

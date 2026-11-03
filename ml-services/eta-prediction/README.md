@@ -90,7 +90,21 @@ The ETA prediction service consumes `supplierportal.shipment.dispatched` events,
 - Prediction event construction
 - Kafka publisher behavior
 
-The complete ETA service test suite passes with 219 tests.
+The complete ETA service test suite passes with 225 tests.
+
+## Running the ETA consumer (eta-consumer)
+
+The consumer loads the full seed at startup. Generate it once before `docker compose up`:
+
+    cd data-platform && python -m seed.generate --out seed/out/ && cd ..
+    docker compose -f infra/docker-compose.yml up -d kafka eta-consumer
+
+If `data-platform/seed/out/` is missing, the container exits with `FileNotFoundError`.
+
+Known limitation: duplicate `event_id`s are remembered in memory only (last 10,000).
+After a restart, a message that was published but not yet committed can be predicted
+again. The `eta.shipment.predicted` contract allows this: consumers keep the latest
+`predicted_at` per `shipment_id`.
 
 ## Round 14 Evaluation
 
