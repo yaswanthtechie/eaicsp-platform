@@ -13,7 +13,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 
-
 class ServiceAPIKey(Base):
     __tablename__ = "service_api_keys"
     __table_args__ = (

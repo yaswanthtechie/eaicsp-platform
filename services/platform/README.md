@@ -3985,4 +3985,3 @@ make seed
 4. **Headers Only:** Never pass service API keys in URL query strings, request bodies, or path parameters where they could be logged by HTTP proxies.
 5. **No Token Confusion:** Never use a user's JWT access token as a service API key, or pass service API keys to user-facing endpoints (`/api/v1/auth/verify`). User authentication and service-to-service authentication are strictly separated.
 6. **Hash-Only Storage:** Platform Service database stores only SHA-256 hashes. Plaintext keys are never stored in the database.
-
