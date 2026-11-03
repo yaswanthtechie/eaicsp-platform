@@ -1,4 +1,8 @@
-FROM python:3.12-slim
+FROM python:3.14-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    NUMBA_CACHE_DIR=/tmp/numba_cache \
+    MPLCONFIGDIR=/tmp/matplotlib
 
 WORKDIR /app/ml-services/eta-prediction
 
@@ -9,7 +13,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY ml-services/eta-prediction/src src
 COPY ml-services/eta-prediction/models models
-COPY ml-services/eta-prediction/data data
+
+# Fallback route table. Compose mounts the full seed over ETA_SEED_DIR.
+COPY data-platform/seed/samples /app/data-platform/seed/samples
 
 RUN useradd --create-home --uid 10001 app
 USER app

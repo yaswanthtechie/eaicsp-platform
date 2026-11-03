@@ -404,12 +404,16 @@ services:
     command: ["python", "-m", "src.stream_consumer"]
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      ETA_SEED_DIR: /app/data-platform/seed/out
+    volumes:
+      - ../data-platform/seed/out:/app/data-platform/seed/out:ro
     depends_on:
       kafka:
         condition: service_healthy
     restart: on-failure
     networks:
       - shared
+
   anomaly-simulator:
     build:
       context: ..
