@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const AUTH_BASE_URL =
-  process.env.VITE_AUTH_BASE_URL ?? "http://127.0.0.1:8005";
+  process.env.VITE_AUTH_BASE_URL || "http://127.0.0.1:8005";
 
 async function loginToPlatform(request: APIRequestContext) {
   const username = process.env.E2E_USERNAME ?? "ceo@company.com";
@@ -107,12 +107,12 @@ test("shows the K3 anomaly alert within 10 seconds", async ({ page, request }) =
   const tokens = useRealBackend
     ? await loginToPlatform(request)
     : {
-        accessToken: mockToken(), 
+        accessToken: mockToken(),
         refreshToken: "mock-refresh-token",
       };
  
   const configuredWsUrl =
-    process.env.VITE_ALERTS_WS_URL ??
+    process.env.VITE_ALERTS_WS_URL ||
     (useRealBackend
       ? "ws://localhost:8000/api/v1/analytics/kpis/real-time"
       : "ws://localhost:8080");
@@ -132,6 +132,31 @@ test("shows the K3 anomaly alert within 10 seconds", async ({ page, request }) =
           role: "ceo",
         }),
       );
+
+      const anomalyEpisodes: string[] = [];
+      (window as Window & { __c3AnomalyEpisodes?: string[] }).__c3AnomalyEpisodes =
+        anomalyEpisodes;
+
+      const recordAnomaly = (raw: unknown) => {
+        try {
+          const data: unknown = JSON.parse(String(raw));
+          if (
+            typeof data === "object" &&
+            data !== null &&
+            "event_type" in data &&
+            data.event_type === "iot.anomaly.detected" &&
+            "payload" in data &&
+            typeof data.payload === "object" &&
+            data.payload !== null &&
+            "episode_id" in data.payload &&
+            typeof data.payload.episode_id === "string"
+          ) {
+            anomalyEpisodes.push(data.payload.episode_id);
+          }
+        } catch {
+          // Not JSON: ignore.
+        }
+      };
 
       const NativeWebSocket = window.WebSocket;
 
@@ -166,6 +191,10 @@ test("shows the K3 anomaly alert within 10 seconds", async ({ page, request }) =
                 "c3_gateway_ws_state",
                 `closed:${event.code}`,
               );
+            });
+
+            this.addEventListener("message", (event: MessageEvent) => {
+              recordAnomaly(event.data);
             });
           }
         }
@@ -208,14 +237,18 @@ test("shows the K3 anomaly alert within 10 seconds", async ({ page, request }) =
     .toBe("open");
 
 
-  const initialAlertCount = await alert.count();
   const output: string[] = [];
+  const startedAt = Date.now();
+  const remainingMs = () =>
+    Math.max(ALERT_TIMEOUT_MS - (Date.now() - startedAt), 1);
 
-  const demo = spawn("make", ["demo-anomaly",`PYTHON="${process.env.PYTHON ?? "python"}"`], {
+  // Fixed command, no user input: shell is safe here.
+  const demo = spawn("make demo-anomaly", {
       cwd: repoRoot,
-      shell: process.platform === "win32",
+      shell: true,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, PYTHONUNBUFFERED: "1" },
   });
 
   demo.stdout?.setEncoding("utf8");
@@ -224,18 +257,48 @@ test("shows the K3 anomaly alert within 10 seconds", async ({ page, request }) =
   demo.stdout?.on("data", (chunk: string) => output.push(chunk));
   demo.stderr?.on("data", (chunk: string) => output.push(chunk));
 
-  const alertPromise = expect(alert).toHaveCount(
-    initialAlertCount + 1,
-    { timeout: ALERT_TIMEOUT_MS },
-  );
-
   const demoExit = waitForProcessExit(
     demo,
     DEMO_EXIT_TIMEOUT_MS,
   );
 
   try {
-    await alertPromise;
+    // The demo prints "injecting episode on <sensor_id>" before publishing.
+    let sensorId = "";
+    await expect
+      .poll(
+        () => {
+          sensorId =
+            /injecting episode on (\S+)/.exec(output.join(""))?.[1] ?? "";
+          return sensorId;
+        },
+        {
+          timeout: remainingMs(),
+          message: "make demo-anomaly did not report its sensor",
+        },
+      )
+      .not.toBe("");
+
+    // This demo's episode (episode_id = "<sensor_id>|<time>") must reach the dashboard.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            (prefix) =>
+              (
+                window as Window & { __c3AnomalyEpisodes?: string[] }
+              ).__c3AnomalyEpisodes?.some((id) => id.startsWith(prefix)) ??
+              false,
+            `${sensorId}|`,
+          ),
+        {
+          timeout: remainingMs(),
+          message: "the demo's anomaly did not reach the dashboard WebSocket",
+        },
+      )
+      .toBe(true);
+
+    await expect(alert.first()).toBeVisible({ timeout: remainingMs() });
 
     const exitCode = await demoExit;
 

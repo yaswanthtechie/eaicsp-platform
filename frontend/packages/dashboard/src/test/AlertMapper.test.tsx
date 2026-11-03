@@ -101,18 +101,20 @@ describe("mapAnalyticsEventToAlert", () => {
     expect(result?.message).toContain("ABC Suppliers");
   });
 
-  it("maps eta.shipment.predicted high_risk to warning", () => {
+  it("maps eta.shipment.predicted to info", () => {
     const result = mapAnalyticsEventToAlert(
       createEvent("eta.shipment.predicted", {
         shipment_id: "SHP-2026-000077",
+        po_number: "PO-2026-000123",
         eta_days: 4,
-        delay_risk: "high_risk",
-        message: "Shipment may arrive later than scheduled",
+        predicted_at: "2026-10-15T06:31:04Z",
       }),
     );
 
     expect(result?.type).toBe("shipment-eta-update");
     expect(result?.severity).toBe("info");
+    expect(result?.shipmentId).toBe("SHP-2026-000077");
+    expect(result?.predictedAt).toBe("2026-10-15T06:31:04Z");
   });
 
   it("maps forecast.batch.completed SUCCESS to success", () => {

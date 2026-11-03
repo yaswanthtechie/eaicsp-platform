@@ -18,3 +18,4 @@ describe("mergeAlert", () => {
     expect(mergeAlert(prev, eta("a", "2026-10-15T06:00:00Z"))).toBe(prev);
   });
 });
+

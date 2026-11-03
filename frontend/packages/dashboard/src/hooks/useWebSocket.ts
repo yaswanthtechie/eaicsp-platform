@@ -14,6 +14,8 @@ interface UseWebSocketOptions {
   onError?: (error: Event) => void;
   autoReconnect?: boolean;
   maxRetries?: number;
+  /** false = connect without a token (mock auth only). */
+  requireToken?: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -79,6 +81,7 @@ export function useWebSocket({
   onError,
   autoReconnect = true,
   maxRetries = 5,
+  requireToken = true,
 }: UseWebSocketOptions) {
   const [connected, setConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -168,10 +171,9 @@ export function useWebSocket({
 
       let socket: WebSocket;
       try {
-        const session = getAuthSession();
-        const token = session?.access_token;
+        const token = getAuthSession()?.access_token;
 
-        if (!token) {
+        if (!token && requireToken) {
           console.error("[C3 WS] No valid access token. Connection skipped.");
           setConnected(false);
           setIsConnecting(false);
@@ -179,11 +181,15 @@ export function useWebSocket({
           return;
         }
         const wsUrl = new URL(url);
-        wsUrl.searchParams.set("token", token);
+
+        if (token) {
+          wsUrl.searchParams.set("token", token);
+        }
         
         socket = new WebSocket(wsUrl.toString());
-      } catch (error:unknown) {
-        console.error("[C3 WS] Connection creation failed:", error);
+      } catch {
+        // Don't log the error object because its message can contain the token.
+        console.error("[C3 WS] Could not create the WebSocket connection.");
         setConnected(false);
         setIsConnecting(false);
 
@@ -258,6 +264,8 @@ export function useWebSocket({
       };
 
       socket.onclose = (event: CloseEvent) => {
+        if (isUnmounted) return;
+        
         if (event.code !== 1000 && event.code !== 1001) {
           console.warn("[C3 WS] Gateway WebSocket closed:", {
             code: event.code,
@@ -321,7 +329,7 @@ export function useWebSocket({
         socket.close(1000, "Component unmounted");
       }
     };
-  }, [url, autoReconnect, maxRetries]);
+  }, [url, autoReconnect, maxRetries, requireToken]);
 
   return { connected, isConnecting, failed, retryConnection };
 }

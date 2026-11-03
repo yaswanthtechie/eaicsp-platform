@@ -415,4 +415,17 @@ describe("useWebSocket", () => {
     });
     expect(onMessage).toHaveBeenCalledTimes(1);
   });
+
+  it("connects without a token when requireToken is false", () => {
+    vi.mocked(getAuthSession).mockReturnValueOnce(null);
+    renderHook(() =>
+      useWebSocket({
+        url: "ws://localhost:8080",
+        onMessage: vi.fn(),
+        requireToken: false,
+      }),
+    );
+    expect(sockets).toHaveLength(1);
+    expect(new URL(sockets[0].url).searchParams.has("token")).toBe(false);
+  });
 });

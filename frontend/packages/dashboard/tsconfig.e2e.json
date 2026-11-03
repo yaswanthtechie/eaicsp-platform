@@ -8,5 +8,5 @@
     "noEmit": true,
     "strict": true
   },
-  "include": ["e2e/**/*.ts", "playwright.config.ts"]
+  "include": ["e2e/**/*.ts", "playwright.config.ts", "playwright.c3.config.ts"]
 }

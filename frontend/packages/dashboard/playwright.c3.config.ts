@@ -25,7 +25,7 @@ export default defineConfig({
         process.env.VITE_AUTH_BASE_URL ?? "http://127.0.0.1:8005",
       VITE_USE_MOCK_WS: useRealBackend ? "false" : "true",
       VITE_ALERTS_WS_URL: useRealBackend
-        ? (process.env.VITE_ALERTS_WS_URL ??
+        ? (process.env.VITE_ALERTS_WS_URL ||
           "ws://localhost:8000/api/v1/analytics/kpis/real-time")
         : "ws://localhost:8080",
     },

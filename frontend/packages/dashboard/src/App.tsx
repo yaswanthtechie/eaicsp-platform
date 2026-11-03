@@ -125,6 +125,7 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
     () => authRole ?? roleFromUrl(),
   );
   const [alerts, setAlerts] = useState<AlertMessage[]>([]);
+  const latestEtaRef = useRef(new Map<string, number>());
   const [liveInventory, setLiveInventory] =
     useState<InventoryItem[]>(() => dashboardData?.dashboard.inventory ?? []);
   const isOnline = useOnlineStatus();
@@ -217,7 +218,23 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
         return;
       }
 
-    setAlerts((prev) => mergeAlert(prev, data));
+      if (
+        data.type === "shipment-eta-update" &&
+        data.shipmentId &&
+        data.predictedAt
+      ) {
+        const predictedAt = Date.parse(data.predictedAt);
+        const latest = latestEtaRef.current.get(data.shipmentId);
+        if (
+          !Number.isFinite(predictedAt) ||
+          (latest !== undefined && predictedAt <= latest)
+        ) {
+          return;
+        }
+        latestEtaRef.current.set(data.shipmentId, predictedAt);
+      }
+
+      setAlerts((prev) => mergeAlert(prev, data));
   },
   [],
 );
@@ -257,6 +274,7 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
     onMessage: handleMessage,
     autoReconnect: true,
     maxRetries: 5,
+    requireToken: !USE_MOCK_AUTH,
   });
   const effectiveWarehouse =
     role === "warehouse_manager"
