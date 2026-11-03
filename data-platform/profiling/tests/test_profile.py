@@ -1,7 +1,7 @@
 import unittest
 import pandas as pd
 
-from src.profile import profile, detect_pii
+from src.profile import profile, detect_pii, _finding_row
 
 
 class TestProfile(unittest.TestCase):
@@ -76,7 +76,21 @@ def test_empty_dataset_report_is_consumable_downstream(tmp_path):
         
     assert report["quality_score"]["score"] == 100.0
     assert report["earliest_date"] is None
-    
+
+
+def test_finding_row_without_normal_rate_has_no_percent_sign():
+    row = _finding_row({"column": "qty", "issue": "Other outliers", "outlier_row_rate": 12.5})
+    assert "N/A%" not in row
+    assert "<td>N/A</td>" in row
+    assert "12.5%" in row
+
+
+def test_finding_row_with_rates():
+    row = _finding_row({"column": "qty", "issue": "Missing values",
+                        "outlier_row_rate": 10.0, "normal_row_rate": 2.0, "likelihood": 5.0})
+    assert "2.0%" in row and "5.0x" in row
+
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eaicsp.platform/contracts/events/supplierrisk.score.changed.v1.json",
+  "title": "supplierrisk.score.changed",
+  "description": "Published by supplier-risk when a supplier's accepted risk tier changes (after hysteresis and the evidence rule). Topic = event_type, partition key = payload.supplier_id. At-least-once delivery: consumers de-duplicate on event_id. Tiers are lowercase; the API's Critical maps to high.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event_id", "event_type", "event_version", "occurred_at", "producer", "payload"],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "description": "UUID v4, unique per published event."
+    },
+    "event_type": { "const": "supplierrisk.score.changed" },
+    "event_version": { "type": "integer", "const": 1 },
+    "occurred_at": { "type": "string", "format": "date-time", "description": "UTC time of the tier change." },
+    "producer": { "const": "supplier-risk-service" },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "supplier", "supplier_id", "previous_tier", "new_tier",
+        "risk_score", "supporting_articles", "evidence_count", "explanation"
+      ],
+      "properties": {
+        "supplier": { "type": "string", "minLength": 1, "description": "Supplier name as seen in the evidence." },
+        "supplier_id": { "type": "string", "pattern": "^SUP-[0-9]{5}$", "description": "Canonical supplier ID." },
+        "previous_tier": { "type": "string", "enum": ["low", "medium", "high"] },
+        "new_tier": { "type": "string", "enum": ["low", "medium", "high"] },
+        "risk_score": { "type": "number", "minimum": 0, "maximum": 100 },
+        "supporting_articles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["headline"],
+            "properties": {
+              "headline": { "type": "string", "minLength": 1 },
+              "date": { "type": "string" },
+              "score": { "type": "number", "minimum": 0, "maximum": 100 }
+            }
+          }
+        },
+        "evidence_count": { "type": "integer", "minimum": 0 },
+        "explanation": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

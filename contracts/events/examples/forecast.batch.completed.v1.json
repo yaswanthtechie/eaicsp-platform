@@ -1,0 +1,22 @@
+{
+  "event_id": "9a38f712-4011-48e0-bb15-381029c77154",
+  "event_type": "forecast.batch.completed",
+  "event_version": 1,
+  "occurred_at": "2026-10-15T06:15:30Z",
+  "producer": "demand-forecast-service",
+  "payload": {
+    "run_id": "BATCH-20261015-01",
+    "model_version": "demand_forecast/4",
+    "granularity": "daily",
+    "sku_count": 500,
+    "warehouse_count": 6,
+    "horizon": 30,
+    "completed_at": "2026-10-15T06:15:28Z",
+    "status": "SUCCESS",
+    "metrics": { "mape": 0.118, "wape": 0.094, "rmse": 24.5 },
+    "duration_seconds": 142.6,
+    "destination_mart": "clickhouse.demand_forecast_history",
+    "message": "Daily demand forecast BATCH-20261015-01 completed for 500 SKUs across 6 warehouses (MAPE 11.8%)."
+  }
+  
+}

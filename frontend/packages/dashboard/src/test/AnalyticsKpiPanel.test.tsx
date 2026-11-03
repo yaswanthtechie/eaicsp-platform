@@ -236,4 +236,50 @@ describe("AnalyticsKpiPanel", () => {
       screen.getByText("KPI service unavailable"),
     ).toBeInTheDocument();
   });
+
+  it("displays 'No data' and does not display '0%' when current_rate is null", async () => {
+    const kpiDataWithNullRate: AnalyticsKpi[] = [
+      {
+        title: "Order Fill Rate",
+        value: null,
+        format: "percent",
+        status: "no_data",
+      },
+      {
+        title: "Inventory Stockouts",
+        value: 14,
+        format: "number",
+      },
+      {
+        title: "Open Purchase Orders",
+        value: 42,
+        format: "number",
+      },
+      {
+        title: "On-Time Delivery",
+        value: null,
+        format: "percent",
+        status: "no_data",
+      },
+    ];
+
+    apiMocks.mapKpiResponse.mockReturnValue(kpiDataWithNullRate);
+
+    render(<AnalyticsKpiPanel />);
+
+    expect(
+      await screen.findByRole("article", {
+        name: "Order Fill Rate: No data",
+      }),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByRole("article", {
+        name: "On-Time Delivery: No data",
+      }),
+    ).toBeInTheDocument();
+
+    expect(screen.queryByText("0%")).not.toBeInTheDocument();
+    expect(screen.getAllByText("No data")).toHaveLength(2);
+  });
 });
