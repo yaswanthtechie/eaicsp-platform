@@ -30,11 +30,22 @@ async function loginToPlatform(request: APIRequestContext) {
     `Platform login failed: ${response.status()}`,
   ).toBe(true);
 
-  const body = await response.json();
+  const body: unknown = await response.json();
+
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    !("access_token" in body) ||
+    typeof body.access_token !== "string" ||
+    !("refresh_token" in body) ||
+    typeof body.refresh_token !== "string"
+  ) {
+    throw new Error("Platform login returned an unexpected body.");
+  }
 
   return {
-    accessToken: body.access_token as string,
-    refreshToken: body.refresh_token as string,
+    accessToken: body.access_token,
+    refreshToken: body.refresh_token,
   };
 }
 
@@ -99,7 +110,14 @@ async function stopProcess(child: ChildProcess): Promise<void> {
       resolveStop();
     });
 
-    child.kill();
+    if (process.platform === "win32" && child.pid !== undefined) {
+      // shell: true -> kill the whole tree (cmd.exe, make, python), not only cmd.exe.
+      spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+        windowsHide: true,
+      });
+    } else {
+      child.kill();
+    }
   });
 }
 
@@ -261,6 +279,9 @@ test("shows the K3 anomaly alert within 10 seconds", async ({ page, request }) =
     demo,
     DEMO_EXIT_TIMEOUT_MS,
   );
+
+  // Mark as handled; the try block still awaits it and sees the real result.
+  demoExit.catch(() => undefined);
 
   try {
     // The demo prints "injecting episode on <sensor_id>" before publishing.

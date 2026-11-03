@@ -235,9 +235,9 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
       }
 
       setAlerts((prev) => mergeAlert(prev, data));
-  },
-  [],
-);
+    },
+    [],
+  );
   const removeAlert = useCallback((id: string) => {
     setAlerts((prev) =>
       prev.filter((alert) => alert.id !== id),
@@ -270,7 +270,9 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
     failed,
     retryConnection,
   } = useWebSocket({
-    url: import.meta.env.VITE_ALERTS_WS_URL || "ws://localhost:8080",
+    url:
+      import.meta.env.VITE_ALERTS_WS_URL ||
+      (import.meta.env.VITE_USE_MOCK_WS === "true" ? "ws://localhost:8080" : ""),
     onMessage: handleMessage,
     autoReconnect: true,
     maxRetries: 5,

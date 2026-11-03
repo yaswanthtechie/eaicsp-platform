@@ -7,6 +7,7 @@ APP_SERVICES = platform compliance inventory logistics supplier-portal api-gatew
 PYTHON ?= python
 
 .PHONY: up down up-low-memory down-low-memory buckets seed e2e demo-anomaly logs ps reset reset-data e2e-alerts
+
 # Start infrastructure, create buckets, then start applications.
 up:
 	$(FULL_COMPOSE) up -d --wait $(STORES)

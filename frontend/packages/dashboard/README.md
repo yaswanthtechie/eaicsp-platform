@@ -1218,7 +1218,7 @@ Test verification completed successfully.
 * Vitest: 23 test files, 193/193 tests passed
 * Playwright Dashboard E2E: 4/4 tests passed
 * Authentication E2E: 14/14 passed with valid credentials.
-* Live Alerts Websokcet: 1/1 test  passed.
+* Live Alerts WebSokcet: 1/1 test  passed.
 * Total: 212 tests passed across the three reported test groups.
 
 The authentication tests are run separately using

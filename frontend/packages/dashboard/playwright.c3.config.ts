@@ -17,12 +17,13 @@ export default defineConfig({
   webServer: {
     command: "npm run dev -- --host localhost --port 5173 --strictPort",
     url: "http://localhost:5173",
-    reuseExistingServer: !process.env.CI,
+    // Always start our own server: the env below must win over a running `npm run dev`.
+    reuseExistingServer: false,
     timeout: 180_000,
     env: {
       VITE_USE_MOCK_AUTH: "false",
       VITE_AUTH_BASE_URL:
-        process.env.VITE_AUTH_BASE_URL ?? "http://127.0.0.1:8005",
+        process.env.VITE_AUTH_BASE_URL || "http://127.0.0.1:8005",
       VITE_USE_MOCK_WS: useRealBackend ? "false" : "true",
       VITE_ALERTS_WS_URL: useRealBackend
         ? (process.env.VITE_ALERTS_WS_URL ||

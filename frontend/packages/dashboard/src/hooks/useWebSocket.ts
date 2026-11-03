@@ -258,14 +258,15 @@ export function useWebSocket({
 
       socket.onerror = (error: Event) => {
         if (isUnmounted) return;
-
-        console.error("[C3 WS] Gateway WebSocket error:", error);
+        
+        // Don't log the event: event.target.url contains the token.
+        console.error("[C3 WS] Gateway WebSocket error:");
         onErrorRef.current?.(error);
       };
 
       socket.onclose = (event: CloseEvent) => {
         if (isUnmounted) return;
-        
+
         if (event.code !== 1000 && event.code !== 1001) {
           console.warn("[C3 WS] Gateway WebSocket closed:", {
             code: event.code,
