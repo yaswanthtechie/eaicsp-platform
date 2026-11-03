@@ -35,6 +35,7 @@ import ExportPdfButton from "./components/export/ExportPdfButton";
 import Skeleton from "./components/Skeleton";
 import KpiGrid from "./components/KpiGrid";
 import OfflineBanner from "./components/OfflineBanner";
+import { mergeAlert } from "./utils/mergeAlert";
 import AnalyticsKpiPanel from "./components/AnalyticsKpiPanel";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { useWebSocket } from "./hooks/useWebSocket";
@@ -216,48 +217,7 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
         return;
       }
 
-      setAlerts((prev) => {
-        if (data.type !== "shipment-eta-update") {
-          return [data, ...prev];
-        }
-
-        if (!data.shipmentId  || !data.predictedAt) {
-          return [data, ...prev]
-        }
-        const incomingTime = Date.parse(data.predictedAt);
-
-        if (!Number.isFinite(incomingTime)) {
-          return prev;
-        }
-
-        const existing = prev.find(
-          (alert) =>
-            alert.type === "shipment-eta-update" &&
-            alert.shipmentId === data.shipmentId,
-        );
-
-        if (existing?.predictedAt) {
-          const existingTime = Date.parse(existing.predictedAt);
-
-        if (
-          Number.isFinite(existingTime) &&
-          incomingTime <= existingTime
-        ) {
-          return prev;
-        }
-      }
-
-      return [
-        data,
-        ...prev.filter(
-          (alert) =>
-            !(
-              alert.type === "shipment-eta-update" &&
-              alert.shipmentId === data.shipmentId
-            ),
-        ),
-      ];
-    });
+    setAlerts((prev) => mergeAlert(prev, data));
   },
   [],
 );

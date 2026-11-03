@@ -13,7 +13,7 @@
     "preview": "vite preview",
     "test:e2e": "playwright test -c playwright.config.ts",
     "test:e2e:auth": "playwright test -c playwright.auth.config.ts",
-    "test:e2e:alerts": "playwright test -c playwright.c3.config.ts e2e/live-alerts.spec.ts",
+    "test:e2e:alerts": "playwright test -c playwright.c3.config.ts",
     "test:all": "npm run test && npm run test:e2e"
   },
   "dependencies": {

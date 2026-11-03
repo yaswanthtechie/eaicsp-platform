@@ -1,6 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useWebSocket } from "../hooks/useWebSocket";
+import { getAuthSession } from "../api/auth";
 
 vi.mock("../api/auth", () => ({
   getAuthSession: vi.fn(() => ({
@@ -381,5 +382,37 @@ describe("useWebSocket", () => {
     });
 
     expect(onMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not connect and shows failed when there is no token", () => {
+    vi.mocked(getAuthSession).mockReturnValueOnce(null);
+    const { result } = renderHook(() =>
+      useWebSocket({ url: "ws://localhost:8080", onMessage: vi.fn() }),
+    );
+    expect(sockets).toHaveLength(0);
+    expect(result.current.failed).toBe(true);
+  });
+
+  it("delivers one alert per anomaly episode", () => {
+    const onMessage = vi.fn();
+    renderHook(() => useWebSocket({ url: "ws://localhost:8080", onMessage }));
+    const base = {
+      event_type: "iot.anomaly.detected",
+      event_version: 1,
+      occurred_at: "2026-10-15T10:46:12Z",
+      producer: "anomaly-detection-service",
+      payload: {
+        episode_id: "WH-BLR-01-S1|2026-10-15T10:05:00+00:00",
+        warehouse_id: "WH-BLR-01",
+        severity: "high",
+        message: "Temperature unusually high",
+      },
+    };
+    act(() => {
+      sockets[0].onopen?.();
+      sockets[0].onmessage?.({ data: JSON.stringify({ ...base, event_id: crypto.randomUUID() }) } as MessageEvent);
+      sockets[0].onmessage?.({ data: JSON.stringify({ ...base, event_id: crypto.randomUUID() }) } as MessageEvent);
+    });
+    expect(onMessage).toHaveBeenCalledTimes(1);
   });
 });

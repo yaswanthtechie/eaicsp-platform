@@ -5,8 +5,7 @@ LOW_MEMORY_COMPOSE = $(COMPOSE) -f infra/docker-compose.low-memory.yml
 STORES = postgres kafka redis clickhouse mongodb minio influxdb mlflow
 APP_SERVICES = platform compliance inventory logistics supplier-portal api-gateway
 
-.PHONY: up down up-low-memory down-low-memory buckets seed e2e demo-anomaly logs ps reset reset-data
-
+.PHONY: up down up-low-memory down-low-memory buckets seed e2e demo-anomaly logs ps reset reset-data e2e-alerts
 # Start infrastructure, create buckets, then start applications.
 up:
 	$(FULL_COMPOSE) up -d --wait $(STORES)
@@ -58,5 +57,12 @@ e2e:
 # Inject one anomaly episode and measure how long the event takes to reach
 # iot.anomaly.detected. Needs the stack up and anomaly-detector running
 # (logs show 'consumer ready'). Kafka is reached on the host at localhost:29092.
+
+PYTHON ?= python
+
 demo-anomaly:
-	cd ml-services/anomaly-detection && python -m src.demo_anomaly
+	cd ml-services/anomaly-detection && "$(PYTHON)" -m src.demo_anomaly
+
+# Live dashboard loop: needs make up && make seed and E2E_PASSWORD set.
+e2e-alerts:
+	cd frontend/packages/dashboard && npm run test:e2e:alerts

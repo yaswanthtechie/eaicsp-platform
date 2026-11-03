@@ -1,22 +1,59 @@
 import "dotenv/config";
-import { test, expect } from "@playwright/test";
+import { test, expect, type APIRequestContext } from "@playwright/test";
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+const AUTH_BASE_URL =
+  process.env.VITE_AUTH_BASE_URL ?? "http://127.0.0.1:8005";
+
+async function loginToPlatform(request: APIRequestContext) {
+  const username = process.env.E2E_USERNAME ?? "ceo@company.com";
+  const password = process.env.E2E_PASSWORD;
+
+  if (!password) {
+    throw new Error(
+      "Set E2E_PASSWORD (the seeded CEO_PASSWORD) for real mode.",
+    );
+  }
+
+  const response = await request.post(
+    `${AUTH_BASE_URL}/api/v1/auth/login`,
+    {
+      form: { username, password },
+    },
+  );
+
+  expect(
+    response.ok(),
+    `Platform login failed: ${response.status()}`,
+  ).toBe(true);
+
+  const body = await response.json();
+
+  return {
+    accessToken: body.access_token as string,
+    refreshToken: body.refresh_token as string,
+  };
+}
+
 const repoRoot = resolve(
   fileURLToPath(new URL("../../../../", import.meta.url)),
 );
 
-const anomalyDir = resolve(
-  repoRoot,
-  "ml-services",
-  "anomaly-detection",
-);
-
-const runLiveAlerts = process.env.RUN_LIVE_ALERTS_E2E === "true";
 const useRealBackend = process.env.ALERTS_E2E_MODE === "real";
+
+function mockToken(): string {
+  const payload = Buffer.from(
+    JSON.stringify({
+      role: "ceo",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    }),
+  ).toString("base64url");
+
+  return `test.${payload}.signature`;
+}
 
 const ALERT_TIMEOUT_MS = 10_000;
 const DEMO_EXIT_TIMEOUT_MS = 30_000;
@@ -66,21 +103,14 @@ async function stopProcess(child: ChildProcess): Promise<void> {
   });
 }
 
-test("shows the K3 anomaly alert within 10 seconds", async ({ page }) => {
-  test.skip(
-    !runLiveAlerts,
-    "Set RUN_LIVE_ALERTS_E2E=true to run the alert test.",
-  );
-
-  const accessToken = process.env.E2E_ACCESS_TOKEN;
-  const refreshToken = process.env.E2E_REFRESH_TOKEN;
-
-  if (useRealBackend && (!accessToken || !refreshToken)) {
-    throw new Error(
-      "Real mode requires E2E_ACCESS_TOKEN and E2E_REFRESH_TOKEN from a successful platform login.",
-    );
-  }
-
+test("shows the K3 anomaly alert within 10 seconds", async ({ page, request }) => {
+  const tokens = useRealBackend
+    ? await loginToPlatform(request)
+    : {
+        accessToken: mockToken(), 
+        refreshToken: "mock-refresh-token",
+      };
+ 
   const configuredWsUrl =
     process.env.VITE_ALERTS_WS_URL ??
     (useRealBackend
@@ -89,27 +119,15 @@ test("shows the K3 anomaly alert within 10 seconds", async ({ page }) => {
 
   const expectedWsUrl = new URL(configuredWsUrl);
 
-  const token = useRealBackend
-    ? accessToken!
-    : (() => {
-        const payload = Buffer.from(
-          JSON.stringify({
-            role: "ceo",
-            exp: Math.floor(Date.now() / 1000) + 3600,
-          }),
-        ).toString("base64url");
-
-        return `test.${payload}.signature`;
-      })();
 
   // Seed authentication and monitor the actual application WebSocket.
   await page.addInitScript(
-    ({ token: sessionToken, refreshToken: sessionRefreshToken, gatewayPath }) => {
+    ({ accessToken, refreshToken, gatewayPath }) => {
       sessionStorage.setItem(
         "dashboard_auth",
         JSON.stringify({
-          access_token: sessionToken,
-          refresh_token: sessionRefreshToken,
+          access_token: accessToken,
+          refresh_token: refreshToken,
           token_type: "bearer",
           role: "ceo",
         }),
@@ -156,10 +174,8 @@ test("shows the K3 anomaly alert within 10 seconds", async ({ page }) => {
       window.WebSocket = MonitoredWebSocket;
     },
     {
-      token,
-      refreshToken: useRealBackend
-        ? refreshToken!
-        : "mock-refresh-token",
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
       gatewayPath: expectedWsUrl.pathname,
     },
   );
@@ -191,23 +207,16 @@ test("shows the K3 anomaly alert within 10 seconds", async ({ page }) => {
     )
     .toBe("open");
 
-  const python =
-    process.platform === "win32"
-      ? resolve(anomalyDir, ".venv", "Scripts", "python.exe")
-      : resolve(anomalyDir, ".venv", "bin", "python");
 
   const initialAlertCount = await alert.count();
   const output: string[] = [];
 
-  const demo = spawn(
-    python,
-    ["-m", "src.demo_anomaly"],
-    {
-      cwd: anomalyDir,
+  const demo = spawn("make", ["demo-anomaly",`PYTHON="${process.env.PYTHON ?? "python"}"`], {
+      cwd: repoRoot,
+      shell: process.platform === "win32",
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
+  });
 
   demo.stdout?.setEncoding("utf8");
   demo.stderr?.setEncoding("utf8");

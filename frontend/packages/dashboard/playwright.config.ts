@@ -2,7 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./e2e",
-  testIgnore: "dashboard.auth.spec.ts",
+  testIgnore: ["dashboard.auth.spec.ts", "live-alerts.spec.ts"],
   use: {
     baseURL: "http://localhost:4173",
     headless: true,

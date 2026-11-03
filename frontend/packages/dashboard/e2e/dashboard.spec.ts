@@ -155,7 +155,7 @@ test("goes offline, reloads, and still shows the last snapshot", async ({ page, 
   // Server is back: remove the failing route and retry.
   await page.unroute("**/graphql");
 
-  await page.getByRole("button", { name: "Retry" }).click();
+  await page.getByRole("button", { name: "Retry", exact: true }).click();
 
   await expect(
     page.getByText(/Couldn't reach the server/),

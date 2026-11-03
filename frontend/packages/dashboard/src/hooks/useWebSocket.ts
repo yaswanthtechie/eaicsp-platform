@@ -258,13 +258,12 @@ export function useWebSocket({
       };
 
       socket.onclose = (event: CloseEvent) => {
-        if (isUnmounted) return;
-
-      console.error("[C3 WS] Gateway WebSocket closed:", {
-        code: event.code,
-        reason: event.reason,
-        wasClean: event.wasClean,
-      });
+        if (event.code !== 1000 && event.code !== 1001) {
+          console.warn("[C3 WS] Gateway WebSocket closed:", {
+            code: event.code,
+            reason: event.reason,
+          });
+        }
 
         socketRef.current = null;
         setConnected(false);

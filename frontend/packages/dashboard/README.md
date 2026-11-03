@@ -1215,11 +1215,11 @@ npm run test:e2e
 
 Test verification completed successfully.
 
-* Vitest: 22 test files, 188/188 tests passed
+* Vitest: 23 test files, 192/192 tests passed
 * Playwright Dashboard E2E: 4/4 tests passed
 * Authentication E2E: 14/14 passed with valid credentials.
 * Live Alerts Websokcet: 1/1 test  passed.
-* Total: 207 tests passed across the three reported test groups.
+* Total: 211 tests passed across the three reported test groups.
 
 The authentication tests are run separately using
 npm run test:e2e:auth.
@@ -1389,7 +1389,7 @@ The current hook exposes a failure state for authentication errors. Automatic to
 The real-time alert flow was tested using the backend anomaly demonstration command:
 
 ```powershell
-python -m src.demo_anomaly
+make demo-anomaly
 ```
 
 This triggers a simulated cold-chain anomaly event through the backend event pipeline.
@@ -1425,7 +1425,6 @@ The dedicated configuration is:
 Run the C3 real-mode test from `frontend/packages/dashboard`:
 
 ```powershell
-$env:RUN_LIVE_ALERTS_E2E = "true"
 $env:ALERTS_E2E_MODE = "real"
 npm run test:e2e:alerts
 ```
@@ -1452,3 +1451,52 @@ This keeps development testing separate from real gateway integration testing.
 The dashboard now supports both mock WebSocket events for development and real gateway WebSocket events for integration testing.
 
 The C3 Playwright test verifies the complete anomaly alert path, from triggering the backend demonstration to displaying the resulting alert in the Executive Dashboard.
+
+The C3 Playwright test can be executed using a single command from the repository root.
+
+**Prerequisites**
+
+- Docker services must be running.
+- Seed data must be available.
+- The seeded CEO account password must be configured in `E2E_PASSWORD`.
+- The Analytics Gateway WebSocket must be accessible.
+
+**Start the environment and seed data**
+
+```bash
+make up && make seed
+```
+
+Set `E2E_PASSWORD` to the seeded CEO account password.
+
+**Run the live-alerts E2E test**
+
+From the repository root:
+
+```bash
+make e2e-alerts
+```
+
+This command changes to the dashboard package and runs the dedicated Playwright configuration using:
+
+```bash
+npm run test:e2e:alerts
+```
+
+**Mock-only verification**
+
+To run the alert test in mock mode from the dashboard directory:
+
+```bash
+ALERTS_E2E_MODE=mock
+npm run test:e2e:alerts
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:ALERTS_E2E_MODE = "mock"
+npm run test:e2e:alerts
+```
+
+The live mode verifies the real gateway integration, while mock mode allows local verification without depending on the live analytics event pipeline.

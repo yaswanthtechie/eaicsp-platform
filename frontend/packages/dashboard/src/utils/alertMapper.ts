@@ -92,10 +92,13 @@ export function mapAnalyticsEventToAlert(
         title: "Supplier Risk Change",
         severity,
         message:
-          `Supplier ${
-            getString(payload, "supplier") ?? "unknown"
-          } risk tier changed` +
-            (newTier ? ` to ${newTier}.` : "."),
+          getString(payload, "explanation") ??
+          (
+            `Supplier ${
+              getString(payload, "supplier") ?? "unknown"
+            } risk tier changed` +
+              (newTier ? ` to ${newTier}.` : ".")
+          ),
       };
       break;
     }
