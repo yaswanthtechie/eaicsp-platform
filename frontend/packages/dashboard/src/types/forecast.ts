@@ -35,6 +35,9 @@ export interface AlertMessage {
   message: string;
   timestamp: string; // ISO 8601 timestamp
   title?: string;
+  shipmentId?: string;
+  predictedAt?: string;
+  supplierId?: string;
 }
 
 export interface InventoryUpdate {
