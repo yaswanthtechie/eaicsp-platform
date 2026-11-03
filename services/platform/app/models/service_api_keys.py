@@ -1,6 +1,14 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -8,6 +16,9 @@ from app.database import Base
 
 class ServiceAPIKey(Base):
     __tablename__ = "service_api_keys"
+    __table_args__ = (
+        UniqueConstraint("service_name", name="uq_service_api_keys_service_name"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     service_name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)

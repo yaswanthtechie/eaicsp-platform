@@ -30,18 +30,19 @@ def verify_service_api_key(
     key_hash = hash_service_api_key(x_api_key)
 
     service_key = (
-        db.query(ServiceAPIKey)
-        .filter(
-            ServiceAPIKey.key_hash == key_hash,
-            ServiceAPIKey.is_active.is_(True),
-        )
-        .first()
+        db.query(ServiceAPIKey).filter(ServiceAPIKey.key_hash == key_hash).first()
     )
 
     if service_key is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid service API key",
+        )
+
+    if not service_key.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Service API key is inactive or revoked",
         )
 
     now = datetime.now(UTC)
@@ -58,10 +59,24 @@ def verify_service_api_key(
                 detail="Service API key expired",
             )
 
-    service_key.last_used_at = now
+    service_key.last_used_at = now  # type: ignore[assignment]
     db.commit()
 
     return {
         "service": service_key.service_name,
         "auth_type": "api_key",
     }
+
+
+def require_service(*allowed_services: str):
+    """Dependency ensuring the calling service is authenticated and authorized."""
+
+    def dependency(service: dict = Depends(verify_service_api_key)) -> dict:
+        if allowed_services and service.get("service") not in allowed_services:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Service '{service.get('service')}' is not authorized for this operation",
+            )
+        return service
+
+    return dependency

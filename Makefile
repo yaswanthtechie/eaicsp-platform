@@ -33,6 +33,7 @@ buckets:
 seed:
 	cd data-platform && python -m seed.generate --out out/
 	python scripts/run_seed_loaders.py
+	cd services/platform && python -m app.seed --require-service-keys
 
 logs:
 	$(FULL_COMPOSE) logs -f --tail=100
