@@ -158,14 +158,16 @@ def seed_service_api_keys(db, *, require_env: bool = False) -> dict[str, str]:
         )
 
         if existing is not None:
-            if existing.is_active is False:
-                existing.is_active = True
-                existing.expires_at = None
-            if os.getenv(env_name):
-                expected_hash = hash_service_api_key(raw_key)
+            if not existing.is_active:
+                # Never undo an admin revoke. Re-issue via POST /api/v1/admin/service-keys.
+                print(f"Skipping '{service_name}': key is revoked.")
+                continue
+            env_key = os.getenv(env_name)
+            if env_key:
+                expected_hash = hash_service_api_key(env_key)
                 if existing.key_hash != expected_hash:
                     existing.key_hash = expected_hash
-            created[service_name] = raw_key
+                created[service_name] = env_key
             continue
 
         db.add(

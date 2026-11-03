@@ -426,3 +426,29 @@ def test_existing_admin_authorization_enforced():
     )
     assert admin_list.status_code == 200
     assert isinstance(admin_list.json(), list)
+
+
+def test_reseed_does_not_reactivate_revoked_key(monkeypatch):
+    raw_key = "sk_test_reseed_inventory_0123456789abcdef"
+    monkeypatch.setenv("INVENTORY_SERVICE_API_KEY", raw_key)
+    db = SessionLocal()
+    try:
+        seed_service_api_keys(db)
+        record = (
+            db.query(ServiceAPIKey)
+            .filter(ServiceAPIKey.service_name == "inventory")
+            .one()
+        )
+        record.is_active = False
+        db.commit()
+
+        seed_service_api_keys(db)
+        db.refresh(record)
+
+        assert record.is_active is False
+        res = client.post("/api/v1/auth/service-verify", headers={"X-API-Key": raw_key})
+        assert res.status_code == 401
+    finally:
+        record.is_active = True
+        db.commit()
+        db.close()
