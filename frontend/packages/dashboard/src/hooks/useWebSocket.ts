@@ -7,11 +7,12 @@ import type {
   WebSocketMessage,
 } from "../types/forecast";
 import { mapAnalyticsEventToAlert } from "../utils/alertMapper";
-import { getAuthSession } from "../api/auth";
+import { getAuthSession, refreshAuthSession, type AuthSession } from "../api/auth";
 interface UseWebSocketOptions {
   url: string;
   onMessage: (data: WebSocketMessage) => void;
   onError?: (error: Event) => void;
+  onAuthSessionRefreshed?: (session: AuthSession) => void;
   autoReconnect?: boolean;
   maxRetries?: number;
   /** false = connect without a token (mock auth only). */
@@ -79,6 +80,7 @@ export function useWebSocket({
   url,
   onMessage,
   onError,
+  onAuthSessionRefreshed,
   autoReconnect = true,
   maxRetries = 5,
   requireToken = true,
@@ -95,9 +97,16 @@ export function useWebSocket({
 
   const onMessageRef = useRef(onMessage);
   const onErrorRef = useRef(onError);
+  const onAuthSessionRefreshedRef = useRef(onAuthSessionRefreshed);
+
+  useEffect(() => {
+    onAuthSessionRefreshedRef.current = onAuthSessionRefreshed;
+  }, [onAuthSessionRefreshed]);
+
   const connectRef = useRef<(() => void) | null>(null);
   const seenEventIdsRef = useRef(new Set<string>());
   const intentionalCloseRef = useRef(false);
+  const authRefreshAttemptedRef = useRef(false);
 
   useEffect(() => {
     onMessageRef.current = onMessage;
@@ -109,6 +118,7 @@ export function useWebSocket({
 
   const retryConnection = useCallback(() => {
     retryCountRef.current = 0;
+    authRefreshAttemptedRef.current = false;
     setFailed(false);
     intentionalCloseRef.current = true;
 
@@ -214,6 +224,7 @@ export function useWebSocket({
         retryCountRef.current = 0;
       };
 
+
       socket.onmessage = (event: MessageEvent) => {
         if (isUnmounted) {
           return;
@@ -282,19 +293,42 @@ export function useWebSocket({
           return;
         }
 
+        // Forbidden: do not retry automatically.
         if (event.code === 4403) {
           setFailed(true);
           return;
         }
 
-        if (!autoReconnect) {
-          setFailed(true);
+       // Unauthorized: refresh the JWT before reconnecting.
+        if (event.code === 4401) {
+          if (authRefreshAttemptedRef.current) {
+            setFailed(true);
+            return;
+          }
+
+          authRefreshAttemptedRef.current = true;
+
+          void refreshAuthSession()
+            .then((refreshedSession) => {
+              if (isUnmounted) return;
+
+              onAuthSessionRefreshedRef.current?.(refreshedSession);
+              connect();
+            })
+            .catch(() => {
+              if (isUnmounted) return;
+
+              console.error(
+                "[C3 WS] Authentication refresh failed."
+              );
+              setFailed(true);
+              setIsConnecting(false);
+            });
+
           return;
         }
 
-        // Unauthorized: authentication refresh must happen before reconnecting.
-        // Until that is wired in, stop and expose the Retry Connection control.
-        if (event.code === 4401) {
+        if (!autoReconnect) {
           setFailed(true);
           return;
         }
