@@ -3663,7 +3663,6 @@ consistent request tracing and operational monitoring.
 **Workflow:** `.github/workflows/platform-ci.yml`. It runs only on PRs that touch `services/platform/**` or the workflow itself.
 
 | Job | What it runs | Status |
-|---|---|---|
 | Lint, type check, security, unit tests | `ruff check .`, `ruff format --check .`, `mypy app`, `bandit -r app -ll`, `pip-audit -r requirements.txt`, `pytest -m "not integration"` with coverage (fails under 85%) | Done |
 | Redis + Kafka integration | Redis and Kafka service containers; cross-instance revocation + Kafka event tests | Done |
 | HTTP integration | Seeds a DB with CI-generated passwords, starts the API, runs `tests/test_integration.py` | Done |
@@ -3700,3 +3699,312 @@ The Platform Service CI workflow was tested with temporary, intentional failures
 | Pull request validation | Review the workflow checks and final validation status | [PR #247 checks](https://github.com/yaswanthtechie/eaicsp-platform/pull/247/checks) |
 
 The deliberate lint and unit-test failures were temporary verification changes and were reverted after their respective runs. The final pull-request checks should be confirmed green before merging.
+
+## How to call another service with an API key
+
+This section defines the service-to-service API key contract established by the Platform Service (Pod 1 Foundation, Issue #213). All other service owners (Inventory, Supplier Portal, Gateway BFF, and Forecast Serving) follow this contract for cross-service authentication.
+
+### Verification Approach
+
+**Chosen approach:** **Option A – Platform Verification Endpoint (`POST /api/v1/auth/service-verify`)**
+
+**Rationale:**
+1. **Centralized Lifecycle and Immediate Revocation:** When an administrator revokes a compromised or decommissioned service key via Platform's admin endpoint, the revoked state takes effect immediately across all receiver services without needing to coordinate or distribute revocation lists.
+2. **Strict Schema and Database Isolation:** Blueprint Rule 3 mandates that each service owns its schema and no service queries another's database. Receiver services must not connect to `platform.db` to inspect key hashes directly.
+3. **Usage and Audit Tracking:** Platform maintains the canonical audit log (`SERVICE_KEY_CREATED`, `SERVICE_KEY_REVOKED`) and automatically updates caller `last_used_at` timestamps upon verification.
+
+---
+
+### 1. Environment Variables
+
+#### Caller Configuration
+Each caller service loads its own Platform-issued API key from its designated environment variable:
+
+| Service | Caller Environment Variable | Identity Registered in Platform |
+|---|---|---|
+| Inventory | `INVENTORY_SERVICE_API_KEY` | `inventory` |
+| Supplier Portal | `SUPPLIER_PORTAL_SERVICE_API_KEY` | `supplier-portal` |
+| Gateway BFF | `GATEWAY_BFF_SERVICE_API_KEY` | `gateway-bff` |
+| Forecast Serving | `FORECAST_SERVING_SERVICE_API_KEY` | `forecast-serving` |
+
+Note: Forecast Serving only receives calls (#300). Its key is registered so it is ready if it ever needs to call another service.
+
+#### Receiver Configuration
+Receiver services verify incoming service calls by contacting the Platform Service:
+
+| Variable | Description | Default / Example |
+|---|---|---|
+| `PLATFORM_SERVICE_URL` | Base URL of the Platform Service | `http://platform:8005` (Docker) or `http://127.0.0.1:8005` (Local) |
+
+---
+
+### 2. Header
+
+All service-to-service HTTP requests MUST include the key in the `X-API-Key` header:
+
+```http
+X-API-Key: <service-api-key>
+```
+
+#### Example cURL Request
+
+```bash
+# Verify the key directly against Platform
+curl -X POST http://127.0.0.1:8005/api/v1/auth/service-verify \
+  -H "X-API-Key: ${INVENTORY_SERVICE_API_KEY}"
+```
+
+```bash
+# Call a protected endpoint on another service
+curl -X GET http://127.0.0.1:8001/api/v1/inventory/stock \
+  -H "X-API-Key: ${GATEWAY_BFF_SERVICE_API_KEY}"
+```
+
+---
+
+### 3. Caller Python Example
+
+Copy-paste Python example using `httpx`. It loads the secret from environment variables, sets a strict timeout, passes `X-API-Key`, and never hardcodes or logs secrets.
+
+```python
+import os
+import httpx
+
+
+def call_downstream_service(endpoint_url: str) -> dict:
+    # 1. Retrieve the caller's service API key from environment
+    api_key = os.getenv("INVENTORY_SERVICE_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "INVENTORY_SERVICE_API_KEY environment variable is not configured"
+        )
+
+    headers = {
+        "X-API-Key": api_key,
+        "Accept": "application/json",
+    }
+
+    # 2. Configure explicit timeouts to prevent hung requests
+    timeout = httpx.Timeout(10.0, connect=5.0)
+
+    # 3. Execute request without logging or leaking the key
+    with httpx.Client(timeout=timeout) as client:
+        response = client.get(endpoint_url, headers=headers)
+        response.raise_for_status()
+        return response.json()
+```
+
+---
+
+### 4. Receiver FastAPI Example
+
+Copy-paste FastAPI dependency example for receiver services. It contacts the Platform verify endpoint `POST /api/v1/auth/service-verify` to authenticate the caller and enforce caller authorization rules.
+
+```python
+import os
+
+import httpx
+from fastapi import Depends, Header, HTTPException, status
+
+PLATFORM_URL = os.getenv(
+    "PLATFORM_SERVICE_URL",
+    "http://127.0.0.1:8005",
+)
+
+
+async def verify_service_caller(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict:
+    """Authenticate downstream service callers through Platform Service."""
+
+    if not x_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing service API key",
+        )
+
+    verify_endpoint = f"{PLATFORM_URL.rstrip('/')}/api/v1/auth/service-verify"
+
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        try:
+            resp = await client.post(
+                verify_endpoint,
+                headers={"X-API-Key": x_api_key},
+            )
+        except httpx.RequestError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Authentication service unavailable",
+            ) from exc
+
+    if (
+        resp.status_code == 200
+    ):  # {"authenticated": True, "service": "...", "auth_type": "api_key"}
+        return resp.json()
+
+    if resp.status_code == 401:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid service API key",
+        )
+
+    # Platform is rate-limiting or failing: still reject (fail closed), but say why.
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Authentication service unavailable",
+    )
+
+
+def require_authorized_service(*allowed_services: str):
+    """Authorize specific caller service identities."""
+
+    async def dependency(caller: dict = Depends(verify_service_caller)) -> dict:
+        service_name = caller.get("service")
+        if allowed_services and service_name not in allowed_services:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Service '{service_name}' is not authorized for this operation",
+            )
+        return caller
+
+    return dependency
+
+
+# Example endpoint usage in receiving service:
+# @app.post("/api/v1/demand/forecast")
+# async def get_forecast(caller: dict = Depends(require_authorized_service("inventory"))):
+#     return {"data": "forecast", "caller": caller["service"]}
+```
+
+---
+
+### 5. Responses and Error Format
+
+Platform Service returns standard JSON error responses with a `detail` field.
+
+#### HTTP 200 – Success (`POST /api/v1/auth/service-verify`)
+```json
+{
+  "authenticated": true,
+  "service": "inventory",
+  "auth_type": "api_key"
+}
+```
+
+#### HTTP 401 – Missing or Invalid Key
+* **Missing Key:**
+  ```json
+  {
+    "detail": "Missing service API key"
+  }
+  ```
+* **Invalid Key:**
+  ```json
+  {
+    "detail": "Invalid service API key"
+  }
+  ```
+* **Revoked / Inactive Key:**
+  ```json
+  {
+    "detail": "Service API key is inactive or revoked"
+  }
+  ```
+* **Expired Key:**
+  ```json
+  {
+    "detail": "Service API key expired"
+  }
+  ```
+
+#### HTTP 403 – Valid Key but Unauthorized Caller
+Returned when the caller identity is authenticated, but not permitted to perform the requested operation:
+```json
+{
+  "detail": "Service 'supplier-portal' is not authorized for this operation"
+}
+```
+#### HTTP 503 - Platform unavailable (receiver side)
+Receivers return 503 `{"detail": "Authentication service unavailable"}` when the Platform Service can't be reached or returns an error other than 401. The request is still rejected (fail closed).
+---
+
+### Key Revocation and Rotation
+
+#### Revoking an API Key
+Authorized administrators (`ceo`, `vp_operations`) can immediately revoke any service key:
+```bash
+curl -X DELETE http://127.0.0.1:8005/api/v1/admin/service-keys/{key_id} \
+  -H "Authorization: Bearer ADMIN_TOKEN"
+```
+* Sets `is_active = False` in the Platform database.
+* Immediately causes `POST /api/v1/auth/service-verify` to reject callers with HTTP 401 (`"detail": "Service API key is inactive or revoked"`).
+* Emits an audit log event (`SERVICE_KEY_REVOKED`).
+
+#### Rotating an API Key
+To rotate a service key:
+1. Issue a new key for the service identity via `POST /api/v1/admin/service-keys`:
+   ```bash
+   curl -X POST http://127.0.0.1:8005/api/v1/admin/service-keys \
+     -H "Authorization: Bearer ADMIN_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"service_name": "inventory"}'
+   ```
+2. Platform safely updates the stored SHA-256 hash for `inventory`, reactivates the key if previously revoked, and returns the new raw `sk_` token once.
+3. Update the caller service's environment variable (`INVENTORY_SERVICE_API_KEY`) and restart the caller service.
+
+---
+
+### 6. Local Setup and Demo Key Provisioning
+
+Platform Service stores only cryptographic SHA-256 hashes of API keys in its database. Raw plaintext keys cannot be retrieved once stored.
+
+To provision working local demo keys:
+
+**Step 1: Generate four secure local API keys.**
+
+Run this command four times in PowerShell:
+
+```powershell
+python -c "import secrets; print('sk_' + secrets.token_urlsafe(32))"
+```
+
+Generate a separate key for each service:
+- `INVENTORY_SERVICE_API_KEY`
+- `SUPPLIER_PORTAL_SERVICE_API_KEY`
+- `GATEWAY_BFF_SERVICE_API_KEY`
+- `FORECAST_SERVING_SERVICE_API_KEY`
+
+**Step 2: Configure the keys in environment files.**
+
+In `services/platform/.env` (copied from `services/platform/.env.example`), configure all four generated values.
+
+Each caller service must configure the same corresponding key in its own `.env` file.
+
+`make seed` reads the Platform Service environment file, not the root `.env`.
+
+**Step 3: Run the root seed command.**
+
+```bash
+make seed
+```
+
+`make seed` invokes `services/platform/app/seed.py --require-service-keys`, which computes the SHA-256 hashes of the configured environment variables and registers them under the canonical identities:
+
+- `inventory`
+- `supplier-portal`
+- `gateway-bff`
+- `forecast-serving`
+
+**Provisioning behavior:**
+- **Idempotent:** Subsequent runs will not create duplicate records or rotate keys unexpectedly.
+- **Hash-only:** Only SHA-256 hashes are persisted in the database; raw keys remain in local environment variables.
+- **Security:** Never commit real API keys or log their values. Use separate keys for local development and production.
+
+### 7. Security Rules
+
+1. **Environment Variables Only:** Service keys MUST be loaded from environment variables or a secure secret manager (e.g., Vault / AWS Secrets Manager). Never hardcode keys in application code.
+2. **Never Commit Keys:** Never commit plaintext keys to git. `.env.example` files MUST only contain blank placeholders (e.g., `INVENTORY_SERVICE_API_KEY=`).
+3. **Never Log Keys:** Never log the plaintext API key, `X-API-Key` headers, or key fragments in application logs or exception traces.
+4. **Headers Only:** Never pass service API keys in URL query strings, request bodies, or path parameters where they could be logged by HTTP proxies.
+5. **No Token Confusion:** Never use a user's JWT access token as a service API key, or pass service API keys to user-facing endpoints (`/api/v1/auth/verify`). User authentication and service-to-service authentication are strictly separated.
+6. **Hash-Only Storage:** Platform Service database stores only SHA-256 hashes. Plaintext keys are never stored in the database.
