@@ -7,11 +7,6 @@ APP_SERVICES = platform compliance inventory logistics supplier-portal api-gatew
 
 .PHONY: up down up-low-memory down-low-memory buckets seed e2e demo-anomaly logs ps reset reset-data contract-monitor
 
-# R15-T5: check every message on the shared Kafka against contracts/events/.
-# Needs `make up`. Writes contracts/contract-monitor-report.md.
-contract-monitor:
-	cd contracts && python live_monitor.py --out contract-monitor-report.md
-
 # Start infrastructure, create buckets, then start applications.
 up:
 	$(FULL_COMPOSE) up -d --wait $(STORES)
@@ -65,3 +60,8 @@ e2e:
 # (logs show 'consumer ready'). Kafka is reached on the host at localhost:29092.
 demo-anomaly:
 	cd ml-services/anomaly-detection && python -m src.demo_anomaly
+
+# R15-T5: check every message on the shared Kafka against contracts/events/.
+# Needs `make up`. Writes contracts/contract-monitor-report.md.
+contract-monitor:
+	cd contracts && python live_monitor.py --out contract-monitor-report.md
