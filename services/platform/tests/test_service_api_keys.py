@@ -1,4 +1,5 @@
 import hashlib
+import os
 from datetime import UTC, datetime, timedelta
 
 from fastapi import Depends, FastAPI
@@ -22,7 +23,7 @@ def login_as_admin():
         "/api/v1/auth/login",
         data={
             "username": "ceo@company.com",
-            "password": "ceocompany@123",
+            "password": os.environ["CEO_PASSWORD"],
         },
     )
     assert response.status_code == 200, response.text
@@ -34,7 +35,7 @@ def login_as_non_admin():
         "/api/v1/auth/login",
         data={
             "username": "supplier@company.com",
-            "password": "supplier@123",
+            "password": os.environ["SUPPLIER_PASSWORD"],
         },
     )
     assert response.status_code == 200, response.text
@@ -432,6 +433,8 @@ def test_reseed_does_not_reactivate_revoked_key(monkeypatch):
     raw_key = "sk_test_reseed_inventory_0123456789abcdef"
     monkeypatch.setenv("INVENTORY_SERVICE_API_KEY", raw_key)
     db = SessionLocal()
+    record = None
+
     try:
         seed_service_api_keys(db)
         record = (
@@ -446,9 +449,14 @@ def test_reseed_does_not_reactivate_revoked_key(monkeypatch):
         db.refresh(record)
 
         assert record.is_active is False
-        res = client.post("/api/v1/auth/service-verify", headers={"X-API-Key": raw_key})
+        res = client.post(
+            "/api/v1/auth/service-verify",
+            headers={"X-API-Key": raw_key},
+        )
         assert res.status_code == 401
+
     finally:
-        record.is_active = True
-        db.commit()
+        if record is not None:
+            record.is_active = True
+            db.commit()
         db.close()

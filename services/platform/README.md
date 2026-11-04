@@ -3699,6 +3699,43 @@ The Platform Service CI workflow was tested with temporary, intentional failures
 | Pull request validation | Review the workflow checks and final validation status | [PR #247 checks](https://github.com/yaswanthtechie/eaicsp-platform/pull/247/checks) |
 
 The deliberate lint and unit-test failures were temporary verification changes and were reverted after their respective runs. The final pull-request checks should be confirmed green before merging.
+
+## How to call another service with an API key
+
+This section defines the service-to-service API key contract established by the Platform Service (Pod 1 Foundation, Issue #213). All other service owners (Inventory, Supplier Portal, Gateway BFF, and Forecast Serving) follow this contract for cross-service authentication.
+
+### Verification Approach
+
+**Chosen approach:** **Option A – Platform Verification Endpoint (`POST /api/v1/auth/service-verify`)**
+
+**Rationale:**
+1. **Centralized Lifecycle and Immediate Revocation:** When an administrator revokes a compromised or decommissioned service key via Platform's admin endpoint, the revoked state takes effect immediately across all receiver services without needing to coordinate or distribute revocation lists.
+2. **Strict Schema and Database Isolation:** Blueprint Rule 3 mandates that each service owns its schema and no service queries another's database. Receiver services must not connect to `platform.db` to inspect key hashes directly.
+3. **Usage and Audit Tracking:** Platform maintains the canonical audit log (`SERVICE_KEY_CREATED`, `SERVICE_KEY_REVOKED`) and automatically updates caller `last_used_at` timestamps upon verification.
+
+---
+
+### 1. Environment Variables
+
+#### Caller Configuration
+Each caller service loads its own Platform-issued API key from its designated environment variable:
+
+| Service | Caller Environment Variable | Identity Registered in Platform |
+|---|---|---|
+| Inventory | `INVENTORY_SERVICE_API_KEY` | `inventory` |
+| Supplier Portal | `SUPPLIER_PORTAL_SERVICE_API_KEY` | `supplier-portal` |
+| Gateway BFF | `GATEWAY_BFF_SERVICE_API_KEY` | `gateway-bff` |
+| Forecast Serving | `FORECAST_SERVING_SERVICE_API_KEY` | `forecast-serving` |
+
+Note: Forecast Serving only receives calls (#300). Its key is registered so it is ready if it ever needs to call another service.
+
+#### Receiver Configuration
+Receiver services verify incoming service calls by contacting the Platform Service:
+
+| Variable | Description | Default / Example |
+|---|---|---|
+| `PLATFORM_SERVICE_URL` | Base URL of the Platform Service | `http://platform:8005` (Docker) or `http://127.0.0.1:8005` (Local) |
+
 ---
 
 ### 2. Header
@@ -3767,7 +3804,7 @@ Copy-paste FastAPI dependency example for receiver services. It contacts the Pla
 import os
 
 import httpx
-from fastapi import Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 
 PLATFORM_URL = os.getenv(
     "PLATFORM_SERVICE_URL",
@@ -3816,21 +3853,6 @@ async def verify_service_caller(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         detail="Authentication service unavailable",
     )
-
-
-def require_authorized_service(*allowed_services: str):
-    """Authorize specific caller service identities."""
-
-    async def dependency(caller: dict = Depends(verify_service_caller)) -> dict:
-        service_name = caller.get("service")
-        if allowed_services and service_name not in allowed_services:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Service '{service_name}' is not authorized for this operation",
-            )
-        return caller
-
-    return dependency
 
 
 def require_authorized_service(*allowed_services: str):
@@ -3902,7 +3924,8 @@ Returned when the caller identity is authenticated, but not permitted to perform
   "detail": "Service 'supplier-portal' is not authorized for this operation"
 }
 ```
-
+#### HTTP 503 - Platform unavailable (receiver side)
+Receivers return 503 `{"detail": "Authentication service unavailable"}` when the Platform Service can't be reached or returns an error other than 401. The request is still rejected (fail closed).
 ---
 
 ### Key Revocation and Rotation
