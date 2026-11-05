@@ -7,11 +7,13 @@ Verifies:
 3. HTTP 401 from Forecast Serving is handled gracefully (fallback to sales history, no crash).
 4. HTTP 401 from Compliance Service is handled gracefully (raises ComplianceServiceError, no crash).
 5. Secrets are never logged or exposed in log outputs.
-6. Empty API key behavior logs a warning and does not crash.
+6. Empty API key behavior logs a warning, omits header, and does not crash.
+7. Outbound HTTP 401 is not retried.
 """
 
 import logging
 from unittest.mock import patch
+
 import httpx
 import pytest
 
@@ -56,16 +58,15 @@ def test_forecast_client_sends_x_api_key_header():
         )
 
     with patch.object(settings, "INVENTORY_SERVICE_API_KEY", TEST_SECRET_KEY):
-        with patch.object(settings, "FORECAST_SERVICE_API_KEY", ""):
-            client = ForecastClient(base_url="http://localhost:8007")
+        client = ForecastClient(base_url="http://localhost:8007")
 
-            with patch(
-                "app.services.forecast_client.httpx.Client",
-                side_effect=lambda **kwargs: REAL_HTTPX_CLIENT(
-                    transport=httpx.MockTransport(mock_handler)
-                ),
-            ):
-                res = client.fetch_forecast("SKU-000123", "WH-BLR-01", horizon=30)
+        with patch(
+            "app.services.forecast_client.httpx.Client",
+            side_effect=lambda **kwargs: REAL_HTTPX_CLIENT(
+                transport=httpx.MockTransport(mock_handler)
+            ),
+        ):
+            res = client.fetch_forecast("SKU-000123", "WH-BLR-01", horizon=30)
 
     assert res is not None
     assert "x-api-key" in captured_request["headers"]
@@ -170,7 +171,7 @@ def test_compliance_client_handles_401_gracefully_and_no_key_in_logs(caplog):
                         country="India",
                     )
 
-    assert "Compliance Service authentication failed (HTTP 401)" in str(exc_info.value)
+    assert "Compliance Service returned an error." in str(exc_info.value)
     assert "Compliance Service rejected service API key (HTTP 401)" in caplog.text
 
     # Asserts sensitive key was NEVER printed in logs or exception detail
@@ -178,11 +179,51 @@ def test_compliance_client_handles_401_gracefully_and_no_key_in_logs(caplog):
     assert sensitive_key not in str(exc_info.value)
 
 
-def test_empty_api_key_logs_warning_and_does_not_crash(caplog):
-    """When INVENTORY_SERVICE_API_KEY is empty, warning is logged and calls still execute/fallback safely."""
-    with caplog.at_level(logging.WARNING):
-        with patch.object(settings, "INVENTORY_SERVICE_API_KEY", ""):
-            with patch.object(settings, "FORECAST_SERVICE_API_KEY", ""):
-                client = ForecastClient(base_url="http://localhost:8007")
+def test_empty_api_key_logs_warning_and_omits_header(caplog):
+    """With no key set: warning logged, no X-API-Key header sent, 401 handled without a crash."""
+    captured_request = {}
 
+    def mock_handler(request: httpx.Request):
+        captured_request["headers"] = dict(request.headers)
+        return httpx.Response(401, json={"detail": "Missing service API key"})
+
+    with caplog.at_level(logging.WARNING), patch.object(
+        settings, "INVENTORY_SERVICE_API_KEY", ""
+    ):
+        client = ForecastClient(base_url="http://localhost:8007")
+        with patch(
+            "app.services.forecast_client.httpx.Client",
+            side_effect=lambda **kwargs: REAL_HTTPX_CLIENT(
+                transport=httpx.MockTransport(mock_handler)
+            ),
+        ):
+            result = client.fetch_forecast("SKU-000123", "WH-BLR-01", horizon=30)
+
+    assert result is None
+    assert "x-api-key" not in captured_request["headers"]
     assert "INVENTORY_SERVICE_API_KEY is not set" in caplog.text
+
+
+def test_forecast_401_is_not_retried():
+    """A 401 means the key is wrong; retrying won't help, so exactly one request is sent."""
+    calls = []
+
+    def mock_handler(request: httpx.Request):
+        calls.append(request)
+        return httpx.Response(401, json={"detail": "Invalid service API key"})
+
+    client = ForecastClient(
+        base_url="http://localhost:8007",
+        api_key=TEST_SECRET_KEY,
+        max_retries=1,
+    )
+    with patch(
+        "app.services.forecast_client.httpx.Client",
+        side_effect=lambda **kwargs: REAL_HTTPX_CLIENT(
+            transport=httpx.MockTransport(mock_handler)
+        ),
+    ):
+        result = client.fetch_forecast("SKU-000123", "WH-BLR-01", horizon=30)
+
+    assert result is None
+    assert len(calls) == 1

@@ -87,11 +87,7 @@ class ForecastClient:
         max_retries: Optional[int] = None,
     ):
         self.base_url = (base_url or settings.FORECAST_SERVICE_URL).rstrip("/")
-        self.api_key = (
-            api_key
-            if api_key is not None
-            else (settings.INVENTORY_SERVICE_API_KEY or settings.FORECAST_SERVICE_API_KEY)
-        )
+        self.api_key = settings.INVENTORY_SERVICE_API_KEY if api_key is None else api_key
         self.timeout = settings.FORECAST_TIMEOUT_SECONDS if timeout_seconds is None else timeout_seconds
         self.max_retries = settings.FORECAST_RETRY_COUNT if max_retries is None else max_retries
 
