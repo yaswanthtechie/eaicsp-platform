@@ -1,6 +1,16 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useWebSocket } from "../hooks/useWebSocket";
+import { getAuthSession } from "../api/auth";
+
+vi.mock("../api/auth", () => ({
+  getAuthSession: vi.fn(() => ({
+    access_token: "test-access-token",
+    refresh_token: "test-refresh-token",
+    token_type: "bearer",
+    role: "ceo",
+  })),
+}));
 interface MockSocket {
   url: string;
   onopen: (() => void) | null;
@@ -57,7 +67,7 @@ describe("useWebSocket", () => {
     vi.restoreAllMocks();
   });
 
-  it("connects to WebSocket", () => {
+  it("connects to WebSocket with an auth token", () => {
     renderHook(() =>
       useWebSocket({
         url: "ws://localhost:8080",
@@ -66,7 +76,11 @@ describe("useWebSocket", () => {
     );
 
     expect(sockets).toHaveLength(1);
-    expect(sockets[0].url).toBe("ws://localhost:8080");
+
+    const socketUrl = new URL(sockets[0].url);
+    expect(socketUrl.origin).toBe("ws://localhost:8080");
+    expect(socketUrl.searchParams.get("token")).toBe("test-access-token");
+
   });
 
   it("shows connected when socket opens", () => {
@@ -368,5 +382,50 @@ describe("useWebSocket", () => {
     });
 
     expect(onMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not connect and shows failed when there is no token", () => {
+    vi.mocked(getAuthSession).mockReturnValueOnce(null);
+    const { result } = renderHook(() =>
+      useWebSocket({ url: "ws://localhost:8080", onMessage: vi.fn() }),
+    );
+    expect(sockets).toHaveLength(0);
+    expect(result.current.failed).toBe(true);
+  });
+
+  it("delivers one alert per anomaly episode", () => {
+    const onMessage = vi.fn();
+    renderHook(() => useWebSocket({ url: "ws://localhost:8080", onMessage }));
+    const base = {
+      event_type: "iot.anomaly.detected",
+      event_version: 1,
+      occurred_at: "2026-10-15T10:46:12Z",
+      producer: "anomaly-detection-service",
+      payload: {
+        episode_id: "WH-BLR-01-S1|2026-10-15T10:05:00+00:00",
+        warehouse_id: "WH-BLR-01",
+        severity: "high",
+        message: "Temperature unusually high",
+      },
+    };
+    act(() => {
+      sockets[0].onopen?.();
+      sockets[0].onmessage?.({ data: JSON.stringify({ ...base, event_id: crypto.randomUUID() }) } as MessageEvent);
+      sockets[0].onmessage?.({ data: JSON.stringify({ ...base, event_id: crypto.randomUUID() }) } as MessageEvent);
+    });
+    expect(onMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("connects without a token when requireToken is false", () => {
+    vi.mocked(getAuthSession).mockReturnValueOnce(null);
+    renderHook(() =>
+      useWebSocket({
+        url: "ws://localhost:8080",
+        onMessage: vi.fn(),
+        requireToken: false,
+      }),
+    );
+    expect(sockets).toHaveLength(1);
+    expect(new URL(sockets[0].url).searchParams.has("token")).toBe(false);
   });
 });

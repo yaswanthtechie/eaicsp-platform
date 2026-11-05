@@ -7,12 +7,15 @@ import type {
   WebSocketMessage,
 } from "../types/forecast";
 import { mapAnalyticsEventToAlert } from "../utils/alertMapper";
+import { getAuthSession } from "../api/auth";
 interface UseWebSocketOptions {
   url: string;
   onMessage: (data: WebSocketMessage) => void;
   onError?: (error: Event) => void;
   autoReconnect?: boolean;
   maxRetries?: number;
+  /** false = connect without a token (mock auth only). */
+  requireToken?: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -63,12 +66,22 @@ function isAnalyticsEvent(value: unknown): value is AnalyticsEventEnvelope {
   );
 }
 
+function getDedupKey(event: AnalyticsEventEnvelope): string {
+  const episodeId = event.payload.episode_id;
+
+  return event.event_type === "iot.anomaly.detected" &&
+    typeof episodeId === "string"
+    ? `iot.anomaly.detected:${episodeId}`
+    : event.event_id;
+}
+
 export function useWebSocket({
   url,
   onMessage,
   onError,
   autoReconnect = true,
   maxRetries = 5,
+  requireToken = true,
 }: UseWebSocketOptions) {
   const [connected, setConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -158,8 +171,25 @@ export function useWebSocket({
 
       let socket: WebSocket;
       try {
-        socket = new WebSocket(url);
+        const token = getAuthSession()?.access_token;
+
+        if (!token && requireToken) {
+          console.error("[C3 WS] No valid access token. Connection skipped.");
+          setConnected(false);
+          setIsConnecting(false);
+          setFailed(true);
+          return;
+        }
+        const wsUrl = new URL(url);
+
+        if (token) {
+          wsUrl.searchParams.set("token", token);
+        }
+        
+        socket = new WebSocket(wsUrl.toString());
       } catch {
+        // Don't log the error object because its message can contain the token.
+        console.error("[C3 WS] Could not create the WebSocket connection.");
         setConnected(false);
         setIsConnecting(false);
 
@@ -207,9 +237,11 @@ export function useWebSocket({
           return;
         }
 
-        if (seenEventIdsRef.current.has(data.event_id)) return;
+        const dedupKey = getDedupKey(data);
 
-        seenEventIdsRef.current.add(data.event_id);
+        if (seenEventIdsRef.current.has(dedupKey)) return;
+
+        seenEventIdsRef.current.add(dedupKey);
 
         if (seenEventIdsRef.current.size > 100) {
           const oldestId = seenEventIdsRef.current.values().next().value;
@@ -226,11 +258,21 @@ export function useWebSocket({
 
       socket.onerror = (error: Event) => {
         if (isUnmounted) return;
+        
+        // Don't log the event: event.target.url contains the token.
+        console.error("[C3 WS] Gateway WebSocket error:");
         onErrorRef.current?.(error);
       };
 
       socket.onclose = (event: CloseEvent) => {
         if (isUnmounted) return;
+
+        if (event.code !== 1000 && event.code !== 1001) {
+          console.warn("[C3 WS] Gateway WebSocket closed:", {
+            code: event.code,
+            reason: event.reason,
+          });
+        }
 
         socketRef.current = null;
         setConnected(false);
@@ -288,7 +330,7 @@ export function useWebSocket({
         socket.close(1000, "Component unmounted");
       }
     };
-  }, [url, autoReconnect, maxRetries]);
+  }, [url, autoReconnect, maxRetries, requireToken]);
 
   return { connected, isConnecting, failed, retryConnection };
 }

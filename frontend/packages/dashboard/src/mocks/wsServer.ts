@@ -83,7 +83,8 @@ const analyticsEvents: Omit<AnalyticsEventEnvelope, "event_id" | "occurred_at">[
     event_version: 1,
     producer: "supplier-risk-service",
     payload: {
-      supplier: "SUP-00045",
+      supplier: "ABC Suppliers",
+      supplier_id: "SUP-00045",
       previous_tier: "low",
       new_tier: "high",
       risk_score: 78.5,
@@ -179,9 +180,23 @@ export function startMockWebSocketServer() {
     let alertTimer: ReturnType<typeof setTimeout> | undefined;
     let inventoryTimer: ReturnType<typeof setTimeout> | undefined;
 
+    let firstAlert = true;
+
     const sendAlert = () => {
-      const randomAlert =
-        analyticsEvents[Math.floor(Math.random() * analyticsEvents.length)];
+      const randomAlert = firstAlert
+        ? analyticsEvents.find(
+            (event) => event.event_type === "iot.anomaly.detected",
+          )
+        : analyticsEvents[
+            Math.floor(Math.random() * analyticsEvents.length)
+          ];
+
+      firstAlert = false;
+
+      if (!randomAlert) {
+        console.error("Mock anomaly event is missing.");
+        return;
+      }
 
       const event: AnalyticsEventEnvelope = {
         event_id: crypto.randomUUID(),

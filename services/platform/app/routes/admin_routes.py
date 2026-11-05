@@ -645,6 +645,13 @@ def create_service_api_key(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_any_role("ceo", "vp_operations")),
 ):
+    service_name = request.service_name.strip()
+    if not service_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="service_name is required",
+        )
+
     # Generate raw API key
     api_key = generate_service_api_key()
 
@@ -657,14 +664,27 @@ def create_service_api_key(
     # Hash before storing
     key_hash = hash_service_api_key(api_key)
 
-    service_key = ServiceAPIKey(
-        service_name=request.service_name,
-        key_hash=key_hash,
-        is_active=True,
-        expires_at=request.expires_at,
-        created_by=current_user.id,
+    existing = (
+        db.query(ServiceAPIKey)
+        .filter(ServiceAPIKey.service_name == service_name)
+        .first()
     )
-    db.add(service_key)
+    if existing is not None:
+        # Re-issue / rotate key for the existing service identity to enforce uniqueness
+        existing.key_hash = key_hash  # type: ignore[assignment]
+        existing.is_active = True  # type: ignore[assignment]
+        existing.expires_at = request.expires_at  # type: ignore[assignment]
+        existing.created_by = current_user.id  # type: ignore[assignment]
+        service_key = existing
+    else:
+        service_key = ServiceAPIKey(
+            service_name=service_name,
+            key_hash=key_hash,
+            is_active=True,
+            expires_at=request.expires_at,
+            created_by=current_user.id,
+        )
+        db.add(service_key)
     db.commit()
     db.refresh(service_key)
 
