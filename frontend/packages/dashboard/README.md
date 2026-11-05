@@ -1503,3 +1503,12 @@ npm run test:e2e:alerts
 ```
 
 The live mode verifies the real gateway integration, while mock mode allows local verification without depending on the live analytics event pipeline.
+
+## R15 [C4] - JWT Refresh and WebSocket Reconnection
+
+- Handles WebSocket `4401` authentication failures by refreshing the JWT.
+- Reconnects WebSocket using the updated access token.
+- Prevents repeated refresh attempts within 60 seconds.
+- Stops automatic retries and exposes Retry if token refresh fails.
+- Uses a shared in-flight refresh promise to prevent concurrent refresh requests.
+- Added unit tests for refresh success, failure, retry protection, and concurrent refresh handling.
