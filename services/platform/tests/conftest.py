@@ -27,10 +27,14 @@ SEED_PASSWORD_KEYS = (
     "WAREHOUSE_MANAGER_PASSWORD",
     "ANALYST_PASSWORD",
     "SUPPLIER_PASSWORD",
+    "SUPPLIER_19_PASSWORD",
+    "SUPPLIER_21_PASSWORD",
+    "SUPPLIER_22_PASSWORD",
 )
 
 for _key in SEED_PASSWORD_KEYS:
-    os.environ.setdefault(_key, f"Test-{secrets.token_hex(8)}@1")
+    if not os.environ.get(_key):
+        os.environ[_key] = f"Test-{secrets.token_hex(8)}@1"
 
 # ============================================================
 # PYTEST / APPLICATION IMPORTS

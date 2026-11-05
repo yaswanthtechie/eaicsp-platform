@@ -36,6 +36,15 @@ REQUIRED_SERVICE_KEYS = {
     "forecast-serving": "FORECAST_SERVING_SERVICE_API_KEY",
 }
 
+DEDICATED_DEMO_EMAILS = {
+    "procurementmanager@company.com",
+    "warehousemanager@company.com",
+    "ceo@company.com",
+    "supplier19@company.com",
+    "supplier21@company.com",
+    "supplier22@company.com",
+}
+
 
 def _required_password(env_var: str) -> str:
     """
@@ -104,6 +113,27 @@ def get_seed_users() -> list[dict]:
             "full_name": "Analyst",
             "password": _required_password("ANALYST_PASSWORD"),
             "role": "analyst",
+        },
+        {
+            "email": "supplier19@company.com",
+            "full_name": "Unity Manufacturing Supplier",
+            "password": _required_password("SUPPLIER_19_PASSWORD"),
+            "role": "supplier",
+            "supplier_id": "SUP-00019",
+        },
+        {
+            "email": "supplier21@company.com",
+            "full_name": "Evergreen Supplies Supplier",
+            "password": _required_password("SUPPLIER_21_PASSWORD"),
+            "role": "supplier",
+            "supplier_id": "SUP-00021",
+        },
+        {
+            "email": "supplier22@company.com",
+            "full_name": "Bluepeak Enterprises Supplier",
+            "password": _required_password("SUPPLIER_22_PASSWORD"),
+            "role": "supplier",
+            "supplier_id": "SUP-00022",
         },
     ]
 
@@ -202,6 +232,25 @@ def seed_database(require_service_keys: bool = False):
             existing_user = db.query(User).filter(User.email == email).first()
 
             if existing_user:
+                if email in DEDICATED_DEMO_EMAILS:
+                    # Keep dedicated demo accounts correctly configured
+                    target_role_id = role_map[data["role"]].id
+                    if existing_user.role_id != target_role_id:
+                        existing_user.role_id = target_role_id
+                    target_supplier_id = data.get("supplier_id")
+                    if target_supplier_id != existing_user.supplier_id:
+                        existing_user.supplier_id = target_supplier_id
+                    if (
+                        data.get("full_name")
+                        and existing_user.full_name != data["full_name"]
+                    ):
+                        existing_user.full_name = data["full_name"]
+                else:
+                    # Avoid unexpectedly changing unrelated existing users' roles
+                    if existing_user.role_id is None:
+                        existing_user.role_id = role_map[data["role"]].id
+                    if existing_user.supplier_id is None and data.get("supplier_id"):
+                        existing_user.supplier_id = data.get("supplier_id")
                 continue
             now = datetime.now(UTC)
 

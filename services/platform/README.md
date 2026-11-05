@@ -1577,6 +1577,82 @@ Inventory
       JWT verification
 ```
 
+## Demo Users and Roles - Round 15
+
+The Platform Service provides seeded demo accounts for end-to-end integration and
+demonstration flows (Flow A: Forecast to purchase order, Flow B: PO to supplier to goods receipt, and Flow C: Live control tower (dashboard on real data)). Demo user credentials are
+managed securely via environment variables and are intended strictly for local
+development, test suites, and demonstration environments.
+
+> [!WARNING]
+> Demo accounts and seed passwords are strictly for local development and
+> testing environments. Never use these credentials in production environments,
+> and never commit real passwords to version control.
+
+### Demo User Accounts
+
+The table below lists the 6 core demo users used across the integration flows,
+along with their assigned roles and corresponding password environment variables:
+
+| Demo Role | Email | Assigned Role | Password Environment Variable |
+|---|---|---|---|
+| Demo Procurement | `procurementmanager@company.com` | `procurement_manager` | `PROCUREMENT_MANAGER_PASSWORD` |
+| Demo Warehouse | `warehousemanager@company.com` | `warehouse_manager` | `WAREHOUSE_MANAGER_PASSWORD` |
+| Demo CEO | `ceo@company.com` | `ceo` | `CEO_PASSWORD` |
+| Demo Supplier 1 (Unity Manufacturing) | `supplier19@company.com` | `supplier` | `SUPPLIER_19_PASSWORD` |
+| Demo Supplier 2 (Evergreen Supplies) | `supplier21@company.com` | `supplier` | `SUPPLIER_21_PASSWORD` |
+| Demo Supplier 3 (Bluepeak Enterprises) | `supplier22@company.com` | `supplier` | `SUPPLIER_22_PASSWORD` |
+
+*Note: Existing seed users (e.g. `supplier@company.com`, `vpoperations@company.com`, `complianceofficer@company.com`, `logisticsmanager@company.com`, and `analyst@company.com`) are preserved for backward compatibility.*
+
+### Canonical Supplier Mappings
+
+Flow B exercises multi-supplier interactions using non-sanctioned seed suppliers.
+The Platform Service associates each demo supplier account with their canonical
+supplier identifier via the `supplier_id` attribute returned on `/api/v1/auth/verify`:
+
+| Demo Account Email | Organization | Canonical Supplier ID |
+|---|---|---|
+| `supplier19@company.com` | Unity Manufacturing GmbH | `SUP-00019` |
+| `supplier21@company.com` | Evergreen Supplies GmbH | `SUP-00021` |
+| `supplier22@company.com` | Bluepeak Enterprises Inc | `SUP-00022` |
+
+### Flow and Permission Matrix
+
+The 6 demo accounts cover the 4 core business operations across the end-to-end flows:
+
+| Flow | Operation | Account | Role | Required Permissions / Enforcements |
+|---|---|---|---|---|
+| Flow A: Forecast to purchase order | Approve Purchase Order (PO) | `procurementmanager@company.com` | `procurement_manager` | Downstream Inventory service enforces role check `require_roles("procurement_manager")` (`POST /api/v1/inventory/purchase-orders/{id}/approve`); Platform RBAC grants `supplier:read` and `supplier:write` |
+| Flow B: PO to supplier to goods receipt | Acknowledge Purchase Order | `supplier19@company.com`<br>`supplier21@company.com`<br>`supplier22@company.com` | `supplier` | Platform issues authenticated JWT with canonical `supplier_id` (`SUP-00019`, `SUP-00021`, `SUP-00022`); Supplier Portal enforces PO ownership isolation (`user["supplier_id"] == po.supplier_id`) |
+| Flow B: PO to supplier to goods receipt | Goods Receipt | `warehousemanager@company.com` | `warehouse_manager` | Authorized in Platform RBAC via `inventory:write` (and `inventory:read`) permission for recording goods receipts in Inventory |
+| Flow C: Live control tower (dashboard on real data) | View Executive KPIs | `ceo@company.com` | `ceo` | Multi-domain executive oversight (`inventory:read`, `compliance:read`, `supplier:read`, `logistics:read`, etc.) |
+
+### Safe Password Configuration
+
+Seed passwords are read from environment variables when running `python -m app.seed`.
+To configure them safely:
+
+1. Copy `.env.example` to your local `.env`:
+   ```bash
+   cp .env.example .env
+   ```
+2. Populate the required password environment variables in `.env`:
+   ```env
+   PROCUREMENT_MANAGER_PASSWORD=<procurement-manager-password>
+   WAREHOUSE_MANAGER_PASSWORD=<warehouse-manager-password>
+   CEO_PASSWORD=<ceo-password>
+   SUPPLIER_19_PASSWORD=<supplier-19-password>
+   SUPPLIER_21_PASSWORD=<supplier-21-password>
+   SUPPLIER_22_PASSWORD=<supplier-22-password>
+   ```
+3. Run database seeding:
+   ```bash
+   python -m app.seed
+   ```
+
+Seeding is idempotent: re-running `app.seed` will not create duplicate accounts or overwrite existing user passwords, but will ensure canonical roles, full names, and supplier identifiers are correctly associated for dedicated demo accounts without altering unrelated users' custom roles.
+
 # Example cURL
 
 ### Login
