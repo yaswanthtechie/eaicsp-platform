@@ -12,12 +12,14 @@ info:
 
     Blueprint reference: docs/architecture/integration-blueprint.md (Sections 4 & 6).
 
-    Data sources (contracts/clickhouse/README.md, PR #267): `kpi_metrics` provides
-    `fill_rate.current_rate`, `stockouts.total_stockouts`, `open_purchase_orders.total_open_orders`
-    and `on_time_delivery.current_rate`. `transport_performance` provides total_shipments,
-    delivered_on_time and delayed. `inventory_snapshots` provides by_warehouse.stockout_count
-    and total_skus. All other KPI fields are PROPOSED: they have no agreed source table
-    yet and must be confirmed with the data platform owner before the UI relies on them.
+    Data sources: rates and trends come from `kpi_metrics` (fill_rate, stockout_count,
+    open_pos, on_time_delivery_pct) over the requested window. Counts and totals come from
+    the KPI views and show the current state (they are not windowed):
+    `kpi_fill_rate_by_warehouse` (total_lines_ordered, lines_fulfilled),
+    `kpi_stockouts_by_warehouse` (total_stockouts, by_warehouse stockout_count, total_skus),
+    `kpi_open_pos_by_status` (total_open_orders, by_status approved, acknowledged, in_transit) and
+    `kpi_on_time_delivery_by_warehouse` (total_shipments, delivered_on_time, delayed).
+    Fields marked PROPOSED are null until a source is agreed.
 
     Issue reference: Closes #217 (Associated downstream implementation: Issue #220 [R15-M4]).
 
@@ -339,10 +341,10 @@ components:
         - trend
       properties:
         current_rate:
-          type: number
+          type: [number, "null"]
           minimum: 0.0
           maximum: 100.0
-          description: Percentage of ordered lines fulfilled on initial delivery (0.0 to 100.0).
+          description: Percentage from 0 to 100. Null when kpi_metrics has no row for the filters.
         target_rate:
           type: number
           minimum: 0.0
@@ -358,7 +360,7 @@ components:
           description: Total number of order line items fulfilled in full without delay.
         status:
           type: string
-          enum: ["on_target", "warning", "critical"]
+          enum: ["on_target", "warning", "critical", "no_data"]
           description: Operational status relative to target.
         trend:
           type: string
@@ -384,13 +386,11 @@ components:
           minimum: 0
           description: Count of distinct SKUs with quantity_on_hand == 0 across monitored facilities.
         critical_skus:
-          type: integer
-          minimum: 0
-          description: Count of high-velocity SKUs currently out of stock.
+          type: [integer, "null"]
+          description: PROPOSED. Null until a source table is agreed with the data platform owner.
         at_risk_skus:
-          type: integer
-          minimum: 0
-          description: Count of SKUs where quantity_on_hand is below safety stock or reorder point.
+          type: [integer, "null"]
+          description: PROPOSED. Null until a source table is agreed with the data platform owner.
         status:
           type: string
           enum: ["normal", "warning", "critical"]
@@ -422,9 +422,8 @@ components:
           minimum: 0
           description: Number of SKUs with 0 stock in this warehouse.
         at_risk_count:
-          type: integer
-          minimum: 0
-          description: Number of SKUs below reorder point in this warehouse.
+          type: [integer, "null"]
+          description: PROPOSED. Null until a source table is agreed with the data platform owner.
         total_skus:
           type: integer
           minimum: 0
@@ -444,13 +443,11 @@ components:
           minimum: 0
           description: Total count of non-completed purchase orders (draft, approved, acknowledged, in_transit).
         total_value_usd:
-          type: number
-          minimum: 0.0
-          description: Aggregate monetary value in USD of all open purchase orders.
+          type: [number, "null"]
+          description: PROPOSED. Null until open PO amounts are converted to USD (kpi_open_pos_by_status sums per currency).
         pending_approval:
-          type: integer
-          minimum: 0
-          description: Count of draft purchase orders currently awaiting manager approval.
+          type: [integer, "null"]
+          description: PROPOSED. Null until a source table is agreed with the data platform owner.
         by_status:
           $ref: "#/components/schemas/PoStatusBreakdown"
 
@@ -464,9 +461,8 @@ components:
         - in_transit
       properties:
         draft:
-          type: integer
-          minimum: 0
-          description: Newly created orders awaiting procurement manager approval.
+          type: [integer, "null"]
+          description: PROPOSED. Null until a source table is agreed with the data platform owner.
         approved:
           type: integer
           minimum: 0
@@ -493,10 +489,10 @@ components:
         - trend
       properties:
         current_rate:
-          type: number
+          type: [number, "null"]
           minimum: 0.0
           maximum: 100.0
-          description: Percentage of shipments delivered on or before the committed delivery date.
+          description: Percentage from 0 to 100. Null when kpi_metrics has no row for the filters.
         target_rate:
           type: number
           minimum: 0.0
@@ -516,7 +512,7 @@ components:
           description: Shipments that arrived past the committed delivery date.
         status:
           type: string
-          enum: ["on_target", "warning", "critical"]
+          enum: ["on_target", "warning", "critical", "no_data"]
           description: Operational health rating against target OTD.
         trend:
           type: string

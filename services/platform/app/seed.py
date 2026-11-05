@@ -29,6 +29,13 @@ ROLES = [
     ("carrier", "Carrier"),
 ]
 
+REQUIRED_SERVICE_KEYS = {
+    "inventory": "INVENTORY_SERVICE_API_KEY",
+    "supplier-portal": "SUPPLIER_PORTAL_SERVICE_API_KEY",
+    "gateway-bff": "GATEWAY_BFF_SERVICE_API_KEY",
+    "forecast-serving": "FORECAST_SERVING_SERVICE_API_KEY",
+}
+
 
 def _required_password(env_var: str) -> str:
     """
@@ -121,7 +128,63 @@ def seed_roles(db) -> dict:
     return role_map
 
 
-def seed_database():
+def seed_service_api_keys(db, *, require_env: bool = False) -> dict[str, str]:
+    """Create or re-use the Platform-issued service identities for caller services."""
+    from app.core.service_auth import generate_service_api_key, hash_service_api_key
+    from app.models.service_api_keys import ServiceAPIKey
+
+    missing = [
+        env_name
+        for env_name in REQUIRED_SERVICE_KEYS.values()
+        if not os.getenv(env_name)
+    ]
+    if require_env and missing:
+        raise RuntimeError(
+            "Missing required service API-key environment variables: "
+            + ", ".join(missing)
+        )
+
+    created: dict[str, str] = {}
+
+    for service_name, env_name in REQUIRED_SERVICE_KEYS.items():
+        raw_key = os.getenv(env_name)
+        if not raw_key:
+            raw_key = generate_service_api_key()
+
+        existing = (
+            db.query(ServiceAPIKey)
+            .filter(ServiceAPIKey.service_name == service_name)
+            .first()
+        )
+
+        if existing is not None:
+            if not existing.is_active:
+                # Never undo an admin revoke. Re-issue via POST /api/v1/admin/service-keys.
+                print(f"Skipping '{service_name}': key is revoked.")
+                continue
+            env_key = os.getenv(env_name)
+            if env_key:
+                expected_hash = hash_service_api_key(env_key)
+                if existing.key_hash != expected_hash:
+                    existing.key_hash = expected_hash
+                created[service_name] = env_key
+            continue
+
+        db.add(
+            ServiceAPIKey(
+                service_name=service_name,
+                key_hash=hash_service_api_key(raw_key),
+                is_active=True,
+                expires_at=None,
+            )
+        )
+        created[service_name] = raw_key
+
+    db.commit()
+    return created
+
+
+def seed_database(require_service_keys: bool = False):
     db = SessionLocal()
 
     try:
@@ -155,6 +218,7 @@ def seed_database():
 
             db.add(user)
 
+        seed_service_api_keys(db, require_env=require_service_keys)
         db.commit()
 
         print("Database seeded successfully.")
@@ -171,6 +235,7 @@ if __name__ == "__main__":
     import sys
 
     Base.metadata.create_all(bind=engine)
+    require_service_keys = "--require-service-keys" in sys.argv
 
     if "--roles-only" in sys.argv:
         db = SessionLocal()
@@ -181,4 +246,4 @@ if __name__ == "__main__":
         finally:
             db.close()
     else:
-        seed_database()
+        seed_database(require_service_keys=require_service_keys)
