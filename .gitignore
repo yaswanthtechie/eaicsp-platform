@@ -244,3 +244,6 @@ mlruns/
 
 # Temporary source backups
 *.py.bak
+
+# contract-monitor-report
+contracts/contract-monitor-report.md
