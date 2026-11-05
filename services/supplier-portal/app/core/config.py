@@ -37,12 +37,21 @@ class Settings(BaseSettings):
 
     PLATFORM_AUTH_URL: str = "http://127.0.0.1:8005"
 
+    # Supplier Portal Service API Key
+
+    SUPPLIER_PORTAL_SERVICE_API_KEY: str = ""
+
     # --------------------------------------------------------
     # Compliance Service
     # --------------------------------------------------------
 
     COMPLIANCE_SERVICE_URL: str = "http://127.0.0.1:8003"
 
+    # --------------------------------------------------------
+    # Supplier Risk Service
+    # --------------------------------------------------------
+
+    SUPPLIER_RISK_SERVICE_URL: str = "http://localhost:8006"
     # --------------------------------------------------------
     # MinIO Object Storage
     # --------------------------------------------------------
@@ -123,7 +132,7 @@ class Settings(BaseSettings):
     )
     # Separate flag from the Compliance consumer's KAFKA_ENABLED.
     ETA_KAFKA_ENABLED: bool = True
-    
+
     ETA_PREDICTED_TOPIC: str = (
         "eta.shipment.predicted"
     )

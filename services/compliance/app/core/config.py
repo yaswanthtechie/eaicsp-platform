@@ -265,19 +265,6 @@ validate_internal_thresholds(
     INTERNAL_BLOCK_MATCH_SCORE,
 )
 
-INTERNAL_SERVICE_KEYS = {
-    name.strip(): key.strip()
-    for name, _, key in (
-        item.partition(":")
-        for item in os.getenv(
-            "INTERNAL_SERVICE_KEYS",
-            "",
-        ).split(",")
-        if item.strip()
-    )
-    if name.strip() and key.strip()
-}
-
 OFAC_DOWNLOAD_URL = os.getenv(
     "OFAC_DOWNLOAD_URL",
     "https://sanctionslistservice.ofac.treas.gov/"

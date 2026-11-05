@@ -22,6 +22,9 @@ from app.services.shipment_eta_consumer_runner import (
 from app.routes.supplier_onboarding import (
     router as supplier_onboarding_router,
 )
+from app.routes.supplier_risk import (
+    router as supplier_risk_router,
+)
 from app.routes.supplier_contract import (
     router as supplier_contract_router,
 )
@@ -123,7 +126,12 @@ app.include_router(
     prefix="/api/v1",
     tags=["Supplier Onboarding"],
 )
-
+# Supplier Risk
+app.include_router(
+    supplier_risk_router,
+    prefix="/api/v1",
+    tags=["Supplier Risk"],
+)
 # Supplier Contracts
 app.include_router(
     supplier_contract_router,
