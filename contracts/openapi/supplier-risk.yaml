@@ -26,6 +26,7 @@ paths:
         `Critical`. The `supplierrisk.score.changed` event uses lowercase `low`,
         `medium`, `high`, with `Critical` mapping to `high`.
       security:
+        - apiKey: []
         - serviceKey: []
           callerService: []
         - bearerAuth: []
@@ -89,6 +90,15 @@ paths:
               example:
                 error_code: UNAUTHORIZED
                 message: Missing or invalid authentication credentials.
+        '403':
+          description: Valid service API key, but this service is not allowed to call this endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: FORBIDDEN
+                message: This service is not allowed to call this endpoint.
         '404':
           description: Supplier was not found.
           content:
@@ -124,6 +134,12 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: Platform-issued user JWT (dashboard / human callers).
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: >-
+        Platform-issued service API key (R15-RH1, #213), checked with Platform's /api/v1/auth/service-verify. Allowed callers: supplier-portal and gateway-bff. A gateway-bff key must also carry the user's Bearer JWT. Any other service gets 403.
     serviceKey:
       type: apiKey
       in: header

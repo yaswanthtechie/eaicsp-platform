@@ -120,7 +120,7 @@ class AuthPrecheckService:
         if request_id:
             verify_headers["x-request-id"] = request_id
 
-        service_api_key = getattr(settings, "GATEWAY_BFF_SERVICE_API_KEY", None) or getattr(settings, "API_GATEWAY_SERVICE_API_KEY", None)
+        service_api_key = settings.service_api_key
         if service_api_key:
             verify_headers["X-API-Key"] = service_api_key
             verify_headers["x-service-name"] = "api_gateway"

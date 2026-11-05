@@ -13,7 +13,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pymongo.errors import ConnectionFailure, PyMongoError, ServerSelectionTimeoutError
 import httpx
 
-from src.config import DEFAULT_RISK_ASSESSMENT_TTL_SECONDS, get_settings
+from src.config import (
+    ALLOWED_API_KEY_CALLERS,
+    DEFAULT_RISK_ASSESSMENT_TTL_SECONDS,
+    GATEWAY_SERVICE_NAME,
+    PLATFORM_VERIFY_TIMEOUT_SECONDS,
+    get_settings,
+)
 from src.data import load_headlines, load_trend_headlines, load_active_trend_headlines
 from src.db import fetch_risk_assessment, get_collection, save_risk_assessment
 from src.evaluate import assign_risk_tier
@@ -430,6 +436,7 @@ class ContractError(Exception):
 
 
 UNAUTHORIZED = (401, "UNAUTHORIZED", "Missing or invalid authentication credentials.")
+SERVICE_FORBIDDEN = (403, "FORBIDDEN", "This service is not allowed to call this endpoint.")
 RISK_UNAVAILABLE = (503, "RISK_UNAVAILABLE", "The supplier risk score is temporarily unavailable.")
 
 
@@ -810,6 +817,8 @@ def require_caller(
     Never uses magic-word tokens or environment bypass switches.
     Fails closed with 401 on missing/invalid credentials, and 503 if Platform times out/is unreachable.
     """
+    forwarded_by_gateway = False
+
     # A. Service API Key (X-API-Key) verified via Platform Service (Round 15 M5)
     if x_api_key is not None:
         key = (x_api_key or "").strip()
@@ -834,7 +843,7 @@ def require_caller(
                     "X-API-Key": key,
                     "X-Caller-Service": "supplier-risk",
                 },
-                timeout=5.0,
+                timeout=PLATFORM_VERIFY_TIMEOUT_SECONDS,
             )
         except (httpx.TimeoutException, httpx.ConnectTimeout) as exc:
             logger.warning("Platform service verification timed out: %s", type(exc).__name__)
@@ -846,30 +855,45 @@ def require_caller(
             logger.warning("Platform service verification unexpected error: %s", type(exc).__name__)
             raise ContractError(*RISK_UNAVAILABLE) from exc
 
-        if resp.status_code == 200:
-            try:
-                data = resp.json()
-            except Exception:
-                logger.warning("Platform service verification returned non-JSON response with 200 OK")
-                raise ContractError(*RISK_UNAVAILABLE)
-
-            if isinstance(data, dict) and data.get("authenticated") is False:
-                logger.warning("Platform service verification rejected key (authenticated=False)")
-                raise ContractError(*UNAUTHORIZED)
-
-            service_name = data.get("service") if isinstance(data, dict) else "service-caller"
-            return service_name or "service-caller"
-
         if resp.status_code == 401:
             logger.warning("Platform service verification rejected key with HTTP 401")
             raise ContractError(*UNAUTHORIZED)
 
-        # Unexpected Platform response (e.g. 500, 502, 503, 403, 404) fails closed with 503
-        logger.warning("Platform service verification returned unexpected status %s", resp.status_code)
-        raise ContractError(*RISK_UNAVAILABLE)
+        if resp.status_code != 200:
+            logger.warning(
+                "Platform service verification returned unexpected status %s",
+                resp.status_code,
+            )
+            raise ContractError(*RISK_UNAVAILABLE)
+
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            logger.warning("Platform service verification returned non-JSON response with 200 OK")
+            raise ContractError(*RISK_UNAVAILABLE) from exc
+
+        # Only an explicit authenticated=True counts as a valid key.
+        if not isinstance(data, dict) or data.get("authenticated") is not True:
+            logger.warning("Platform service verification did not confirm the key")
+            raise ContractError(*UNAUTHORIZED)
+
+        service_name = data.get("service")
+        if service_name not in ALLOWED_API_KEY_CALLERS:
+            logger.warning("Service %s is not allowed to call Supplier Risk", service_name)
+            raise ContractError(*SERVICE_FORBIDDEN)
+
+        if service_name != GATEWAY_SERVICE_NAME:
+            return service_name
+
+        # The gateway forwards user requests. Its key proves which service the
+        # request came through, not who the user is, so the user's JWT is still
+        # checked in section C below. No JWT means 401 at the end of this function.
+        forwarded_by_gateway = True
 
     # B. Legacy service-to-service authentication (Round 5 compatibility)
-    if x_caller_service is not None or x_service_key is not None:
+    if not forwarded_by_gateway and (
+        x_caller_service is not None or x_service_key is not None
+    ):
         caller = (x_caller_service or "").strip()
         key = (x_service_key or "").strip()
         if not caller or not key:
@@ -898,9 +922,15 @@ def require_caller(
 
         token = parts[1].strip()
 
+        settings = get_settings()
+        platform_base_url = (
+            os.getenv("PLATFORM_AUTH_URL")
+            or settings.platform_service_url
+            or "http://127.0.0.1:8005"
+        )
         platform_verify_url = os.getenv(
             "PLATFORM_VERIFY_URL",
-            f"{os.getenv('PLATFORM_AUTH_URL', os.getenv('PLATFORM_SERVICE_URL', 'http://127.0.0.1:8005')).rstrip('/')}/api/v1/auth/verify",
+            f"{platform_base_url.rstrip('/')}/api/v1/auth/verify",
         )
 
         try:
@@ -910,7 +940,7 @@ def require_caller(
                     "Authorization": f"Bearer {token}",
                     "X-Caller-Service": "supplier-risk",
                 },
-                timeout=2.0,
+                timeout=PLATFORM_VERIFY_TIMEOUT_SECONDS,
             )
         except (httpx.TimeoutException, httpx.ConnectTimeout) as exc:
             logger.warning("Platform auth verification timed out: %s", type(exc).__name__)

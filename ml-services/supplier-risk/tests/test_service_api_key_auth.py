@@ -68,7 +68,7 @@ def test_valid_service_api_key_accepted_200(raw_client):
     mock_platform_resp = MagicMock(status_code=200)
     mock_platform_resp.json.return_value = {
         "authenticated": True,
-        "service": "gateway-bff",
+        "service": "supplier-portal",
         "auth_type": "api_key",
     }
 
@@ -307,7 +307,7 @@ def test_seed_mappings_authenticates_with_service_api_key(raw_client):
     mock_platform_resp = MagicMock(status_code=200)
     mock_platform_resp.json.return_value = {
         "authenticated": True,
-        "service": "platform",
+        "service": "supplier-portal",
     }
 
     with patch("httpx.post", return_value=mock_platform_resp), \
@@ -359,3 +359,113 @@ def test_secret_never_exposed_in_error_responses(raw_client):
 
         assert response.status_code == 401
         assert secret not in response.text
+
+
+def _platform_resp(status_code, body):
+    resp = MagicMock(status_code=status_code)
+    resp.json.return_value = body
+    return resp
+
+
+GATEWAY_OK = {
+    "authenticated": True,
+    "service": "gateway-bff",
+    "auth_type": "api_key",
+}
+
+SUPPLIER_DOC = {
+    "supplier_id": "SUP-00045",
+    "name": "Acme Supplier Inc",
+    "sanctions_flag": False,
+}
+
+
+def test_gateway_key_without_user_jwt_returns_401(raw_client):
+    """The gateway's key alone is not enough: an anonymous request through the gateway gets 401."""
+    with patch("httpx.post", return_value=_platform_resp(200, GATEWAY_OK)), \
+         patch("src.analyze.resolve_canonical_supplier") as mock_resolve:
+        response = raw_client.get(
+            "/api/v1/suppliers/SUP-00045/risk-score",
+            headers={
+                "X-API-Key": "sk_test_gateway_key",
+                "X-Caller-Service": "api-gateway",
+            },
+        )
+
+    assert response.status_code == 401
+    assert not mock_resolve.called
+
+
+def test_gateway_key_with_valid_user_jwt_returns_200(raw_client):
+    """Through the gateway, both the gateway key and the user's JWT are verified."""
+    user_ok = _platform_resp(
+        200,
+        {
+            "valid": True,
+            "email": "analyst@company.com",
+            "role": "analyst",
+        },
+    )
+
+    with patch(
+        "httpx.post",
+        side_effect=[
+            _platform_resp(200, GATEWAY_OK),
+            user_ok,
+        ],
+    ) as mock_post, \
+         patch(
+             "src.analyze.resolve_canonical_supplier",
+             return_value=SUPPLIER_DOC,
+         ), \
+         patch("src.analyze.fetch_risk_assessment", return_value=None), \
+         patch("src.analyze.load_active_trend_headlines", return_value={}):
+        response = raw_client.get(
+            "/api/v1/suppliers/SUP-00045/risk-score",
+            headers={
+                "X-API-Key": "sk_test_gateway_key",
+                "X-Caller-Service": "api-gateway",
+                "Authorization": "Bearer valid.user.jwt.token",
+            },
+        )
+
+    assert response.status_code == 200
+    urls = [call.args[0] for call in mock_post.call_args_list]
+    assert urls[0].endswith("/api/v1/auth/service-verify")
+    assert urls[1].endswith("/api/v1/auth/verify")
+
+
+def test_service_not_in_allowlist_returns_403(raw_client):
+    """A valid key from a service that is not an allowed caller gets 403, and nothing runs."""
+    inventory_ok = _platform_resp(
+        200,
+        {
+            "authenticated": True,
+            "service": "inventory",
+            "auth_type": "api_key",
+        },
+    )
+
+    with patch("httpx.post", return_value=inventory_ok), \
+         patch("src.analyze.seed_supplier_mappings") as mock_seed:
+        response = raw_client.post(
+            "/api/v1/supplier-risk/seed-mappings",
+            headers={"X-API-Key": "sk_test_inventory_key"},
+        )
+
+    assert response.status_code == 403
+    assert response.json()["error_code"] == "FORBIDDEN"
+    assert not mock_seed.called
+
+
+def test_platform_200_without_authenticated_true_returns_401(raw_client):
+    """A 200 from Platform only counts when it says authenticated: true."""
+    with patch("httpx.post", return_value=_platform_resp(200, {})), \
+         patch("src.analyze.resolve_canonical_supplier") as mock_resolve:
+        response = raw_client.get(
+            "/api/v1/suppliers/SUP-00045/risk-score",
+            headers={"X-API-Key": "sk_test_some_key"},
+        )
+
+    assert response.status_code == 401
+    assert not mock_resolve.called

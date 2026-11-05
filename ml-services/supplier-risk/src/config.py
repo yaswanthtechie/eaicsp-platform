@@ -49,6 +49,12 @@ DEFAULT_MONGODB_DATABASE: Final[str] = "supplier_risk"
 DEFAULT_MONGODB_COLLECTION: Final[str] = "headlines"
 DEFAULT_PLATFORM_SERVICE_URL: Final[str] = "http://127.0.0.1:8005"
 
+# Service API keys (R15-M5): which callers may use X-API-Key on this service.
+ALLOWED_API_KEY_CALLERS: Final[frozenset[str]] = frozenset({"supplier-portal", "gateway-bff"})
+GATEWAY_SERVICE_NAME: Final[str] = "gateway-bff"
+# Supplier Portal waits 2s for a risk score (contract), so Platform checks must be faster.
+PLATFORM_VERIFY_TIMEOUT_SECONDS: Final[float] = 1.5
+
 # ------------------------------------------------------------------
 # Fixed Risk Tier Classification Thresholds
 # (Configured a priori before evaluation; independent of model prediction scores)
