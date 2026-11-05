@@ -332,9 +332,9 @@ def _build_forward_headers(
     # unconditionally: any client-supplied value was dropped above.
     headers["x-caller-service"] = "api-gateway"
 
-    service_api_key = getattr(settings, "API_GATEWAY_SERVICE_API_KEY", None)
+    service_api_key = getattr(settings, "GATEWAY_BFF_SERVICE_API_KEY", None) or getattr(settings, "API_GATEWAY_SERVICE_API_KEY", None)
     if service_api_key:
-        headers["x-api-key"] = service_api_key
+        headers["X-API-Key"] = service_api_key
         headers["x-service-name"] = "api_gateway"
 
     return headers
@@ -766,9 +766,9 @@ class ProxyService:
         if "authorization" in websocket.headers:
             headers["authorization"] = websocket.headers["authorization"]
 
-        service_api_key = getattr(settings, "API_GATEWAY_SERVICE_API_KEY", None)
+        service_api_key = getattr(settings, "GATEWAY_BFF_SERVICE_API_KEY", None) or getattr(settings, "API_GATEWAY_SERVICE_API_KEY", None)
         if service_api_key:
-            headers["x-api-key"] = service_api_key
+            headers["X-API-Key"] = service_api_key
             headers["x-service-name"] = "api_gateway"
 
         # Extract requested subprotocols

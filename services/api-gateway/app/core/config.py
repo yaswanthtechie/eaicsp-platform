@@ -35,7 +35,9 @@ class Settings(BaseSettings):
     DEMAND_FORECAST_SERVICE_URL: str = "http://localhost:8007"
     ANALYTICS_SERVICE_URL: str = "http://localhost:8008"
 
-    # Service-to-service authentication
+
+    # Service-to-service authentication (canonical Pod 1 / Round 15 M5)
+    GATEWAY_BFF_SERVICE_API_KEY: str | None = None
     API_GATEWAY_SERVICE_API_KEY: str | None = None
 
     # --------------------------------------------------
@@ -282,8 +284,19 @@ class Settings(BaseSettings):
                 # When SERVICE_ROUTES is not explicitly set, *_SERVICE_URL populates routes
                 self.SERVICE_ROUTES[prefix] = url_value
 
+        # Synchronize canonical GATEWAY_BFF_SERVICE_API_KEY with legacy API_GATEWAY_SERVICE_API_KEY
+        if not self.GATEWAY_BFF_SERVICE_API_KEY and self.API_GATEWAY_SERVICE_API_KEY:
+            self.GATEWAY_BFF_SERVICE_API_KEY = self.API_GATEWAY_SERVICE_API_KEY
+        elif self.GATEWAY_BFF_SERVICE_API_KEY and not self.API_GATEWAY_SERVICE_API_KEY:
+            self.API_GATEWAY_SERVICE_API_KEY = self.GATEWAY_BFF_SERVICE_API_KEY
+
         if self.CLICKHOUSE_DATABASE and "CLICKHOUSE_DB" not in self.model_fields_set:
             self.CLICKHOUSE_DB = self.CLICKHOUSE_DATABASE
+
+    @property
+    def service_api_key(self) -> str | None:
+        """Return the canonical service API key configured for Gateway BFF."""
+        return self.GATEWAY_BFF_SERVICE_API_KEY or self.API_GATEWAY_SERVICE_API_KEY
 
     model_config = SettingsConfigDict(
         env_file=(

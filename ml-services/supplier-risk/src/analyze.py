@@ -795,6 +795,7 @@ def parse_service_keys(env_str: Optional[str] = None) -> Dict[str, str]:
 
 
 def require_caller(
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
     authorization: Optional[str] = Header(None, alias="Authorization"),
     x_caller_service: Optional[str] = Header(None, alias="X-Caller-Service"),
     x_service_key: Optional[str] = Header(None, alias="X-Service-Key"),
@@ -809,7 +810,65 @@ def require_caller(
     Never uses magic-word tokens or environment bypass switches.
     Fails closed with 401 on missing/invalid credentials, and 503 if Platform times out/is unreachable.
     """
-    # A. Service-to-service authentication
+    # A. Service API Key (X-API-Key) verified via Platform Service (Round 15 M5)
+    if x_api_key is not None:
+        key = (x_api_key or "").strip()
+        if not key:
+            logger.warning("Rejected service call: missing or empty X-API-Key")
+            raise ContractError(*UNAUTHORIZED)
+
+        platform_base = (
+            os.getenv("PLATFORM_SERVICE_URL")
+            or os.getenv("PLATFORM_AUTH_URL")
+            or "http://127.0.0.1:8005"
+        )
+        platform_service_verify_url = (
+            os.getenv("PLATFORM_SERVICE_VERIFY_URL")
+            or f"{platform_base.rstrip('/')}/api/v1/auth/service-verify"
+        )
+
+        try:
+            resp = httpx.post(
+                platform_service_verify_url,
+                headers={
+                    "X-API-Key": key,
+                    "X-Caller-Service": "supplier-risk",
+                },
+                timeout=5.0,
+            )
+        except (httpx.TimeoutException, httpx.ConnectTimeout) as exc:
+            logger.warning("Platform service verification timed out: %s", type(exc).__name__)
+            raise ContractError(*RISK_UNAVAILABLE) from exc
+        except (httpx.RequestError, httpx.NetworkError) as exc:
+            logger.warning("Platform service verification network error: %s", type(exc).__name__)
+            raise ContractError(*RISK_UNAVAILABLE) from exc
+        except Exception as exc:
+            logger.warning("Platform service verification unexpected error: %s", type(exc).__name__)
+            raise ContractError(*RISK_UNAVAILABLE) from exc
+
+        if resp.status_code == 200:
+            try:
+                data = resp.json()
+            except Exception:
+                logger.warning("Platform service verification returned non-JSON response with 200 OK")
+                raise ContractError(*RISK_UNAVAILABLE)
+
+            if isinstance(data, dict) and data.get("authenticated") is False:
+                logger.warning("Platform service verification rejected key (authenticated=False)")
+                raise ContractError(*UNAUTHORIZED)
+
+            service_name = data.get("service") if isinstance(data, dict) else "service-caller"
+            return service_name or "service-caller"
+
+        if resp.status_code == 401:
+            logger.warning("Platform service verification rejected key with HTTP 401")
+            raise ContractError(*UNAUTHORIZED)
+
+        # Unexpected Platform response (e.g. 500, 502, 503, 403, 404) fails closed with 503
+        logger.warning("Platform service verification returned unexpected status %s", resp.status_code)
+        raise ContractError(*RISK_UNAVAILABLE)
+
+    # B. Legacy service-to-service authentication (Round 5 compatibility)
     if x_caller_service is not None or x_service_key is not None:
         caller = (x_caller_service or "").strip()
         key = (x_service_key or "").strip()
@@ -829,7 +888,7 @@ def require_caller(
 
         return caller
 
-    # B. User Bearer JWT authentication
+    # C. User Bearer JWT authentication
     if authorization is not None:
         auth_str = authorization.strip()
         parts = auth_str.split(" ", 1)
@@ -841,7 +900,7 @@ def require_caller(
 
         platform_verify_url = os.getenv(
             "PLATFORM_VERIFY_URL",
-            f"{os.getenv('PLATFORM_AUTH_URL', 'http://127.0.0.1:8005').rstrip('/')}/api/v1/auth/verify",
+            f"{os.getenv('PLATFORM_AUTH_URL', os.getenv('PLATFORM_SERVICE_URL', 'http://127.0.0.1:8005')).rstrip('/')}/api/v1/auth/verify",
         )
 
         try:
