@@ -448,10 +448,10 @@ describe("useWebSocket", () => {
       role: "ceo",
     };
 
-  vi.mocked(refreshAuthSession).mockImplementation(async () => {
-    authMocks.session = refreshedSession;
-    return refreshedSession;
-  });
+    vi.mocked(refreshAuthSession).mockImplementation(async () => {
+      authMocks.session = refreshedSession;
+      return refreshedSession;
+    });
     const onAuthSessionRefreshed = vi.fn();
 
     renderHook(() =>
@@ -529,5 +529,47 @@ describe("useWebSocket", () => {
     expect(refreshAuthSession).toHaveBeenCalledTimes(1);
     expect(sockets).toHaveLength(2);
     expect(result.current.failed).toBe(true);
+  });
+
+  it("refreshes again when the new token expires later in the session", async () => {
+    vi.mocked(refreshAuthSession).mockImplementation(async () => {
+      const callNumber = vi.mocked(refreshAuthSession).mock.calls.length;
+      const nextSession: AuthSession = {
+        access_token: `access-token-${callNumber}`,
+        refresh_token: `refresh-token-${callNumber}`,
+        token_type: "bearer",
+        role: "ceo",
+      };
+      authMocks.session = nextSession;
+      return nextSession;
+    });
+
+    const { result } = renderHook(() =>
+      useWebSocket({ url: "ws://localhost:8080", onMessage: vi.fn() }),
+    );
+
+    // First expiry: refresh, reconnect, and the new socket opens.
+    await act(async () => {
+      sockets[0].onclose?.({ code: 4401 });
+    });
+    act(() => {
+      sockets[1].onopen?.();
+    });
+    expect(result.current.connected).toBe(true);
+
+    // The new token expires later in the same session.
+    act(() => {
+      vi.advanceTimersByTime(61_000);
+    });
+    await act(async () => {
+      sockets[1].onclose?.({ code: 4401 });
+    });
+
+    expect(refreshAuthSession).toHaveBeenCalledTimes(2);
+    expect(sockets).toHaveLength(3);
+    expect(new URL(sockets[2].url).searchParams.get("token")).toBe(
+      "access-token-2",
+    );
+    expect(result.current.failed).toBe(false);
   });
 });

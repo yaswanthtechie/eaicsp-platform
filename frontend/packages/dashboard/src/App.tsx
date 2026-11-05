@@ -115,10 +115,10 @@ interface DashboardAppProps {
   onAuthSessionRefreshed?: (session: AuthSession) => void;
 }
 
-function DashboardApp({ 
-  authRole, 
-  onLogout, 
-  onAuthSessionRefreshed, 
+function DashboardApp({
+  authRole,
+  onLogout,
+  onAuthSessionRefreshed,
 }: DashboardAppProps) {
   const {
     data: dashboardData,

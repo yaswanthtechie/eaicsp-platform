@@ -13,6 +13,7 @@ interface UseWebSocketOptions {
   onMessage: (data: WebSocketMessage) => void;
   onError?: (error: Event) => void;
   onAuthSessionRefreshed?: (session: AuthSession) => void;
+  /** false = no automatic reconnect after a drop. A 4401 still refreshes the JWT and reconnects once. */
   autoReconnect?: boolean;
   maxRetries?: number;
   /** false = connect without a token (mock auth only). */
@@ -76,6 +77,10 @@ function getDedupKey(event: AnalyticsEventEnvelope): string {
     : event.event_id;
 }
 
+// Real token expiries are minutes apart. A second 4401 within this window
+// means a fresh token was rejected too, so stop instead of looping.
+const AUTH_REFRESH_MIN_GAP_MS = 60_000;
+
 export function useWebSocket({
   url,
   onMessage,
@@ -106,8 +111,8 @@ export function useWebSocket({
   const connectRef = useRef<(() => void) | null>(null);
   const seenEventIdsRef = useRef(new Set<string>());
   const intentionalCloseRef = useRef(false);
-  const authRefreshAttemptedRef = useRef(false);
-
+  const lastAuthRefreshAtRef = useRef<number | null>(null);
+  
   useEffect(() => {
     onMessageRef.current = onMessage;
   }, [onMessage]);
@@ -118,7 +123,7 @@ export function useWebSocket({
 
   const retryConnection = useCallback(() => {
     retryCountRef.current = 0;
-    authRefreshAttemptedRef.current = false;
+    lastAuthRefreshAtRef.current = null;
     setFailed(false);
     intentionalCloseRef.current = true;
 
@@ -224,7 +229,6 @@ export function useWebSocket({
         retryCountRef.current = 0;
       };
 
-
       socket.onmessage = (event: MessageEvent) => {
         if (isUnmounted) {
           return;
@@ -301,12 +305,20 @@ export function useWebSocket({
 
        // Unauthorized: refresh the JWT before reconnecting.
         if (event.code === 4401) {
-          if (authRefreshAttemptedRef.current) {
+          const now = Date.now();
+          const lastRefreshAt = lastAuthRefreshAtRef.current;
+
+          if (
+            !requireToken ||
+            (lastRefreshAt !== null &&
+              now - lastRefreshAt < AUTH_REFRESH_MIN_GAP_MS)
+          ) {
             setFailed(true);
             return;
           }
 
-          authRefreshAttemptedRef.current = true;
+          lastAuthRefreshAtRef.current = now;
+          setIsConnecting(true);
 
           void refreshAuthSession()
             .then((refreshedSession) => {
