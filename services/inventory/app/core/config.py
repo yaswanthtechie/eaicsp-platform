@@ -15,10 +15,14 @@ class Settings(BaseSettings):
     # Forecasts older than this fall back to sales history.
     FORECAST_MAX_AGE_DAYS: int = 35
 
+    # Service API key issued by Platform for service-to-service calls (R15-RH1, R15-B6).
+    # Used for outbound service-to-service calls to Forecast Serving and Compliance.
+    # Set via INVENTORY_SERVICE_API_KEY env var. Never commit a real key.
+    INVENTORY_SERVICE_API_KEY: str = ""
+
     # Forecast Service integration (Flow A, blueprint section 4)
     FORECAST_SERVICE_URL: str = "http://localhost:8007"
-    # Set via env (service key issued by Platform). Never commit a real key.
-    FORECAST_SERVICE_API_KEY: str = ""
+    FORECAST_SERVICE_API_KEY: str = ""  # legacy fallback alias
     FORECAST_TIMEOUT_SECONDS: float = 2.0
     FORECAST_RETRY_COUNT: int = 1
     FORECAST_HORIZON_DAYS: int = 30

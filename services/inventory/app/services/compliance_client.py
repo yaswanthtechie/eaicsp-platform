@@ -1,7 +1,9 @@
+import logging
 import httpx
 
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
 
 VALID_DECISIONS = {
     "CLEAR",
@@ -54,6 +56,7 @@ def check_supplier_compliance(
     """
     Call Compliance Service before creating
     an automatic purchase order.
+    Authenticates via service API key (X-API-Key: INVENTORY_SERVICE_API_KEY).
     """
 
     url = (
@@ -69,7 +72,14 @@ def check_supplier_compliance(
 
     headers = {
         "X-Caller-Service": "inventory-service",
+        "Accept": "application/json",
     }
+    if settings.INVENTORY_SERVICE_API_KEY:
+        headers["X-API-Key"] = settings.INVENTORY_SERVICE_API_KEY
+    else:
+        logger.warning(
+            "INVENTORY_SERVICE_API_KEY is not set; compliance calls may be rejected"
+        )
 
     try:
         with httpx.Client(timeout=5.0) as client:
@@ -79,7 +89,19 @@ def check_supplier_compliance(
                 headers=headers,
             )
 
+        if response.status_code == 401:
+            logger.warning(
+                "Compliance Service rejected service API key (HTTP 401) for supplier %s",
+                supplier_id,
+            )
+            raise ComplianceServiceError(
+                "Compliance Service authentication failed (HTTP 401)."
+            )
+
         response.raise_for_status()
+
+    except ComplianceServiceError:
+        raise
 
     except httpx.TransportError as exc:
         # Covers timeouts, refused connections and
