@@ -7,12 +7,14 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 REPO_ROOT = PROJECT_ROOT.parents[2]
 
-DATA_PATH = (
-    PROJECT_ROOT.parent.parent.parent
-    / "data-platform"
-    / "out"
-    / "daily_demand.csv"
-)
+DATA_PATH = PROJECT_ROOT / "data" / "m5_daily_sales.csv"
+
+# R15 seed: one row per date x canonical SKU x canonical warehouse.
+# Written by `make seed` (data-platform/out/sales_daily.csv).
+SEED_SALES_PATH = Path(os.getenv(
+    "SEED_SALES_PATH",
+    REPO_ROOT / "data-platform" / "out" / "sales_daily.csv",
+))
 RAW_DATA_DIR = PROJECT_ROOT / "data" / "raw"
 
 MODEL_DIR = PROJECT_ROOT / "models" / "multi_horizon"
@@ -54,11 +56,11 @@ XGB_PARAMS = {
 
 # Rolling-origin backtest on the aggregate series:
 # refit at each cutoff, forecast 90 days, score each horizon.
-BACKTEST_CUTOFFS = 8
-BACKTEST_STEP_DAYS = 30
-CALIBRATION_CUTOFFS = 4
-# Minimum history required before a rolling-origin forecast cutoff.
-# Set to 365 because the current dataset contains 730 daily observations.
+# 730 days of seed history: 365 min training + 90 horizon leaves 275 days,
+# so 19 cutoffs every 14 days.
+BACKTEST_CUTOFFS = 19
+BACKTEST_STEP_DAYS = 14
+CALIBRATION_CUTOFFS = 13
 MIN_TRAINING_DAYS = 365
 
 # 80% empirical prediction interval: 10th and 90th percentile of the

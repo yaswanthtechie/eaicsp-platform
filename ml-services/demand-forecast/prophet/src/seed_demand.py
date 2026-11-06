@@ -14,7 +14,7 @@ def load_seed_sales(path: Path = SEED_SALES_PATH) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(
             f"Seed sales not found: {path}. "
-            "Run: cd data-platform && python -m seed.generate --out seed/out/"
+            "Run from the repo root: make seed"
         )
 
     df = pd.read_csv(path, usecols=["date", "sku_id", "warehouse_id", "quantity_sold"])

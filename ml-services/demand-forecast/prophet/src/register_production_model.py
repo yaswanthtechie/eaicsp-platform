@@ -22,6 +22,7 @@ from prophet.serialize import model_to_json
 from src.forecast_pyfunc import DemandForecastModel, aggregate_forecast, fit_prophet, horizon_bucket
 from src.multi_horizon_config import (
     HOLDOUT_DAYS,
+    HORIZON_BUCKETS,
     MIN_CALIBRATION_PREDICTION,
     MLFLOW_EXPERIMENT,
     PROJECT_ROOT,
@@ -149,6 +150,14 @@ def main() -> None:
     holdout, cutoff = holdout_frame(sales)
     metrics = evaluate(holdout)
     intervals, coverage = calibrate_intervals(holdout)
+    missing = {
+        f"{low}-{high}" for low, high in HORIZON_BUCKETS
+    } - intervals.keys()
+
+    if missing:
+        raise SystemExit(
+            f"No calibration data for horizon buckets: {sorted(missing)}"
+        )
     metrics.update({f"coverage_80_{b.replace('-', '_')}": c for b, c in coverage.items()})
 
     # Final model on all history.

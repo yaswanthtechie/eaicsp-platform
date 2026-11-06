@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import pytest
@@ -54,8 +54,7 @@ def test_pair_forecast_shape_and_bounds():
 def test_predict_starts_tomorrow_with_exact_horizon():
     out = _model().predict(None, pd.DataFrame([{"sku_id": "SKU-000123", "warehouse_id": "WH-BLR-01", "horizon": 7}]))
     assert len(out) == 7
-    assert out.iloc[0]["date"] > date.today().isoformat() or out.iloc[0]["date"] == (date.today() + timedelta(days=1)).isoformat()
-
+    assert out.iloc[0]["date"] == (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()
 
 def test_predict_rejects_unknown_pair_and_bad_horizon():
     model = _model()

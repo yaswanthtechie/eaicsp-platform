@@ -104,12 +104,35 @@ def test_recursive_xgboost_forecast_with_explanations():
         assert np.isclose(sum(row["contributions"].values()), row["prediction"], atol=0.05)
 
 
-@pytest.mark.skipif(not INTERVALS_PATH.exists(), reason="run python -m src.train_multi_horizon first")
+@pytest.mark.skipif(
+    not INTERVALS_PATH.exists(),
+    reason="run python -m src.train_multi_horizon first",
+)
 def test_end_to_end_predict_on_committed_models():
-    from src.multi_horizon import predict
+    from src.multi_horizon import (
+        load_prophet_model,
+        predict,
+        prepare_history,
+    )
+    from src.multi_horizon_data import load_daily_data
+
+    history = prepare_history(load_daily_data())
+    model = load_prophet_model()
+
+    history_end = pd.Timestamp(history["ds"].max())
+    trained_until = pd.Timestamp(model.history["ds"].max())
+
+    if history_end != trained_until:
+        pytest.skip(
+            f"Committed model ends at {trained_until.date()}, "
+            f"but current seed data ends at {history_end.date()}. "
+            "Retrain models before running end-to-end prediction."
+        )
 
     result = predict()
+
     assert len(result["forecast"]) == 90
+
     for name in HORIZONS:
         horizon = result["horizons"][name]
         assert horizon["lower"] <= horizon["upper"]
