@@ -141,3 +141,31 @@ def test_model_not_loaded_returns_503_model_unavailable(monkeypatch):
         "error_code": "MODEL_UNAVAILABLE",
         "message": "Forecast model is not loaded",
     }
+
+
+def test_revoked_api_key_returns_401(monkeypatch):
+    from src.errors import ContractError
+
+    def reject_revoked_key(key):
+        raise ContractError(401, "UNAUTHORIZED", "Invalid service API key")
+
+    monkeypatch.setattr(svc, "verify_platform_api_key", reject_revoked_key)
+
+    response = make_client(monkeypatch, auth_ok=False).get(
+        URL,
+        params=OK_PARAMS,
+        headers={"X-API-Key": "revoked-test-key"},
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {
+        "error_code": "UNAUTHORIZED",
+        "message": "Invalid service API key",
+    }
+
+
+def test_readiness_is_public_without_api_key(monkeypatch):
+    response = make_client(monkeypatch, auth_ok=False).get("/model/readyz")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready"}
