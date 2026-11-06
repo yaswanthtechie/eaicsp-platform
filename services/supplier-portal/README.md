@@ -119,15 +119,21 @@ The Supplier Portal supports shipment dispatch and ETA prediction processing.
 
 **Event publication and consumption boundary:** Recording a dispatch event in the outbox and publishing it to Kafka are separate operations. Similarly, consuming an ETA prediction event requires the ETA Kafka consumer and its configured broker and topic to be available.
 
-## Test Results
+### Round 15 — R7 Service API Keys
+- Implemented Platform API key authentication for Supplier Portal service-to-service requests.
+- Added `X-API-Key` header support for Compliance and Supplier Risk clients.
+- Added Platform-based API key validation in Compliance Service.
+- Updated environment configuration and authentication documentation.
+- Added and updated authentication tests.
 
+## Test Results
 Supplier Portal test suite execution completed successfully.
 
 ```text
-989 passed, 15 deselected in 394.12s (0:06:34)
+1005 passed, 15 deselected in 386.01s (0:06:26)
 ```
 
-- **Passed:** 989 tests
+- **Passed:** 1005 tests
 - **Deselected:** 15 tests
 - **Result:** All executed tests passed successfully.
 
