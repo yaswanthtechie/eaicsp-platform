@@ -190,6 +190,13 @@ def test_missing_password_env_var_raises_runtime_error():
         _required_password("MISSING_PASSWORD_TEST_KEY")
 
 
+def test_empty_password_env_var_raises_runtime_error(monkeypatch):
+    """A blank value (e.g. copied from .env.example) counts as missing."""
+    monkeypatch.setenv("EMPTY_PASSWORD_TEST_KEY", "")
+    with pytest.raises(RuntimeError, match="EMPTY_PASSWORD_TEST_KEY is not set"):
+        _required_password("EMPTY_PASSWORD_TEST_KEY")
+
+
 # ============================================================
 # 4. AUTHENTICATION & TOKEN VERIFICATION
 # ============================================================
@@ -627,6 +634,44 @@ def test_seeding_does_not_overwrite_unrelated_existing_users_roles():
         db = SessionLocal()
         try:
             user = db.query(User).filter(User.email == target_email).first()
+            if user is not None and original_role_id is not None:
+                user.role_id = original_role_id
+                db.commit()
+        finally:
+            db.close()
+
+
+def test_seeding_restores_demo_user_role():
+    """Re-running seed_database() puts a demo account's role back."""
+    test_user_email = "warehousemanager@company.com"
+    original_role_id = None
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == test_user_email).first()
+        analyst_role = db.query(Role).filter(Role.name == "analyst").first()
+        assert user is not None
+        assert analyst_role is not None
+        original_role_id = user.role_id
+        user.role_id = analyst_role.id
+        db.commit()
+    finally:
+        db.close()
+
+    try:
+        seed_database()
+
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter(User.email == test_user_email).first()
+            role = db.query(Role).filter(Role.id == user.role_id).first()
+            assert role.name == "warehouse_manager"
+        finally:
+            db.close()
+    finally:
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter(User.email == test_user_email).first()
             if user is not None and original_role_id is not None:
                 user.role_id = original_role_id
                 db.commit()

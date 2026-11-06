@@ -54,13 +54,13 @@ def _required_password(env_var: str) -> str:
     -- as the test suite does -- never requires the full set of seed
     passwords to be present.
     """
-    try:
-        return os.environ[env_var]
-    except KeyError:
+    value = os.environ.get(env_var, "")
+    if not value.strip():
         raise RuntimeError(
             f"{env_var} is not set. Seed passwords must be supplied via "
             f"environment variables; see .env.example."
-        ) from None
+        )
+    return value
 
 
 def get_seed_users() -> list[dict]:
@@ -236,6 +236,9 @@ def seed_database(require_service_keys: bool = False):
                     # Keep dedicated demo accounts correctly configured
                     target_role_id = role_map[data["role"]].id
                     if existing_user.role_id != target_role_id:
+                        print(
+                            f"Resetting demo account '{email}' to role '{data['role']}'."
+                        )
                         existing_user.role_id = target_role_id
                     target_supplier_id = data.get("supplier_id")
                     if target_supplier_id != existing_user.supplier_id:

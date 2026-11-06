@@ -1626,7 +1626,7 @@ The 6 demo accounts cover the 4 core business operations across the end-to-end f
 | Flow A: Forecast to purchase order | Approve Purchase Order (PO) | `procurementmanager@company.com` | `procurement_manager` | Downstream Inventory service enforces role check `require_roles("procurement_manager")` (`POST /api/v1/inventory/purchase-orders/{id}/approve`); Platform RBAC grants `supplier:read` and `supplier:write` |
 | Flow B: PO to supplier to goods receipt | Acknowledge Purchase Order | `supplier19@company.com`<br>`supplier21@company.com`<br>`supplier22@company.com` | `supplier` | Platform issues authenticated JWT with canonical `supplier_id` (`SUP-00019`, `SUP-00021`, `SUP-00022`); Supplier Portal enforces PO ownership isolation (`user["supplier_id"] == po.supplier_id`) |
 | Flow B: PO to supplier to goods receipt | Goods Receipt | `warehousemanager@company.com` | `warehouse_manager` | Authorized in Platform RBAC via `inventory:write` (and `inventory:read`) permission for recording goods receipts in Inventory |
-| Flow C: Live control tower (dashboard on real data) | View Executive KPIs | `ceo@company.com` | `ceo` | Multi-domain executive oversight (`inventory:read`, `compliance:read`, `supplier:read`, `logistics:read`, etc.) |
+| Flow C: Live control tower (dashboard on real data) | View Executive KPIs | `ceo@company.com` | `ceo` | Any authenticated dashboard role (the dashboard accepts `ceo` and `warehouse_manager`); the KPI endpoint does not check individual permissions |
 
 ### Safe Password Configuration
 
