@@ -34,6 +34,9 @@ SEED_ROLES = (
     "WAREHOUSE_MANAGER",
     "ANALYST",
     "SUPPLIER",
+    "SUPPLIER_19",
+    "SUPPLIER_21",
+    "SUPPLIER_22",
 )
 
 
