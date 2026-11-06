@@ -47,6 +47,7 @@ class Settings(BaseSettings):
         "/api/v1/shipments": "http://localhost:8002",
         "/api/v1/compliance": "http://localhost:8003",
         "/api/v1/purchase-orders": "http://localhost:8004",
+        "/api/v1/supplier-portal": "http://localhost:8004",
         "/api/v1/auth": "http://localhost:8005",
         "/api/v1/supplier-risk": "http://localhost:8006",
         "/api/v1/suppliers": "http://localhost:8004",
@@ -62,7 +63,9 @@ class Settings(BaseSettings):
 
     # Rewrite public gateway paths to downstream service paths.
     # Keys must match configured SERVICE_ROUTES prefixes. None by default.
-    SERVICE_ROUTE_REWRITES: dict[str, str] = {}
+    SERVICE_ROUTE_REWRITES: dict[str, str] = {
+        "/api/v1/supplier-portal": "/api/v1",
+    }
 
     # Explicit human-readable service name overrides (optional)
     SERVICE_NAMES: dict[str, str] = {
@@ -70,6 +73,7 @@ class Settings(BaseSettings):
         "/api/v1/shipments": "Shipments Service",
         "/api/v1/compliance": "Compliance Service",
         "/api/v1/purchase-orders": "Purchase Order Service",
+        "/api/v1/supplier-portal": "Supplier Portal Service",
         "/api/v1/auth": "Auth Service",
         "/api/v1/supplier-risk": "Supplier Risk Service",
         "/api/v1/suppliers": "Supplier Portal Service",
@@ -224,6 +228,18 @@ class Settings(BaseSettings):
     REALTIME_AUTH_TIMEOUT_SECONDS: float = 2.0
     REALTIME_WS_PATH: str = "/api/v1/analytics/kpis/real-time"
 
+    # --------------------------------------------------
+    # Round 15 Milestone 3 - ClickHouse & Redis Analytics KPIs
+    # --------------------------------------------------
+    CLICKHOUSE_HOST: str = "localhost"
+    CLICKHOUSE_PORT: int = 8123
+    CLICKHOUSE_USER: str = "default"
+    CLICKHOUSE_PASSWORD: str = ""
+    CLICKHOUSE_DB: str = "analytics"
+    CLICKHOUSE_DATABASE: str | None = None
+    REDIS_URL: str = "redis://localhost:6379/0"
+    LIVE_KPIS_CACHE_TTL_SECONDS: int = 300
+
     def model_post_init(self, __context: object = None, /) -> None:
         """
         Synchronize individual downstream URLs with the route mapping table.
@@ -246,6 +262,7 @@ class Settings(BaseSettings):
             "/api/v1/shipments": "SHIPMENTS_SERVICE_URL",
             "/api/v1/compliance": "COMPLIANCE_SERVICE_URL",
             "/api/v1/purchase-orders": "PURCHASE_ORDERS_SERVICE_URL",
+            "/api/v1/supplier-portal": "PURCHASE_ORDERS_SERVICE_URL",
             "/api/v1/supplier-risk": "SUPPLIER_RISK_SERVICE_URL",
             "/api/v1/suppliers": "PURCHASE_ORDERS_SERVICE_URL",
             "/api/v1/demand": "DEMAND_FORECAST_SERVICE_URL",
@@ -264,6 +281,9 @@ class Settings(BaseSettings):
             else:
                 # When SERVICE_ROUTES is not explicitly set, *_SERVICE_URL populates routes
                 self.SERVICE_ROUTES[prefix] = url_value
+
+        if self.CLICKHOUSE_DATABASE and "CLICKHOUSE_DB" not in self.model_fields_set:
+            self.CLICKHOUSE_DB = self.CLICKHOUSE_DATABASE
 
     model_config = SettingsConfigDict(
         env_file=(

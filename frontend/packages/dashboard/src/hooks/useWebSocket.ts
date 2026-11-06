@@ -7,12 +7,17 @@ import type {
   WebSocketMessage,
 } from "../types/forecast";
 import { mapAnalyticsEventToAlert } from "../utils/alertMapper";
+import { getAuthSession, refreshAuthSession, type AuthSession } from "../api/auth";
 interface UseWebSocketOptions {
   url: string;
   onMessage: (data: WebSocketMessage) => void;
   onError?: (error: Event) => void;
+  onAuthSessionRefreshed?: (session: AuthSession) => void;
+  /** false = no automatic reconnect after a drop. A 4401 still refreshes the JWT and reconnects once. */
   autoReconnect?: boolean;
   maxRetries?: number;
+  /** false = connect without a token (mock auth only). */
+  requireToken?: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -63,12 +68,27 @@ function isAnalyticsEvent(value: unknown): value is AnalyticsEventEnvelope {
   );
 }
 
+function getDedupKey(event: AnalyticsEventEnvelope): string {
+  const episodeId = event.payload.episode_id;
+
+  return event.event_type === "iot.anomaly.detected" &&
+    typeof episodeId === "string"
+    ? `iot.anomaly.detected:${episodeId}`
+    : event.event_id;
+}
+
+// Real token expiries are minutes apart. A second 4401 within this window
+// means a fresh token was rejected too, so stop instead of looping.
+const AUTH_REFRESH_MIN_GAP_MS = 60_000;
+
 export function useWebSocket({
   url,
   onMessage,
   onError,
+  onAuthSessionRefreshed,
   autoReconnect = true,
   maxRetries = 5,
+  requireToken = true,
 }: UseWebSocketOptions) {
   const [connected, setConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -82,10 +102,17 @@ export function useWebSocket({
 
   const onMessageRef = useRef(onMessage);
   const onErrorRef = useRef(onError);
+  const onAuthSessionRefreshedRef = useRef(onAuthSessionRefreshed);
+
+  useEffect(() => {
+    onAuthSessionRefreshedRef.current = onAuthSessionRefreshed;
+  }, [onAuthSessionRefreshed]);
+
   const connectRef = useRef<(() => void) | null>(null);
   const seenEventIdsRef = useRef(new Set<string>());
   const intentionalCloseRef = useRef(false);
-
+  const lastAuthRefreshAtRef = useRef<number | null>(null);
+  
   useEffect(() => {
     onMessageRef.current = onMessage;
   }, [onMessage]);
@@ -96,6 +123,7 @@ export function useWebSocket({
 
   const retryConnection = useCallback(() => {
     retryCountRef.current = 0;
+    lastAuthRefreshAtRef.current = null;
     setFailed(false);
     intentionalCloseRef.current = true;
 
@@ -158,8 +186,25 @@ export function useWebSocket({
 
       let socket: WebSocket;
       try {
-        socket = new WebSocket(url);
+        const token = getAuthSession()?.access_token;
+
+        if (!token && requireToken) {
+          console.error("[C3 WS] No valid access token. Connection skipped.");
+          setConnected(false);
+          setIsConnecting(false);
+          setFailed(true);
+          return;
+        }
+        const wsUrl = new URL(url);
+
+        if (token) {
+          wsUrl.searchParams.set("token", token);
+        }
+        
+        socket = new WebSocket(wsUrl.toString());
       } catch {
+        // Don't log the error object because its message can contain the token.
+        console.error("[C3 WS] Could not create the WebSocket connection.");
         setConnected(false);
         setIsConnecting(false);
 
@@ -207,9 +252,11 @@ export function useWebSocket({
           return;
         }
 
-        if (seenEventIdsRef.current.has(data.event_id)) return;
+        const dedupKey = getDedupKey(data);
 
-        seenEventIdsRef.current.add(data.event_id);
+        if (seenEventIdsRef.current.has(dedupKey)) return;
+
+        seenEventIdsRef.current.add(dedupKey);
 
         if (seenEventIdsRef.current.size > 100) {
           const oldestId = seenEventIdsRef.current.values().next().value;
@@ -226,11 +273,21 @@ export function useWebSocket({
 
       socket.onerror = (error: Event) => {
         if (isUnmounted) return;
+        
+        // Don't log the event: event.target.url contains the token.
+        console.error("[C3 WS] Gateway WebSocket error:");
         onErrorRef.current?.(error);
       };
 
       socket.onclose = (event: CloseEvent) => {
         if (isUnmounted) return;
+
+        if (event.code !== 1000 && event.code !== 1001) {
+          console.warn("[C3 WS] Gateway WebSocket closed:", {
+            code: event.code,
+            reason: event.reason,
+          });
+        }
 
         socketRef.current = null;
         setConnected(false);
@@ -240,19 +297,50 @@ export function useWebSocket({
           return;
         }
 
+        // Forbidden: do not retry automatically.
         if (event.code === 4403) {
           setFailed(true);
           return;
         }
 
-        if (!autoReconnect) {
-          setFailed(true);
+       // Unauthorized: refresh the JWT before reconnecting.
+        if (event.code === 4401) {
+          const now = Date.now();
+          const lastRefreshAt = lastAuthRefreshAtRef.current;
+
+          if (
+            !requireToken ||
+            (lastRefreshAt !== null &&
+              now - lastRefreshAt < AUTH_REFRESH_MIN_GAP_MS)
+          ) {
+            setFailed(true);
+            return;
+          }
+
+          lastAuthRefreshAtRef.current = now;
+          setIsConnecting(true);
+
+          void refreshAuthSession()
+            .then((refreshedSession) => {
+              if (isUnmounted) return;
+
+              onAuthSessionRefreshedRef.current?.(refreshedSession);
+              connect();
+            })
+            .catch(() => {
+              if (isUnmounted) return;
+
+              console.error(
+                "[C3 WS] Authentication refresh failed."
+              );
+              setFailed(true);
+              setIsConnecting(false);
+            });
+
           return;
         }
 
-        // Unauthorized: authentication refresh must happen before reconnecting.
-        // Until that is wired in, stop and expose the Retry Connection control.
-        if (event.code === 4401) {
+        if (!autoReconnect) {
           setFailed(true);
           return;
         }
@@ -288,7 +376,7 @@ export function useWebSocket({
         socket.close(1000, "Component unmounted");
       }
     };
-  }, [url, autoReconnect, maxRetries]);
+  }, [url, autoReconnect, maxRetries, requireToken]);
 
   return { connected, isConnecting, failed, retryConnection };
 }

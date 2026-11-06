@@ -19,3 +19,7 @@ locust==2.46.6
 
 # Round 15 Milestone 3 — BFF Events to Live WebSocket
 aiokafka==0.14.0
+
+# Round 15 Milestone 3 — ClickHouse & Redis Analytics KPIs
+clickhouse-connect==1.11.0
+redis==8.1.0

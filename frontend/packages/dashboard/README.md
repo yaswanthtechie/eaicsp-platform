@@ -7,6 +7,7 @@ frontend/
     └── dashboard/
         └── e2e/
         |     ├── dashboard.auth.spec.ts
+        |     ├── live-alerts.spec.ts
               └── dashboard.spec.ts
         └── src/
             ├──api/
@@ -75,6 +76,7 @@ frontend/
             │   ├── AlertsPanel.test.tsx
             |   ├── AnalyticsKpiPanel.test.tsx
             |   ├── App.role.test.tsx
+            |   ├── authRefresh.test.ts
             |   ├── ExportCsv.test.tsx
             |   ├── ExportCsvButton.test.tsx
             |   ├── ExportPdf.test.tsx
@@ -87,6 +89,7 @@ frontend/
             │   ├── InventoryHealth.test.tsx
             |   ├── kpiSnapshot.test.tsx
             |   ├── kpis.test.ts
+            |   ├── mergeAlerts.test.ts
             |   ├── setup.ts
             |   ├── SupplierRiskDistribution.test.tsx
             │   ├── SupplierRisk.test.tsx
@@ -99,6 +102,7 @@ frontend/
             |   ├── exportPdf.ts
             |   ├── insights.ts
             |   ├── alertMapper.ts
+            |    ├── mergeAlert.ts
             │   └── kpiSnapshot.ts
             │
             ├── App.tsx
@@ -106,6 +110,8 @@ frontend/
             ├── index.css
             ├── theme.tsx
             └── tokens.ts
+        ├── playwright.c3.config.ts
+        ├── playwright.auth.config.ts
 # 1. What I Built
 
 I built an **Executive Dashboard** using React + TypeScript to give a quick view of sales forecasts, inventory, supplier risk, shipments, and important alerts.
@@ -509,7 +515,7 @@ Logout:
 2. Clears the local authentication session.
 3. Returns the user to the login screen.
 
-If the refresh fails or the session has expired, the user is returned to the login screen with a session-expired message.If the authentication service is unavailable,the dashboard keeps the use signed in and retries the refresh later.
+If the refresh fails or the session has expired, the user is returned to the login screen with a session-expired message.If the authentication service is unavailable,the dashboard keeps the user signed in and retries the refresh later.
 
 ## Authentication Error Handling
 
@@ -1212,10 +1218,11 @@ npm run test:e2e
 
 Test verification completed successfully.
 
-* Vitest: 22 test files, 187/187 tests passed
+* Vitest: 24 test files, 203/203 tests passed
 * Playwright Dashboard E2E: 4/4 tests passed
 * Authentication E2E: 14/14 passed with valid credentials.
-* Total: 205 tests passed across the three reported test groups.
+* Live Alerts WebSocket: 1/1 test  passed.
+* Total: 222 tests passed across the three reported test groups.
 
 The authentication tests are run separately using
 npm run test:e2e:auth.
@@ -1300,3 +1307,208 @@ npx tsc --noEmit
 The dashboard can demonstrate the four KPI cards using mock data while the backend endpoint is being finalized. The KPI API layer, UI states, snapshot fallback, tests, and canonical mock-data updates provide the foundation for switching to the real endpoint.
 
 **Remaining dependency:** Validate the real API integration against the finalized backend endpoint and contract when they become available.
+
+## R15 [C3] — Real-Time Alerts Integration and Playwright E2E Testing
+
+As part of R15, Flow C — Live Dashboard, I implemented and tested the real-time alert flow using the Platform Analytics Gateway WebSocket endpoint.
+
+### 1. Real WebSocket Integration
+
+The dashboard uses the reusable `useWebSocket` hook in:
+
+`src/hooks/useWebSocket.ts`
+
+The hook connects to the real gateway WebSocket endpoint:
+
+`ws://127.0.0.1:8000/api/v1/analytics/kpis/real-time`
+
+The endpoint can be configured using the `VITE_ALERTS_WS_URL` environment variable.
+
+The connection flow is:
+
+```text
+Executive Dashboard
+        ↓
+useWebSocket hook
+        ↓
+getAuthSession()
+        ↓
+Read access_token
+        ↓
+Append token to WebSocket URL
+        ↓
+Analytics Gateway WebSocket
+        ↓
+Receive analytics event
+        ↓
+Validate event envelope
+        ↓
+Remove duplicate events
+        ↓
+alertMapper.ts
+        ↓
+AlertsPanel
+        ↓
+Display real-time alert
+```
+
+### 2. Authentication and Event Validation
+
+- The WebSocket connection uses the existing authenticated session from `getAuthSession()`.
+- The access token is added to the WebSocket URL as a query parameter.
+- Incoming messages are parsed as JSON and validated before processing.
+- The hook supports inventory updates and the R15-M1 analytics event envelope.
+- Supported event-version representations include `1`, `"1"`, and `"1.0"`.
+- Optional `trace_id` values are supported.
+- Malformed messages are ignored instead of being passed to the dashboard.
+
+### 3. Event Deduplication
+
+The hook prevents duplicate alerts from being processed.
+
+- Analytics events are deduplicated using their `event_id`.
+- IoT anomaly events use their `episode_id` as the deduplication key when available.
+- The hook retains up to 100 recently seen event keys to limit memory usage.
+
+### 4. Reconnection and Failure Handling
+
+The WebSocket hook handles connection failures and unexpected disconnections.
+
+- Automatically attempts to reconnect when the connection closes unexpectedly.
+- Uses exponential backoff, starting at approximately one second and increasing up to 30 seconds.
+- Limits automatic reconnection attempts using the configured `maxRetries` value.
+- Exposes `connected`, `isConnecting`, and `failed` states to the UI.
+- Provides a `retryConnection` action for manually retrying a failed connection.
+- Handles specific gateway close codes:
+  - `4401` — Authentication failure; stops automatic retries and exposes the retry state.
+  - `4403` — Access forbidden; stops automatic retries.
+  - `4429` — Rate limited; waits 60 seconds before retrying.
+  - `1000` — Normal closure; does not reconnect.
+
+The current hook exposes a failure state for authentication errors. Automatic token refresh before reconnecting after a `4401` response remains a separate integration requirement.
+
+### 5. C3 Anomaly Demonstration
+
+The real-time alert flow was tested using the backend anomaly demonstration command:
+
+```powershell
+make demo-anomaly
+```
+
+This triggers a simulated cold-chain anomaly event through the backend event pipeline.
+
+The dashboard receives the event through the real gateway WebSocket, validates it, maps it into an alert, and displays it in the Alerts Panel.
+
+The expected alert is:
+
+`Cold-Chain Anomaly`
+
+### 6. Playwright End-to-End Test
+
+Added a dedicated Playwright test:
+
+`e2e/live-alerts.spec.ts`
+
+The test verifies the real-time anomaly alert flow against the gateway rather than relying only on the mock WebSocket server.
+
+The test covers:
+
+1. Starting the dashboard with real authentication test credentials.
+2. Connecting to the real Analytics Gateway WebSocket endpoint.
+3. Verifying that the WebSocket connection opens.
+4. Triggering the backend anomaly demonstration.
+5. Waiting for the `Cold-Chain Anomaly` alert to appear.
+6. Verifying that the alert arrives within the required 10-second window.
+7. Cleaning up the test process and resources.
+
+The dedicated configuration is:
+
+`playwright.c3.config.ts`
+
+Run the C3 real-mode test from `frontend/packages/dashboard`:
+
+```powershell
+$env:ALERTS_E2E_MODE = "real"
+npm run test:e2e:alerts
+```
+
+Real-mode testing requires the backend gateway and valid test authentication credentials to be available.
+
+### 7. C3 Test Result
+
+**Latest reported result: 1/1 Playwright C3 test passed.**
+
+The test successfully verified that the dashboard could receive and display the `Cold-Chain Anomaly` alert through the real gateway WebSocket within the 10-second requirement.
+
+### 8. Mock and Real WebSocket Modes
+
+The mock WebSocket server in `src/mocks/wsServer.ts` remains available for local development and component testing.
+
+The mock server runs only in development mode. The real-mode C3 test connects to the Analytics Gateway instead of depending on the mock event server.
+
+This keeps development testing separate from real gateway integration testing.
+
+
+### 9. Outcome
+
+The dashboard now supports both mock WebSocket events for development and real gateway WebSocket events for integration testing.
+
+The C3 Playwright test verifies the complete anomaly alert path, from triggering the backend demonstration to displaying the resulting alert in the Executive Dashboard.
+
+The C3 Playwright test can be executed using a single command from the repository root.
+
+**Prerequisites**
+
+- Docker services must be running.
+- Seed data must be available.
+- The seeded CEO account password must be configured in `E2E_PASSWORD`.
+- The Analytics Gateway WebSocket must be accessible.
+
+**Start the environment and seed data**
+
+```bash
+make up && make seed
+```
+
+Set `E2E_PASSWORD` to the seeded CEO account password.
+
+**Run the live-alerts E2E test**
+
+From the repository root:
+
+```bash
+make e2e-alerts
+```
+
+This command changes to the dashboard package and runs the dedicated Playwright configuration using:
+
+```bash
+npm run test:e2e:alerts
+```
+
+**Mock-only verification**
+
+To run the alert test in mock mode from the dashboard directory:
+
+```bash
+ALERTS_E2E_MODE=mock
+npm run test:e2e:alerts
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:ALERTS_E2E_MODE = "mock"
+npm run test:e2e:alerts
+```
+
+The live mode verifies the real gateway integration, while mock mode allows local verification without depending on the live analytics event pipeline.
+
+## R15 [C4] - JWT Refresh and WebSocket Reconnection
+
+- Handles WebSocket `4401` authentication failures by refreshing the JWT.
+- Reconnects WebSocket using the updated access token.
+- Prevents repeated refresh attempts within 60 seconds.
+- Stops automatic retries and exposes Retry if token refresh fails.
+- Uses a shared in-flight refresh promise to prevent concurrent refresh requests.
+- Added unit tests for refresh success, failure, retry protection, and concurrent refresh handling.

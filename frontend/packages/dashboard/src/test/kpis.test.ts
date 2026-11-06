@@ -312,4 +312,123 @@ describe("KPI API", () => {
       message: "The KPI service is temporarily unavailable.",
     });
   });
+
+  it("appends filter query parameters when provided", async () => {
+    authMocks.getAuthSession.mockReturnValue({
+      access_token: "test-access-token",
+    });
+
+    const api = await loadApi("false");
+    fetchMock.mockResolvedValue(makeResponse(api.MOCK_KPI_RESPONSE));
+
+    await api.fetchKpiDashboard({
+      warehouse_id: "WH-ORD-01",
+      category: "industrial",
+      start_date: "2026-10-01",
+      end_date: "2026-10-15",
+      window_days: 14,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/analytics/kpis?warehouse_id=WH-ORD-01&category=industrial&start_date=2026-10-01&end_date=2026-10-15&window_days=14",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer test-access-token",
+        }),
+      }),
+    );
+  });
+
+  it("accepts valid responses with null secondary metrics and nullable rates", async () => {
+    authMocks.getAuthSession.mockReturnValue({
+      access_token: "test-access-token",
+    });
+
+    const api = await loadApi("false");
+    const responseWithNulls = {
+      ...api.MOCK_KPI_RESPONSE,
+      kpis: {
+        ...api.MOCK_KPI_RESPONSE.kpis,
+        fill_rate: {
+          ...api.MOCK_KPI_RESPONSE.kpis.fill_rate,
+          current_rate: null,
+          status: "no_data",
+        },
+        stockouts: {
+          ...api.MOCK_KPI_RESPONSE.kpis.stockouts,
+          critical_skus: null,
+          at_risk_skus: null,
+          by_warehouse: [
+            {
+              warehouse_id: "WH-BLR-01",
+              stockout_count: 5,
+              at_risk_count: null,
+              total_skus: 100,
+            },
+          ],
+        },
+        open_purchase_orders: {
+          ...api.MOCK_KPI_RESPONSE.kpis.open_purchase_orders,
+          total_value_usd: null,
+          pending_approval: null,
+          by_status: {
+            draft: null,
+            approved: 12,
+            acknowledged: 10,
+            in_transit: 15,
+          },
+        },
+        on_time_delivery: {
+          ...api.MOCK_KPI_RESPONSE.kpis.on_time_delivery,
+          current_rate: null,
+          status: "no_data",
+        },
+      },
+    };
+
+    fetchMock.mockResolvedValue(makeResponse(responseWithNulls));
+
+    const result = await api.fetchKpiDashboard();
+    expect(result.kpis.fill_rate.current_rate).toBeNull();
+    expect(result.kpis.fill_rate.status).toBe("no_data");
+    expect(result.kpis.stockouts.critical_skus).toBeNull();
+    expect(result.kpis.open_purchase_orders.total_value_usd).toBeNull();
+    expect(result.kpis.open_purchase_orders.by_status.draft).toBeNull();
+    expect(result.kpis.on_time_delivery.current_rate).toBeNull();
+    expect(result.kpis.on_time_delivery.status).toBe("no_data");
+  });
+
+  it("maps nullable current_rate and no_data status correctly", async () => {
+    const api = await loadApi("true");
+    const responseWithNullRates = {
+      ...api.MOCK_KPI_RESPONSE,
+      kpis: {
+        ...api.MOCK_KPI_RESPONSE.kpis,
+        fill_rate: {
+          ...api.MOCK_KPI_RESPONSE.kpis.fill_rate,
+          current_rate: null,
+          status: "no_data" as const,
+        },
+        on_time_delivery: {
+          ...api.MOCK_KPI_RESPONSE.kpis.on_time_delivery,
+          current_rate: null,
+          status: "no_data" as const,
+        },
+      },
+    };
+
+    const result = api.mapKpiResponse(responseWithNullRates);
+    expect(result[0]).toEqual({
+      title: "Order Fill Rate",
+      value: null,
+      format: "percent",
+      status: "no_data",
+    });
+    expect(result[3]).toEqual({
+      title: "On-Time Delivery",
+      value: null,
+      format: "percent",
+      status: "no_data",
+    });
+  });
 });

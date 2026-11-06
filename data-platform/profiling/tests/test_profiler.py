@@ -3,6 +3,7 @@ import pandas as pd
 from src.profiler import Profiler
 from src.monitoring import MonitoringHistory
 from src.audit_archive import AuditArchive
+from src.profile import profile, detect_pii, _finding_row, generate_html
 
 
 def test_empty_dataframe():
@@ -159,3 +160,25 @@ def test_profiler_can_query_audit_runs(
         results[0]["profile_report"]["quality_score"]["score"]
         == 90
     )
+
+def test_report_writes_each_finding_once_without_na_percent(tmp_path):
+    df = pd.DataFrame({
+        "date": pd.date_range("2026-10-01", periods=6, freq="D"),
+        "quantity_sold": [3, 4, 5, 4, 3, 90],
+    })
+    report = profile(df)
+    report["anomaly_correlation"] = {
+        "column": "quantity_sold",
+        "outlier_rows": 1,
+        "findings": [
+            {"column": "quantity_sold", "issue": "Other outliers",
+             "outlier_row_count": 1, "outlier_row_rate": 16.7},
+        ],
+    }
+    out = tmp_path / "report.html"
+
+    generate_html(report=report, report_path=out)
+    html = out.read_text(encoding="utf-8")
+
+    assert html.count("<td>Other outliers</td>") == 1
+    assert "N/A%" not in html

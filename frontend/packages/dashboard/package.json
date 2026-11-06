@@ -11,9 +11,11 @@
     "test:run": "vitest run",
     "coverage": "vitest run --coverage",
     "preview": "vite preview",
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test -c playwright.config.ts",
     "test:e2e:auth": "playwright test -c playwright.auth.config.ts",
-    "test:all": "npm run test && npm run test:e2e"
+    "test:e2e:alerts": "playwright test -c playwright.c3.config.ts",
+    "test:all": "npm run test && npm run test:e2e",
+    "typecheck:e2e": "tsc -p tsconfig.e2e.json"
   },
   "dependencies": {
     "@apollo/client": "^4.3.1",
@@ -46,11 +48,12 @@
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.7",
-    "@types/node": "^24.19.1",
+    "@types/node": "^24.19.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.4",
     "@vitest/coverage-v8": "^4.1.11",
+    "dotenv": "^18.0.9",
     "eslint": "^10.8.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",

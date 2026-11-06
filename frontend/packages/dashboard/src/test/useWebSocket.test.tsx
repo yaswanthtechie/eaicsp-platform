@@ -1,6 +1,16 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useWebSocket } from "../hooks/useWebSocket";
+import { getAuthSession, refreshAuthSession, type AuthSession } from "../api/auth";
+
+const authMocks = vi.hoisted(() => ({
+  session: null as AuthSession | null,
+}));
+
+vi.mock("../api/auth", () => ({
+  getAuthSession: vi.fn(() => authMocks.session),
+  refreshAuthSession: vi.fn(),
+}));
 interface MockSocket {
   url: string;
   onopen: (() => void) | null;
@@ -31,6 +41,17 @@ describe("useWebSocket", () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.clearAllMocks();
+
+    authMocks.session = {
+      access_token: "test-access-token",
+      refresh_token: "test-refresh-token",
+      token_type: "bearer",
+      role: "ceo",
+    };
+
+    vi.mocked(getAuthSession).mockImplementation(() => authMocks.session);
+    vi.mocked(refreshAuthSession).mockReset();
 
     sockets = [];
 
@@ -57,7 +78,7 @@ describe("useWebSocket", () => {
     vi.restoreAllMocks();
   });
 
-  it("connects to WebSocket", () => {
+  it("connects to WebSocket with an auth token", () => {
     renderHook(() =>
       useWebSocket({
         url: "ws://localhost:8080",
@@ -66,7 +87,11 @@ describe("useWebSocket", () => {
     );
 
     expect(sockets).toHaveLength(1);
-    expect(sockets[0].url).toBe("ws://localhost:8080");
+
+    const socketUrl = new URL(sockets[0].url);
+    expect(socketUrl.origin).toBe("ws://localhost:8080");
+    expect(socketUrl.searchParams.get("token")).toBe("test-access-token");
+
   });
 
   it("shows connected when socket opens", () => {
@@ -368,5 +393,183 @@ describe("useWebSocket", () => {
     });
 
     expect(onMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not connect and shows failed when there is no token", () => {
+    vi.mocked(getAuthSession).mockReturnValueOnce(null);
+    const { result } = renderHook(() =>
+      useWebSocket({ url: "ws://localhost:8080", onMessage: vi.fn() }),
+    );
+    expect(sockets).toHaveLength(0);
+    expect(result.current.failed).toBe(true);
+  });
+
+  it("delivers one alert per anomaly episode", () => {
+    const onMessage = vi.fn();
+    renderHook(() => useWebSocket({ url: "ws://localhost:8080", onMessage }));
+    const base = {
+      event_type: "iot.anomaly.detected",
+      event_version: 1,
+      occurred_at: "2026-10-15T10:46:12Z",
+      producer: "anomaly-detection-service",
+      payload: {
+        episode_id: "WH-BLR-01-S1|2026-10-15T10:05:00+00:00",
+        warehouse_id: "WH-BLR-01",
+        severity: "high",
+        message: "Temperature unusually high",
+      },
+    };
+    act(() => {
+      sockets[0].onopen?.();
+      sockets[0].onmessage?.({ data: JSON.stringify({ ...base, event_id: crypto.randomUUID() }) } as MessageEvent);
+      sockets[0].onmessage?.({ data: JSON.stringify({ ...base, event_id: crypto.randomUUID() }) } as MessageEvent);
+    });
+    expect(onMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("connects without a token when requireToken is false", () => {
+    vi.mocked(getAuthSession).mockReturnValueOnce(null);
+    renderHook(() =>
+      useWebSocket({
+        url: "ws://localhost:8080",
+        onMessage: vi.fn(),
+        requireToken: false,
+      }),
+    );
+    expect(sockets).toHaveLength(1);
+    expect(new URL(sockets[0].url).searchParams.has("token")).toBe(false);
+  });
+
+  it("refreshes the JWT and reconnects with the new access token after 4401", async () => {
+    const refreshedSession: AuthSession = {
+      access_token: "new-access-token",
+      refresh_token: "new-refresh-token",
+      token_type: "bearer",
+      role: "ceo",
+    };
+
+    vi.mocked(refreshAuthSession).mockImplementation(async () => {
+      authMocks.session = refreshedSession;
+      return refreshedSession;
+    });
+    const onAuthSessionRefreshed = vi.fn();
+
+    renderHook(() =>
+      useWebSocket({
+        url: "ws://localhost:8080",
+        onMessage: vi.fn(),
+        onAuthSessionRefreshed,
+      }),
+    );
+
+    await act(async () => {
+      sockets[0].onclose?.({ code: 4401 });
+    });
+
+    expect(refreshAuthSession).toHaveBeenCalledTimes(1);
+    expect(onAuthSessionRefreshed).toHaveBeenCalledWith(refreshedSession);
+    expect(sockets).toHaveLength(2);
+
+    expect(
+      new URL(sockets[1].url).searchParams.get("token"),
+    ).toBe("new-access-token");
+  });
+
+  it("shows failed when JWT refresh fails after 4401", async () => {
+    vi.mocked(refreshAuthSession).mockRejectedValue(
+      new Error("Refresh failed"),
+    );
+
+    const { result } = renderHook(() =>
+      useWebSocket({
+        url: "ws://localhost:8080",
+        onMessage: vi.fn(),
+      }),
+    );
+
+    await act(async () => {
+      sockets[0].onclose?.({ code: 4401 });
+    });
+
+    expect(refreshAuthSession).toHaveBeenCalledTimes(1);
+    expect(sockets).toHaveLength(1);
+    expect(result.current.failed).toBe(true);
+    expect(result.current.isConnecting).toBe(false);
+  });
+
+  it("does not refresh repeatedly when the reconnected socket closes with 4401", async () => {
+    const refreshedSession: AuthSession = {
+      access_token: "new-access-token",
+      refresh_token: "new-refresh-token",
+      token_type: "bearer",
+      role: "ceo",
+    };
+
+    vi.mocked(refreshAuthSession).mockImplementation(async () => {
+      authMocks.session = refreshedSession;
+      return refreshedSession;
+    });
+    const { result } = renderHook(() =>
+      useWebSocket({
+        url: "ws://localhost:8080",
+        onMessage: vi.fn(),
+      }),
+    );
+
+    await act(async () => {
+      sockets[0].onclose?.({ code: 4401 });
+    });
+
+    expect(sockets).toHaveLength(2);
+
+    act(() => {
+      sockets[1].onclose?.({ code: 4401 });
+    });
+
+    expect(refreshAuthSession).toHaveBeenCalledTimes(1);
+    expect(sockets).toHaveLength(2);
+    expect(result.current.failed).toBe(true);
+  });
+
+  it("refreshes again when the new token expires later in the session", async () => {
+    vi.mocked(refreshAuthSession).mockImplementation(async () => {
+      const callNumber = vi.mocked(refreshAuthSession).mock.calls.length;
+      const nextSession: AuthSession = {
+        access_token: `access-token-${callNumber}`,
+        refresh_token: `refresh-token-${callNumber}`,
+        token_type: "bearer",
+        role: "ceo",
+      };
+      authMocks.session = nextSession;
+      return nextSession;
+    });
+
+    const { result } = renderHook(() =>
+      useWebSocket({ url: "ws://localhost:8080", onMessage: vi.fn() }),
+    );
+
+    // First expiry: refresh, reconnect, and the new socket opens.
+    await act(async () => {
+      sockets[0].onclose?.({ code: 4401 });
+    });
+    act(() => {
+      sockets[1].onopen?.();
+    });
+    expect(result.current.connected).toBe(true);
+
+    // The new token expires later in the same session.
+    act(() => {
+      vi.advanceTimersByTime(61_000);
+    });
+    await act(async () => {
+      sockets[1].onclose?.({ code: 4401 });
+    });
+
+    expect(refreshAuthSession).toHaveBeenCalledTimes(2);
+    expect(sockets).toHaveLength(3);
+    expect(new URL(sockets[2].url).searchParams.get("token")).toBe(
+      "access-token-2",
+    );
+    expect(result.current.failed).toBe(false);
   });
 });
