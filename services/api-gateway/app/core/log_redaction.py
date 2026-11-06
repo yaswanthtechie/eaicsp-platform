@@ -6,7 +6,10 @@ import logging
 import re
 
 _TOKEN_QUERY_RE = re.compile(
-    r"(?i)([?&](?:token|access_token)=)[^&\s\"]+"
+    r"(?i)([?&](?:token|access_token|api_key|apikey|x-api-key)=)[^&\s\"]+"
+)
+_API_KEY_HEADER_RE = re.compile(
+    r"(?i)(['\"]?x-api-key['\"]?\s*[:=]\s*['\"]?)([^'\s\",}]+)(['\"]?)"
 )
 
 REDACTED = "[REDACTED]"
@@ -14,7 +17,8 @@ UVICORN_LOGGERS = ("uvicorn.access", "uvicorn.error")
 
 
 def redact_token_query(value: str) -> str:
-    return _TOKEN_QUERY_RE.sub(rf"\g<1>{REDACTED}", value)
+    redacted = _TOKEN_QUERY_RE.sub(rf"\g<1>{REDACTED}", value)
+    return _API_KEY_HEADER_RE.sub(rf"\g<1>{REDACTED}\g<3>", redacted)
 
 
 class TokenQueryRedactionFilter(logging.Filter):

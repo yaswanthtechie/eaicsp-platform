@@ -94,9 +94,9 @@ class WebSocketAuthService:
             "Authorization": f"Bearer {token}",
             "x-caller-service": "api-gateway",
         }
-        service_api_key = getattr(settings, "API_GATEWAY_SERVICE_API_KEY", None)
+        service_api_key = settings.service_api_key
         if service_api_key:
-            verify_headers["x-api-key"] = service_api_key
+            verify_headers["X-API-Key"] = service_api_key
             verify_headers["x-service-name"] = "api_gateway"
 
         timeout = getattr(settings, "REALTIME_AUTH_TIMEOUT_SECONDS", 2.0)
