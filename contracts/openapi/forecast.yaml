@@ -101,6 +101,16 @@ paths:
                 error_code: UNAUTHORIZED
                 message: "Missing or invalid API key"
 
+        "403":
+          description: Valid service API key, but the calling service is not allowed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error_code: FORBIDDEN
+                message: "Service is not allowed to call the forecast endpoint"
+
         "404":
           description: SKU/warehouse unknown, or no forecast available yet
           content:
@@ -249,6 +259,7 @@ components:
           enum:
             - INVALID_PARAMETER
             - UNAUTHORIZED
+            - FORBIDDEN
             - SKU_NOT_FOUND
             - WAREHOUSE_NOT_FOUND
             - FORECAST_NOT_AVAILABLE
