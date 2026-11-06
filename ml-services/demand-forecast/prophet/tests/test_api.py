@@ -1,4 +1,4 @@
-﻿"""Endpoint tests for the A2 forecast contract (no MLflow or Platform needed)."""
+"""Endpoint tests for the A2 forecast contract (no MLflow or Platform needed)."""
 
 from types import SimpleNamespace
 
@@ -169,3 +169,14 @@ def test_readiness_is_public_without_api_key(monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == {"status": "ready"}
+
+
+def test_non_ascii_api_key_returns_401_not_500(monkeypatch):
+    response = make_client(monkeypatch, auth_ok=False).get(
+        URL,
+        params=OK_PARAMS,
+        headers={"X-API-Key": "k\xe9y".encode("latin-1")},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error_code"] == "UNAUTHORIZED"
