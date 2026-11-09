@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     # --------------------------------------------------------
 
     SUPPLIER_RISK_SERVICE_URL: str = "http://localhost:8006"
+
+    # Contract: callers use a 2-second timeout
+    SUPPLIER_RISK_TIMEOUT_SECONDS: float = 2.0
     # --------------------------------------------------------
     # MinIO Object Storage
     # --------------------------------------------------------

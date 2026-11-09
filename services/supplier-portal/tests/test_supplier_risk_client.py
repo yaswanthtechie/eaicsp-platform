@@ -126,7 +126,7 @@ def test_get_supplier_risk_score_success():
         "X-API-Key": "test-api-key",
     }
 
-    assert FakeClient.init_kwargs == {"timeout": 5.0}
+    assert FakeClient.init_kwargs == {"timeout": 2.0}
 
 
 def test_null_risk_score_is_valid():

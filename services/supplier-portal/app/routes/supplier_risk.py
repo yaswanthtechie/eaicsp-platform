@@ -8,7 +8,7 @@ from fastapi import (
 
 from app.core.auth import (
     enforce_not_suspended,
-    verify_token,
+    require_roles,
 )
 
 from app.schemas.supplier_risk import (
@@ -24,9 +24,8 @@ from app.services.supplier_onboarding_service import (
     get_supplier,
 )
 
-from app.services.supplier_risk_client import (
-    get_supplier_risk_score,
-    SupplierRiskServiceError,
+from app.services.supplier_risk_service import (
+    get_supplier_risk_score_response,
 )
 
 
@@ -47,12 +46,18 @@ router = APIRouter(
 )
 def get_supplier_risk_score_endpoint(
     supplier_id: str,
-    user=Depends(verify_token),
+    user=Depends(
+        require_roles(
+            "supplier",
+            "procurement_manager",
+            "compliance_officer",
+        )
+    ),
 ):
     # 1. Validate authenticated supplier identity.
     validate_supplier_identity(user)
 
-    # 2. Ensure supplier can access only own data.
+    # 2. Restrict supplier users to their own supplier data.
     check_supplier_access(
         supplier_id,
         user,
@@ -68,25 +73,12 @@ def get_supplier_risk_score_endpoint(
             detail=str(exc),
         )
 
-    # 4. Fetch risk score from Supplier Risk Service.
+    # 4. Retrieve risk information and build the response.
     try:
-        risk_data = get_supplier_risk_score(supplier_id)
+        return get_supplier_risk_score_response(supplier_id)
 
-    except SupplierRiskServiceError:
-        # Risk is informational.
-        # Risk Service failure must not block onboarding.
-        return {
-            "supplier_id": supplier_id,
-            "risk_available": False,
-            "score": None,
-            "tier": None,
-            "top_factors": [],
-            "top_evidence_articles": [],
-            "computed_at": None,
-        }
-
-    # 5. Return the available risk information.
-    return {
-        **risk_data,
-        "risk_available": risk_data["score"] is not None,
-    }
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        )

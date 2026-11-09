@@ -194,7 +194,18 @@ PLATFORM_AUTH_URL = os.getenv(
     "PLATFORM_AUTH_URL",
     "http://127.0.0.1:8005",
 )
-
+PLATFORM_VERIFY_TIMEOUT_SECONDS = float(
+    os.getenv(
+        "PLATFORM_VERIFY_TIMEOUT_SECONDS",
+        "2.0",
+    )
+)
+# Services allowed to call POST /internal-check.
+# These must match the service names registered in Platform.
+INTERNAL_CHECK_ALLOWED_CALLERS = frozenset({
+    "inventory",
+    "supplier-portal",
+})
 PLATFORM_SERVICE_API_KEY = os.getenv(
     "PLATFORM_SERVICE_API_KEY",
 )

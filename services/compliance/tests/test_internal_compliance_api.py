@@ -1,9 +1,10 @@
-
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 import inspect
 
+import httpx
 import pytest
 
+from app.core import config
 from app.routes.compliance import internal_compliance_check
 from app.services import internal_compliance_service as ics
 
@@ -30,12 +31,12 @@ CALLER_BODY = {
 
 @pytest.fixture(autouse=True)
 def internal_service_auth(fake_platform):
-    """Default Platform response: inventory-service is authenticated."""
+    """Default Platform response: inventory is authenticated."""
     fake_platform(
         status_code=200,
         payload={
             "authenticated": True,
-            "service": "inventory-service",
+            "service": "inventory",
             "auth_type": "api_key",
         },
     )
@@ -108,7 +109,40 @@ def test_supplier_portal_key_is_accepted(client, fake_platform):
     )
 
     assert response.status_code == 200
+def test_valid_key_from_other_service_returns_403(client, fake_platform):
+    fake_platform(
+        status_code=200,
+        payload={
+            "authenticated": True,
+            "service": "gateway-bff",
+            "auth_type": "api_key",
+        },
+    )
 
+    with patch(
+        "app.routes.compliance.perform_internal_compliance_check"
+    ) as mock_check:
+        response = client.post(
+            URL,
+            headers={"X-API-Key": "test-gateway-key"},
+            json=CALLER_BODY,
+        )
+
+    assert response.status_code == 403
+    mock_check.assert_not_called()
+    
+def test_non_ascii_service_api_key_is_401_not_500(client):
+    with patch(
+        "app.routes.compliance.perform_internal_compliance_check"
+    ) as mock_check:
+        response = client.post(
+            URL,
+            headers={"X-API-Key": "k\xe9y".encode("latin-1")},
+            json=CALLER_BODY,
+        )
+
+    assert response.status_code == 401
+    mock_check.assert_not_called()
 
 def test_missing_service_api_key_returns_401(client):
     with patch(
@@ -661,3 +695,41 @@ def test_sanctions_reload_clears_internal_cache(client):
     sanctions_service.load_all_sanctions()
 
     assert ics._INTERNAL_CHECK_CACHE == {}
+def test_platform_service_verification_uses_configured_timeout(
+    client,
+):
+    mock_response = httpx.Response(
+        status_code=200,
+        json={
+            "authenticated": True,
+            "service": "inventory",
+            "auth_type": "api_key",
+        },
+        request=httpx.Request(
+            "POST",
+            "http://test-platform/api/v1/auth/service-verify",
+        ),
+    )
+
+    with patch(
+        "app.core.dependency.httpx.AsyncClient"
+    ) as mock_client:
+        mock_instance = mock_client.return_value.__aenter__.return_value
+
+        mock_instance.post = AsyncMock(
+            return_value=mock_response
+        )
+
+        response = client.post(
+            URL,
+            headers=INVENTORY_HEADERS,
+            json=CALLER_BODY,
+        )
+
+    assert response.status_code == 200
+
+    mock_client.assert_called_once_with(
+        timeout=config.PLATFORM_VERIFY_TIMEOUT_SECONDS
+    )
+
+    assert config.PLATFORM_VERIFY_TIMEOUT_SECONDS == 2.0

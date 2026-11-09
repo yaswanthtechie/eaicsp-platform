@@ -34,7 +34,7 @@ def contract_service_auth(fake_platform):
         status_code=200,
         payload={
             "authenticated": True,
-            "service": "inventory-service",
+            "service": "inventory",
             "auth_type": "api_key",
         },
     )

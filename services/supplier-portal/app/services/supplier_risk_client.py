@@ -1,10 +1,10 @@
-
 import re
-from datetime import date, datetime
 
 import httpx
+from pydantic import ValidationError
 
 from app.core.config import settings
+from app.schemas.supplier_risk import SupplierRiskScoreResponse
 
 
 class SupplierRiskServiceError(Exception):
@@ -23,16 +23,11 @@ class SupplierRiskInvalidResponseError(
     """Raised when Supplier Risk Service returns an invalid response."""
 
 
-def _is_number(value: object) -> bool:
-    """Return True for numeric values, excluding booleans."""
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
 def _validate_risk_response(
     result: object,
     supplier_id: str,
 ) -> dict:
-    """Validate the Supplier Risk API response against its contract."""
+    """Validate the Supplier Risk API response using Pydantic."""
 
     if not isinstance(result, dict):
         raise SupplierRiskInvalidResponseError(
@@ -53,180 +48,20 @@ def _validate_risk_response(
             "Supplier Risk Service response is missing required fields."
         )
 
-    if result["supplier_id"] != supplier_id:
+    try:
+        validated = SupplierRiskScoreResponse.model_validate(result)
+
+    except ValidationError as exc:
+        raise SupplierRiskInvalidResponseError(
+            "Supplier Risk Service returned an invalid response."
+        ) from exc
+
+    if validated.supplier_id != supplier_id:
         raise SupplierRiskInvalidResponseError(
             "Supplier Risk Service returned a different supplier ID."
         )
 
-    score = result["score"]
-    tier = result["tier"]
-
-    if score is not None:
-        if not _is_number(score) or not 0 <= score <= 100:
-            raise SupplierRiskInvalidResponseError(
-                "Supplier Risk Service returned an invalid risk score."
-            )
-
-    if tier not in {
-        "Low",
-        "Medium",
-        "High",
-        "Critical",
-        None,
-    }:
-        raise SupplierRiskInvalidResponseError(
-            "Supplier Risk Service returned an invalid risk tier."
-        )
-
-    if (score is None) != (tier is None):
-        raise SupplierRiskInvalidResponseError(
-            "Supplier Risk Service returned an inconsistent score and tier."
-        )
-
-    factors = result["top_factors"]
-    articles = result["top_evidence_articles"]
-
-    if not isinstance(factors, list) or not isinstance(articles, list):
-        raise SupplierRiskInvalidResponseError(
-            "Supplier Risk Service returned invalid evidence collections."
-        )
-
-    if score is None and (factors or articles):
-        raise SupplierRiskInvalidResponseError(
-            "Supplier Risk Service returned evidence without a risk score."
-        )
-
-    for factor in factors:
-        if not isinstance(factor, dict):
-            raise SupplierRiskInvalidResponseError(
-                "Supplier Risk Service returned an invalid risk factor."
-            )
-
-        if not {
-            "factor",
-            "category",
-            "weight",
-            "description",
-        }.issubset(factor):
-            raise SupplierRiskInvalidResponseError(
-                "Supplier Risk Service returned an incomplete risk factor."
-            )
-
-        if not isinstance(factor["factor"], str):
-            raise SupplierRiskInvalidResponseError(
-                "Supplier Risk Service returned an invalid factor name."
-            )
-
-        if factor["category"] not in {
-            "Financial",
-            "Operational",
-            "Reputational",
-            "Security",
-        }:
-            raise SupplierRiskInvalidResponseError(
-                "Supplier Risk Service returned an invalid factor category."
-            )
-
-        if not _is_number(factor["weight"]):
-            raise SupplierRiskInvalidResponseError(
-                "Supplier Risk Service returned an invalid factor weight."
-            )
-
-        if not isinstance(factor["description"], str):
-            raise SupplierRiskInvalidResponseError(
-                "Supplier Risk Service returned an invalid factor description."
-            )
-
-    for article in articles:
-        if not isinstance(article, dict):
-            raise SupplierRiskInvalidResponseError(
-                "Supplier Risk Service returned an invalid evidence article."
-            )
-
-        if not {
-            "headline",
-            "date",
-            "sentiment",
-            "score",
-            "signals",
-        }.issubset(article):
-            raise SupplierRiskInvalidResponseError(
-                "Supplier Risk Service returned an incomplete evidence article."
-            )
-
-        if not isinstance(article["headline"], str):
-            raise SupplierRiskInvalidResponseError(
-                "Supplier Risk Service returned an invalid article headline."
-            )
-
-        article_date = article["date"]
-        if article_date is not None:
-            try:
-                date.fromisoformat(article_date)
-            except (TypeError, ValueError) as exc:
-                raise SupplierRiskInvalidResponseError(
-                    "Supplier Risk Service returned an invalid article date."
-                ) from exc
-
-        if article["sentiment"] not in {
-            "positive",
-            "neutral",
-            "negative",
-        }:
-            raise SupplierRiskInvalidResponseError(
-                "Supplier Risk Service returned an invalid article sentiment."
-            )
-
-        article_score = article["score"]
-        if (
-            not _is_number(article_score)
-            or not 0 <= article_score <= 100
-        ):
-            raise SupplierRiskInvalidResponseError(
-                "Supplier Risk Service returned an invalid article score."
-            )
-
-        signals = article["signals"]
-        if not isinstance(signals, list):
-            raise SupplierRiskInvalidResponseError(
-                "Supplier Risk Service returned invalid article signals."
-            )
-
-        for signal in signals:
-            if not isinstance(signal, dict):
-                raise SupplierRiskInvalidResponseError(
-                    "Supplier Risk Service returned an invalid evidence signal."
-                )
-
-            if not {"keyword", "weight"}.issubset(signal):
-                raise SupplierRiskInvalidResponseError(
-                    "Supplier Risk Service returned an incomplete evidence signal."
-                )
-
-            if not isinstance(signal["keyword"], str):
-                raise SupplierRiskInvalidResponseError(
-                    "Supplier Risk Service returned an invalid signal keyword."
-                )
-
-            if not _is_number(signal["weight"]):
-                raise SupplierRiskInvalidResponseError(
-                    "Supplier Risk Service returned an invalid signal weight."
-                )
-
-    computed_at = result["computed_at"]
-    if not isinstance(computed_at, str):
-        raise SupplierRiskInvalidResponseError(
-            "Supplier Risk Service returned an invalid computation timestamp."
-        )
-
-    try:
-        datetime.fromisoformat(computed_at.replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise SupplierRiskInvalidResponseError(
-            "Supplier Risk Service returned an invalid computation timestamp."
-        ) from exc
-
-    return result
+    return validated.model_dump(mode="json")
 
 
 def get_supplier_risk_score(supplier_id: str) -> dict:
@@ -257,7 +92,9 @@ def get_supplier_risk_score(supplier_id: str) -> dict:
     }
 
     try:
-        with httpx.Client(timeout=5.0) as client:
+        with httpx.Client(
+            timeout=settings.SUPPLIER_RISK_TIMEOUT_SECONDS
+        ) as client:
             response = client.get(
                 url,
                 headers=headers,
@@ -282,6 +119,7 @@ def get_supplier_risk_score(supplier_id: str) -> dict:
 
     try:
         result = response.json()
+
     except ValueError as exc:
         raise SupplierRiskInvalidResponseError(
             "Supplier Risk Service returned invalid JSON."

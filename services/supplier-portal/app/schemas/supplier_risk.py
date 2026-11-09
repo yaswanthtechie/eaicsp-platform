@@ -1,7 +1,13 @@
+
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    model_validator,
+)
 
 
 class RiskFactorResponse(BaseModel):
@@ -49,8 +55,12 @@ class SupplierRiskScoreResponse(BaseModel):
     )
 
     supplier_id: str
-    risk_available: bool
-    score: float | None = Field(default=None, ge=0, le=100)
+    risk_available: bool = False
+    score: float | None = Field(
+        default=None,
+        ge=0,
+        le=100,
+    )
     tier: Literal[
         "Low",
         "Medium",
@@ -64,3 +74,26 @@ class SupplierRiskScoreResponse(BaseModel):
         default_factory=list
     )
     computed_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_risk_consistency(self):
+        """
+        Validate consistency between risk score, tier,
+        and supporting evidence.
+        """
+
+        # Score and tier must both be present or both be None.
+        if (self.score is None) != (self.tier is None):
+            raise ValueError(
+                "Risk score and tier must both be present or both be None."
+            )
+
+        # Evidence must not exist when no risk score is available.
+        if self.score is None and (
+            self.top_factors or self.top_evidence_articles
+        ):
+            raise ValueError(
+                "Evidence cannot be present without a risk score."
+            )
+
+        return self

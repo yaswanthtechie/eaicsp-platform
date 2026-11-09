@@ -34,13 +34,13 @@ async def verify_internal_caller(request: Request) -> str:
 
     api_key = request.headers.get("X-API-Key", "").strip()
 
-    if not api_key:
+    if not api_key or not api_key.isascii():
         logger.warning(
-            "Rejected internal compliance call: API key missing"
+            "Rejected internal compliance call: API key missing or malformed"
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing service API key",
+            detail="Missing or invalid service API key",
         )
 
     verify_url = (
@@ -49,7 +49,9 @@ async def verify_internal_caller(request: Request) -> str:
     )
 
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(
+            timeout=config.PLATFORM_VERIFY_TIMEOUT_SECONDS
+        ) as client:
             response = await client.post(
                 verify_url,
                 headers={"X-API-Key": api_key},
@@ -114,12 +116,24 @@ async def verify_internal_caller(request: Request) -> str:
             detail="Invalid service identity from Platform",
         )
 
+    caller_service = caller_service.strip()
+
+    if caller_service not in config.INTERNAL_CHECK_ALLOWED_CALLERS:
+        logger.warning(
+            "Rejected internal compliance call: service not allowed: %s",
+            caller_service,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Service is not allowed to call this endpoint",
+        )
+
     logger.info(
         "Authenticated internal compliance caller: %s",
         caller_service,
     )
 
-    return caller_service.strip()
+    return caller_service
 
 
 async def verify_token(
