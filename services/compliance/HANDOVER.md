@@ -12,7 +12,11 @@ This handover documents the current implementation, how to run the service and i
 
 - The Compliance Service starts successfully using Uvicorn.
 - The internal compliance endpoint is available at `POST /api/v1/compliance/internal-check`.
-- Internal service-to-service authentication uses the `X-Caller-Service` and `X-Service-Key` headers.
+- Internal service-to-service authentication uses the `X-API-Key` header.
+- Compliance forwards the API key to Platform Auth Service at `/api/v1/auth/service-verify`.
+- The authenticated caller identity is obtained from Platform; caller identity is not trusted from request headers.
+- Missing, invalid, revoked, or expired API keys are rejected with HTTP `401 Unauthorized`.
+- If Platform authentication is unavailable, the request fails closed with HTTP `503 Service Unavailable`.
 - The endpoint accepts supplier details and returns a compliance decision.
 - The internal check returns a structured response containing `supplier_id`, `company_name`, `country`, `cleared`, `decision`, and `reason`.
 - An authenticated request for `SUP-00001` returned HTTP `200 OK` with decision `CLEAR` during manual verification on 22 October 2026.
@@ -25,7 +29,7 @@ This handover documents the current implementation, how to run the service and i
 
 - **EU sanctions list has no working download URL.** `eu.xml` is required for live screening, but `EU_DOWNLOAD_URL` is empty because the EU endpoint needs an access token we do not have (the tokenless URL returns `403 Forbidden`). With `USE_FIXTURES=false`, startup logs `Skipping eu.xml: no download URL configured.` and every `/internal-check` call returns **503 Compliance service unavailable**. This blocks #209: the three sanctioned seed suppliers `SUP-00007`, `SUP-00023`, and `SUP-00045` cannot be screened live.
 - **Workaround for local work only:** `USE_FIXTURES=true` screens against bundled samples in `app/data/fixtures/` (`ofac_sample.csv`, `un_sample.xml`, `eu_sample.xml`). These are not real sanctions lists; a `CLEAR` result only proves the API works, not that a supplier is clean.
-- **No service keys out of the box.** `INTERNAL_SERVICE_KEYS` is empty in `.env.example`. Every caller receives `401` until real keys are configured in `.env`; this is deliberate fail-closed behavior.
+- **Platform authentication required.** Compliance validates incoming service API keys through Platform Auth Service. Platform must be running and each calling service must have an active API key registered. Missing, invalid, revoked, or expired keys are rejected with HTTP `401 Unauthorized`. If Platform authentication is unavailable, Compliance fails closed with HTTP `503 Service Unavailable`.
 - **Not in the shared environment yet.** `infra/docker-compose.yml` creates the Compliance DB user but does not run the Compliance Service. This is pending with Ajith (#208).
 - **Minor:** `datetime.utcnow()` deprecation warnings occur in tests; `tests/test_contract.py` uses the non-canonical ID `SUP-CONTRACT-001`.
 
@@ -35,12 +39,35 @@ This handover documents the current implementation, how to run the service and i
 
 `POST /api/v1/compliance/internal-check`
 
-### Required authentication headers
+### Required authentication header
 
-| Header             | Purpose                                                   |
-| ------------------ | --------------------------------------------------------- |
-| `X-Caller-Service` | Identifies the calling service, such as `supplier-portal` |
-| `X-Service-Key`    | Shared secret configured for the calling service          |
+| Header      | Purpose |
+| ----------- | ------- |
+| `X-API-Key` | Platform-issued API key belonging to the calling service. |
+
+Compliance does not trust the caller identity from a request header. It forwards the supplied API key to Platform Auth Service and obtains the authenticated service identity from Platform.
+
+### Platform authentication
+
+Compliance verifies the incoming API key using:
+
+`POST {PLATFORM_AUTH_URL}/api/v1/auth/service-verify`
+
+Required configuration in Compliance `.env`:
+
+```dotenv
+PLATFORM_AUTH_URL=http://127.0.0.1:8005
+```
+
+`PLATFORM_SERVICE_API_KEY` is a separate credential used by Compliance for its own outgoing Platform authentication. It is not the incoming API key used by callers.
+
+Calling services must send their own active Platform-issued key:
+
+```http
+X-API-Key: <platform-issued-service-api-key>
+```
+
+Platform owns service API key registration, validation, revocation, and expiry. Incoming caller credentials are validated through Platform Auth Service.
 
 ### Example request
 
@@ -77,7 +104,12 @@ The calling service must handle these decisions according to its own integration
 
 ### Authentication failure
 
-Requests with missing or invalid service authentication return HTTP `401 Unauthorized`.
+- Missing API key: HTTP `401 Unauthorized`.
+- Invalid, revoked, or expired API key: HTTP `401 Unauthorized`.
+- Platform authentication service unavailable or timed out: HTTP `503 Service Unavailable`.
+- Invalid Platform authentication response: HTTP `503 Service Unavailable`.
+
+Authentication is fail-closed: Compliance never bypasses Platform verification when Platform is unavailable.
 
 ## 4. Prerequisites
 
@@ -104,21 +136,18 @@ Important configuration areas include:
 
 - Database connection settings.
 - Platform authentication settings.
-- Internal service authentication keys.
+- Platform-issued service API key authentication.
 - Sanctions data-source URLs.
 - Kafka bootstrap servers.
 - Screening thresholds and scoring weights.
 - SLA monitoring settings.
 
-The `INTERNAL_SERVICE_KEYS` setting must follow the format expected by the application: caller-service names mapped to their corresponding secrets.
+Platform authentication configuration:
 
-Example format only:
+- `PLATFORM_AUTH_URL`: Base URL of the Platform Auth Service.
+- `PLATFORM_SERVICE_API_KEY`: Compliance service's own Platform-issued API key, used for its outgoing Platform authentication.
 
-```dotenv
-INTERNAL_SERVICE_KEYS=inventory-service:<INVENTORY_SHARED_KEY>,supplier-portal:<SUPPLIER_PORTAL_SHARED_KEY>
-```
-
-Replace placeholders with valid local secrets. Do not copy placeholder values into a working configuration.
+Incoming caller API keys are validated by Platform Auth Service through `/api/v1/auth/service-verify`. Do not configure caller keys locally in Compliance.
 
 ## 6. How to Run the Service
 
@@ -145,7 +174,9 @@ Copy-Item .env.example .env
 ```
 
 Then edit `.env`:
-- `INTERNAL_SERVICE_KEYS=supplier-portal:<your-local-key>,inventory-service:<another-local-key>` (choose your own values; callers send the same values in `X-Service-Key`).
+
+- Set `PLATFORM_AUTH_URL=http://127.0.0.1:8005` for local Platform authentication.
+- Configure `PLATFORM_SERVICE_API_KEY` with the Compliance service's own valid Platform-issued API key.
 - For local work without the EU list, set `USE_FIXTURES=true` (see Broken / known issues).
 
 ### Start the service
@@ -208,8 +239,7 @@ import httpx
 response = httpx.post(
     "http://127.0.0.1:8003/api/v1/compliance/internal-check",
     headers={
-        "X-Caller-Service": "supplier-portal",
-        "X-Service-Key": "<configured-local-secret>",
+        "X-API-Key": "<platform-issued-supplier-portal-api-key>",
     },
     json={
         "supplier_id": "SUP-00001",
@@ -219,8 +249,9 @@ response = httpx.post(
     timeout=15,
 )
 
-print(response.status_code)
-print(response.text)
+print("Status:", response.status_code)
+print("Response:", response.json())
+
 ```
 
 Expected verification:
