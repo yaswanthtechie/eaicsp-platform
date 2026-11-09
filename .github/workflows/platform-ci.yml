@@ -287,7 +287,8 @@ jobs:
         run: |
           for key in CEO_PASSWORD VP_OPERATIONS_PASSWORD PROCUREMENT_MANAGER_PASSWORD \
                      LOGISTICS_MANAGER_PASSWORD COMPLIANCE_OFFICER_PASSWORD \
-                     WAREHOUSE_MANAGER_PASSWORD ANALYST_PASSWORD SUPPLIER_PASSWORD; do
+                     WAREHOUSE_MANAGER_PASSWORD ANALYST_PASSWORD SUPPLIER_PASSWORD \
+                     SUPPLIER_19_PASSWORD SUPPLIER_21_PASSWORD SUPPLIER_22_PASSWORD; do
             value="Ci-$(openssl rand -hex 12)@1"
             echo "::add-mask::$value"
             echo "$key=$value" >> "$GITHUB_ENV"
@@ -330,7 +331,12 @@ jobs:
 
       - name: Show API logs on failure
         if: failure()
-        run: cat /tmp/platform-api.log
+        run: |
+          if [ -f /tmp/platform-api.log ]; then
+            cat /tmp/platform-api.log
+          else
+            echo "Platform API log file was not created."
+          fi
 
   # ---------------------------------------------------------------
   # GENERIC: every service keeps this job as is.

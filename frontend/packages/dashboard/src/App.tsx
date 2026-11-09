@@ -16,6 +16,7 @@ import {
   getTokenExpiry,
   logout,
   refreshAuthSession,
+  type AuthSession,
 } from "./api/auth";
 import { useDashboardData } from "./api/dashboardGraphql";
 import Login from "./components/Login";
@@ -111,9 +112,14 @@ function buildKpis(
 interface DashboardAppProps {
   authRole?: UserRole;
   onLogout?: () => void;
+  onAuthSessionRefreshed?: (session: AuthSession) => void;
 }
 
-function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
+function DashboardApp({
+  authRole,
+  onLogout,
+  onAuthSessionRefreshed,
+}: DashboardAppProps) {
   const {
     data: dashboardData,
     loading: dashboardLoading,
@@ -277,6 +283,7 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
     autoReconnect: true,
     maxRetries: 5,
     requireToken: !USE_MOCK_AUTH,
+    onAuthSessionRefreshed,
   });
   const effectiveWarehouse =
     role === "warehouse_manager"
@@ -943,6 +950,7 @@ function App() {
       // Remount if a refreshed token carries a different role.
       key={authSession.role}
       authRole={authSession.role}
+      onAuthSessionRefreshed={setAuthSession}
       onLogout={async () => {
         authOperationId.current += 1;
         clearAuthSession();

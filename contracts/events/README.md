@@ -22,3 +22,17 @@ Event types and their corresponding files must follow the `<domain>.<entity>.<ac
 2. Define your specific properties within the `payload` block. Use strict formatting where applicable (e.g., regex patterns for canonical IDs).
 3. Create a valid mock payload in the `examples/` subfolder.
 4. Open a PR and ensure your unit tests validate the example payload against your new schema.
+
+
+## Live contract monitor (R15-T5)
+
+Checks every real message on the shared Kafka against these schemas, grouped by producer.
+Read-only: throwaway consumer group, never commits, never produces.
+
+```bash
+make up                  # the stack must be running
+make contract-monitor    # or: cd contracts && python live_monitor.py
+```
+
+Exit code 0 = all messages match, 1 = violations found, 2 = Kafka not reachable.
+Integration test: `cd contracts && pytest -m integration`.

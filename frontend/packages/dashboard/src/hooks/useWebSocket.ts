@@ -7,11 +7,13 @@ import type {
   WebSocketMessage,
 } from "../types/forecast";
 import { mapAnalyticsEventToAlert } from "../utils/alertMapper";
-import { getAuthSession } from "../api/auth";
+import { getAuthSession, refreshAuthSession, type AuthSession } from "../api/auth";
 interface UseWebSocketOptions {
   url: string;
   onMessage: (data: WebSocketMessage) => void;
   onError?: (error: Event) => void;
+  onAuthSessionRefreshed?: (session: AuthSession) => void;
+  /** false = no automatic reconnect after a drop. A 4401 still refreshes the JWT and reconnects once. */
   autoReconnect?: boolean;
   maxRetries?: number;
   /** false = connect without a token (mock auth only). */
@@ -75,10 +77,15 @@ function getDedupKey(event: AnalyticsEventEnvelope): string {
     : event.event_id;
 }
 
+// Real token expiries are minutes apart. A second 4401 within this window
+// means a fresh token was rejected too, so stop instead of looping.
+const AUTH_REFRESH_MIN_GAP_MS = 60_000;
+
 export function useWebSocket({
   url,
   onMessage,
   onError,
+  onAuthSessionRefreshed,
   autoReconnect = true,
   maxRetries = 5,
   requireToken = true,
@@ -95,10 +102,17 @@ export function useWebSocket({
 
   const onMessageRef = useRef(onMessage);
   const onErrorRef = useRef(onError);
+  const onAuthSessionRefreshedRef = useRef(onAuthSessionRefreshed);
+
+  useEffect(() => {
+    onAuthSessionRefreshedRef.current = onAuthSessionRefreshed;
+  }, [onAuthSessionRefreshed]);
+
   const connectRef = useRef<(() => void) | null>(null);
   const seenEventIdsRef = useRef(new Set<string>());
   const intentionalCloseRef = useRef(false);
-
+  const lastAuthRefreshAtRef = useRef<number | null>(null);
+  
   useEffect(() => {
     onMessageRef.current = onMessage;
   }, [onMessage]);
@@ -109,6 +123,7 @@ export function useWebSocket({
 
   const retryConnection = useCallback(() => {
     retryCountRef.current = 0;
+    lastAuthRefreshAtRef.current = null;
     setFailed(false);
     intentionalCloseRef.current = true;
 
@@ -282,19 +297,50 @@ export function useWebSocket({
           return;
         }
 
+        // Forbidden: do not retry automatically.
         if (event.code === 4403) {
           setFailed(true);
           return;
         }
 
-        if (!autoReconnect) {
-          setFailed(true);
+       // Unauthorized: refresh the JWT before reconnecting.
+        if (event.code === 4401) {
+          const now = Date.now();
+          const lastRefreshAt = lastAuthRefreshAtRef.current;
+
+          if (
+            !requireToken ||
+            (lastRefreshAt !== null &&
+              now - lastRefreshAt < AUTH_REFRESH_MIN_GAP_MS)
+          ) {
+            setFailed(true);
+            return;
+          }
+
+          lastAuthRefreshAtRef.current = now;
+          setIsConnecting(true);
+
+          void refreshAuthSession()
+            .then((refreshedSession) => {
+              if (isUnmounted) return;
+
+              onAuthSessionRefreshedRef.current?.(refreshedSession);
+              connect();
+            })
+            .catch(() => {
+              if (isUnmounted) return;
+
+              console.error(
+                "[C3 WS] Authentication refresh failed."
+              );
+              setFailed(true);
+              setIsConnecting(false);
+            });
+
           return;
         }
 
-        // Unauthorized: authentication refresh must happen before reconnecting.
-        // Until that is wired in, stop and expose the Retry Connection control.
-        if (event.code === 4401) {
+        if (!autoReconnect) {
           setFailed(true);
           return;
         }

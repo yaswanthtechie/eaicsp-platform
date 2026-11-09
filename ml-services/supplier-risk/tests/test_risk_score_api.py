@@ -32,7 +32,12 @@ from src.analyze import (
     get_risk_assessment_ttl_seconds,
     require_caller,
 )
-from src.config import Settings, get_settings, validate_risk_assessment_ttl_seconds
+from src.config import (
+    PLATFORM_VERIFY_TIMEOUT_SECONDS,
+    Settings,
+    get_settings,
+    validate_risk_assessment_ttl_seconds,
+)
 
 
 VALID_SERVICE_CONFIG = "supplier-portal:valid-secret-key,inventory-service:inv-key-999"
@@ -384,7 +389,7 @@ def test_valid_bearer_jwt_with_platform_200_accepted(raw_client):
         assert res.status_code == 200
         assert mock_post.called
         call_kwargs = mock_post.call_args.kwargs
-        assert call_kwargs["timeout"] == 2.0
+        assert call_kwargs["timeout"] == PLATFORM_VERIFY_TIMEOUT_SECONDS
 
 
 def test_platform_401_becomes_supplier_risk_401(raw_client):

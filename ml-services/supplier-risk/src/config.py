@@ -47,6 +47,13 @@ DEFAULT_RISK_ASSESSMENT_TTL_SECONDS: Final[int] = 3600
 DEFAULT_MONGODB_URI: Final[str] = "mongodb://localhost:27017"
 DEFAULT_MONGODB_DATABASE: Final[str] = "supplier_risk"
 DEFAULT_MONGODB_COLLECTION: Final[str] = "headlines"
+DEFAULT_PLATFORM_SERVICE_URL: Final[str] = "http://127.0.0.1:8005"
+
+# Service API keys (R15-M5): which callers may use X-API-Key on this service.
+ALLOWED_API_KEY_CALLERS: Final[frozenset[str]] = frozenset({"supplier-portal", "gateway-bff"})
+GATEWAY_SERVICE_NAME: Final[str] = "gateway-bff"
+# Supplier Portal waits 2s for a risk score (contract), so Platform checks must be faster.
+PLATFORM_VERIFY_TIMEOUT_SECONDS: Final[float] = 1.5
 
 # ------------------------------------------------------------------
 # Fixed Risk Tier Classification Thresholds
@@ -307,6 +314,7 @@ class Settings:
         hysteresis_exit_high: float | None = None,
         hysteresis_min_evidence: int | None = None,
         risk_assessment_ttl_seconds: int | None = None,
+        platform_service_url: str | None = None,
     ) -> None:
         # 1. Negative sentiment penalty
         if negative_sentiment_penalty is not None:
@@ -613,6 +621,15 @@ class Settings:
                 else DEFAULT_RISK_ASSESSMENT_TTL_SECONDS
             )
 
+        # 18. Platform service verification URL
+        if platform_service_url is not None:
+            self.platform_service_url = platform_service_url
+        else:
+            self.platform_service_url = os.getenv(
+                "PLATFORM_SERVICE_URL",
+                os.getenv("PLATFORM_AUTH_URL", DEFAULT_PLATFORM_SERVICE_URL),
+            )
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert settings instance to dictionary for API serialization."""
         return {
@@ -642,6 +659,7 @@ class Settings:
             "mongodb_database": self.mongodb_database,
             "mongodb_collection": self.mongodb_collection,
             "risk_assessment_ttl_seconds": self.risk_assessment_ttl_seconds,
+            "platform_service_url": self.platform_service_url,
         }
 
 
