@@ -118,7 +118,12 @@ def mock_sso_login(
             reject("account is locked")
 
     access_token = create_access_token(
-        {"sub": user.email, "user_id": user.id, "role": role.name}
+        {
+            "sub": user.email,
+            "user_id": user.id,
+            "role": role.name,
+            "user_uuid": str(user.user_uuid),
+        }
     )
     refresh_token = create_refresh_token({"sub": user.email, "user_id": user.id})
 

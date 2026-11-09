@@ -146,7 +146,12 @@ def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user"
         )
     new_access_token = create_access_token(
-        {"sub": user.email, "user_id": user.id, "role": user.role.name}
+        {
+            "sub": user.email,
+            "user_id": user.id,
+            "role": user.role.name,
+            "user_uuid": str(user.user_uuid),
+        }
     )
 
     new_refresh_token = create_refresh_token(
@@ -380,8 +385,15 @@ def verify_access_token(
     cached_response = token_cache.get(token)
 
     if cached_response is not None:
-        logger.info("Token verification cache HIT")
-        return cached_response
+        if "user_uuid" not in cached_response:
+            logger.info(
+                "Token verification cache HIT has legacy format (missing user_uuid); evicting and treating as MISS"
+            )
+            token_cache.delete(token)
+            cached_response = None
+        else:
+            logger.info("Token verification cache HIT")
+            return cached_response
 
     logger.info("Token verification cache MISS")
 
@@ -467,6 +479,7 @@ def verify_access_token(
     response_data = {
         "valid": True,
         "user_id": user.id,
+        "user_uuid": str(user.user_uuid),
         "email": user.email,
         "full_name": user.full_name,
         "role": role,

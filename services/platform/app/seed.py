@@ -1,5 +1,7 @@
 import os
+import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from app.core.security import hash_password
 from app.database import Base, SessionLocal, engine
@@ -45,6 +47,20 @@ DEDICATED_DEMO_EMAILS = {
     "supplier22@company.com",
 }
 
+DEMO_USER_UUIDS: dict[str, uuid.UUID] = {
+    "ceo@company.com": uuid.UUID("00000000-0000-4000-8000-000000000001"),
+    "warehousemanager@company.com": uuid.UUID("00000000-0000-4000-8000-000000000002"),
+    "vpoperations@company.com": uuid.UUID("00000000-0000-4000-8000-000000000003"),
+    "procurementmanager@company.com": uuid.UUID("00000000-0000-4000-8000-000000000004"),
+    "logisticsmanager@company.com": uuid.UUID("00000000-0000-4000-8000-000000000005"),
+    "complianceofficer@company.com": uuid.UUID("00000000-0000-4000-8000-000000000006"),
+    "supplier@company.com": uuid.UUID("00000000-0000-4000-8000-000000000007"),
+    "analyst@company.com": uuid.UUID("00000000-0000-4000-8000-000000000008"),
+    "supplier19@company.com": uuid.UUID("00000000-0000-4000-8000-000000000019"),
+    "supplier21@company.com": uuid.UUID("00000000-0000-4000-8000-000000000021"),
+    "supplier22@company.com": uuid.UUID("00000000-0000-4000-8000-000000000022"),
+}
+
 
 def _required_password(env_var: str) -> str:
     """
@@ -63,8 +79,8 @@ def _required_password(env_var: str) -> str:
     return value
 
 
-def get_seed_users() -> list[dict]:
-    return [
+def get_seed_users() -> list[dict[str, Any]]:
+    users: list[dict[str, Any]] = [
         {
             "email": "ceo@company.com",
             "full_name": "Company CEO",
@@ -136,6 +152,13 @@ def get_seed_users() -> list[dict]:
             "supplier_id": "SUP-00022",
         },
     ]
+
+    for user in users:
+        email = user["email"].lower()
+        if email in DEMO_USER_UUIDS:
+            user["user_uuid"] = DEMO_USER_UUIDS[email]
+
+    return users
 
 
 def seed_roles(db) -> dict:
@@ -248,17 +271,22 @@ def seed_database(require_service_keys: bool = False):
                         and existing_user.full_name != data["full_name"]
                     ):
                         existing_user.full_name = data["full_name"]
+                    if existing_user.user_uuid is None and data.get("user_uuid"):
+                        existing_user.user_uuid = data["user_uuid"]
                 else:
                     # Avoid unexpectedly changing unrelated existing users' roles
                     if existing_user.role_id is None:
                         existing_user.role_id = role_map[data["role"]].id
                     if existing_user.supplier_id is None and data.get("supplier_id"):
                         existing_user.supplier_id = data.get("supplier_id")
+                    if existing_user.user_uuid is None and data.get("user_uuid"):
+                        existing_user.user_uuid = data["user_uuid"]
                 continue
             now = datetime.now(UTC)
 
             user = User(
                 email=email,
+                user_uuid=data.get("user_uuid") or uuid.uuid4(),
                 full_name=data["full_name"],
                 password=hash_password(data["password"]),
                 role_id=role_map[data["role"]].id,

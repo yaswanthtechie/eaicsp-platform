@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PlatformVerifyResponse",
+  "description": "Contract for Platform Service /api/v1/auth/verify response",
+  "type": "object",
+  "required": [
+    "valid",
+    "user_id",
+    "user_uuid",
+    "email",
+    "full_name",
+    "is_active",
+    "permissions"
+  ],
+  "properties": {
+    "valid": {
+      "type": "boolean",
+      "description": "Indicates whether the verified token is valid and active"
+    },
+    "user_id": {
+      "type": "integer",
+      "description": "Platform internal auto-increment primary key ID"
+    },
+    "user_uuid": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable UUID v4 identifier for cross-service events and API contracts"
+    },
+    "email": {
+      "type": "string",
+      "format": "email",
+      "description": "Canonical user email address"
+    },
+    "full_name": {
+      "type": "string",
+      "description": "Full name of the user"
+    },
+    "role": {
+      "type": ["string", "null"],
+      "description": "Primary role assigned to the user, or null if none"
+    },
+    "supplier_id": {
+      "type": ["string", "null"],
+      "description": "Associated supplier code for supplier role users, else null"
+    },
+    "is_active": {
+      "type": "boolean",
+      "description": "Whether the user account is active"
+    },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Fine-grained permissions granted to the user based on role"
+    }
+  },
+  "additionalProperties": false
+}

@@ -527,6 +527,7 @@ def login_user(
                     "sub": user.email,
                     "role": user.role.name,
                     "user_id": user.id,
+                    "user_uuid": str(user.user_uuid),
                 }
             )
 
@@ -755,7 +756,12 @@ def complete_mfa_login(
         )
 
     access_token = create_access_token(
-        {"sub": user.email, "user_id": user.id, "role": user.role.name}
+        {
+            "sub": user.email,
+            "user_id": user.id,
+            "role": user.role.name,
+            "user_uuid": str(user.user_uuid),
+        }
     )
     refresh_token = create_refresh_token({"sub": user.email, "user_id": user.id})
 

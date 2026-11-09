@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from pydantic import BaseModel, EmailStr
 
 
@@ -52,6 +54,7 @@ class SessionResponse(BaseModel):
 class VerifyResponse(BaseModel):
     valid: bool
     user_id: int
+    user_uuid: UUID
     email: EmailStr
     full_name: str
     role: str | None = None
