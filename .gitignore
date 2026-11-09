@@ -244,6 +244,7 @@ mlruns/
 
 # Temporary source backups
 *.py.bak
+ml-services/demand-forecast/prophet/models/registry/
 
 # contract-monitor-report
 contracts/contract-monitor-report.md
