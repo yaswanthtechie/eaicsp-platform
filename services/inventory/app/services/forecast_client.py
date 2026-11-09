@@ -5,12 +5,13 @@ Connects Inventory Service to the Forecast Serving API:
   GET /api/v1/demand/forecast/{sku_id}?warehouse_id={warehouse_id}&horizon=30
 
 Resilience Rules:
-1. Calls forecast serving API with service API key (X-API-Key).
+1. Calls forecast serving API with service API key (X-API-Key: INVENTORY_SERVICE_API_KEY).
 2. Configurable timeout (default: 2.0s).
 3. Retries once on timeout, connection error, or 5xx response.
 4. If unavailable, falls back to 28-day rolling sales average with forecast_source="fallback".
 5. Only uses a forecast for the same SKU and warehouse that is not older than FORECAST_MAX_AGE_DAYS
    (same rules as forecast_adapter.resolve_daily_demand).
+6. Never logs secrets or API key headers, even on 401.
 """
 
 import logging
@@ -86,13 +87,13 @@ class ForecastClient:
         max_retries: Optional[int] = None,
     ):
         self.base_url = (base_url or settings.FORECAST_SERVICE_URL).rstrip("/")
-        self.api_key = settings.FORECAST_SERVICE_API_KEY if api_key is None else api_key
+        self.api_key = settings.INVENTORY_SERVICE_API_KEY if api_key is None else api_key
         self.timeout = settings.FORECAST_TIMEOUT_SECONDS if timeout_seconds is None else timeout_seconds
         self.max_retries = settings.FORECAST_RETRY_COUNT if max_retries is None else max_retries
 
         if not self.api_key:
             logger.warning(
-                "FORECAST_SERVICE_API_KEY is not set; forecast calls will be rejected "
+                "INVENTORY_SERVICE_API_KEY is not set; forecast calls will be rejected "
                 "and recommendations will use the fallback"
             )
 
@@ -146,8 +147,17 @@ class ForecastClient:
                 )
                 continue
 
+            if response.status_code == 401:
+                # Unauthorized: invalid or missing API key. Do not retry.
+                logger.warning(
+                    "Forecast service rejected service API key (HTTP 401) for SKU %s at %s",
+                    sku_id,
+                    warehouse_id,
+                )
+                return None
+
             if response.status_code != 200:
-                # 400, 401, 404 - client errors; do not retry
+                # 400, 403, 404 - client errors; do not retry
                 logger.warning(
                     "Forecast service returned client error %d for SKU %s at %s: %s",
                     response.status_code,
