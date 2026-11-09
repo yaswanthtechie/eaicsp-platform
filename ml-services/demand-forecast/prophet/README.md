@@ -2315,3 +2315,58 @@ The latest reported non-integration test run completed with **169 passed, 191 wa
 
 The generated summary is written to `reports/business_value/summary.md` and should be regenerated from the latest backtest CSVs and `assumptions.json`, rather than edited manually. The commands above validate the tests and inspect the summary; they do not, by themselves, regenerate the experiment outputs. Use the actual experiment-generation commands from the project workflow when rerunning the backtest.
 
+
+## Authentication
+
+The Demand Forecast API uses Platform API-key verification to authorize requests.
+
+### Forecast Endpoint
+
+The forecast endpoint requires the `X-API-Key` header.
+
+- Only an active API key belonging to the **Inventory service** is authorized.
+- Missing or invalid API keys return `401 Unauthorized`.
+- Valid API keys belonging to other services return `403 Forbidden`.
+- If the Platform authentication service is unavailable, the endpoint returns `503 Service Unavailable`.
+
+Example:
+
+```bash
+curl -X GET "http://localhost:3000/api/v1/demand/forecast/SKU-000123?warehouse_id=WH-BLR-01&horizon=2" \
+  -H "X-API-Key: YOUR_INVENTORY_API_KEY"
+```
+
+### Platform URL Configuration
+
+Configure `PLATFORM_SERVICE_URL` in the Forecast service's `.env` file.
+
+Local development:
+
+```env
+PLATFORM_SERVICE_URL=http://127.0.0.1:8005
+```
+
+Docker environment:
+
+```env
+PLATFORM_SERVICE_URL=http://platform:8005
+```
+
+The Forecast service uses this URL to verify API keys with the Platform authentication endpoint:
+
+```text
+/api/v1/auth/service-verify
+```
+
+### Public Health Endpoints
+
+The following endpoints do not require an API key:
+
+- `/health`
+- `/ready`
+
+### Service Metrics
+
+The `/service_metrics` endpoint is currently accessible without an API key. It exposes operational information such as the model version and request counts, not forecast input or output data.
+
+This is an intentional decision for the current implementation. Review access requirements before exposing this endpoint publicly.
