@@ -14,7 +14,7 @@ from src.multi_horizon import (
     validate_history,
     validate_reconciliation,
 )
-from src.multi_horizon_config import HORIZONS, INTERVALS_PATH
+from src.multi_horizon_config import HORIZONS, INTERVALS_PATH, SEED_SALES_PATH
 from src.multi_horizon_inference import predict_future_xgboost
 from src.train_multi_horizon import fit_xgboost
 
@@ -105,8 +105,8 @@ def test_recursive_xgboost_forecast_with_explanations():
 
 
 @pytest.mark.skipif(
-    not INTERVALS_PATH.exists(),
-    reason="run python -m src.train_multi_horizon first",
+    not INTERVALS_PATH.exists() or not SEED_SALES_PATH.exists(),
+    reason="run `make seed` and python -m src.train_multi_horizon first",
 )
 def test_end_to_end_predict_on_committed_models():
     from src.multi_horizon import (

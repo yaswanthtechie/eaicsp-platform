@@ -7,7 +7,7 @@ from src.seed_demand import aggregate_daily, load_seed_sales
 def load_daily_data():
     """
     Load total daily demand across all canonical SKU/warehouse pairs
-        in the R15 seed (data-platform/out/sales_daily.csv, written by `make seed`).
+    in the R15 seed (data-platform/out/sales_daily.csv, written by `make seed`).
     Returns
     -------
     pandas.DataFrame

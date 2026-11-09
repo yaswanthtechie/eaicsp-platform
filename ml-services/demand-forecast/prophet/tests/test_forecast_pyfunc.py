@@ -56,6 +56,7 @@ def test_predict_starts_tomorrow_with_exact_horizon():
     assert len(out) == 7
     assert out.iloc[0]["date"] == (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()
 
+
 def test_predict_rejects_unknown_pair_and_bad_horizon():
     model = _model()
     with pytest.raises(ValueError, match="Unknown"):
