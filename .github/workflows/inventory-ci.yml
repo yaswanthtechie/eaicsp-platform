@@ -1,0 +1,140 @@
+name: Inventory Service CI
+
+# ------------------------------------------------------------------
+# Inventory Service CI workflow
+# Adapted from Platform Service CI reference template.
+# See docs/ci-template.md for architecture conventions.
+# ------------------------------------------------------------------
+
+on:
+  push:
+    branches:
+      - develop
+    paths:
+      - "services/inventory/**"
+      - ".github/workflows/inventory-ci.yml"
+  pull_request:
+    paths:
+      - "services/inventory/**"
+      - ".github/workflows/inventory-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  SERVICE_DIR: services/inventory
+  IMAGE_NAME: inventory-service
+  PYTHON_VERSION: "3.12"
+  # Default fallback for Settings.DATABASE_URL. Note: services/inventory/tests/conftest.py
+  # automatically overrides this with local SQLite files when INTEGRATION_TEST is unset.
+  DATABASE_URL: sqlite:////tmp/inventory-ci.db
+
+jobs:
+  quality-security-unit:
+    name: Security and unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ${{ env.SERVICE_DIR }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: ${{ env.SERVICE_DIR }}/requirements*.txt
+
+      - name: Install dependencies and CI tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install bandit pip-audit
+
+      - name: Python syntax check
+        run: python -m compileall app
+
+      - name: Bandit (code security)
+        run: python -m bandit -r app -ll
+
+      - name: pip-audit (dependency security)
+        run: python -m pip_audit -r requirements.txt --desc
+
+      - name: Unit tests with coverage
+        run: |
+          python -m pytest -o addopts= -m "not integration" \
+            --tb=short -ra \
+            --cov=app \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [ -f .coverage ]; then
+            echo "## Coverage" >> "$GITHUB_STEP_SUMMARY"
+            python -m coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IMAGE_NAME }}-coverage
+          path: ${{ env.SERVICE_DIR }}/coverage.xml
+          if-no-files-found: ignore
+
+  docker-trivy:
+    name: Build Docker image and scan vulnerabilities
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build image (with layer cache)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ${{ env.SERVICE_DIR }}
+          file: ${{ env.SERVICE_DIR }}/Dockerfile
+          tags: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          load: true
+          cache-from: type=gha,scope=${{ env.IMAGE_NAME }}
+          cache-to: type=gha,mode=max,scope=${{ env.IMAGE_NAME }}
+
+      - name: Smoke-test container starts
+        run: |
+          docker run -d --name smoke -p 8001:8001 \
+            -e DATABASE_URL=sqlite:////tmp/inventory.db \
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8001/health > /dev/null; then
+              echo "Container is serving"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Container did not start:"
+          docker logs smoke
+          exit 1
+
+      - name: Scan image with Trivy (fail on CRITICAL)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL
