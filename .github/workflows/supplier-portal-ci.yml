@@ -1,0 +1,77 @@
+name: Supplier Portal Service CI
+
+# ------------------------------------------------------------------
+# Supplier Portal Service CI workflow
+# Adapted from Platform Service CI reference template.
+# See docs/ci-template.md for architecture conventions.
+# Note: Docker/Trivy job omitted as no application Dockerfile exists.
+# ------------------------------------------------------------------
+
+on:
+  push:
+    branches:
+      - develop
+    paths:
+      - "services/supplier-portal/**"
+      - ".github/workflows/supplier-portal-ci.yml"
+  pull_request:
+    paths:
+      - "services/supplier-portal/**"
+      - ".github/workflows/supplier-portal-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  SERVICE_DIR: services/supplier-portal
+  IMAGE_NAME: supplier-portal-service
+  PYTHON_VERSION: "3.11"
+  DATABASE_URL: sqlite://
+  # Prevent background Kafka consumer thread from starting during FastAPI TestClient lifespan.
+  KAFKA_ENABLED: "false"
+  # Dummy MinIO credentials required by app.core.config BaseSettings validation.
+  MINIO_ACCESS_KEY: test-access-key
+  MINIO_SECRET_KEY: test-secret-key
+
+jobs:
+  quality-security-unit:
+    name: Security and unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ${{ env.SERVICE_DIR }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: ${{ env.SERVICE_DIR }}/requirements*.txt
+
+      - name: Install dependencies and CI tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install bandit pip-audit
+
+      - name: Python syntax check
+        run: python -m compileall app
+
+      - name: Bandit (code security)
+        run: python -m bandit -r app -ll
+
+      - name: pip-audit (dependency security)
+        run: python -m pip_audit -r requirements.txt --desc
+
+      - name: Unit tests
+        run: |
+          python -m pytest -o addopts= -m "not integration" \
+            --tb=short -ra
