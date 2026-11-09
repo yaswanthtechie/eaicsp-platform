@@ -55,5 +55,5 @@
       "description": "Fine-grained permissions granted to the user based on role"
     }
   },
-  "additionalProperties": false
+  "additionalProperties": true
 }

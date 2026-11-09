@@ -271,16 +271,18 @@ def seed_database(require_service_keys: bool = False):
                         and existing_user.full_name != data["full_name"]
                     ):
                         existing_user.full_name = data["full_name"]
-                    if existing_user.user_uuid is None and data.get("user_uuid"):
-                        existing_user.user_uuid = data["user_uuid"]
+                    expected_uuid = data.get("user_uuid")
+                    if expected_uuid and existing_user.user_uuid != expected_uuid:
+                        existing_user.user_uuid = expected_uuid
                 else:
                     # Avoid unexpectedly changing unrelated existing users' roles
                     if existing_user.role_id is None:
                         existing_user.role_id = role_map[data["role"]].id
                     if existing_user.supplier_id is None and data.get("supplier_id"):
                         existing_user.supplier_id = data.get("supplier_id")
-                    if existing_user.user_uuid is None and data.get("user_uuid"):
-                        existing_user.user_uuid = data["user_uuid"]
+                    expected_uuid = data.get("user_uuid")
+                    if expected_uuid and existing_user.user_uuid != expected_uuid:
+                        existing_user.user_uuid = expected_uuid
                 continue
             now = datetime.now(UTC)
 
@@ -313,8 +315,16 @@ def seed_database(require_service_keys: bool = False):
 
 if __name__ == "__main__":
     import sys
+    from pathlib import Path
+
+    _platform_dir = Path(__file__).resolve().parent.parent
+    if str(_platform_dir) not in sys.path:
+        sys.path.insert(0, str(_platform_dir))
+
+    from scripts.migrate_add_user_uuid import run_migration
 
     Base.metadata.create_all(bind=engine)
+    run_migration(engine)
     require_service_keys = "--require-service-keys" in sys.argv
 
     if "--roles-only" in sys.argv:

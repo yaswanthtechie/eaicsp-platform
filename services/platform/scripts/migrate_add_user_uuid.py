@@ -5,6 +5,22 @@ Safe to rerun multiple times.
 
 Usage:
     python scripts/migrate_add_user_uuid.py
+
+PostgreSQL Deployment Ordering Requirement:
+    During deployment, the migration executes inside a single transaction and acquires
+    a SHARE ROW EXCLUSIVE lock on the `users` table to prevent concurrent modifications
+    while backfilling existing users and applying NOT NULL. Within the transaction, the table
+    schema is freshly inspected after acquiring the lock to guard against stale schema state
+    from concurrent migration runs.
+
+    IMPORTANT: This migration does NOT support zero-downtime mixed-version writes.
+    Because User.user_uuid relies on a Python-side application default rather than a database
+    server default (e.g. no DEFAULT gen_random_uuid()), older application instances omit
+    user_uuid on INSERT. Once the NOT NULL constraint is enforced, any INSERT from an older
+    instance will fail with a NOT NULL constraint violation.
+
+    Therefore, old application instances must stop writing (or be fully drained/replaced)
+    before enforcing NOT NULL, or writes must be paused during the migration window.
 """
 
 from __future__ import annotations
@@ -57,93 +73,143 @@ def run_migration(engine: Engine | None = None) -> dict[str, int]:
 
     columns = [col["name"] for col in inspector.get_columns("users")]
 
-    # 1. Add nullable user_uuid column if not present
-    if "user_uuid" not in columns:
-        print("Adding 'user_uuid' column to 'users' table...")
+    if dialect_name == "postgresql":
+        # In PostgreSQL, wrap all steps in a single transaction with an exclusive lock
+        # to prevent concurrent modifications while backfilling and applying NOT NULL.
         with engine.begin() as conn:
-            if dialect_name == "postgresql":
+            conn.execute(text("LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE;"))
+
+            # Re-inspect table columns and indexes within the lock to prevent
+            # concurrent migration attempts from acting on stale schema information.
+            tx_inspector = sa.inspect(conn)
+            tx_columns = {col["name"]: col for col in tx_inspector.get_columns("users")}
+
+            # 1. Add nullable user_uuid column if not present
+            if "user_uuid" not in tx_columns:
+                print("Adding 'user_uuid' column to 'users' table...")
                 conn.execute(text("ALTER TABLE users ADD COLUMN user_uuid UUID;"))
+                summary["column_added"] = 1
+                print("Column 'user_uuid' added successfully.")
             else:
-                # SQLite: CHAR(32) provides TEXT affinity, matching SQLAlchemy's Uuid(as_uuid=True)
-                conn.execute(text("ALTER TABLE users ADD COLUMN user_uuid CHAR(32);"))
-        summary["column_added"] = 1
-        print("Column 'user_uuid' added successfully.")
-    else:
-        print("Column 'user_uuid' already exists.")
+                print("Column 'user_uuid' already exists.")
 
-    # 2. Backfill existing rows missing user_uuid
-    with engine.begin() as conn:
-        result = conn.execute(
-            text("SELECT id, email FROM users WHERE user_uuid IS NULL;")
-        )
-        users_to_backfill = result.fetchall()
-
-        if users_to_backfill:
-            print(f"Backfilling {len(users_to_backfill)} user(s) with user_uuid...")
-            for user_id, email in users_to_backfill:
-                normalized_email = (email or "").lower()
-                user_uuid = DEMO_USER_UUIDS.get(normalized_email)
-                if user_uuid is None:
-                    user_uuid = uuid.uuid4()
-
-                if dialect_name == "postgresql":
+            # 2. Backfill existing rows missing user_uuid
+            result = conn.execute(
+                text("SELECT id, email FROM users WHERE user_uuid IS NULL;")
+            )
+            users_to_backfill = result.fetchall()
+            if users_to_backfill:
+                print(f"Backfilling {len(users_to_backfill)} user(s) with user_uuid...")
+                for user_id, email in users_to_backfill:
+                    normalized_email = (email or "").lower()
+                    user_uuid = DEMO_USER_UUIDS.get(normalized_email)
+                    if user_uuid is None:
+                        user_uuid = uuid.uuid4()
                     conn.execute(
                         text(
                             "UPDATE users SET user_uuid = :uuid_val WHERE id = :user_id;"
                         ),
                         {"uuid_val": str(user_uuid), "user_id": user_id},
                     )
-                else:
-                    # SQLite: store 32-hex string
+                summary["users_backfilled"] = len(users_to_backfill)
+                print(f"Backfilled {len(users_to_backfill)} user(s).")
+            else:
+                print("No users require backfilling.")
+
+            # 3. Create unique index ix_users_user_uuid if not already present
+            tx_indexes = [idx["name"] for idx in tx_inspector.get_indexes("users")]
+            if "ix_users_user_uuid" not in tx_indexes:
+                print("Creating unique index 'ix_users_user_uuid'...")
+                conn.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_user_uuid "
+                        "ON users (user_uuid);"
+                    )
+                )
+                summary["index_created"] = 1
+                print("Unique index 'ix_users_user_uuid' created.")
+            else:
+                print("Unique index 'ix_users_user_uuid' already exists.")
+
+            # 4. Enforce NOT NULL constraint if not already NOT NULL
+            user_uuid_col = tx_columns.get("user_uuid")
+            if (
+                user_uuid_col is None
+                or user_uuid_col.get("nullable", True) is not False
+            ):
+                conn.execute(
+                    text("ALTER TABLE users ALTER COLUMN user_uuid SET NOT NULL;")
+                )
+                print("Enforced NOT NULL constraint on PostgreSQL 'user_uuid'.")
+            else:
+                print("NOT NULL constraint already enforced on PostgreSQL 'user_uuid'.")
+
+    elif dialect_name == "sqlite":
+        # 1. Add nullable user_uuid column if not present
+        if "user_uuid" not in columns:
+            print("Adding 'user_uuid' column to 'users' table...")
+            with engine.begin() as conn:
+                # SQLite: CHAR(32) provides TEXT affinity, matching SQLAlchemy's Uuid(as_uuid=True)
+                conn.execute(text("ALTER TABLE users ADD COLUMN user_uuid CHAR(32);"))
+            summary["column_added"] = 1
+            print("Column 'user_uuid' added successfully.")
+        else:
+            print("Column 'user_uuid' already exists.")
+
+        # 2. Backfill existing rows missing user_uuid
+        with engine.begin() as conn:
+            result = conn.execute(
+                text("SELECT id, email FROM users WHERE user_uuid IS NULL;")
+            )
+            users_to_backfill = result.fetchall()
+
+            if users_to_backfill:
+                print(f"Backfilling {len(users_to_backfill)} user(s) with user_uuid...")
+                for user_id, email in users_to_backfill:
+                    normalized_email = (email or "").lower()
+                    user_uuid = DEMO_USER_UUIDS.get(normalized_email)
+                    if user_uuid is None:
+                        user_uuid = uuid.uuid4()
                     conn.execute(
                         text(
                             "UPDATE users SET user_uuid = :uuid_val WHERE id = :user_id;"
                         ),
                         {"uuid_val": user_uuid.hex, "user_id": user_id},
                     )
-            summary["users_backfilled"] = len(users_to_backfill)
-            print(f"Backfilled {len(users_to_backfill)} user(s).")
-        else:
-            print("No users require backfilling.")
+                summary["users_backfilled"] = len(users_to_backfill)
+                print(f"Backfilled {len(users_to_backfill)} user(s).")
+            else:
+                print("No users require backfilling.")
 
-    # 3. Create unique index ix_users_user_uuid if not already present
-    indexes = [idx["name"] for idx in inspector.get_indexes("users")]
-    if "ix_users_user_uuid" not in indexes:
-        print("Creating unique index 'ix_users_user_uuid'...")
-        with engine.begin() as conn:
-            conn.execute(
-                text(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_user_uuid "
-                    "ON users (user_uuid);"
+        # 3. Create unique index ix_users_user_uuid if not already present
+        indexes = [idx["name"] for idx in inspector.get_indexes("users")]
+        if "ix_users_user_uuid" not in indexes:
+            print("Creating unique index 'ix_users_user_uuid'...")
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_user_uuid "
+                        "ON users (user_uuid);"
+                    )
                 )
-            )
-        summary["index_created"] = 1
-        print("Unique index 'ix_users_user_uuid' created.")
-    else:
-        print("Unique index 'ix_users_user_uuid' already exists.")
+            summary["index_created"] = 1
+            print("Unique index 'ix_users_user_uuid' created.")
+        else:
+            print("Unique index 'ix_users_user_uuid' already exists.")
 
-    # 4. Enforce NOT NULL constraint
-    if dialect_name == "postgresql":
-        with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE users ALTER COLUMN user_uuid SET NOT NULL;"))
-        print("Enforced NOT NULL constraint on PostgreSQL 'user_uuid'.")
-    elif dialect_name == "sqlite":
-        with engine.connect() as conn:
+        # 4. Enforce NOT NULL constraint via safe table rebuild if needed
+        autocommit_engine = engine.execution_options(isolation_level="AUTOCOMMIT")
+        with autocommit_engine.connect() as conn:
             col_info = conn.execute(text("PRAGMA table_info(users);")).fetchall()
-            user_uuid_col = next((c for c in col_info if c[1] == "user_uuid"), None)
-            needs_rebuild = user_uuid_col is not None and user_uuid_col[3] == 0
+            sqlite_uuid_col = next((c for c in col_info if c[1] == "user_uuid"), None)
+            needs_rebuild = sqlite_uuid_col is not None and sqlite_uuid_col[3] == 0
             fk_enabled = bool(conn.execute(text("PRAGMA foreign_keys;")).scalar())
-            conn.commit()
 
             if needs_rebuild:
                 print(
                     "Enforcing NOT NULL constraint on SQLite 'user_uuid' via safe table rebuild..."
                 )
-                raw_conn = getattr(conn, "connection", None)
-                orig_isolation = getattr(raw_conn, "isolation_level", None)
                 try:
-                    if raw_conn is not None and orig_isolation is not None:
-                        raw_conn.isolation_level = None
                     if fk_enabled:
                         conn.execute(text("PRAGMA foreign_keys = OFF;"))
                     conn.execute(text("BEGIN;"))
@@ -157,8 +223,6 @@ def run_migration(engine: Engine | None = None) -> dict[str, int]:
                 finally:
                     if fk_enabled:
                         conn.execute(text("PRAGMA foreign_keys = ON;"))
-                    if raw_conn is not None and orig_isolation is not None:
-                        raw_conn.isolation_level = orig_isolation
             else:
                 print("NOT NULL constraint already enforced on SQLite 'user_uuid'.")
 

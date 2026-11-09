@@ -4200,7 +4200,13 @@ Repeated runs of `seed_database()` preserve these UUIDs and do not overwrite or 
 
 ## 7. Contract Specifications and Downstream Action
 
-- **Platform Contract:** Defined in `contracts/verify_contract.json` and validated by `tests/test_user_uuid.py`.
+- **Platform Contract:** Defined in `contracts/openapi/verify_contract.json` and validated by `tests/test_user_uuid.py`.
 - **Consumer Service Action Required:**
   - Consuming services can now access `user_uuid` from either decoded JWT claims or `/api/v1/auth/verify`.
   - **Inventory Service:** Update local test contract `PlatformVerifyContractResponse` in `services/inventory/tests/test_contracts.py` to add `user_uuid: UUID` (or `user_uuid: str`). Inventory PO approval handlers (PR #244) can bind `approved_by = payload["user_uuid"]`.
+
+## 8. Automatic Migration & Deployment Safety
+
+- **Automatic Startup Migration:** The migration script `scripts/migrate_add_user_uuid.py` is included in the Platform Docker container and executed automatically via `init_db()` and FastAPI `lifespan` before accepting traffic. If migration fails, application startup halts immediately.
+- **SQLite Safety:** NOT NULL enforcement uses safe table recreation executed under SQLAlchemy's `AUTOCOMMIT` isolation level with foreign key integrity checks.
+- **PostgreSQL Concurrency & Deployment Ordering:** The PostgreSQL migration acquires a `SHARE ROW EXCLUSIVE` lock on `users` inside a single transaction to prevent concurrent modifications while backfilling and applying `NOT NULL`. The table schema is re-inspected within the lock to guard against stale schema states. **Important Deployment Ordering:** This migration does not support zero-downtime mixed-version writes. Because `user_uuid` uses a Python-side application default rather than a database server default, older instances omitting `user_uuid` will fail with a NOT NULL constraint violation once `NOT NULL` is enforced. Old application instances must stop writing (or be fully drained/replaced) before enforcing `NOT NULL`, or write traffic must be paused during the migration window.

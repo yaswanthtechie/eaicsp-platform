@@ -18,11 +18,11 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 from starlette.testclient import TestClient
 
 from app.core.security import create_access_token, decode_token
-from app.database import SessionLocal
+from app.database import Base, SessionLocal
 from app.main import app
 from app.models.roles import Role
 from app.models.users import User
@@ -681,41 +681,42 @@ def test_login_and_refresh_token_generation_include_user_uuid():
         user = db.query(User).filter(User.email == "ceo@company.com").first()
         assert user is not None
         assert user.user_uuid == DEMO_USER_UUIDS["ceo@company.com"]
-
-        # Call /api/v1/auth/login
-        from app.seed import _required_password
-
-        password = _required_password("CEO_PASSWORD")
-        response = client.post(
-            "/api/v1/auth/login",
-            data={"username": "ceo@company.com", "password": password},
-        )
-        assert response.status_code == 200, response.text
-        tokens = response.json()
-        assert "access_token" in tokens
-        assert "refresh_token" in tokens
-
-        # Verify login access token claims
-        login_claims = decode_token(tokens["access_token"])
-        assert login_claims["sub"] == "ceo@company.com"
-        assert login_claims["user_id"] == user.id
-        assert login_claims["user_uuid"] == str(DEMO_USER_UUIDS["ceo@company.com"])
-
-        # Call /api/v1/auth/refresh
-        refresh_response = client.post(
-            "/api/v1/auth/refresh",
-            json={"refresh_token": tokens["refresh_token"]},
-        )
-        assert refresh_response.status_code == 200, refresh_response.text
-        refreshed_tokens = refresh_response.json()
-
-        # Verify refreshed access token claims
-        refreshed_claims = decode_token(refreshed_tokens["access_token"])
-        assert refreshed_claims["sub"] == "ceo@company.com"
-        assert refreshed_claims["user_id"] == user.id
-        assert refreshed_claims["user_uuid"] == str(DEMO_USER_UUIDS["ceo@company.com"])
+        expected_user_id = user.id
     finally:
         db.close()
+
+    # Call /api/v1/auth/login
+    from app.seed import _required_password
+
+    password = _required_password("CEO_PASSWORD")
+    response = client.post(
+        "/api/v1/auth/login",
+        data={"username": "ceo@company.com", "password": password},
+    )
+    assert response.status_code == 200, response.text
+    tokens = response.json()
+    assert "access_token" in tokens
+    assert "refresh_token" in tokens
+
+    # Verify login access token claims
+    login_claims = decode_token(tokens["access_token"])
+    assert login_claims["sub"] == "ceo@company.com"
+    assert login_claims["user_id"] == expected_user_id
+    assert login_claims["user_uuid"] == str(DEMO_USER_UUIDS["ceo@company.com"])
+
+    # Call /api/v1/auth/refresh
+    refresh_response = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": tokens["refresh_token"]},
+    )
+    assert refresh_response.status_code == 200, refresh_response.text
+    refreshed_tokens = refresh_response.json()
+
+    # Verify refreshed access token claims
+    refreshed_claims = decode_token(refreshed_tokens["access_token"])
+    assert refreshed_claims["sub"] == "ceo@company.com"
+    assert refreshed_claims["user_id"] == expected_user_id
+    assert refreshed_claims["user_uuid"] == str(DEMO_USER_UUIDS["ceo@company.com"])
 
 
 def test_mfa_token_generation_includes_user_uuid(monkeypatch):
@@ -1030,10 +1031,9 @@ def test_repeated_seeding_preserves_demo_uuids():
 
 
 def test_platform_verify_contract_json_schema():
-    """Verify that contracts/verify_contract.json matches VerifyResponse schema."""
-    contract_file = (
-        Path(__file__).resolve().parent.parent / "contracts" / "verify_contract.json"
-    )
+    """Verify that contracts/openapi/verify_contract.json matches VerifyResponse schema."""
+    repo_root = Path(__file__).resolve().parent.parent.parent.parent
+    contract_file = repo_root / "contracts" / "openapi" / "verify_contract.json"
     assert contract_file.exists(), f"Contract file {contract_file} does not exist"
 
     with open(contract_file, encoding="utf-8") as f:
@@ -1044,6 +1044,429 @@ def test_platform_verify_contract_json_schema():
     assert schema["properties"]["user_uuid"]["type"] == "string"
     assert schema["properties"]["user_uuid"]["format"] == "uuid"
     assert schema["properties"]["user_id"]["type"] == "integer"
+    assert schema.get("additionalProperties") is True
+
+
+def test_real_login_and_verify_consistency_and_contract():
+    """Obtain access token via real POST /login, verify token claims against POST /verify,
+    and validate the response against the Platform OpenAPI contract schema.
+    """
+    client = TestClient(app)
+    from app.seed import _required_password
+
+    password = _required_password("CEO_PASSWORD")
+    login_resp = client.post(
+        "/api/v1/auth/login",
+        data={"username": "ceo@company.com", "password": password},
+    )
+    assert login_resp.status_code == 200, login_resp.text
+    login_data = login_resp.json()
+    assert "access_token" in login_data
+    token = login_data["access_token"]
+
+    token_claims = decode_token(token)
+    assert token_claims["sub"] == "ceo@company.com"
+    assert token_claims["user_uuid"] == str(DEMO_USER_UUIDS["ceo@company.com"])
+
+    # Call /api/v1/auth/verify with the real access token
+    verify_resp = client.post(
+        "/api/v1/auth/verify",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert verify_resp.status_code == 200, verify_resp.text
+    verify_data = verify_resp.json()
+
+    # Verify consistency between login token claims and /verify response
+    assert verify_data["user_uuid"] == token_claims["user_uuid"]
+    assert verify_data["user_id"] == token_claims["user_id"]
+    assert verify_data["email"] == token_claims["sub"]
+    assert verify_data["role"] == token_claims["role"]
+    assert verify_data["valid"] is True
+
+    # Validate against root OpenAPI JSON schema contract
+    repo_root = Path(__file__).resolve().parent.parent.parent.parent
+    contract_file = repo_root / "contracts" / "openapi" / "verify_contract.json"
+    assert contract_file.exists(), f"Contract file not found at {contract_file}"
+    with open(contract_file, encoding="utf-8") as f:
+        contract_schema = json.load(f)
+
+    # 1. Enforce all required fields from contract schema
+    for req_field in contract_schema["required"]:
+        assert req_field in verify_data, f"Missing required contract field: {req_field}"
+
+    # 2. Enforce field types and formats per contract specification
+    assert isinstance(verify_data["valid"], bool)
+    assert isinstance(verify_data["user_id"], int) and not isinstance(
+        verify_data["user_id"], bool
+    )
+    assert isinstance(verify_data["user_uuid"], str)
+    parsed_uuid = uuid.UUID(verify_data["user_uuid"])
+    assert str(parsed_uuid) == verify_data["user_uuid"]
+    assert isinstance(verify_data["email"], str) and "@" in verify_data["email"]
+    assert isinstance(verify_data["full_name"], str)
+    assert isinstance(verify_data["is_active"], bool)
+    assert isinstance(verify_data["permissions"], list)
+    for p in verify_data["permissions"]:
+        assert isinstance(p, str)
+    assert verify_data["role"] is None or isinstance(verify_data["role"], str)
+    assert verify_data["supplier_id"] is None or isinstance(
+        verify_data["supplier_id"], str
+    )
+
+    # 3. Validate with Platform's established Pydantic model
+    validated_model = VerifyResponse.model_validate(verify_data)
+    assert validated_model.valid is True
+    assert validated_model.user_id == verify_data["user_id"]
+    assert str(validated_model.user_uuid) == verify_data["user_uuid"]
+
+    # 4. Assert Pydantic schema matches the root contract schema
+    model_schema = VerifyResponse.model_json_schema()
+    for field_name in contract_schema["required"]:
+        assert field_name in model_schema["required"]
+        assert field_name in model_schema["properties"]
+
+
+def test_demo_user_uuid_fixup_and_unrelated_user_preservation(monkeypatch):
+    """Exercising the real seed_database() resets mismatched demo user UUIDs to deterministic values while preserving unrelated users."""
+    test_engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=test_engine)
+    TestingSession = sessionmaker(bind=test_engine)
+
+    with TestingSession() as db:
+        from app.seed import DEMO_USER_UUIDS, seed_roles
+
+        role_map = seed_roles(db)
+        db.commit()
+
+        # Insert a demo user with a wrong random UUID
+        wrong_demo_uuid = uuid.uuid4()
+        demo_user = User(
+            email="ceo@company.com",
+            user_uuid=wrong_demo_uuid,
+            full_name="CEO",
+            password="hashed_pw",
+            role_id=role_map["ceo"].id,
+            is_active=True,
+        )
+        # Insert an unrelated normal user with their own UUID
+        unrelated_uuid = uuid.uuid4()
+        unrelated_user = User(
+            email="custom_user@example.com",
+            user_uuid=unrelated_uuid,
+            full_name="Custom User",
+            password="hashed_pw",
+            role_id=role_map["analyst"].id,
+            is_active=True,
+        )
+        db.add_all([demo_user, unrelated_user])
+        db.commit()
+
+    # Monkeypatch SessionLocal in app.seed to exercise the actual seed_database function
+    monkeypatch.setattr("app.seed.SessionLocal", TestingSession)
+    from app.seed import seed_database
+
+    seed_database(require_service_keys=False)
+
+    # Verify results on the isolated test database
+    with TestingSession() as db:
+        refreshed_demo = db.query(User).filter(User.email == "ceo@company.com").first()
+        assert refreshed_demo is not None
+        assert refreshed_demo.user_uuid == DEMO_USER_UUIDS["ceo@company.com"]
+
+        refreshed_unrelated = (
+            db.query(User).filter(User.email == "custom_user@example.com").first()
+        )
+        assert refreshed_unrelated is not None
+        assert refreshed_unrelated.user_uuid == unrelated_uuid
+        assert refreshed_unrelated.full_name == "Custom User"
+        assert refreshed_unrelated.email == "custom_user@example.com"
+
+
+def test_sqlite_rebuild_failure_rolls_back_and_preserves_table(monkeypatch):
+    """If SQLite table rebuild fails during migration, changes roll back and the original users table remains intact."""
+    from sqlalchemy import event
+    from sqlalchemy.pool import StaticPool
+
+    test_engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+
+    @event.listens_for(test_engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+    with test_engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE users ("
+                "id INTEGER PRIMARY KEY, "
+                "email VARCHAR(255) NOT NULL, "
+                "full_name VARCHAR(255) NOT NULL, "
+                "user_uuid CHAR(32)"
+                ");"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO users (id, email, full_name, user_uuid) VALUES "
+                "(1, 'alice@example.com', 'Alice', '0123456789abcdef0123456789abcdef');"
+            )
+        )
+
+    # Simulate a failure in _rebuild_sqlite_users_table
+    import scripts.migrate_add_user_uuid as mig_mod
+
+    def failing_rebuild(conn):
+        raise RuntimeError("Disk I/O failure during table swap")
+
+    monkeypatch.setattr(mig_mod, "_rebuild_sqlite_users_table", failing_rebuild)
+
+    with pytest.raises(RuntimeError, match="Disk I/O failure during table swap"):
+        mig_mod.run_migration(test_engine)
+
+    # Verify that the original table and rows are preserved
+    with test_engine.connect() as conn:
+        row = conn.execute(text("SELECT id, email, user_uuid FROM users;")).fetchone()
+        assert row is not None
+        assert row[0] == 1
+        assert row[1] == "alice@example.com"
+        assert row[2] == "0123456789abcdef0123456789abcdef"
+
+        # Verify no orphan migration table exists
+        mig_table = conn.execute(
+            text(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='users_migration_new';"
+            )
+        ).fetchone()
+        assert mig_table is None
+
+        # Verify foreign keys are enabled
+        fk_on = conn.execute(text("PRAGMA foreign_keys;")).scalar()
+        assert fk_on == 1
+
+
+def test_sqlite_rebuild_preserves_foreign_key_integrity():
+    """SQLite table rebuild validates foreign key constraints and preserves relations."""
+    test_engine = create_engine("sqlite:///:memory:")
+    with test_engine.begin() as conn:
+        conn.execute(text("PRAGMA foreign_keys = ON;"))
+        conn.execute(
+            text(
+                "CREATE TABLE users ("
+                "id INTEGER PRIMARY KEY, "
+                "email VARCHAR(255) NOT NULL, "
+                "user_uuid CHAR(32)"
+                ");"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE TABLE orders ("
+                "id INTEGER PRIMARY KEY, "
+                "user_id INTEGER NOT NULL REFERENCES users(id)"
+                ");"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO users (id, email, user_uuid) VALUES "
+                "(1, 'bob@example.com', 'aabbccddeeff00112233445566778899');"
+            )
+        )
+        conn.execute(text("INSERT INTO orders (id, user_id) VALUES (10, 1);"))
+
+    # Run migration
+    from scripts.migrate_add_user_uuid import run_migration
+
+    run_migration(test_engine)
+
+    # Verify foreign key check passes and relation holds
+    with test_engine.connect() as conn:
+        conn.execute(text("PRAGMA foreign_keys = ON;"))
+        violations = conn.execute(text("PRAGMA foreign_key_check;")).fetchall()
+        assert len(violations) == 0
+
+        # Verify constraint is actively enforced: inserting invalid FK should fail
+        with pytest.raises(IntegrityError):
+            conn.execute(text("INSERT INTO orders (id, user_id) VALUES (20, 999);"))
+
+
+def test_migration_second_run_after_success_is_safe_and_idempotent():
+    """A second migration attempt immediately after success succeeds with 0 changes and no stale inspection errors."""
+    from scripts.migrate_add_user_uuid import run_migration
+
+    test_engine = create_engine("sqlite:///:memory:")
+    with test_engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE users ("
+                "id INTEGER PRIMARY KEY, "
+                "email VARCHAR(255) NOT NULL, "
+                "full_name VARCHAR(255) NOT NULL"
+                ");"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO users (id, email, full_name) VALUES "
+                "(1, 'carol@example.com', 'Carol');"
+            )
+        )
+
+    # First migration run
+    summary1 = run_migration(test_engine)
+    assert summary1["column_added"] == 1
+    assert summary1["users_backfilled"] == 1
+    assert summary1["index_created"] == 1
+
+    # Second migration run: must succeed cleanly without stale schema errors
+    summary2 = run_migration(test_engine)
+    assert summary2["column_added"] == 0
+    assert summary2["users_backfilled"] == 0
+    assert summary2["index_created"] == 0
+
+    # Ensure user data is intact
+    with test_engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT id, email, user_uuid FROM users WHERE id = 1;")
+        ).fetchone()
+        assert row is not None
+        assert row[1] == "carol@example.com"
+        assert len(row[2]) == 32
+
+
+def test_postgresql_migration_concurrency_guards(monkeypatch):
+    """PostgreSQL migration re-inspects columns and indexes inside the transaction lock, guarding against race conditions."""
+    from unittest.mock import Mock
+
+    import sqlalchemy as sa
+
+    from scripts.migrate_add_user_uuid import run_migration
+
+    executed_sql = []
+
+    class MockConnection:
+        def execute(self, statement, parameters=None):
+            sql = str(statement)
+            executed_sql.append(sql.strip())
+
+            class MockResult:
+                def fetchall(self):
+                    return []
+
+            return MockResult()
+
+    class MockBeginContext:
+        def __enter__(self):
+            return MockConnection()
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+    class MockDialect:
+        name = "postgresql"
+
+    class MockEngine:
+        dialect = MockDialect()
+
+        def begin(self):
+            return MockBeginContext()
+
+    mock_engine = MockEngine()
+
+    pre_lock_inspector = Mock()
+    pre_lock_inspector.has_table.return_value = True
+    pre_lock_inspector.get_columns.return_value = [{"name": "id"}, {"name": "email"}]
+
+    tx_inspector = Mock()
+    tx_inspector.get_columns.return_value = [
+        {"name": "id", "nullable": False},
+        {"name": "email", "nullable": False},
+        {"name": "user_uuid", "nullable": False},
+    ]
+    tx_inspector.get_indexes.return_value = [{"name": "ix_users_user_uuid"}]
+
+    def mock_inspect(target):
+        if isinstance(target, MockConnection):
+            return tx_inspector
+        return pre_lock_inspector
+
+    monkeypatch.setattr(sa, "inspect", mock_inspect)
+
+    summary = run_migration(mock_engine)
+    # Because tx_inspector was used under lock, step 1 was skipped, step 3 was skipped, step 4 was skipped
+    assert summary["column_added"] == 0
+    assert summary["index_created"] == 0
+    # Confirm lock was acquired first
+    assert any(
+        "LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE" in sql for sql in executed_sql
+    )
+    # Confirm duplicate ALTER TABLE ADD COLUMN was NOT executed
+    assert not any("ADD COLUMN user_uuid" in sql for sql in executed_sql)
+
+
+def test_init_db_runs_migration_automatically_on_unmigrated_database():
+    """init_db creates tables and executes migration automatically before traffic."""
+    from app.main import init_db
+
+    test_engine = create_engine("sqlite:///:memory:")
+
+    # Create unmigrated users table (without user_uuid)
+    with test_engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE users ("
+                "id INTEGER PRIMARY KEY, "
+                "email VARCHAR(255) NOT NULL, "
+                "full_name VARCHAR(255) NOT NULL"
+                ");"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO users (id, email, full_name) VALUES "
+                "(1, 'existing@example.com', 'Existing User');"
+            )
+        )
+
+    # Call init_db
+    init_db(test_engine)
+
+    # Verify column added, user backfilled, NOT NULL enforced
+    with test_engine.connect() as conn:
+        col_info = conn.execute(text("PRAGMA table_info(users);")).fetchall()
+        user_uuid_col = next(col for col in col_info if col[1] == "user_uuid")
+        assert user_uuid_col[3] == 1  # notnull
+
+        row = conn.execute(text("SELECT user_uuid FROM users WHERE id = 1;")).fetchone()
+        assert row is not None
+        assert row[0] is not None
+        assert len(row[0]) == 32
+
+
+def test_startup_lifespan_fails_if_migration_fails(monkeypatch):
+    """Lifespan raises RuntimeError and prevents startup if migration fails."""
+    import app.main as main_mod
+
+    def failing_migration(eng):
+        raise RuntimeError("Simulated migration failure during deployment")
+
+    monkeypatch.setattr(main_mod, "run_migration", failing_migration)
+
+    with pytest.raises(
+        RuntimeError, match="Platform Service database migration failed"
+    ):
+        import asyncio
+
+        async def run_ls():
+            async with main_mod.lifespan(app):
+                pass
+
+        asyncio.run(run_ls())
 
 
 def test_verify_response_accepts_inventory_required_fields():
