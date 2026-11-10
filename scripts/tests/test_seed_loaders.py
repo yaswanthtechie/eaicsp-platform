@@ -120,3 +120,43 @@ def test_main_validates_all_urls_before_running_loaders(
         seed_loaders.main()
 
     assert calls == []
+
+
+def test_require_database_url_strips_whitespace():
+    url = "postgresql://inventory_user:secret@localhost:5432/shared_platform"
+
+    assert seed_loaders.require_database_url(
+        "inventory",
+        {"INVENTORY_DATABASE_URL": f"  {url}  "},
+    ) == url
+
+
+def test_non_empty_shell_environment_overrides_dotenv(monkeypatch):
+    dotenv_url = "postgresql://dotenv_user:secret@localhost/dotenv_db"
+    shell_url = "postgresql://shell_user:secret@localhost/shell_db"
+
+    monkeypatch.setattr(
+        seed_loaders,
+        "dotenv_values",
+        lambda _: {"INVENTORY_DATABASE_URL": dotenv_url},
+    )
+    monkeypatch.setenv("INVENTORY_DATABASE_URL", shell_url)
+
+    environment = seed_loaders.load_environment()
+
+    assert environment["INVENTORY_DATABASE_URL"] == shell_url
+
+
+def test_empty_shell_environment_does_not_override_dotenv(monkeypatch):
+    dotenv_url = "postgresql://dotenv_user:secret@localhost/dotenv_db"
+
+    monkeypatch.setattr(
+        seed_loaders,
+        "dotenv_values",
+        lambda _: {"INVENTORY_DATABASE_URL": dotenv_url},
+    )
+    monkeypatch.setenv("INVENTORY_DATABASE_URL", "")
+
+    environment = seed_loaders.load_environment()
+
+    assert environment["INVENTORY_DATABASE_URL"] == dotenv_url

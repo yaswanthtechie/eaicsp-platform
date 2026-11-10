@@ -101,6 +101,8 @@ The seed generator writes its output to `data-platform/out/`.
 
 Each service seed loader receives its database connection through the `DATABASE_URL` environment variable.
 
+Use the `<NAME>_DATABASE_URL` convention for service-specific configuration: take the service folder name under `services/`, convert it to uppercase, replace hyphens (`-`) with underscores (`_`), and append `_DATABASE_URL`. For example, `services/supplier-portal/` uses `SUPPLIER_PORTAL_DATABASE_URL`.
+
 Currently, the Inventory service is the only service with a seed loader. Configure its connection in the repository-root `.env` file:
 
 ```dotenv

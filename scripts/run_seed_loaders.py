@@ -26,11 +26,11 @@ def require_database_url(service_name: str, environment: dict) -> str:
             "Add a valid value to the root .env file before running make seed."
         )
 
-    return database_url
+    return database_url.strip()
 
 
-def main() -> None:
-    # Read root .env. Non-empty process environment values take precedence.
+def load_environment() -> dict:
+    """Load root .env, allowing non-empty process variables to override it."""
     root_env = {
         key: value
         for key, value in dotenv_values(ROOT / ".env").items()
@@ -42,6 +42,12 @@ def main() -> None:
         for key, value in os.environ.items()
         if value.strip()
     })
+
+    return root_env
+
+
+def main() -> None:
+    root_env = load_environment()
 
     loaders = sorted((ROOT / "services").glob("*/scripts/load_seed.py"))
 
