@@ -1,4 +1,4 @@
-﻿product_code,product_name,category,unit_of_measure,unit_price,is_active
+product_code,product_name,category,unit_of_measure,unit_price,is_active
 PRD-10482,Product 1,Electronics,PCS,4374.0,true
 PRD-10483,Product 2,Grocery,PCS,4079.21,true
 PRD-10484,Product 3,Household,PCS,2128.41,true
@@ -49,5 +49,5 @@ PRD-10528,Product 47,Grocery,PCS,4717.69,true
 PRD-10529,Product 48,Household,PCS,3346.71,true
 PRD-10530,Product 49,Apparel,PCS,3918.52,true
 PRD-10531,Product 50,Hardware,PCS,816.44,true
-PRD-10482,,Electronics,PCS,4374.0,true
-PRD-10483,Product 2,Grocery,PCS,-10,true
+PRD-99901,,Electronics,PCS,4374.0,true
+PRD-99902,Product 2,Grocery,PCS,-10,true

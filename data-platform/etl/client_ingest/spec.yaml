@@ -29,14 +29,17 @@ files:
         type: decimal
         required: true
         format: 2 decimal places
+        inferred: true
       sales_amount:
         type: decimal
         required: true
         format: 2 decimal places
+        inferred: true
       order_number:
         type: string
         required: true
         format: client order reference
+        inferred: true
     staging_columns:
     - sale_date
     - product_code
@@ -64,6 +67,7 @@ files:
         type: date
         required: true
         format: YYYY-MM-DD
+        inferred: true
       product_code:
         type: string
         required: true
@@ -76,23 +80,30 @@ files:
         type: integer
         required: true
         format: non-negative
+        inferred: true
       quantity_reserved:
         type: integer
         required: true
         format: non-negative
-      reorder_level:
+        inferred: true
+      reorder_point:
         type: integer
         required: true
         format: non-negative
+      safety_stock:
+        type: integer
+        required: false
+        format: non-negative; blank = use existing calculation
     staging_columns:
     - snapshot_date
     - product_code
     - warehouse_code
     - quantity_on_hand
     - quantity_reserved
-    - reorder_level
+    - reorder_point
     - sku_id
     - warehouse_id
+    - safety_stock
     canonical_id_mapping:
       sku_id:
         source_column: product_code
@@ -118,18 +129,22 @@ files:
         type: integer
         required: true
         format: positive integer
+        inferred: true
       minimum_lead_time_days:
         type: integer
         required: true
         format: positive integer
+        inferred: true
       maximum_lead_time_days:
         type: integer
         required: true
         format: positive integer
+        inferred: true
       effective_date:
         type: date
         required: true
         format: YYYY-MM-DD
+        inferred: true
     staging_columns:
     - supplier_code
     - product_code
@@ -159,6 +174,7 @@ files:
         type: string
         required: true
         format: text
+        inferred: true
       category:
         type: string
         required: true
@@ -167,14 +183,17 @@ files:
         type: string
         required: true
         format: text
+        inferred: true
       unit_price:
         type: decimal
         required: true
         format: 2 decimal places
+        inferred: true
       is_active:
         type: boolean
         required: true
         format: true/false
+        inferred: true
     staging_columns:
     - product_code
     - product_name
@@ -192,30 +211,13 @@ files:
     canonical_ids:
     - warehouse_id
     columns:
-      warehouse_code:
-        type: string
-        required: true
-        format: CITY-##
-      warehouse_name:
-        type: string
-        required: true
-        format: text
-      city:
-        type: string
-        required: true
-        format: Indian city
-      state:
-        type: string
-        required: true
-        format: Indian state
-      pincode:
-        type: string
-        required: true
-        format: 6 digits
-      warehouse_type:
-        type: string
-        required: true
-        format: text
+    - warehouse_code
+    - warehouse_name
+    - city
+    - state
+    - country
+    - pincode
+    - warehouse_type
     staging_columns:
     - warehouse_code
     - warehouse_name
@@ -224,6 +226,7 @@ files:
     - pincode
     - warehouse_type
     - warehouse_id
+    - country
     canonical_id_mapping:
       warehouse_id:
         source_column: warehouse_code
@@ -241,6 +244,7 @@ files:
         type: string
         required: true
         format: text
+        inferred: true
       city:
         type: string
         required: true
@@ -253,14 +257,17 @@ files:
         type: string
         required: true
         format: email
+        inferred: true
       phone:
         type: string
         required: true
         format: 10 digits
+        inferred: true
       is_active:
         type: boolean
         required: true
         format: true/false
+        inferred: true
     staging_columns:
     - supplier_code
     - supplier_name
@@ -283,6 +290,7 @@ files:
         type: string
         required: true
         format: INC-######
+        inferred: true
       supplier_code:
         type: string
         required: true
@@ -291,22 +299,27 @@ files:
         type: date
         required: true
         format: YYYY-MM-DD
+        inferred: true
       incident_type:
         type: string
         required: true
         format: text
+        inferred: true
       severity:
         type: string
         required: true
         format: low/medium/high
+        inferred: true
       description:
         type: string
         required: false
         format: text
+        inferred: true
       resolved:
         type: boolean
         required: true
         format: true/false
+        inferred: true
     staging_columns:
     - incident_id
     - supplier_code
@@ -324,9 +337,10 @@ files:
     staging_table: stg_shipment_history
     canonical_ids:
     - shipment_id
-    - sku_id
+    - po_id
     - warehouse_id
     - supplier_id
+    - sku_id
     columns:
       shipment_id:
         type: string
@@ -336,22 +350,18 @@ files:
         type: string
         required: true
         format: PO-#####
-      supplier_code:
+      origin_city:
         type: string
         required: true
-        format: SUP-####
-      product_code:
-        type: string
-        required: true
-        format: PRD-#####
-      warehouse_code:
+        format: Indian city name
+      destination_warehouse_code:
         type: string
         required: true
         format: CITY-##
-      carrier_code:
+      carrier_name:
         type: string
         required: true
-        format: CAR-##
+        format: text, matches carriers.carrier_name
       dispatch_date:
         type: date
         required: true
@@ -363,43 +373,70 @@ files:
       actual_delivery_date:
         type: date
         required: false
-        format: YYYY-MM-DD
+        format: YYYY-MM-DD; blank while in transit
+      weight_kg:
+        type: decimal
+        required: false
+        format: positive
+      volume_m3:
+        type: decimal
+        required: false
+        format: positive
+      supplier_code:
+        type: string
+        required: true
+        format: SUP-####
+      product_code:
+        type: string
+        required: true
+        format: PRD-#####
       shipment_status:
         type: string
         required: true
-        format: text
+        format: Delivered | Delayed | In Transit
+        inferred: true
       quantity_shipped:
         type: integer
         required: true
         format: positive integer
+        inferred: true
     staging_columns:
     - client_shipment_id
     - po_number
-    - supplier_code
-    - product_code
-    - warehouse_code
-    - carrier_code
+    - origin_city
+    - destination_warehouse_code
+    - carrier_name
     - dispatch_date
     - planned_delivery_date
     - actual_delivery_date
+    - weight_kg
+    - volume_m3
+    - supplier_code
+    - product_code
     - shipment_status
     - quantity_shipped
     - shipment_id
-    - sku_id
+    - po_id
     - warehouse_id
     - supplier_id
+    - sku_id
+    renamed_in_staging:
+      shipment_id: client_shipment_id
     canonical_id_mapping:
       shipment_id:
         source_column: shipment_id
-        method: generate_canonical_from_client_reference
-      sku_id:
-        source_column: product_code
+        method: lookup_or_generate
+      po_id:
+        source_column: po_number
         method: lookup_or_generate
       warehouse_id:
-        source_column: warehouse_code
+        source_column: destination_warehouse_code
         method: lookup_or_generate
       supplier_id:
         source_column: supplier_code
+        method: lookup_or_generate
+      sku_id:
+        source_column: product_code
         method: lookup_or_generate
   purchase_order_history:
     staging_table: stg_purchase_order_history
@@ -429,29 +466,38 @@ files:
         type: date
         required: true
         format: YYYY-MM-DD
-      planned_delivery_date:
+        inferred: true
+      expected_date:
         type: date
         required: true
         format: YYYY-MM-DD
+      received_date:
+        type: date
+        required: false
+        format: YYYY-MM-DD; set only when po_status is Received
       quantity_ordered:
         type: integer
         required: true
         format: positive integer
+        inferred: true
       unit_cost:
         type: decimal
         required: true
         format: 2 decimal places
+        inferred: true
       po_status:
         type: string
         required: true
-        format: text
+        format: Open | Received | Cancelled
+        inferred: true
     staging_columns:
     - po_number
     - supplier_code
     - product_code
     - warehouse_code
     - order_date
-    - planned_delivery_date
+    - expected_date
+    - received_date
     - quantity_ordered
     - unit_cost
     - po_status
@@ -480,6 +526,7 @@ files:
         type: string
         required: true
         format: CAR-##
+        inferred: true
       carrier_name:
         type: string
         required: true
@@ -488,14 +535,17 @@ files:
         type: string
         required: true
         format: text
+        inferred: true
       base_late_rate:
         type: decimal
         required: true
         format: 0 to 1
+        inferred: true
       is_active:
         type: boolean
         required: true
         format: true/false
+        inferred: true
     staging_columns:
     - carrier_code
     - carrier_name
@@ -506,3 +556,35 @@ files:
 staging_status: proposed_client_ingestion_staging_contract
 staging_note: These staging columns describe the proposed client-ingestion contract,
   not existing dbt models. Existing dbt staging models use canonical IDs.
+canonical_id_formats:
+  sku_id:
+    format: SKU-######
+    example: SKU-000123
+  warehouse_id:
+    format: WH-<IATA>-##
+    example: WH-BOM-01
+    rule: Map by warehouse city to its IATA code; never use the client code prefix.
+  supplier_id:
+    format: SUP-#####
+    example: SUP-00045
+  po_id:
+    format: PO-YYYY-######
+    example: PO-2026-000123
+    rule: YYYY is the year of order_date.
+  shipment_id:
+    format: SHP-YYYY-######
+    example: SHP-2026-000077
+    rule: YYYY is the year of dispatch_date.
+warehouse_city_to_iata:
+  Hyderabad: HYD
+  Bengaluru: BLR
+  Mumbai: BOM
+  New Delhi: DEL
+  Chennai: MAA
+  Kolkata: CCU
+  Pune: PNQ
+lookup_or_generate:
+- Look up the client code in the ID mapping table; reuse the canonical ID if found.
+- Otherwise look up an existing seed ID for the same real entity.
+- Otherwise generate the next free number in the canonical format and store the mapping.
+- The same client code must always map to the same canonical ID.

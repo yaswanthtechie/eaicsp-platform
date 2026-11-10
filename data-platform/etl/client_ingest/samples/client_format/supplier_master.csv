@@ -1,23 +1,23 @@
-﻿supplier_code,supplier_name,city,state,contact_email,phone,is_active
-SUP-2231,Supplier 1,Hyderabad,Telangana,supplier1@example.test,9960996394,true
-SUP-2232,Supplier 2,Mumbai,Maharashtra,supplier2@example.test,9555863490,true
-SUP-2233,Supplier 3,Pune,Maharashtra,supplier3@example.test,9289928650,true
-SUP-2234,Supplier 4,Bengaluru,Karnataka,supplier4@example.test,9416137718,true
-SUP-2235,Supplier 5,Chennai,Tamil Nadu,supplier5@example.test,9241147444,true
-SUP-2236,Supplier 6,Hyderabad,Telangana,supplier6@example.test,9228836970,true
-SUP-2237,Supplier 7,Mumbai,Maharashtra,supplier7@example.test,9900519506,true
-SUP-2238,Supplier 8,Pune,Maharashtra,supplier8@example.test,9160620246,true
-SUP-2239,Supplier 9,Bengaluru,Karnataka,supplier9@example.test,9456542635,true
-SUP-2240,Supplier 10,Chennai,Tamil Nadu,supplier10@example.test,9863930988,true
-SUP-2241,Supplier 11,Hyderabad,Telangana,supplier11@example.test,9946808895,true
-SUP-2242,Supplier 12,Mumbai,Maharashtra,supplier12@example.test,9422529397,true
-SUP-2243,Supplier 13,Pune,Maharashtra,supplier13@example.test,9776174623,true
-SUP-2244,Supplier 14,Bengaluru,Karnataka,supplier14@example.test,9220393550,true
-SUP-2245,Supplier 15,Chennai,Tamil Nadu,supplier15@example.test,9255933537,true
-SUP-2246,Supplier 16,Hyderabad,Telangana,supplier16@example.test,9906498605,true
-SUP-2247,Supplier 17,Mumbai,Maharashtra,supplier17@example.test,9520568162,true
-SUP-2248,Supplier 18,Pune,Maharashtra,supplier18@example.test,9326445038,true
-SUP-2249,Supplier 19,Bengaluru,Karnataka,supplier19@example.test,9855923550,true
-SUP-2250,Supplier 20,Chennai,Tamil Nadu,supplier20@example.test,9780314505,true
-SUP-2231,,Hyderabad,Telangana,supplier1@example.test,9960996394,true
-SUP-2232,Supplier 2,Mumbai,Maharashtra,bad-email,9555863490,true
+supplier_code,supplier_name,city,state,contact_email,phone,is_active
+SUP-2231,Supplier 1,Hyderabad,Telangana,supplier1@example.test,9443985579,true
+SUP-2232,Supplier 2,Mumbai,Maharashtra,supplier2@example.test,7823453961,true
+SUP-2233,Supplier 3,Pune,Maharashtra,supplier3@example.test,6759714602,true
+SUP-2234,Supplier 4,Bengaluru,Karnataka,supplier4@example.test,7264550873,true
+SUP-2235,Supplier 5,Chennai,Tamil Nadu,supplier5@example.test,6564589778,true
+SUP-2236,Supplier 6,Hyderabad,Telangana,supplier6@example.test,6515347882,true
+SUP-2237,Supplier 7,Mumbai,Maharashtra,supplier7@example.test,9202078025,true
+SUP-2238,Supplier 8,Pune,Maharashtra,supplier8@example.test,6242480987,true
+SUP-2239,Supplier 9,Bengaluru,Karnataka,supplier9@example.test,7426170543,true
+SUP-2240,Supplier 10,Chennai,Tamil Nadu,supplier10@example.test,9841170491,true
+SUP-2241,Supplier 11,Hyderabad,Telangana,supplier11@example.test,9055723955,true
+SUP-2242,Supplier 12,Mumbai,Maharashtra,supplier12@example.test,9387235582,true
+SUP-2243,Supplier 13,Pune,Maharashtra,supplier13@example.test,7290117591,true
+SUP-2244,Supplier 14,Bengaluru,Karnataka,supplier14@example.test,8704698494,true
+SUP-2245,Supplier 15,Chennai,Tamil Nadu,supplier15@example.test,6481574201,true
+SUP-2246,Supplier 16,Hyderabad,Telangana,supplier16@example.test,6623734149,true
+SUP-2247,Supplier 17,Mumbai,Maharashtra,supplier17@example.test,9825491559,true
+SUP-2248,Supplier 18,Pune,Maharashtra,supplier18@example.test,9225994422,true
+SUP-2249,Supplier 19,Bengaluru,Karnataka,supplier19@example.test,7682272648,true
+SUP-2250,Supplier 20,Chennai,Tamil Nadu,supplier20@example.test,6905780152,true
+SUP-9991,,Hyderabad,Telangana,supplier1@example.test,9443985579,true
+SUP-9992,Supplier 2,Mumbai,Maharashtra,bad-email,7823453961,true
