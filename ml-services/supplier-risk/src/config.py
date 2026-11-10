@@ -38,6 +38,7 @@ DEFAULT_TREND_WINDOW_DAYS: Final[int] = 30
 DEFAULT_TREND_DIRECTION_THRESHOLD: Final[float] = 3.0
 DEFAULT_VOLUME_WEIGHT: Final[float] = 0.15
 DEFAULT_MITIGATION_WEIGHT: Final[float] = 0.35
+DEFAULT_RISK_ASSESSMENT_TTL_SECONDS: Final[int] = 3600
 
 # ------------------------------------------------------------------
 # MongoDB Configuration Defaults
@@ -46,6 +47,13 @@ DEFAULT_MITIGATION_WEIGHT: Final[float] = 0.35
 DEFAULT_MONGODB_URI: Final[str] = "mongodb://localhost:27017"
 DEFAULT_MONGODB_DATABASE: Final[str] = "supplier_risk"
 DEFAULT_MONGODB_COLLECTION: Final[str] = "headlines"
+DEFAULT_PLATFORM_SERVICE_URL: Final[str] = "http://127.0.0.1:8005"
+
+# Service API keys (R15-M5): which callers may use X-API-Key on this service.
+ALLOWED_API_KEY_CALLERS: Final[frozenset[str]] = frozenset({"supplier-portal", "gateway-bff"})
+GATEWAY_SERVICE_NAME: Final[str] = "gateway-bff"
+# Supplier Portal waits 2s for a risk score (contract), so Platform checks must be faster.
+PLATFORM_VERIFY_TIMEOUT_SECONDS: Final[float] = 1.5
 
 # ------------------------------------------------------------------
 # Fixed Risk Tier Classification Thresholds
@@ -240,6 +248,35 @@ def validate_hysteresis_thresholds(
         )
 
 
+def validate_risk_assessment_ttl_seconds(value: Any) -> int:
+    """
+    Validate that risk_assessment_ttl_seconds is a positive integer >= 1.
+
+    Raises:
+        ValueError: If value is non-numeric, non-integer, or <= 0.
+        TypeError: If value is a boolean or None.
+    """
+    if isinstance(value, bool) or value is None:
+        raise TypeError(f"risk_assessment_ttl_seconds must be an integer, got {type(value).__name__}: {value}")
+    try:
+        if isinstance(value, str):
+            val_int = int(value.strip())
+        elif isinstance(value, (int, float)):
+            if isinstance(value, float) and not value.is_integer():
+                raise ValueError(f"risk_assessment_ttl_seconds must be an integer, got {value}")
+            val_int = int(value)
+        else:
+            raise TypeError(f"risk_assessment_ttl_seconds must be an integer, got {type(value).__name__}: {value}")
+    except (ValueError, TypeError) as exc:
+        if isinstance(exc, (ValueError, TypeError)) and not isinstance(exc, ValueError):
+            raise
+        raise ValueError(f"risk_assessment_ttl_seconds must be a positive integer >= 1, got {value}") from exc
+
+    if val_int <= 0:
+        raise ValueError(f"risk_assessment_ttl_seconds must be >= 1, got {val_int}")
+    return val_int
+
+
 # ------------------------------------------------------------------
 # Configuration Settings Class
 # ------------------------------------------------------------------
@@ -276,6 +313,8 @@ class Settings:
         hysteresis_enter_high: float | None = None,
         hysteresis_exit_high: float | None = None,
         hysteresis_min_evidence: int | None = None,
+        risk_assessment_ttl_seconds: int | None = None,
+        platform_service_url: str | None = None,
     ) -> None:
         # 1. Negative sentiment penalty
         if negative_sentiment_penalty is not None:
@@ -569,6 +608,28 @@ class Settings:
             medium_ceiling=self.tier_medium_ceiling,
         )
 
+        # 17. Risk assessment persistence TTL
+        if risk_assessment_ttl_seconds is not None:
+            self.risk_assessment_ttl_seconds = validate_risk_assessment_ttl_seconds(
+                risk_assessment_ttl_seconds
+            )
+        else:
+            raw_ttl = os.getenv("RISK_ASSESSMENT_TTL_SECONDS")
+            self.risk_assessment_ttl_seconds = (
+                validate_risk_assessment_ttl_seconds(raw_ttl)
+                if raw_ttl is not None
+                else DEFAULT_RISK_ASSESSMENT_TTL_SECONDS
+            )
+
+        # 18. Platform service verification URL
+        if platform_service_url is not None:
+            self.platform_service_url = platform_service_url
+        else:
+            self.platform_service_url = os.getenv(
+                "PLATFORM_SERVICE_URL",
+                os.getenv("PLATFORM_AUTH_URL", DEFAULT_PLATFORM_SERVICE_URL),
+            )
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert settings instance to dictionary for API serialization."""
         return {
@@ -597,6 +658,8 @@ class Settings:
             "mongodb_uri": self.mongodb_uri,
             "mongodb_database": self.mongodb_database,
             "mongodb_collection": self.mongodb_collection,
+            "risk_assessment_ttl_seconds": self.risk_assessment_ttl_seconds,
+            "platform_service_url": self.platform_service_url,
         }
 
 
@@ -608,3 +671,5 @@ def get_settings() -> Settings:
 
 # Global active settings instance (retained for backward compatibility)
 settings = get_settings()
+
+RISK_ASSESSMENT_TTL_SECONDS: Final[int] = DEFAULT_RISK_ASSESSMENT_TTL_SECONDS

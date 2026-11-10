@@ -7,7 +7,6 @@ class Settings(BaseSettings):
     TEST_DATABASE_URL: str | None = None   # only the test suite needs this
     PLATFORM_AUTH_URL: str = "http://localhost:8005"
     COMPLIANCE_SERVICE_URL: str = "http://localhost:8003"
-    PO_AUTO_APPROVAL_THRESHOLD: float = 1000.0
     # Supplier has no country column yet; every supplier is
     # screened with this country until one is added.
     DEFAULT_SUPPLIER_COUNTRY: str = "India"
@@ -15,6 +14,18 @@ class Settings(BaseSettings):
     NETWORK_SERVICE_LEVEL_Z: float = 1.65
     # Forecasts older than this fall back to sales history.
     FORECAST_MAX_AGE_DAYS: int = 35
+
+    # Service API key issued by Platform for service-to-service calls (R15-RH1, R15-B6).
+    # Used for outbound service-to-service calls to Forecast Serving and Compliance.
+    # Set via INVENTORY_SERVICE_API_KEY env var. Never commit a real key.
+    INVENTORY_SERVICE_API_KEY: str = ""
+
+    # Forecast Service integration (Flow A, blueprint section 4)
+    FORECAST_SERVICE_URL: str = "http://localhost:8007"
+    FORECAST_TIMEOUT_SECONDS: float = 2.0
+    FORECAST_RETRY_COUNT: int = 1
+    FORECAST_HORIZON_DAYS: int = 30
+    FORECAST_FALLBACK_DAYS: int = 28
 
     # Redis Cache configuration
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -26,6 +37,12 @@ class Settings(BaseSettings):
     COMPLIANCE_STATUS_CHANGED_TOPIC: str = "compliance.supplier.status_changed"
     COMPLIANCE_DLQ_TOPIC: str = "compliance.supplier.status_changed.dlq"
     COMPLIANCE_CONSUMER_INTERVAL_SECONDS: float = 1.0
+
+    # PO Acknowledged Consumer (Flow B)
+    PO_ACKNOWLEDGED_TOPIC: str = "supplierportal.po.acknowledged"
+    PO_ACKNOWLEDGED_CONSUMER_GROUP: str = "inventory-po-acknowledged-consumer"
+    PO_ACKNOWLEDGED_DLQ_TOPIC: str = "supplierportal.po.acknowledged.dlq"
+    PO_ACKNOWLEDGED_CONSUMER_INTERVAL_SECONDS: float = 1.0
 
     # Outbox Relay background worker
     ENABLE_OUTBOX_RELAY: bool = False

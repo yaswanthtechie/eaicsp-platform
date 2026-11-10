@@ -1201,3 +1201,26 @@ python benchmark_pushdown.py                           # writes results/pushdown
 python cross_check_evidently.py                        # writes results/evidently_comparison_*.csv
 docker exec -it airflow-tester python dags/profiling_dag.py
 ```
+
+# Prometheus Metrics Exporter (Round 14)
+
+The profiling platform now includes a dedicated continuous metrics server (`src/profiling_metrics.py`) running on port 8007, transitioning the tool into a fully observable pipeline component.
+
+Rather than running profiling jobs in a vacuum, the exporter continuously reads the scheduled outputs from the Airflow `audit_archive.jsonl` file and translates the raw JSON profiles into standard Prometheus gauges. 
+
+It dynamically infers the dataset names and mathematically calculates sub-scores to expose the following metrics:
+* `profiling_quality_score` (Overall aggregated score)
+* `profiling_completeness_score` (Derived from null rates)
+* `profiling_validity_score` (Derived from outlier bounds)
+* `profiling_uniqueness_score` (Derived from duplicate rows)
+* `profiling_consistency_score`
+* `profiling_last_run_timestamp`
+
+**Observability Alignment:** 
+Profiling metrics follow the same profiling_* naming prefix as validation's validation_* metrics for a consistent Grafana namespace. Note: validation's metrics are currently global (unlabeled), while profiling's are labeled by dataset. They don't yet share identical label dimensions.
+
+## How to run
+```bash
+python src\profiling_metrics.py
+# Access metrics at: http://localhost:8007/metrics
+```

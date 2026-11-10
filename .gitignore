@@ -238,3 +238,13 @@ data/*.db
 # Generated seed dataset output
 data-platform/seed/out/
 data-platform/out/
+
+# Local MLflow tracking data
+mlruns/
+
+# Temporary source backups
+*.py.bak
+ml-services/demand-forecast/prophet/models/registry/
+
+# contract-monitor-report
+contracts/contract-monitor-report.md

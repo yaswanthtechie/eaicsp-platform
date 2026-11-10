@@ -32,7 +32,7 @@ import { useDashboardData } from "../api/dashboardGraphql";
 vi.mock("../mocks/user", () => ({
   mockUser: {
     role: "ceo",
-    warehouse: "WH001",
+    warehouse: "WH-BLR-01",
   },
 }));
 
@@ -106,8 +106,8 @@ vi.mock("../components/DashboardFilters", () => ({
       onChange={() => {}}
     >
       <option value="All">All Warehouses</option>
-      <option value="WH001">WH001</option>
-      <option value="WH002">WH002</option>
+      <option value="WH-BLR-01">WH-BLR-01</option>
+      <option value="WH-BOM-01">WH-BOM-01</option>
     </select>
   ),
 }));
@@ -261,7 +261,7 @@ describe("App KPIs and offline snapshot", () => {
         {
           ...inventoryItem,
           sku_id: "A",
-          warehouse_id: "WH001",
+          warehouse_id: "WH-BLR-01",
           quantity_on_hand: quantity,
           needs_reorder: false,
         },
@@ -319,19 +319,19 @@ it("does not turn panels into skeletons during a refetch (Issue 4)", () => {
             {
               ...inventoryItem,
               sku_id: "A",
-              warehouse_id: "WH001",
+              warehouse_id: "WH-BLR-01",
               needs_reorder: true,
             },
             {
               ...inventoryItem,
               sku_id: "B",
-              warehouse_id: "WH001",
+              warehouse_id: "WH-BLR-01",
               needs_reorder: false,
             },
             {
               ...inventoryItem,
               sku_id: "C",
-              warehouse_id: "WH002",
+              warehouse_id: "WH-BOM-02",
               needs_reorder: true,
             },
           ],
@@ -479,7 +479,7 @@ it("passes live WebSocket updates to Inventory Health (Fix 3)", () => {
       item: {
         ...inventoryItem,
         sku_id: "A",
-        warehouse_id: "WH001",
+        warehouse_id: "WH-BLR-01",
         quantity_on_hand: 3,
         needs_reorder: true,
       },
@@ -506,7 +506,7 @@ it("scopes Inventory Health to the manager's warehouse (Fix 3)", () => {
 
   expect(
     screen.getByTestId("inventory-health"),
-  ).toHaveAttribute("data-warehouse", "WH001");
+  ).toHaveAttribute("data-warehouse", "WH-BLR-01");
 });
 
 it("never shows another role's snapshot (Fix 4)", () => {
@@ -614,7 +614,7 @@ it("saves unfiltered totals in the snapshot, not the CEO's filtered view (Issue 
   window.history.replaceState(
     {},
     "",
-    "/?role=ceo&warehouse=WH001",
+    "/?role=ceo&warehouse=WH-BLR-01",
   );
 
   mockQuery({
@@ -626,14 +626,14 @@ it("saves unfiltered totals in the snapshot, not the CEO's filtered view (Issue 
           {
             ...inventoryItem,
             sku_id: "A",
-            warehouse_id: "WH001",
+            warehouse_id: "WH-BLR-01",
             quantity_on_hand: 10,
             needs_reorder: false,
           },
           {
             ...inventoryItem,
             sku_id: "B",
-            warehouse_id: "WH002",
+            warehouse_id: "WH-BOM-02",
             quantity_on_hand: 5,
             needs_reorder: true,
           },

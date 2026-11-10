@@ -9,7 +9,7 @@ const all = {
   lowStock: inventory.filter((i) => i.needs_reorder).length,
 };
 
-const wh001 = inventory.filter((i) => i.warehouse_id === "WH001");
+const wh001 = inventory.filter((i) => i.warehouse_id === "WH-BLR-01");
 const wh001LowStock = wh001.filter((i) => i.needs_reorder).length;
 
 function kpi(page: Page, title: string, value: number) {
@@ -59,8 +59,8 @@ test("filters by warehouse and drills into Low Stock KPI", async ({ page }) => {
 
   const warehouseFilter = page.getByRole("combobox", { name: "Warehouse filter" });
   await warehouseFilter.click();
-  await page.getByRole("option", { name: "WH001" }).click();
-  await expect(warehouseFilter).toContainText("WH001");
+  await page.getByRole("option", { name: "WH-BLR-01" }).click();
+  await expect(warehouseFilter).toContainText("WH-BLR-01");
 
   // The KPIs must follow the filter.
   await expect(kpi(page, "SKUs", wh001.length)).toBeVisible();
@@ -70,7 +70,7 @@ test("filters by warehouse and drills into Low Stock KPI", async ({ page }) => {
 
   await expect(lowStockKpi).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText("Showing low-stock inventory only")).toBeVisible();
-  await expect(page).toHaveURL(/warehouse=WH001/);
+  await expect(page).toHaveURL(/warehouse=WH-BLR-01/);
   await expect(page).toHaveURL(/lowStock=true/);
   await expect(page.locator("#inventory-section")).toBeInViewport();
 });
@@ -155,7 +155,7 @@ test("goes offline, reloads, and still shows the last snapshot", async ({ page, 
   // Server is back: remove the failing route and retry.
   await page.unroute("**/graphql");
 
-  await page.getByRole("button", { name: "Retry" }).click();
+  await page.getByRole("button", { name: "Retry", exact: true }).click();
 
   await expect(
     page.getByText(/Couldn't reach the server/),

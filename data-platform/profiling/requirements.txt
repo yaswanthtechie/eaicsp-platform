@@ -9,6 +9,7 @@ python-multipart==0.0.32
 pydantic==2.14.1
 evidently==0.7.23
 python-dotenv==1.2.4
+prometheus-client==0.26.0
 
 # Database Pushdown Support
 sqlalchemy==2.1.5

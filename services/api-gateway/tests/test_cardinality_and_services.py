@@ -17,11 +17,28 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.middleware.ratelimit import limiter
 from app.services.metrics import metrics_collector, normalize_route, get_downstream_service_names
+from unittest.mock import AsyncMock, patch
+
 from app.services.prometheus_metrics import reset_prometheus_metrics
 
 
 TEST_METRICS_TOKEN = "test-metrics-bearer-token"
 METRICS_AUTH_HEADER = {"Authorization": f"Bearer {TEST_METRICS_TOKEN}"}
+
+
+@pytest.fixture(autouse=True)
+def mock_dashboard_health():
+    """Mock downstream health checks during cardinality test dashboard calls."""
+    health_data = {
+        "inventory": "UP",
+        "shipments": "UP",
+        "compliance": "UP",
+        "purchase-orders": "UP",
+        "auth": "UP",
+        "supplier-risk": "UP",
+    }
+    with patch("app.routes.dashboard.get_system_health", new=AsyncMock(return_value=health_data)):
+        yield
 
 
 @pytest.fixture(autouse=True)

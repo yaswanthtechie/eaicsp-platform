@@ -20,6 +20,8 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         if request_id:
             # Strip CR/LF to prevent log injection via client-controlled header.
             request_id = request_id.translate(str.maketrans("", "", "\r\n"))
+            # Bound client-supplied IDs so a huge header can't bloat every log line.
+            request_id = request_id[:128]
             if not request_id:
                 request_id = None
 

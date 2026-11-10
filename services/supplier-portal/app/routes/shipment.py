@@ -22,7 +22,7 @@ from app.services.shipment_service import (
 )
 
 from app.services.purchase_order_service import (
-    purchase_orders,
+    get_purchase_order_by_id,
 )
 
 
@@ -172,7 +172,7 @@ def get_shipment(
 
         # Existing shipment belonging to another supplier
         # must return the same forbidden response class.
-        if shipment.get("supplier_id") != supplier_id:
+        if shipment.supplier_id != supplier_id:
             raise HTTPException(
                 status_code=403,
                 detail="Forbidden: supplier does not own this Shipment",
@@ -222,7 +222,7 @@ def get_po_shipments(
     # 1. VERIFY THAT THE PO EXISTS
     # --------------------------------------------------------
 
-    po = purchase_orders.get(po_number)
+    po = get_purchase_order_by_id(po_number)
 
     if not po:
         raise HTTPException(
@@ -251,7 +251,7 @@ def get_po_shipments(
                 detail="Supplier identity is missing",
             )
 
-        if po.get("supplier_id") != supplier_id:
+        if po["supplier_id"] != supplier_id:
             raise HTTPException(
                 status_code=403,
                 detail="Forbidden: supplier does not own this Purchase Order",
@@ -284,7 +284,7 @@ def get_po_shipments(
         return [
             shipment
             for shipment in po_shipments
-            if shipment.get("supplier_id") == supplier_id
+            if shipment.supplier_id == supplier_id
         ]
 
     # --------------------------------------------------------
@@ -335,7 +335,7 @@ def list_shipments(
         return [
             shipment
             for shipment in all_shipments
-            if shipment.get("supplier_id") == supplier_id
+            if shipment.supplier_id == supplier_id
         ]
 
     # --------------------------------------------------------

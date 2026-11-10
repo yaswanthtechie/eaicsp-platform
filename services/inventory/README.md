@@ -91,11 +91,9 @@ Automatic and manual draft purchase orders perform screening checks with the Com
 
 ## 7. Automated PO Approval Workflow
 
-Purchase orders are classified according to expected cost against `PO_AUTO_APPROVAL_THRESHOLD` (default: `1000.0`):
-- **$\le 1000.0$:** Automatically approved (`approval_status = "approved"`).
-- **$> 1000.0$:** Marked `approval_status = "pending_vp_approval"`.
-- **Approve Endpoint:** `POST /api/v1/inventory/purchase-orders/{po_id}/approve` (Role: `vp_operations`). Approving a non-existent PO returns `404 Not Found`.
-- **Receive Endpoint:** `POST /api/v1/inventory/purchase-orders/{po_id}/receive`. Pending POs cannot be received until VP approval is granted.
+Every new purchase order starts with `approval_status = "pending_vp_approval"` (the name is kept for DB compatibility) and waits for a procurement manager:
+- **Approve Endpoint:** `POST /api/v1/inventory/purchase-orders/{po_id}/approve` (Role: `procurement_manager`). On approval, `inventory.po.approved` is written to the outbox in the same transaction. A non-existent PO returns `404`; a token without `user_id` returns `401`.
+- **Receive Endpoint:** `POST /api/v1/inventory/purchase-orders/{po_id}/receive`. A PO can't be received until it's approved.
 
 ---
 
@@ -269,7 +267,7 @@ Conclusion: Redis caching provides approximately a 1.4x latency speedup.
 | `POST` | `/api/v1/inventory/transfer` | Warehouse-to-warehouse transfer | `inventory:write` |
 | `GET` | `/api/v1/inventory/network-optimization` | Network safety-stock calculation | `inventory:read` |
 | `POST` | `/api/v1/inventory/purchase-orders/draft` | Create draft purchase order | `inventory:write` |
-| `POST` | `/api/v1/inventory/purchase-orders/{id}/approve` | Approve draft purchase order | `vp_operations` |
+| `POST` | `/api/v1/inventory/purchase-orders/{id}/approve` | Approve draft purchase order | `procurement_manager` |
 | `POST` | `/api/v1/inventory/purchase-orders/{id}/receive` | Receive approved purchase order | `inventory:write` |
 | `POST` | `/api/v1/inventory/what-if` | Run demand-spike simulation | `ceo` / `vp_operations` |
 | `GET` | `/api/v1/inventory/reports/inventory-value` | Inventory valuation report (FIFO) | `inventory:read` |
@@ -376,3 +374,13 @@ In Docker Compose, this is automatically managed by the dedicated `compliance-co
 | Out-of-order event protection (`occurred_at`) | Completed |
 | Dead-Letter Queue & Transient Retry | Completed |
 | Full unit test suite (no Docker needed) | 226 passed, 14 skipped, 7 deselected |
+
+## Loading the shared seed
+
+```bash
+alembic upgrade head
+cd ../../data-platform && python -m seed.generate --out out/ && cd -
+python scripts/load_seed.py # or: --seed-dir PATH, --wipe to reset
+```
+
+The load runs in one transaction, so it either fully succeeds or changes nothing. Re-running it is safe and doesn't duplicate rows.

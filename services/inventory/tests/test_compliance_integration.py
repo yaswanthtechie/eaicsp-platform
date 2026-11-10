@@ -135,7 +135,7 @@ def test_client_returns_valid_decisions(monkeypatch, decision):
         ),
     )
 
-    result = check_supplier_compliance("SUP-1", "Acme", "India")
+    result = check_supplier_compliance("SUP-00001", "Acme", "India")
 
     assert result["decision"] == decision
 
@@ -154,10 +154,10 @@ def test_client_sends_supplier_details_to_internal_check(monkeypatch):
 
     use_compliance_response(monkeypatch, handler)
 
-    check_supplier_compliance("SUP-1", "Acme", "India")
+    check_supplier_compliance("SUP-00001", "Acme", "India")
 
     assert seen["path"] == "/api/v1/compliance/internal-check"
-    assert b'"supplier_id":"SUP-1"' in seen["body"].replace(b" ", b"")
+    assert b'"supplier_id":"SUP-00001"' in seen["body"].replace(b" ", b"")
     assert seen["caller"] == "inventory-service"
 
 
@@ -176,7 +176,7 @@ def test_client_network_failures_are_unavailable(monkeypatch, error):
     use_compliance_response(monkeypatch, handler)
 
     with pytest.raises(ComplianceServiceUnavailableError):
-        check_supplier_compliance("SUP-1", "Acme", "India")
+        check_supplier_compliance("SUP-00001", "Acme", "India")
 
 
 @pytest.mark.parametrize(
@@ -197,7 +197,7 @@ def test_client_unusable_responses_are_errors(monkeypatch, response):
     use_compliance_response(monkeypatch, lambda request: response)
 
     with pytest.raises(ComplianceServiceError):
-        check_supplier_compliance("SUP-1", "Acme", "India")
+        check_supplier_compliance("SUP-00001", "Acme", "India")
 
 
 # ============================================================

@@ -5,7 +5,10 @@ from sklearn.metrics import (
     mean_squared_error,
 )
 
-from .preprocess import MODEL_FEATURES
+from .preprocess import (
+    MODEL_FEATURES,
+    TRAINING_MODEL_FEATURES,
+)
 
 
 TARGET_COLUMN = "delivery_days"
@@ -110,6 +113,7 @@ def evaluate_model(
     model,
     train,
     test,
+    use_eta_history_features: bool = False,
 ):
     """
     Evaluate XGBoost against two baselines.
@@ -132,8 +136,14 @@ def evaluate_model(
     # ---------------------------------------------------------
     # 1. Prepare test features
     # ---------------------------------------------------------
+    feature_columns = (
+        TRAINING_MODEL_FEATURES
+        if use_eta_history_features
+        else MODEL_FEATURES
+    )
+
     X_test = test[
-        MODEL_FEATURES
+        feature_columns
     ].copy()
 
     y_test = test[
@@ -412,5 +422,74 @@ def evaluate_model(
         ),
         "olist_rmse_improvement": (
             olist_rmse_improvement
+        ),
+    }
+
+def compare_models(
+    y_true,
+    inherited_predictions,
+    inherited_calibration,
+    r14_predictions,
+    r14_calibration,
+):
+    """
+    Compare inherited and Round 14 models on the same test period.
+
+    Returns MAE, nominal coverage, actual coverage, and mean
+    prediction-interval width for both models.
+    """
+
+    y_true = np.asarray(y_true, dtype=float)
+    inherited_predictions = np.asarray(
+        inherited_predictions,
+        dtype=float,
+    )
+    r14_predictions = np.asarray(
+        r14_predictions,
+        dtype=float,
+    )
+
+    def calculate_metrics(
+        predictions,
+        calibration,
+    ):
+        lower = (
+            predictions
+            + calibration["residual_lower"]
+        )
+        upper = (
+            predictions
+            + calibration["residual_upper"]
+        )
+
+        return {
+            "mae": float(
+                mean_absolute_error(
+                    y_true,
+                    predictions,
+                )
+            ),
+            "nominal_coverage": float(
+                calibration["coverage"]
+            ),
+            "actual_coverage": float(
+                np.mean(
+                    (y_true >= lower)
+                    & (y_true <= upper)
+                )
+            ),
+            "mean_interval_width": float(
+                np.mean(upper - lower)
+            ),
+        }
+
+    return {
+        "inherited": calculate_metrics(
+            inherited_predictions,
+            inherited_calibration,
+        ),
+        "r14": calculate_metrics(
+            r14_predictions,
+            r14_calibration,
         ),
     }

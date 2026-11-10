@@ -25,55 +25,55 @@ describe("Insights", () => {
 
   it("generates warehouse insight based on low-stock counts", () => {
     const inventory = [
-      { warehouse_id: "WH001", needs_reorder: true },
-      { warehouse_id: "WH001", needs_reorder: true },
-      { warehouse_id: "WH002", needs_reorder: true },
-      { warehouse_id: "WH002", needs_reorder: true },
-      { warehouse_id: "WH002", needs_reorder: true },
+      { warehouse_id: "WH-BLR-01", needs_reorder: true },
+      { warehouse_id: "WH-BLR-01", needs_reorder: true },
+      { warehouse_id: "WH-BOM-01", needs_reorder: true },
+      { warehouse_id: "WH-BOM-01", needs_reorder: true },
+      { warehouse_id: "WH-BOM-01", needs_reorder: true },
     ] as InventoryItem[];
 
     expect(generateWarehouseInsight(inventory)).toBe(
-      "WH002 holds 60% of low-stock items.",
+      "WH-BOM-01 holds 60% of low-stock items.",
     );
   });
 
   it("groups warehouses with the most low-stock items", () => {
     const inventory = [
-      { warehouse_id: "WH004", needs_reorder: true },
-      { warehouse_id: "WH004", needs_reorder: true },
-      { warehouse_id: "WH001", needs_reorder: true },
-      { warehouse_id: "WH001", needs_reorder: true },
-      { warehouse_id: "WH002", needs_reorder: true },
-      { warehouse_id: "WH003", needs_reorder: true },
+      { warehouse_id: "WH-HYD-01", needs_reorder: true },
+      { warehouse_id: "WH-HYD-01", needs_reorder: true },
+      { warehouse_id: "WH-BLR-01", needs_reorder: true },
+      { warehouse_id: "WH-BLR-01", needs_reorder: true },
+      { warehouse_id: "WH-BOM-01", needs_reorder: true },
+      { warehouse_id: "WH-CCU-01", needs_reorder: true },
     ] as InventoryItem[];
 
     expect(generateWarehouseInsight(inventory)).toBe(
-      "WH001 and WH004 hold 67% of low-stock items.",
+      "WH-BLR-01 and WH-HYD-01 hold 67% of low-stock items.",
     );
   });
 
     it("never splits a tie at the cut-off", () => {
     const inventory = [
-      { warehouse_id: "WH001", needs_reorder: true },
-      { warehouse_id: "WH001", needs_reorder: true },
-      { warehouse_id: "WH002", needs_reorder: true },
-      { warehouse_id: "WH003", needs_reorder: true },
-      { warehouse_id: "WH004", needs_reorder: true },
+      { warehouse_id: "WH-BLR-01", needs_reorder: true },
+      { warehouse_id: "WH-BLR-01", needs_reorder: true },
+      { warehouse_id: "WH-BOM-01", needs_reorder: true },
+      { warehouse_id: "WH-CCU-01", needs_reorder: true },
+      { warehouse_id: "WH-HYD-01", needs_reorder: true },
     ] as InventoryItem[];
 
     // WH001 alone is 40% (< 50%), so the next count (1) is added --
     // and WH002, WH003 and WH004 are all tied at 1, so all are included.
     expect(generateWarehouseInsight(inventory)).toBe(
-      "WH001, WH002, WH003, and WH004 hold 100% of low-stock items.",
+      "WH-BLR-01, WH-BOM-01, WH-CCU-01, and WH-HYD-01 hold 100% of low-stock items.",
     );
   });
 
   it("says items are spread evenly when every warehouse ties", () => {
     const inventory = [
-      { warehouse_id: "WH001", needs_reorder: true },
-      { warehouse_id: "WH002", needs_reorder: true },
-      { warehouse_id: "WH003", needs_reorder: true },
-      { warehouse_id: "WH004", needs_reorder: true },
+      { warehouse_id: "WH-BLR-01", needs_reorder: true },
+      { warehouse_id: "WH-BOM-01", needs_reorder: true },
+      { warehouse_id: "WH-CCU-01", needs_reorder: true },
+      { warehouse_id: "WH-HYD-01", needs_reorder: true },
     ] as InventoryItem[];
 
     expect(generateWarehouseInsight(inventory)).toBe(

@@ -280,3 +280,77 @@ def fetch_trend_headlines_grouped(
         )
 
     return grouped
+
+
+def get_risk_assessments_collection(
+    collection_name: str = "risk_assessments",
+    db_name: Optional[str] = None,
+    uri: Optional[str] = None,
+) -> Collection:
+    """Retrieve the risk_assessments MongoDB collection instance."""
+    db = get_database(db_name, uri)
+    return db[collection_name]
+
+
+def ensure_risk_assessment_indexes(collection: Optional[Collection] = None) -> List[str]:
+    """
+    Create required indexes on the risk_assessments collection:
+    1. unique_assessment_supplier_id: unique index on supplier_id.
+    2. idx_assessment_computed_at: index on computed_at for audit queries.
+    """
+    col = collection if collection is not None else get_risk_assessments_collection()
+    created: List[str] = []
+
+    idx_sid = col.create_index(
+        [("supplier_id", pymongo.ASCENDING)],
+        unique=True,
+        name="unique_assessment_supplier_id",
+    )
+    created.append(idx_sid)
+
+    idx_computed = col.create_index(
+        [("computed_at", pymongo.DESCENDING)],
+        name="idx_assessment_computed_at",
+    )
+    created.append(idx_computed)
+
+    return created
+
+
+def save_risk_assessment(
+    doc: Dict[str, Any],
+    collection: Optional[Collection] = None,
+) -> str:
+    """
+    Upsert a computed supplier risk assessment into MongoDB.
+    """
+    col = collection if collection is not None else get_risk_assessments_collection()
+    ensure_risk_assessment_indexes(col)
+
+    supplier_id = doc.get("supplier_id")
+    if not supplier_id:
+        raise ValueError("Risk assessment document must contain 'supplier_id'")
+
+    record = dict(doc)
+    record["updated_at"] = datetime.now(timezone.utc)
+
+    col.update_one(
+        {"supplier_id": supplier_id},
+        {
+            "$set": record,
+            "$setOnInsert": {"created_at": datetime.now(timezone.utc)},
+        },
+        upsert=True,
+    )
+    return supplier_id
+
+
+def fetch_risk_assessment(
+    supplier_id: str,
+    collection: Optional[Collection] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Retrieve the latest computed risk assessment for a canonical supplier ID.
+    """
+    col = collection if collection is not None else get_risk_assessments_collection()
+    return col.find_one({"supplier_id": supplier_id}, {"_id": 0})

@@ -32,8 +32,12 @@ class Settings(BaseSettings):
     COMPLIANCE_SERVICE_URL: str = "http://localhost:8003"
     PURCHASE_ORDERS_SERVICE_URL: str = "http://localhost:8004"
     SUPPLIER_RISK_SERVICE_URL: str = "http://localhost:8006"
+    DEMAND_FORECAST_SERVICE_URL: str = "http://localhost:8007"
+    ANALYTICS_SERVICE_URL: str = "http://localhost:8008"
 
-    # Service-to-service authentication
+
+    # Service-to-service authentication (canonical Pod 1 / Round 15 M5)
+    GATEWAY_BFF_SERVICE_API_KEY: str | None = None
     API_GATEWAY_SERVICE_API_KEY: str | None = None
 
     # --------------------------------------------------
@@ -45,8 +49,24 @@ class Settings(BaseSettings):
         "/api/v1/shipments": "http://localhost:8002",
         "/api/v1/compliance": "http://localhost:8003",
         "/api/v1/purchase-orders": "http://localhost:8004",
+        "/api/v1/supplier-portal": "http://localhost:8004",
         "/api/v1/auth": "http://localhost:8005",
         "/api/v1/supplier-risk": "http://localhost:8006",
+        "/api/v1/suppliers": "http://localhost:8004",
+        "/api/v1/demand": "http://localhost:8007",
+        "/api/v1/analytics": "http://localhost:8008",
+    }
+
+    # Pattern-based route overrides evaluated before prefix matching.
+    # Maps regex pattern -> owner prefix in SERVICE_ROUTES.
+    SERVICE_ROUTE_PATTERNS: dict[str, str] = {
+        r"/api/v1/suppliers/[^/]+/risk-score/?": "/api/v1/supplier-risk",
+    }
+
+    # Rewrite public gateway paths to downstream service paths.
+    # Keys must match configured SERVICE_ROUTES prefixes. None by default.
+    SERVICE_ROUTE_REWRITES: dict[str, str] = {
+        "/api/v1/supplier-portal": "/api/v1",
     }
 
     # Explicit human-readable service name overrides (optional)
@@ -55,8 +75,12 @@ class Settings(BaseSettings):
         "/api/v1/shipments": "Shipments Service",
         "/api/v1/compliance": "Compliance Service",
         "/api/v1/purchase-orders": "Purchase Order Service",
+        "/api/v1/supplier-portal": "Supplier Portal Service",
         "/api/v1/auth": "Auth Service",
         "/api/v1/supplier-risk": "Supplier Risk Service",
+        "/api/v1/suppliers": "Supplier Portal Service",
+        "/api/v1/demand": "Demand Forecast Service",
+        "/api/v1/analytics": "Analytics Service",
     }
 
     # --------------------------------------------------
@@ -66,6 +90,16 @@ class Settings(BaseSettings):
     TIMEOUT_SECONDS: int = 5
     # MAX_RETRIES: number of retries to attempt on retryable failures (e.g. 2 -> original + 2 retries)
     MAX_RETRIES: int = 2
+
+    # --------------------------------------------------
+    # WebSocket Configuration
+    # --------------------------------------------------
+
+    # Only these exact paths may be proxied as WebSockets.
+    WEBSOCKET_ROUTE_ALLOWLIST: tuple[str, ...] = (
+        "/api/v1/analytics/kpis/real-time",
+    )
+    WEBSOCKET_OPEN_TIMEOUT_SECONDS: float = 5.0
 
     # --------------------------------------------------
     # JWT Configuration
@@ -176,6 +210,38 @@ class Settings(BaseSettings):
     OTEL_SERVICE_NAME: str = "api-gateway"
     OTEL_EXPORTER_OTLP_ENDPOINT: str = "http://localhost:4318"
 
+    # --------------------------------------------------
+    # Round 15 Milestone 3 — Realtime WebSocket & Kafka BFF
+    # --------------------------------------------------
+    KAFKA_BOOTSTRAP_SERVERS: str = "localhost:9092"
+    KAFKA_CONSUMER_GROUP: str = "api-gateway-bff"
+    KAFKA_CONSUMER_ENABLED: bool = True
+    KAFKA_CONSUMER_AUTO_OFFSET_RESET: str = "latest"
+    KAFKA_DEDUPLICATION_CACHE_SIZE: int = 1000
+    KAFKA_DLQ_ENABLED: bool = True
+    KAFKA_TOPICS: list[str] = [
+        "inventory.stock.low",
+        "iot.anomaly.detected",
+        "supplierrisk.score.changed",
+        "eta.shipment.predicted",
+        "forecast.batch.completed",
+        "data.pipeline.completed",
+    ]
+    REALTIME_AUTH_TIMEOUT_SECONDS: float = 2.0
+    REALTIME_WS_PATH: str = "/api/v1/analytics/kpis/real-time"
+
+    # --------------------------------------------------
+    # Round 15 Milestone 3 - ClickHouse & Redis Analytics KPIs
+    # --------------------------------------------------
+    CLICKHOUSE_HOST: str = "localhost"
+    CLICKHOUSE_PORT: int = 8123
+    CLICKHOUSE_USER: str = "default"
+    CLICKHOUSE_PASSWORD: str = ""
+    CLICKHOUSE_DB: str = "analytics"
+    CLICKHOUSE_DATABASE: str | None = None
+    REDIS_URL: str = "redis://localhost:6379/0"
+    LIVE_KPIS_CACHE_TTL_SECONDS: int = 300
+
     def model_post_init(self, __context: object = None, /) -> None:
         """
         Synchronize individual downstream URLs with the route mapping table.
@@ -190,6 +256,7 @@ class Settings(BaseSettings):
         """
         routes_explicitly_set = "SERVICE_ROUTES" in self.model_fields_set
         self.SERVICE_ROUTES = dict(self.SERVICE_ROUTES)
+        self.SERVICE_ROUTE_PATTERNS = dict(self.SERVICE_ROUTE_PATTERNS)
 
         route_url_mappings = {
             "/api/v1/inventory": "INVENTORY_SERVICE_URL",
@@ -197,7 +264,11 @@ class Settings(BaseSettings):
             "/api/v1/shipments": "SHIPMENTS_SERVICE_URL",
             "/api/v1/compliance": "COMPLIANCE_SERVICE_URL",
             "/api/v1/purchase-orders": "PURCHASE_ORDERS_SERVICE_URL",
+            "/api/v1/supplier-portal": "PURCHASE_ORDERS_SERVICE_URL",
             "/api/v1/supplier-risk": "SUPPLIER_RISK_SERVICE_URL",
+            "/api/v1/suppliers": "PURCHASE_ORDERS_SERVICE_URL",
+            "/api/v1/demand": "DEMAND_FORECAST_SERVICE_URL",
+            "/api/v1/analytics": "ANALYTICS_SERVICE_URL",
         }
 
         for prefix, url_attr in route_url_mappings.items():
@@ -212,6 +283,20 @@ class Settings(BaseSettings):
             else:
                 # When SERVICE_ROUTES is not explicitly set, *_SERVICE_URL populates routes
                 self.SERVICE_ROUTES[prefix] = url_value
+
+        # Synchronize canonical GATEWAY_BFF_SERVICE_API_KEY with legacy API_GATEWAY_SERVICE_API_KEY
+        if not self.GATEWAY_BFF_SERVICE_API_KEY and self.API_GATEWAY_SERVICE_API_KEY:
+            self.GATEWAY_BFF_SERVICE_API_KEY = self.API_GATEWAY_SERVICE_API_KEY
+        elif self.GATEWAY_BFF_SERVICE_API_KEY and not self.API_GATEWAY_SERVICE_API_KEY:
+            self.API_GATEWAY_SERVICE_API_KEY = self.GATEWAY_BFF_SERVICE_API_KEY
+
+        if self.CLICKHOUSE_DATABASE and "CLICKHOUSE_DB" not in self.model_fields_set:
+            self.CLICKHOUSE_DB = self.CLICKHOUSE_DATABASE
+
+    @property
+    def service_api_key(self) -> str | None:
+        """Return the canonical service API key configured for Gateway BFF."""
+        return self.GATEWAY_BFF_SERVICE_API_KEY or self.API_GATEWAY_SERVICE_API_KEY
 
     model_config = SettingsConfigDict(
         env_file=(

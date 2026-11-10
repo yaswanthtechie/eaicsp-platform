@@ -1391,3 +1391,31 @@ Parity: PASS (rows, quantity sum and price sum identical). Input: ~10.05M genera
 - **Windows note:** if several Python versions are installed, set `PYSPARK_PYTHON` and `PYSPARK_DRIVER_PYTHON` to the interpreter running pytest, otherwise Spark workers may start with a different Python and fail with `Connection reset`.
 
 - After the review fixes, the DAG was triggered again for 2024-02: dag_run id 8 succeeded, all 263,613 rows carry run_id 8 (the Airflow run id), and the quantity sum (13,173,901) was unchanged, so the re-run was idempotent.
+
+## V4 Dashboard KPI Views
+
+The four dashboard KPIs are implemented as ClickHouse views under
+`clickhouse/views/`, applied by `clickhouse/apply_ddl.py`. Their definitions,
+output columns and expected seed results are documented in
+`contracts/clickhouse/README.md`, section 8.
+
+The `clickhouse_load` Airflow task refreshes the existing marts and writes
+the KPI snapshots into `kpi_metrics` on each run. Snapshots include individual
+warehouses and an all-warehouse total (empty `warehouse_id`). Fill rate and
+on-time delivery are percentages from 0 to 100, calculated using weighted
+numerators and denominators.
+
+After generating seed data with `make seed`, load current stock and apply
+the ClickHouse contracts from the repository root:
+
+```bash
+python data-platform/etl/clickhouse/apply_ddl.py
+python data-platform/etl/clickhouse/load_seed_stock.py --data-dir data-platform/out
+```
+
+Stockouts read `inventory_snapshots`. Open POs, fill rate and on-time delivery
+read `purchase_orders`, `po_lines`, `goods_receipt_lines` and
+`transport_performance`. The seed does not contain purchase orders or
+shipments, so those three views remain empty until the Flow B event consumer
+is implemented in the follow-up issue. Their tests use fixture rows based on
+the event examples in `contracts/events/examples/`.

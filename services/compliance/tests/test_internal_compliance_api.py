@@ -1,6 +1,7 @@
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 import inspect
 
+import httpx
 import pytest
 
 from app.core import config
@@ -14,13 +15,11 @@ INVENTORY_KEY = "test-inventory-key"
 PORTAL_KEY = "test-portal-key"
 
 INVENTORY_HEADERS = {
-    "X-Caller-Service": "inventory-service",
-    "X-Service-Key": INVENTORY_KEY,
+    "X-API-Key": INVENTORY_KEY,
 }
 
 PORTAL_HEADERS = {
-    "X-Caller-Service": "supplier-portal",
-    "X-Service-Key": PORTAL_KEY,
+    "X-API-Key": PORTAL_KEY,
 }
 
 CALLER_BODY = {
@@ -31,13 +30,14 @@ CALLER_BODY = {
 
 
 @pytest.fixture(autouse=True)
-def internal_service_keys(monkeypatch):
-    monkeypatch.setattr(
-        config,
-        "INTERNAL_SERVICE_KEYS",
-        {
-            "inventory-service": INVENTORY_KEY,
-            "supplier-portal": PORTAL_KEY,
+def internal_service_auth(fake_platform):
+    """Default Platform response: inventory is authenticated."""
+    fake_platform(
+        status_code=200,
+        payload={
+            "authenticated": True,
+            "service": "inventory",
+            "auth_type": "api_key",
         },
     )
 
@@ -48,9 +48,11 @@ def internal_service_keys(monkeypatch):
     ics.clear_internal_cache()
 
 
-def test_supplier_name_body_is_accepted(
-    client,
-):
+# ==========================================================
+# INTERNAL SERVICE AUTHENTICATION
+# ==========================================================
+
+def test_supplier_name_body_is_accepted(client):
     response = client.post(
         URL,
         headers=INVENTORY_HEADERS,
@@ -69,9 +71,7 @@ def test_supplier_name_body_is_accepted(
     assert isinstance(data["reason"], str)
 
 
-def test_company_name_body_is_also_accepted(
-    client,
-):
+def test_company_name_body_is_also_accepted(client):
     body = {
         "supplier_id": "SUP002",
         "company_name": "XYZ Supplies Pvt Ltd",
@@ -92,9 +92,16 @@ def test_company_name_body_is_also_accepted(
     assert data["company_name"] == "XYZ Supplies Pvt Ltd"
 
 
-def test_supplier_portal_key_is_accepted(
-    client,
-):
+def test_supplier_portal_key_is_accepted(client, fake_platform):
+    fake_platform(
+        status_code=200,
+        payload={
+            "authenticated": True,
+            "service": "supplier-portal",
+            "auth_type": "api_key",
+        },
+    )
+
     response = client.post(
         URL,
         headers=PORTAL_HEADERS,
@@ -102,40 +109,48 @@ def test_supplier_portal_key_is_accepted(
     )
 
     assert response.status_code == 200
+def test_valid_key_from_other_service_returns_403(client, fake_platform):
+    fake_platform(
+        status_code=200,
+        payload={
+            "authenticated": True,
+            "service": "gateway-bff",
+            "auth_type": "api_key",
+        },
+    )
 
-
-@pytest.mark.parametrize(
-    "headers",
-    [
-        {
-            "X-Caller-Service": "inventory-service",
-        },
-        {
-            "X-Caller-Service": "inventory-service",
-            "X-Service-Key": "wrong-key",
-        },
-        {},
-        {
-            "X-Caller-Service": "unknown-service",
-            "X-Service-Key": INVENTORY_KEY,
-        },
-        # A valid key used under another service's name.
-        {
-            "X-Caller-Service": "supplier-portal",
-            "X-Service-Key": INVENTORY_KEY,
-        },
-    ],
-)
-def test_unauthenticated_calls_return_401(
-    client,
-    headers,
-):
     with patch(
         "app.routes.compliance.perform_internal_compliance_check"
     ) as mock_check:
         response = client.post(
             URL,
-            headers=headers,
+            headers={"X-API-Key": "test-gateway-key"},
+            json=CALLER_BODY,
+        )
+
+    assert response.status_code == 403
+    mock_check.assert_not_called()
+    
+def test_non_ascii_service_api_key_is_401_not_500(client):
+    with patch(
+        "app.routes.compliance.perform_internal_compliance_check"
+    ) as mock_check:
+        response = client.post(
+            URL,
+            headers={"X-API-Key": "k\xe9y".encode("latin-1")},
+            json=CALLER_BODY,
+        )
+
+    assert response.status_code == 401
+    mock_check.assert_not_called()
+
+def test_missing_service_api_key_returns_401(client):
+    with patch(
+        "app.routes.compliance.perform_internal_compliance_check"
+    ) as mock_check:
+        response = client.post(
+            URL,
+            headers={},
             json=CALLER_BODY,
         )
 
@@ -143,14 +158,35 @@ def test_unauthenticated_calls_return_401(
     mock_check.assert_not_called()
 
 
-def test_no_internal_service_keys_configured_returns_401(
-    client,
-    monkeypatch,
-):
-    monkeypatch.setattr(
-        config,
-        "INTERNAL_SERVICE_KEYS",
-        {},
+def test_invalid_service_api_key_returns_401(client, fake_platform):
+    fake_platform(
+        status_code=401,
+        payload={
+            "detail": "Invalid service API key",
+        },
+    )
+
+    with patch(
+        "app.routes.compliance.perform_internal_compliance_check"
+    ) as mock_check:
+        response = client.post(
+            URL,
+            headers={
+                "X-API-Key": "invalid-test-key",
+            },
+            json=CALLER_BODY,
+        )
+
+    assert response.status_code == 401
+    mock_check.assert_not_called()
+
+
+def test_revoked_service_api_key_returns_401(client, fake_platform):
+    fake_platform(
+        status_code=401,
+        payload={
+            "detail": "Service API key is inactive or revoked",
+        },
     )
 
     with patch(
@@ -165,6 +201,10 @@ def test_no_internal_service_keys_configured_returns_401(
     assert response.status_code == 401
     mock_check.assert_not_called()
 
+
+# ==========================================================
+# REQUEST VALIDATION
+# ==========================================================
 
 @pytest.mark.parametrize(
     "body",
@@ -186,10 +226,7 @@ def test_no_internal_service_keys_configured_returns_401(
         },
     ],
 )
-def test_invalid_supplier_name_is_rejected(
-    client,
-    body,
-):
+def test_invalid_supplier_name_is_rejected(client, body):
     response = client.post(
         URL,
         headers=INVENTORY_HEADERS,
@@ -199,9 +236,11 @@ def test_invalid_supplier_name_is_rejected(
     assert response.status_code == 422
 
 
-def test_strong_match_returns_block(
-    client,
-):
+# ==========================================================
+# COMPLIANCE SCREENING DECISIONS
+# ==========================================================
+
+def test_strong_match_returns_block(client):
     screening_result = {
         "is_flagged": True,
         "override_applied": False,
@@ -228,9 +267,7 @@ def test_strong_match_returns_block(
     assert "Strong compliance match found" in data["reason"]
 
 
-def test_possible_match_returns_review(
-    client,
-):
+def test_possible_match_returns_review(client):
     screening_result = {
         "is_flagged": True,
         "override_applied": False,
@@ -261,9 +298,7 @@ def test_possible_match_returns_review(
     assert "human review" in data["reason"].lower()
 
 
-def test_screening_failure_returns_503(
-    client,
-):
+def test_screening_failure_returns_503(client):
     with patch(
         "app.services.internal_compliance_service.screen_entity",
         side_effect=RuntimeError("screening failed"),
@@ -284,9 +319,11 @@ def test_screening_failure_returns_503(
     )
 
 
-def test_repeated_http_calls_use_cache(
-    client,
-):
+# ==========================================================
+# INTERNAL CACHE
+# ==========================================================
+
+def test_repeated_http_calls_use_cache(client):
     screening_result = {
         "is_flagged": False,
         "override_applied": False,
@@ -316,9 +353,7 @@ def test_repeated_http_calls_use_cache(
     mock_screen.assert_called_once()
 
 
-def test_clear_internal_cache_forces_fresh_screening(
-    client,
-):
+def test_clear_internal_cache_forces_fresh_screening(client):
     screening_result = {
         "is_flagged": False,
         "override_applied": False,
@@ -510,21 +545,6 @@ def test_override_delete_clears_internal_cache(
     assert mock_screen.call_count == 3
 
 
-def test_non_ascii_service_key_is_401_not_500(
-    client,
-):
-    response = client.post(
-        URL,
-        headers={
-            "X-Caller-Service": "inventory-service",
-            "X-Service-Key": "k\xe9y".encode("latin-1"),
-        },
-        json=CALLER_BODY,
-    )
-
-    assert response.status_code == 401
-
-
 def test_result_is_not_cached_if_cache_was_cleared_during_screening(
     client,
 ):
@@ -553,15 +573,17 @@ def test_result_is_not_cached_if_cache_was_cleared_during_screening(
     assert ics._INTERNAL_CHECK_CACHE == {}
 
 
+# ==========================================================
+# ROUTE AND SLA TESTS
+# ==========================================================
+
 def test_route_is_not_async_so_it_runs_in_the_thread_pool():
     assert not inspect.iscoroutinefunction(
         internal_compliance_check
     )
 
 
-def test_sla_alerts_are_rate_limited(
-    monkeypatch,
-):
+def test_sla_alerts_are_rate_limited(monkeypatch):
     monkeypatch.setattr(
         ics,
         "_LAST_SLA_ALERT_AT",
@@ -592,6 +614,11 @@ def test_sla_alerts_are_rate_limited(
     assert first is True
     assert second is False
 
+
+# ==========================================================
+# REAL SANCTIONS MATCH TESTS
+# ==========================================================
+
 def test_near_match_returns_review_without_mocking(client):
     # "HAMAZ" fuzzy-matches the OFAC fixture "HAMAS" at score 80:
     # inside the REVIEW band (80 <= score < 90).
@@ -606,7 +633,9 @@ def test_near_match_returns_review_without_mocking(client):
     )
 
     assert response.status_code == 200
+
     body = response.json()
+
     assert body["decision"] == "REVIEW"
     assert body["cleared"] is False
 
@@ -623,7 +652,9 @@ def test_exact_match_returns_block_without_mocking(client):
     )
 
     assert response.status_code == 200
+
     body = response.json()
+
     assert body["decision"] == "BLOCK"
     assert body["cleared"] is False
 
@@ -638,6 +669,7 @@ def test_review_floor_must_be_below_block_score():
 
     with pytest.raises(RuntimeError):
         validate_internal_thresholds(95, 90)
+
 
 def test_sanctions_reload_clears_internal_cache(client):
     from app.services import sanctions_service
@@ -663,3 +695,41 @@ def test_sanctions_reload_clears_internal_cache(client):
     sanctions_service.load_all_sanctions()
 
     assert ics._INTERNAL_CHECK_CACHE == {}
+def test_platform_service_verification_uses_configured_timeout(
+    client,
+):
+    mock_response = httpx.Response(
+        status_code=200,
+        json={
+            "authenticated": True,
+            "service": "inventory",
+            "auth_type": "api_key",
+        },
+        request=httpx.Request(
+            "POST",
+            "http://test-platform/api/v1/auth/service-verify",
+        ),
+    )
+
+    with patch(
+        "app.core.dependency.httpx.AsyncClient"
+    ) as mock_client:
+        mock_instance = mock_client.return_value.__aenter__.return_value
+
+        mock_instance.post = AsyncMock(
+            return_value=mock_response
+        )
+
+        response = client.post(
+            URL,
+            headers=INVENTORY_HEADERS,
+            json=CALLER_BODY,
+        )
+
+    assert response.status_code == 200
+
+    mock_client.assert_called_once_with(
+        timeout=config.PLATFORM_VERIFY_TIMEOUT_SECONDS
+    )
+
+    assert config.PLATFORM_VERIFY_TIMEOUT_SECONDS == 2.0

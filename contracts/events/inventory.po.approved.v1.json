@@ -86,8 +86,8 @@
         },
         "approved_by": {
           "type": "string",
-          "format": "uuid",
-          "description": "User ID (UUID) of the approver, taken from the authentication token."
+          "minLength": 1,
+          "description": "Platform user ID of the approver, from the auth token's user_id (stringified)."
         },
         "approved_at": {
           "type": "string",

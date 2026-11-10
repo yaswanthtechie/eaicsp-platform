@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://eaicsp.internal/contracts/events/domain.entity.action.v1.json",
+  "title": "domain.entity.action",
+  "description": "Template for creating new event schemas.",
+  "type": "object",
+  "allOf": [
+    { "$ref": "envelope.v1.json" },
+    {
+      "properties": {
+        "event_type": { "const": "domain.entity.action" },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "example_field_id": {
+              "type": "string",
+              "description": "Include canonical ID patterns here."
+            }
+          },
+          "required": ["example_field_id"],
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

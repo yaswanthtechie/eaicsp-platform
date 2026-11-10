@@ -16,6 +16,7 @@ import {
   getTokenExpiry,
   logout,
   refreshAuthSession,
+  type AuthSession,
 } from "./api/auth";
 import { useDashboardData } from "./api/dashboardGraphql";
 import Login from "./components/Login";
@@ -35,6 +36,8 @@ import ExportPdfButton from "./components/export/ExportPdfButton";
 import Skeleton from "./components/Skeleton";
 import KpiGrid from "./components/KpiGrid";
 import OfflineBanner from "./components/OfflineBanner";
+import { mergeAlert } from "./utils/mergeAlert";
+import AnalyticsKpiPanel from "./components/AnalyticsKpiPanel";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { mockUser, type UserRole } from "./mocks/user";
@@ -109,9 +112,14 @@ function buildKpis(
 interface DashboardAppProps {
   authRole?: UserRole;
   onLogout?: () => void;
+  onAuthSessionRefreshed?: (session: AuthSession) => void;
 }
 
-function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
+function DashboardApp({
+  authRole,
+  onLogout,
+  onAuthSessionRefreshed,
+}: DashboardAppProps) {
   const {
     data: dashboardData,
     loading: dashboardLoading,
@@ -123,6 +131,7 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
     () => authRole ?? roleFromUrl(),
   );
   const [alerts, setAlerts] = useState<AlertMessage[]>([]);
+  const latestEtaRef = useRef(new Map<string, number>());
   const [liveInventory, setLiveInventory] =
     useState<InventoryItem[]>(() => dashboardData?.dashboard.inventory ?? []);
   const isOnline = useOnlineStatus();
@@ -186,7 +195,10 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
   }, []);
 
   useEffect(() => {
-    if (import.meta.env.DEV) {
+    if (
+      import.meta.env.DEV &&
+      import.meta.env.VITE_USE_MOCK_WS === "true"
+    ) {
       startMockWebSocketServer();
     }
   }, []);
@@ -212,11 +224,26 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
         return;
       }
 
-      setAlerts((prev) => [data, ...prev]);
+      if (
+        data.type === "shipment-eta-update" &&
+        data.shipmentId &&
+        data.predictedAt
+      ) {
+        const predictedAt = Date.parse(data.predictedAt);
+        const latest = latestEtaRef.current.get(data.shipmentId);
+        if (
+          !Number.isFinite(predictedAt) ||
+          (latest !== undefined && predictedAt <= latest)
+        ) {
+          return;
+        }
+        latestEtaRef.current.set(data.shipmentId, predictedAt);
+      }
+
+      setAlerts((prev) => mergeAlert(prev, data));
     },
     [],
   );
-
   const removeAlert = useCallback((id: string) => {
     setAlerts((prev) =>
       prev.filter((alert) => alert.id !== id),
@@ -247,11 +274,16 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
     connected,
     isConnecting,
     failed,
+    retryConnection,
   } = useWebSocket({
-    url: "ws://localhost:8080",
+    url:
+      import.meta.env.VITE_ALERTS_WS_URL ||
+      (import.meta.env.VITE_USE_MOCK_WS === "true" ? "ws://localhost:8080" : ""),
     onMessage: handleMessage,
     autoReconnect: true,
     maxRetries: 5,
+    requireToken: !USE_MOCK_AUTH,
+    onAuthSessionRefreshed,
   });
   const effectiveWarehouse =
     role === "warehouse_manager"
@@ -454,6 +486,8 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
           onRetry={() => void refreshDashboardData()}
         />
 
+        <AnalyticsKpiPanel />
+        
         <KpiGrid
           kpis={offlineSnapshot.kpis}
           selectedKpi={selectedKpi}
@@ -606,6 +640,7 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
           onRetry={() => void refreshDashboardData()}
         />
       )}
+      <AnalyticsKpiPanel />
       <KpiGrid
         kpis={kpis}
         selectedKpi={selectedKpi}
@@ -698,6 +733,7 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
               isConnecting={isConnecting}
               failed={failed}
               onRemove={removeAlert}
+              onRetry={retryConnection}
             />
           </ErrorBoundary>
         </div>
@@ -914,6 +950,7 @@ function App() {
       // Remount if a refreshed token carries a different role.
       key={authSession.role}
       authRole={authSession.role}
+      onAuthSessionRefreshed={setAuthSession}
       onLogout={async () => {
         authOperationId.current += 1;
         clearAuthSession();

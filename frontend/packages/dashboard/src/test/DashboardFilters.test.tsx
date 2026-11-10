@@ -8,30 +8,30 @@ import type { InventoryItem } from "../types/forecast";
 
 const mockInventory: InventoryItem[] = [
   {
-    sku_id: "SKU001",
+    sku_id: "SKU-000001",
     product_name: "Apples",
     category: "Food",
-    warehouse_id: "WH001",
+    warehouse_id: "WH-BLR-01",
     quantity_on_hand: 120,
     reorder_point: 50,
     needs_reorder: false,
     avg_daily_demand: 10,
   },
   {
-    sku_id: "SKU002",
+    sku_id: "SKU-000002",
     product_name: "Milk",
     category: "Food",
-    warehouse_id: "WH002",
+    warehouse_id: "WH-BOM-01",
     quantity_on_hand: 50,
     reorder_point: 20,
     needs_reorder: false,
     avg_daily_demand: 5,
   },
   {
-    sku_id: "SKU011",
+    sku_id: "SKU-000011",
     product_name: "Soap",
     category: "Personal Care",
-    warehouse_id: "WH003",
+    warehouse_id: "WH-CCU-01",
     quantity_on_hand: 110,
     reorder_point: 50,
     needs_reorder: false,
@@ -122,19 +122,19 @@ describe("DashboardFilters", () => {
 
     expect(
       await screen.findByRole("option", {
-        name: "WH001",
+        name: "WH-BLR-01",
       }),
     ).toBeInTheDocument();
 
     expect(
       await screen.findByRole("option", {
-        name: "WH002",
+        name: "WH-BOM-01",
       }),
     ).toBeInTheDocument();
 
     expect(
       await screen.findByRole("option", {
-        name: "WH003",
+        name: "WH-CCU-01",
       }),
     ).toBeInTheDocument();
 
@@ -176,13 +176,13 @@ describe("DashboardFilters", () => {
 
     await user.click(
       await screen.findByRole("option", {
-        name: "WH001",
+        name: "WH-BLR-01",
       }),
     );
 
     await waitFor(() => {
       expect(onFilterChange).toHaveBeenCalledWith({
-        warehouse: "WH001",
+        warehouse: "WH-BLR-01",
         category: "All",
         startDate: "",
         endDate: "",
@@ -300,13 +300,13 @@ describe("DashboardFilters", () => {
 
     await user.click(
       await screen.findByRole("option", {
-        name: "WH001",
+        name: "WH-BLR-01",
       }),
     );
 
     await waitFor(() => {
       expect(window.location.search).toBe(
-        "?warehouse=WH001",
+        "?warehouse=WH-BLR-01",
       );
     });
   });
@@ -315,11 +315,11 @@ describe("DashboardFilters", () => {
     window.history.pushState(
       {},
       "",
-      "/?warehouse=WH001&category=Food&startDate=2026-08-01&endDate=2026-08-31",
+      "/?warehouse=WH-BLR-01&category=Food&startDate=2026-08-01&endDate=2026-08-31",
     );
 
     const urlFilters = {
-      warehouse: "WH001",
+      warehouse: "WH-BLR-01",
       category: "Food",
       startDate: "2026-08-01",
       endDate: "2026-08-31",
@@ -337,7 +337,7 @@ describe("DashboardFilters", () => {
       screen.getByRole("combobox", {
         name: "Warehouse filter",
       }),
-    ).toHaveTextContent("WH001");
+    ).toHaveTextContent("WH-BLR-01");
 
     expect(
       screen.getByRole("combobox", {
@@ -358,11 +358,11 @@ describe("DashboardFilters", () => {
     window.history.pushState(
       {},
       "",
-      "/?warehouse=WH001",
+      "/?warehouse=WH-BLR-01",
     );
 
     const filters = {
-      warehouse: "WH001",
+      warehouse: "WH-BLR-01",
       category: "All",
       startDate: "",
       endDate: "",
@@ -421,7 +421,7 @@ describe("DashboardFilters", () => {
 
     expect(
       screen.queryByRole("option", {
-        name: "WH001",
+        name: "WH-BLR-01",
       }),
     ).not.toBeInTheDocument();
   });

@@ -1,3 +1,4 @@
+
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -16,6 +17,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 UPLOAD_DIR = BASE_DIR / "uploads"
 
+
 # ============================================================
 # THREE-WAY MATCH CONFIGURATION
 # ============================================================
@@ -29,40 +31,130 @@ PRICE_TOLERANCE_PERCENT = 5.0
 
 class Settings(BaseSettings):
 
-    # Platform Service / Authentication Service
+    # --------------------------------------------------------
+    # Platform Service / Authentication
+    # --------------------------------------------------------
+
     PLATFORM_AUTH_URL: str = "http://127.0.0.1:8005"
+
+    # Supplier Portal Service API Key
+
+    SUPPLIER_PORTAL_SERVICE_API_KEY: str = ""
+
+    # --------------------------------------------------------
+    # Compliance Service
+    # --------------------------------------------------------
+
     COMPLIANCE_SERVICE_URL: str = "http://127.0.0.1:8003"
 
+    # --------------------------------------------------------
+    # Supplier Risk Service
+    # --------------------------------------------------------
 
+    SUPPLIER_RISK_SERVICE_URL: str = "http://localhost:8006"
+
+    # Contract: callers use a 2-second timeout
+    SUPPLIER_RISK_TIMEOUT_SECONDS: float = 2.0
+    # --------------------------------------------------------
     # MinIO Object Storage
+    # --------------------------------------------------------
+
     MINIO_ENDPOINT: str = "127.0.0.1:9000"
-    # REQUIRED, no default: the app must refuse to start without them,
-    # never fall back to MinIO's well-known factory credentials.
     MINIO_ACCESS_KEY: str
     MINIO_SECRET_KEY: str
     MINIO_BUCKET: str = "supplier-documents"
     MINIO_SECURE: bool = False
     MINIO_PRESIGNED_EXPIRY_SECONDS: int = 300
 
-    # Kafka
-    
+    # --------------------------------------------------------
+    # Kafka - Existing Compliance Consumer (R14)
+    # Keep these settings unchanged.
+    # --------------------------------------------------------
+
     KAFKA_BOOTSTRAP_SERVERS: str = "localhost:9092"
     KAFKA_CONSUMER_GROUP: str = "supplier-portal-service"
-    KAFKA_STATUS_CHANGED_TOPIC: str = "compliance.supplier.status_changed"
-    KAFKA_DLQ_TOPIC: str = "compliance.supplier.status_changed.dlq"
+    KAFKA_STATUS_CHANGED_TOPIC: str = (
+        "compliance.supplier.status_changed"
+    )
+    KAFKA_DLQ_TOPIC: str = (
+        "compliance.supplier.status_changed.dlq"
+    )
     KAFKA_AUTO_OFFSET_RESET: str = "earliest"
 
-    # Kafka Consumer Reliability
     KAFKA_ENABLED: bool = True
     KAFKA_RETRY_BACKOFF_SECONDS: float = 1.0
     KAFKA_MAX_RETRIES: int = 5
 
+    # Inventory Goods Receipt Consumer (R15)
+    # Separate flag from the Compliance consumer's KAFKA_ENABLED.
+    GOODS_RECEIVED_KAFKA_ENABLED: bool = True
+    KAFKA_GOODS_RECEIVED_TOPIC: str = "inventory.goods.received"
+    KAFKA_GOODS_RECEIVED_CONSUMER_GROUP: str = "supplier-portal-goods-received"
+    KAFKA_GOODS_RECEIVED_DLQ_TOPIC: str = "inventory.goods.received.dlq"
+
     # Durable Compliance State
     COMPLIANCE_DB_PATH: str = "data/compliance_state.db"
-    
-    # PostgreSQL - required, read from .env (no default credentials)
+
+    # --------------------------------------------------------
+    # Kafka - Inventory PO Consumer (R15)
+    # Separate from the Compliance consumer.
+    # --------------------------------------------------------
+
+    PO_KAFKA_ENABLED: bool = True
+
+    PO_APPROVED_TOPIC: str = "inventory.po.approved"
+    PO_CONSUMER_GROUP: str = "supplier-portal-po-approved-v1"
+    PO_DLQ_TOPIC: str = "inventory.po.approved.dlq"
+
+    PO_ACKNOWLEDGED_TOPIC: str = (
+        "supplierportal.po.acknowledged"
+    )
+
+    PO_AUTO_OFFSET_RESET: str = "earliest"
+    PO_RETRY_BACKOFF_SECONDS: float = 1.0
+    PO_MAX_RETRIES: int = 5
+
+    # --------------------------------------------------------
+    # PO Acknowledgement Outbox Publisher (R15)
+    # --------------------------------------------------------
+
+    PO_OUTBOX_ENABLED: bool = True
+    PO_OUTBOX_POLL_SECONDS: float = 2.0
+    PO_OUTBOX_BATCH_SIZE: int = 50
+
+    # --------------------------------------------------------
+    # Shipment Dispatch Outbox + ETA Consumer (R15-R5)
+    # --------------------------------------------------------
+
+    SHIPMENT_OUTBOX_ENABLED: bool = True
+    SHIPMENT_OUTBOX_POLL_SECONDS: float = 2.0
+    SHIPMENT_OUTBOX_BATCH_SIZE: int = 50
+
+    SHIPMENT_DISPATCHED_TOPIC: str = (
+        "supplierportal.shipment.dispatched"
+    )
+    # Separate flag from the Compliance consumer's KAFKA_ENABLED.
+    ETA_KAFKA_ENABLED: bool = True
+
+    ETA_PREDICTED_TOPIC: str = (
+        "eta.shipment.predicted"
+    )
+
+    ETA_CONSUMER_GROUP: str = (
+        "supplier-portal-eta-predicted-v1"
+    )
+
+    ETA_DLQ_TOPIC: str = (
+        "eta.shipment.predicted.dlq"
+    )
+
+    # --------------------------------------------------------
+    # PostgreSQL
+    # Required from environment/.env; no default.
+    # --------------------------------------------------------
+
     DATABASE_URL: str
-    
+
     SUPPLIER_DB_SCHEMA: str = "supplier_portal"
 
     model_config = SettingsConfigDict(
@@ -72,4 +164,5 @@ class Settings(BaseSettings):
     )
 
 
+# IMPORTANT: Do not add a trailing comma here.
 settings = Settings()

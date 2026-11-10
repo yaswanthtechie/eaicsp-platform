@@ -134,7 +134,7 @@ def test_inventory_write_permission_allowed(
         json={
             "sku_id": "M5-WRITE-001",
             "product_name": "M5 Permission Product",
-            "warehouse_id": "WH001",
+            "warehouse_id": "WH-BLR-01",
             "quantity_on_hand": 100,
             "lead_time_days": 5,
             "safety_stock": 10,
@@ -166,7 +166,7 @@ def test_inventory_write_permission_denied(
         json={
             "sku_id": "M5-WRITE-DENIED",
             "product_name": "M5 Permission Product",
-            "warehouse_id": "WH001",
+            "warehouse_id": "WH-BLR-01",
             "quantity_on_hand": 100,
             "lead_time_days": 5,
             "safety_stock": 10,
@@ -230,7 +230,7 @@ def test_analyst_cannot_write_inventory(
         json={
             "sku_id": "ANALYST-WRITE-001",
             "product_name": "Analyst Write Test",
-            "warehouse_id": "WH001",
+            "warehouse_id": "WH-BLR-01",
             "quantity_on_hand": 100,
             "lead_time_days": 5,
             "safety_stock": 10,
@@ -274,7 +274,7 @@ def test_ceo_has_inventory_read_and_write(
         json={
             "sku_id": "CEO-M5-001",
             "product_name": "CEO M5 Product",
-            "warehouse_id": "WH001",
+            "warehouse_id": "WH-BLR-01",
             "quantity_on_hand": 100,
             "lead_time_days": 5,
             "safety_stock": 10,

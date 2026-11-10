@@ -9,7 +9,7 @@ import logging
 from typing import Any
 
 import httpx
-from fastapi import Request
+from fastapi import Request, WebSocket
 from fastapi.responses import JSONResponse, Response
 
 from app.core.config import settings
@@ -56,9 +56,10 @@ class AuthPrecheckService:
 
     @staticmethod
     async def verify_request(
-        request: Request,
+        request: Request | WebSocket,
         route_prefix: str,
         client: httpx.AsyncClient | None = None,
+        bearer_token: str | None = None,
     ) -> Response | None:
         """
         Perform gateway-level authentication pre-check for a protected route.
@@ -77,6 +78,8 @@ class AuthPrecheckService:
 
         # 2. Extract Authorization header
         auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
+        if not auth_header and bearer_token:
+            auth_header = f"Bearer {bearer_token}"
 
         if not auth_header:
             logger.info("Auth pre-check rejected: Missing Authorization header on %s", path)
@@ -117,9 +120,9 @@ class AuthPrecheckService:
         if request_id:
             verify_headers["x-request-id"] = request_id
 
-        service_api_key = getattr(settings, "API_GATEWAY_SERVICE_API_KEY", None)
+        service_api_key = settings.service_api_key
         if service_api_key:
-            verify_headers["x-api-key"] = service_api_key
+            verify_headers["X-API-Key"] = service_api_key
             verify_headers["x-service-name"] = "api_gateway"
 
         # 6. Dispatch authoritative verification call to Platform Service

@@ -1,5 +1,7 @@
 import os
+import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from app.core.security import hash_password
 from app.database import Base, SessionLocal, engine
@@ -29,6 +31,36 @@ ROLES = [
     ("carrier", "Carrier"),
 ]
 
+REQUIRED_SERVICE_KEYS = {
+    "inventory": "INVENTORY_SERVICE_API_KEY",
+    "supplier-portal": "SUPPLIER_PORTAL_SERVICE_API_KEY",
+    "gateway-bff": "GATEWAY_BFF_SERVICE_API_KEY",
+    "forecast-serving": "FORECAST_SERVING_SERVICE_API_KEY",
+}
+
+DEDICATED_DEMO_EMAILS = {
+    "procurementmanager@company.com",
+    "warehousemanager@company.com",
+    "ceo@company.com",
+    "supplier19@company.com",
+    "supplier21@company.com",
+    "supplier22@company.com",
+}
+
+DEMO_USER_UUIDS: dict[str, uuid.UUID] = {
+    "ceo@company.com": uuid.UUID("00000000-0000-4000-8000-000000000001"),
+    "warehousemanager@company.com": uuid.UUID("00000000-0000-4000-8000-000000000002"),
+    "vpoperations@company.com": uuid.UUID("00000000-0000-4000-8000-000000000003"),
+    "procurementmanager@company.com": uuid.UUID("00000000-0000-4000-8000-000000000004"),
+    "logisticsmanager@company.com": uuid.UUID("00000000-0000-4000-8000-000000000005"),
+    "complianceofficer@company.com": uuid.UUID("00000000-0000-4000-8000-000000000006"),
+    "supplier@company.com": uuid.UUID("00000000-0000-4000-8000-000000000007"),
+    "analyst@company.com": uuid.UUID("00000000-0000-4000-8000-000000000008"),
+    "supplier19@company.com": uuid.UUID("00000000-0000-4000-8000-000000000019"),
+    "supplier21@company.com": uuid.UUID("00000000-0000-4000-8000-000000000021"),
+    "supplier22@company.com": uuid.UUID("00000000-0000-4000-8000-000000000022"),
+}
+
 
 def _required_password(env_var: str) -> str:
     """
@@ -38,17 +70,17 @@ def _required_password(env_var: str) -> str:
     -- as the test suite does -- never requires the full set of seed
     passwords to be present.
     """
-    try:
-        return os.environ[env_var]
-    except KeyError:
+    value = os.environ.get(env_var, "")
+    if not value.strip():
         raise RuntimeError(
             f"{env_var} is not set. Seed passwords must be supplied via "
             f"environment variables; see .env.example."
-        ) from None
+        )
+    return value
 
 
-def get_seed_users() -> list[dict]:
-    return [
+def get_seed_users() -> list[dict[str, Any]]:
+    users: list[dict[str, Any]] = [
         {
             "email": "ceo@company.com",
             "full_name": "Company CEO",
@@ -98,7 +130,35 @@ def get_seed_users() -> list[dict]:
             "password": _required_password("ANALYST_PASSWORD"),
             "role": "analyst",
         },
+        {
+            "email": "supplier19@company.com",
+            "full_name": "Unity Manufacturing Supplier",
+            "password": _required_password("SUPPLIER_19_PASSWORD"),
+            "role": "supplier",
+            "supplier_id": "SUP-00019",
+        },
+        {
+            "email": "supplier21@company.com",
+            "full_name": "Evergreen Supplies Supplier",
+            "password": _required_password("SUPPLIER_21_PASSWORD"),
+            "role": "supplier",
+            "supplier_id": "SUP-00021",
+        },
+        {
+            "email": "supplier22@company.com",
+            "full_name": "Bluepeak Enterprises Supplier",
+            "password": _required_password("SUPPLIER_22_PASSWORD"),
+            "role": "supplier",
+            "supplier_id": "SUP-00022",
+        },
     ]
+
+    for user in users:
+        email = user["email"].lower()
+        if email in DEMO_USER_UUIDS:
+            user["user_uuid"] = DEMO_USER_UUIDS[email]
+
+    return users
 
 
 def seed_roles(db) -> dict:
@@ -121,7 +181,63 @@ def seed_roles(db) -> dict:
     return role_map
 
 
-def seed_database():
+def seed_service_api_keys(db, *, require_env: bool = False) -> dict[str, str]:
+    """Create or re-use the Platform-issued service identities for caller services."""
+    from app.core.service_auth import generate_service_api_key, hash_service_api_key
+    from app.models.service_api_keys import ServiceAPIKey
+
+    missing = [
+        env_name
+        for env_name in REQUIRED_SERVICE_KEYS.values()
+        if not os.getenv(env_name)
+    ]
+    if require_env and missing:
+        raise RuntimeError(
+            "Missing required service API-key environment variables: "
+            + ", ".join(missing)
+        )
+
+    created: dict[str, str] = {}
+
+    for service_name, env_name in REQUIRED_SERVICE_KEYS.items():
+        raw_key = os.getenv(env_name)
+        if not raw_key:
+            raw_key = generate_service_api_key()
+
+        existing = (
+            db.query(ServiceAPIKey)
+            .filter(ServiceAPIKey.service_name == service_name)
+            .first()
+        )
+
+        if existing is not None:
+            if not existing.is_active:
+                # Never undo an admin revoke. Re-issue via POST /api/v1/admin/service-keys.
+                print(f"Skipping '{service_name}': key is revoked.")
+                continue
+            env_key = os.getenv(env_name)
+            if env_key:
+                expected_hash = hash_service_api_key(env_key)
+                if existing.key_hash != expected_hash:
+                    existing.key_hash = expected_hash
+                created[service_name] = env_key
+            continue
+
+        db.add(
+            ServiceAPIKey(
+                service_name=service_name,
+                key_hash=hash_service_api_key(raw_key),
+                is_active=True,
+                expires_at=None,
+            )
+        )
+        created[service_name] = raw_key
+
+    db.commit()
+    return created
+
+
+def seed_database(require_service_keys: bool = False):
     db = SessionLocal()
 
     try:
@@ -139,11 +255,40 @@ def seed_database():
             existing_user = db.query(User).filter(User.email == email).first()
 
             if existing_user:
+                if email in DEDICATED_DEMO_EMAILS:
+                    # Keep dedicated demo accounts correctly configured
+                    target_role_id = role_map[data["role"]].id
+                    if existing_user.role_id != target_role_id:
+                        print(
+                            f"Resetting demo account '{email}' to role '{data['role']}'."
+                        )
+                        existing_user.role_id = target_role_id
+                    target_supplier_id = data.get("supplier_id")
+                    if target_supplier_id != existing_user.supplier_id:
+                        existing_user.supplier_id = target_supplier_id
+                    if (
+                        data.get("full_name")
+                        and existing_user.full_name != data["full_name"]
+                    ):
+                        existing_user.full_name = data["full_name"]
+                    expected_uuid = data.get("user_uuid")
+                    if expected_uuid and existing_user.user_uuid != expected_uuid:
+                        existing_user.user_uuid = expected_uuid
+                else:
+                    # Avoid unexpectedly changing unrelated existing users' roles
+                    if existing_user.role_id is None:
+                        existing_user.role_id = role_map[data["role"]].id
+                    if existing_user.supplier_id is None and data.get("supplier_id"):
+                        existing_user.supplier_id = data.get("supplier_id")
+                    expected_uuid = data.get("user_uuid")
+                    if expected_uuid and existing_user.user_uuid != expected_uuid:
+                        existing_user.user_uuid = expected_uuid
                 continue
             now = datetime.now(UTC)
 
             user = User(
                 email=email,
+                user_uuid=data.get("user_uuid") or uuid.uuid4(),
                 full_name=data["full_name"],
                 password=hash_password(data["password"]),
                 role_id=role_map[data["role"]].id,
@@ -155,6 +300,7 @@ def seed_database():
 
             db.add(user)
 
+        seed_service_api_keys(db, require_env=require_service_keys)
         db.commit()
 
         print("Database seeded successfully.")
@@ -169,8 +315,17 @@ def seed_database():
 
 if __name__ == "__main__":
     import sys
+    from pathlib import Path
+
+    _platform_dir = Path(__file__).resolve().parent.parent
+    if str(_platform_dir) not in sys.path:
+        sys.path.insert(0, str(_platform_dir))
+
+    from scripts.migrate_add_user_uuid import run_migration
 
     Base.metadata.create_all(bind=engine)
+    run_migration(engine)
+    require_service_keys = "--require-service-keys" in sys.argv
 
     if "--roles-only" in sys.argv:
         db = SessionLocal()
@@ -181,4 +336,4 @@ if __name__ == "__main__":
         finally:
             db.close()
     else:
-        seed_database()
+        seed_database(require_service_keys=require_service_keys)

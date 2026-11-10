@@ -29,3 +29,6 @@ models/*
 # data, which refuses to write them if calibration is too small.
 !models/eta_pipeline.joblib
 !models/eta_prediction_interval.joblib
+# R15-H2 seed-route pair, produced by `python train_h2.py`.
+!models/eta_seed_routes_pipeline.joblib
+!models/eta_seed_routes_interval.joblib

@@ -1,0 +1,93 @@
+{
+  "name": "Round 15 Flow A and Flow B",
+  "variables": {
+    "sku_id": "SKU-000001",
+    "warehouse_id": "WH-BLR-01"
+  },
+  "steps": [
+    { "name": "A1 recommendations", "method": "GET",
+      "path": "/api/v1/inventory/optimization/recommendations",
+      "expected_status": 200,
+      "headers": {"Authorization": "Bearer {{procurement_token}}"} },
+
+    { "name": "A2 create PO", "method": "POST",
+      "path": "/api/v1/inventory/purchase-orders/draft",
+      "expected_status": 201,
+      "headers": {"Authorization": "Bearer {{procurement_token}}"},
+      "body": {"sku_id": "{{sku_id}}", "warehouse_id": "{{warehouse_id}}"},
+      "save": {"po_id": "po_id", "po_quantity": "quantity",
+               "po_unit_cost": "unit_cost", "po_total": "expected_cost"} },
+
+    { "name": "A3 approve PO", "method": "POST",
+      "path": "/api/v1/inventory/purchase-orders/{{po_id}}/approve",
+      "expected_status": 200,
+      "headers": {"Authorization": "Bearer {{procurement_token}}"},
+      "expect_event": { "type": "inventory.po.approved",
+        "match": {"po_id": "{{po_id}}"},
+        "save": {"po_number": "po_number", "supplier_id": "supplier_id"} } },
+
+    { "name": "B1 supplier acknowledges", "method": "POST",
+      "path": "/api/v1/supplier-portal/purchase-orders/{{po_number}}/acknowledge",
+      "expected_status": 200,
+      "headers": {"Authorization": "Bearer {{supplier_token}}"},
+      "expect_event": { "type": "supplierportal.po.acknowledged",
+        "match": {"po_number": "{{po_number}}"} } },
+
+    { "name": "B2 dispatch", "method": "POST",
+      "path": "/api/v1/supplier-portal/shipments",
+      "expected_status": 201,
+      "headers": {"Authorization": "Bearer {{supplier_token}}"},
+      "body": {
+        "po_number": "{{po_number}}",
+        "shipment_date": "{{today}}",
+        "expected_delivery_date": "{{today_plus_7}}",
+        "carrier": "BlueDart",
+        "tracking_number": "A5-{{run_id}}",
+        "origin": "Supplier Warehouse, Bengaluru",
+        "destination_warehouse": "{{warehouse_id}}",
+        "items": [{"sku_id": "{{sku_id}}", "quantity": "{{po_quantity}}"}]
+      },
+      "expect_event": { "type": "supplierportal.shipment.dispatched",
+        "match": {"po_number": "{{po_number}}"},
+        "save": {"shipment_id": "shipment_id"} } },
+
+    { "name": "B3 ETA arrives",
+      "expect_event": { "type": "eta.shipment.predicted",
+        "match": {"shipment_id": "{{shipment_id}}"} } },
+
+    { "name": "B4 goods receipt", "method": "POST",
+      "path": "/api/v1/inventory/goods-receipts",
+      "expected_status": 201,
+      "headers": {"Authorization": "Bearer {{warehouse_token}}"},
+      "body": {
+        "po_id": "{{po_id}}",
+        "warehouse_id": "{{warehouse_id}}",
+        "items": [{"sku_id": "{{sku_id}}",
+                   "quantity_received": "{{po_quantity}}",
+                   "unit_cost": "{{po_unit_cost}}"}],
+        "notes": "A5 smoke run {{run_id}}"
+      },
+      "expect_event": { "type": "inventory.goods.received",
+        "match": {"po_id": "{{po_id}}"} } },
+
+    { "name": "B5 supplier submits invoice", "method": "POST",
+      "path": "/api/v1/supplier-portal/invoices",
+      "expected_status": 201,
+      "headers": {"Authorization": "Bearer {{supplier_token}}"},
+      "body": {
+        "invoice_number": "INV-A5-{{run_id}}",
+        "supplier_id": "{{supplier_id}}",
+        "items": [{"po_number": "{{po_number}}", "sku_id": "{{sku_id}}",
+                   "description": "A5 smoke line",
+                   "quantity": "{{po_quantity}}", "unit_price": "{{po_unit_cost}}"}],
+        "amount": "{{po_total}}",
+        "invoice_date": "{{today}}"
+      },
+      "save": {"invoice_number": "invoice_number"} },
+
+    { "name": "B6 three-way match", "method": "POST",
+      "path": "/api/v1/supplier-portal/three-way-matches/{{supplier_id}}/{{invoice_number}}",
+      "expected_status": 200,
+      "headers": {"Authorization": "Bearer {{procurement_token}}"} }
+  ]
+}

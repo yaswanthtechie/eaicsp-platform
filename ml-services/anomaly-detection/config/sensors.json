@@ -1,0 +1,53 @@
+{
+  "source": "warehouses.csv",
+  "sensors": [
+    {
+      "sensor_id": "WH-BLR-01-S1",
+      "warehouse_id": "WH-BLR-01"
+    },
+    {
+      "sensor_id": "WH-BLR-01-S2",
+      "warehouse_id": "WH-BLR-01"
+    },
+    {
+      "sensor_id": "WH-BOM-01-S1",
+      "warehouse_id": "WH-BOM-01"
+    },
+    {
+      "sensor_id": "WH-BOM-01-S2",
+      "warehouse_id": "WH-BOM-01"
+    },
+    {
+      "sensor_id": "WH-CCU-01-S1",
+      "warehouse_id": "WH-CCU-01"
+    },
+    {
+      "sensor_id": "WH-CCU-01-S2",
+      "warehouse_id": "WH-CCU-01"
+    },
+    {
+      "sensor_id": "WH-DEL-01-S1",
+      "warehouse_id": "WH-DEL-01"
+    },
+    {
+      "sensor_id": "WH-DEL-01-S2",
+      "warehouse_id": "WH-DEL-01"
+    },
+    {
+      "sensor_id": "WH-HYD-01-S1",
+      "warehouse_id": "WH-HYD-01"
+    },
+    {
+      "sensor_id": "WH-HYD-01-S2",
+      "warehouse_id": "WH-HYD-01"
+    },
+    {
+      "sensor_id": "WH-MAA-01-S1",
+      "warehouse_id": "WH-MAA-01"
+    },
+    {
+      "sensor_id": "WH-MAA-01-S2",
+      "warehouse_id": "WH-MAA-01"
+    }
+  ]
+}

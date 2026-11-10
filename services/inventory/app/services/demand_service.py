@@ -11,14 +11,14 @@ def calculate_rolling_average_demand(
     sku_id: str,
     warehouse_id: str,
     days: int = 30,
+    end_date: date | None = None,
 ) -> float:
-
+    """Average daily demand over the `days` ending at end_date (default: today)."""
     if days <= 0:
         raise ValueError(
             "Demand window must be greater than zero"
         )
-
-    end_date = date.today()
+    end_date = end_date or date.today()
 
     start_date = (
         end_date

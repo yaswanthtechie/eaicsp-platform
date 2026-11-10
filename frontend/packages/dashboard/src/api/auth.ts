@@ -282,7 +282,12 @@ export function clearAuthSession(): void {
   sessionStorage.removeItem(AUTH_SESSION_KEY);
 }
 
-export async function refreshAuthSession(): Promise<AuthSession> {
+// The platform rotates refresh tokens: each /refresh revokes the old one.
+// Two refreshes at the same time would send the same token, and the second
+// would get 401. Share one in-flight request between all callers instead.
+let refreshInFlight: Promise<AuthSession> | null = null;
+
+async function doRefreshAuthSession(): Promise<AuthSession> {
   const session = getAuthSession();
 
   if (!session) {
@@ -292,4 +297,14 @@ export async function refreshAuthSession(): Promise<AuthSession> {
   const tokens = await refreshAccessToken(session.refresh_token);
 
   return saveAuthSession(tokens);
+}
+
+export function refreshAuthSession(): Promise<AuthSession> {
+  if (refreshInFlight === null) {
+    refreshInFlight = doRefreshAuthSession().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+
+  return refreshInFlight;
 }

@@ -1,8 +1,15 @@
+from types import SimpleNamespace
+
 from etl.src.load import bulk_upsert
 
+
 class _Result:
+    def __init__(self, rows=()):
+        self._rows = list(rows)
+
     def __iter__(self):
-        return iter([])
+        return iter(self._rows)
+
 
 class _Conn:
     def __init__(self):
@@ -11,7 +18,11 @@ class _Conn:
     def execute(self, query, params=None):
         if str(query).lstrip().startswith("INSERT INTO t"):
             self.upserts += 1
+            return _Result(
+                [SimpleNamespace(inserted=True)] * (len(params) // 2)
+            )
         return _Result()
+
 
 def test_bulk_upsert_executes_each_chunk_once_and_passes_real_connection():
     conn = _Conn()
@@ -19,7 +30,11 @@ def test_bulk_upsert_executes_each_chunk_once_and_passes_real_connection():
     records = [{"k": i, "v": i} for i in range(3)]
 
     inserted, updated = bulk_upsert(
-        None, "t", ["k", "v"], ["k"], records,
+        None,
+        "t",
+        ["k", "v"],
+        ["k"],
+        records,
         connection=conn,
         history_copy_fn=lambda c, chunk: history_calls.append(c),
     )

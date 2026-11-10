@@ -14,10 +14,10 @@ describe("exportDashboardCsv", () => {
     it("creates and downloads the inventory CSV file", async () => {
         const inventory: InventoryItem[] = [
             {
-                sku_id: "SKU001",
+                sku_id: "SKU-000001",
                 product_name: "Rice",
                 category: "Food",
-                warehouse_id: "WH001",
+                warehouse_id: "WH-BLR-01",
                 quantity_on_hand: 100,
                 reorder_point: 20,
                 needs_reorder: false,
@@ -50,10 +50,10 @@ describe("exportDashboardCsv", () => {
     it("escapes commas, quotes and new lines", async () => {
         const inventory: InventoryItem[] = [
             {
-                sku_id: "SKU001",
+                sku_id: "SKU-000001",
                 product_name: 'Rice, "Premium"\nPack',
                 category: "Food",
-                warehouse_id: "WH001",
+                warehouse_id: "WH-BLR-01",
                 quantity_on_hand: 100,
                 reorder_point: 20,
                 needs_reorder: false,
@@ -83,10 +83,10 @@ describe("exportDashboardCsv", () => {
     it("protects values starting with =", async () => {
         const inventory: InventoryItem[] = [
             {
-                sku_id: "SKU001",
+                sku_id: "SKU-000001",
                 product_name: "=SUM(A1:A2)",
                 category: "Food",
-                warehouse_id: "WH001",
+                warehouse_id: "WH-BLR-01",
                 quantity_on_hand: 100,
                 reorder_point: 20,
                 needs_reorder: false,
@@ -115,10 +115,10 @@ describe("exportDashboardCsv", () => {
     it("protects values starting with +", async () => {
         const inventory: InventoryItem[] = [
             {
-                sku_id: "SKU001",
+                sku_id: "SKU-000001",
                 product_name: "+123",
                 category: "Food",
-                warehouse_id: "WH001",
+                warehouse_id: "WH-BLR-01",
                 quantity_on_hand: 100,
                 reorder_point: 20,
                 needs_reorder: false,
@@ -147,10 +147,10 @@ describe("exportDashboardCsv", () => {
     it("protects values starting with -", async () => {
         const inventory: InventoryItem[] = [
             {
-                sku_id: "SKU001",
+                sku_id: "SKU-000001",
                 product_name: "-123",
                 category: "Food",
-                warehouse_id: "WH001",
+                warehouse_id: "WH-BLR-01",
                 quantity_on_hand: 100,
                 reorder_point: 20,
                 needs_reorder: false,
@@ -179,10 +179,10 @@ describe("exportDashboardCsv", () => {
     it("protects values starting with @", async () => {
         const inventory: InventoryItem[] = [
             {
-                sku_id: "SKU001",
+                sku_id: "SKU-000001",
                 product_name: "@SUM(A1:A2)",
                 category: "Food",
-                warehouse_id: "WH001",
+                warehouse_id: "WH-BLR-01",
                 quantity_on_hand: 100,
                 reorder_point: 20,
                 needs_reorder: false,
@@ -284,10 +284,10 @@ describe("exportDashboardCsv", () => {
     it("does not prefix negative numbers", async () => {
         const inventory: InventoryItem[] = [
             {
-                sku_id: "SKU001",
+                sku_id: "SKU-000001",
                 product_name: "Rice",
                 category: "Food",
-                warehouse_id: "WH001",
+                warehouse_id: "WH-BLR-01",
                 quantity_on_hand: -5,
                 reorder_point: 20,
                 needs_reorder: true,

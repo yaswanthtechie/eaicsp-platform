@@ -1,0 +1,30 @@
+{
+  "event_id": "8b2e4c17-5d3a-4f69-b8e1-0a7c9d2f6e45",
+  "event_type": "eta.shipment.predicted",
+  "event_version": 1,
+  "occurred_at": "2026-10-15T06:31:05Z",
+  "producer": "eta-prediction",
+  "payload": {
+    "shipment_id": "SHP-2026-000077",
+    "po_number": "PO-2026-000123",
+    "eta_days": 5.2,
+    "confidence_low": 4.1,
+    "confidence_high": 7.3,
+    "model_version": "eta_pipeline/3",
+    "predicted_at": "2026-10-15T06:31:04Z",
+    "top_features": [
+      {
+        "feature": "distance_km",
+        "shap_value": 1.84
+      },
+      {
+        "feature": "total_weight_kg",
+        "shap_value": 0.42
+      },
+      {
+        "feature": "purchase_month",
+        "shap_value": -0.31
+      }
+    ]
+  }
+}

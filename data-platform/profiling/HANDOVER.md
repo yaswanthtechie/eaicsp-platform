@@ -79,7 +79,7 @@ Result on 22/10/2026: `both tasks succeeded`
 | 2. Scheduled profiling as an Airflow DAG | Done (fixed by Tharun, 13/10/2026) | See section 7 |
 | 3. Evidently comparison (agreements and disagreements explained) | Done (fixed by Tharun, 13/10/2026) | results/evidently_comparison_no_drift.csv, results/evidently_comparison_deliberate_drift.csv |
 
-Open PR from Sandeep: `#187` → `finished and not closed`
+Open PR from Sandeep: `no open PR from Sandeep was found for the Round 12-13 work`
 
 ---
 
@@ -120,3 +120,4 @@ Open PR from Sandeep: `#187` → `finished and not closed`
 ## 9. What's left / next steps
 
 - [ ] Round 14: expose quality scores on Prometheus `/metrics`, same naming style as the validation library
+- **Consistency Scores in Prometheus:** The SQL pushdown engine (`src/postgres_profiler.py`) currently returns an empty `quality_scorecard`. As a result, the Prometheus exporter must manually calculate completeness, validity, and uniqueness from base metrics, and the `profiling_consistency_score` will report as `0` for any DAG-scheduled Postgres runs until scorecard logic is wired into the SQL pushdown engine.

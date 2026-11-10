@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eaicsp.platform/contracts/events/iot.anomaly.detected.v1.json",
+  "title": "iot.anomaly.detected",
+  "description": "One event per detected anomaly episode on a warehouse sensor. Published by the anomaly-detection service to the Kafka topic named after event_type (iot.anomaly.detected), partition key = payload.sensor_id. Delivery is at-least-once and a crash replay re-publishes the same episode with a NEW event_id, so consumers must de-duplicate on payload.episode_id, not event_id. Consumers must ignore unknown fields so additive changes do not break them.",
+  "type": "object",
+  "required": [
+    "event_id",
+    "event_type",
+    "event_version",
+    "occurred_at",
+    "producer",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "UUID v4, unique per published event."
+    },
+    "event_type": {
+      "const": "iot.anomaly.detected"
+    },
+    "event_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version number (integer 1). Additive, backward-compatible changes keep version 1."
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC wall-clock time the event was created. Sensor time is in the payload."
+    },
+    "producer": {
+      "const": "anomaly-detection-service"
+    },
+    "trace_id": {
+      "type": ["string", "null"],
+      "description": "Optional distributed trace id."
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "episode_id",
+        "sensor_id",
+        "warehouse_id",
+        "severity",
+        "message",
+        "window_start",
+        "window_end",
+        "first_flag_time",
+        "confirmed_time",
+        "peak_time",
+        "peak_score",
+        "threshold",
+        "n_flagged",
+        "severe",
+        "closed_by",
+        "top_features",
+        "model_version"
+      ],
+      "properties": {
+        "episode_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Deterministic id: sensor_id|window_start, where window_start is ISO-8601 UTC with a +00:00 offset (Python isoformat). Treat it as an opaque string; do not rebuild or reformat it. The same episode always has the same id; use it to de-duplicate."
+        },
+        "sensor_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]{1,64}$",
+          "description": "Sensor that produced the episode."
+        },
+        "warehouse_id": {
+          "type": "string",
+          "pattern": "^WH-[A-Z]{3}-[0-9]{2}$",
+          "description": "Canonical warehouse id (city IATA code), e.g. WH-BLR-01."
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"],
+          "description": "Producer-assigned urgency, ordered low < medium < high < critical. Treat it as an ordered label only; the exact rule is owned by the anomaly service."
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "description": "Human-readable one-line summary, ready to show in an alerts panel."
+        },
+        "window_start": {
+          "type": "string",
+          "format": "date-time",
+          "description": "UTC sensor time of the first flagged reading of the episode."
+        },
+        "window_end": {
+          "type": "string",
+          "format": "date-time",
+          "description": "UTC sensor time of the last flagged reading of the episode."
+        },
+        "first_flag_time": {
+          "type": "string",
+          "format": "date-time",
+          "description": "UTC sensor time of the first flagged reading."
+        },
+        "confirmed_time": {
+          "type": "string",
+          "format": "date-time",
+          "description": "UTC sensor time when the episode was confirmed (minimum flagged readings reached, or one severe reading)."
+        },
+        "peak_time": {
+          "type": "string",
+          "format": "date-time",
+          "description": "UTC sensor time of the highest-scoring reading. top_features explain this reading."
+        },
+        "peak_score": {
+          "type": "number",
+          "description": "Highest anomaly score in the episode. Higher = more anomalous."
+        },
+        "threshold": {
+          "type": "number",
+          "description": "Anomaly threshold in force at the peak reading. Score >= threshold is anomalous."
+        },
+        "n_flagged": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of flagged readings in the episode."
+        },
+        "severe": {
+          "type": "boolean",
+          "description": "True if at least one reading was far above the threshold."
+        },
+        "closed_by": {
+          "type": "string",
+          "enum": ["quiet", "shutdown"],
+          "description": "quiet = no flags for the gap period. shutdown = flushed while still open; a later event may continue the same incident."
+        },
+        "top_features": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "description": "SHAP explanation of the peak reading, ordered by contribution, highest first. Normally only features that push toward anomaly (shap_value > 0). If no feature does, contains exactly one item: the least-normal feature with contribution 0.",
+          "items": {
+            "type": "object",
+            "required": ["feature", "contribution", "shap_value", "direction"],
+            "properties": {
+              "feature": {
+                "type": "string",
+                "enum": ["temperature", "humidity", "door_open", "power"]
+              },
+              "contribution": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "This feature's share of the positive SHAP push (0 to 1)."
+              },
+              "shap_value": {
+                "type": "number",
+                "description": "Signed SHAP value on the anomaly score; positive pushes toward anomaly."
+              },
+              "direction": {
+                "type": "string",
+                "enum": ["high", "low"],
+                "description": "Feature value above (high) or at/below (low) its training mean."
+              }
+            }
+          }
+        },
+        "model_version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

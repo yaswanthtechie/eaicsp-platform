@@ -10,6 +10,19 @@ load_dotenv()
 # app/core/config.py reads os.environ at import time.
 os.environ["SECRET_KEY"] = "test-secret-key-for-unit-tests-only-0123456789"
 
+# Fallback to Lua 5.2 only when Lua 5.1 cannot be loaded (e.g. Windows App Control policy)
+if not os.environ.get("FAKEREDIS_LUA_VERSION"):
+    try:
+        import importlib
+
+        importlib.import_module("lupa.lua51")
+    except (ImportError, OSError):
+        try:
+            importlib.import_module("lupa.lua52")
+            os.environ["FAKEREDIS_LUA_VERSION"] = "5.2"
+        except (ImportError, OSError):
+            pass
+
 # Tests always use a dedicated database, never the developer's DATABASE_URL.
 os.environ["DATABASE_URL"] = os.environ.get(
     "TEST_DATABASE_URL",
@@ -27,10 +40,14 @@ SEED_PASSWORD_KEYS = (
     "WAREHOUSE_MANAGER_PASSWORD",
     "ANALYST_PASSWORD",
     "SUPPLIER_PASSWORD",
+    "SUPPLIER_19_PASSWORD",
+    "SUPPLIER_21_PASSWORD",
+    "SUPPLIER_22_PASSWORD",
 )
 
 for _key in SEED_PASSWORD_KEYS:
-    os.environ.setdefault(_key, f"Test-{secrets.token_hex(8)}@1")
+    if not os.environ.get(_key):
+        os.environ[_key] = f"Test-{secrets.token_hex(8)}@1"
 
 # ============================================================
 # PYTEST / APPLICATION IMPORTS

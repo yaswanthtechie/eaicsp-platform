@@ -2506,5 +2506,208 @@ def test_matched_case_cannot_generate_resolution_suggestion(
     assert "unresolved discrepancies" in (
         response.text.lower()
     )
+# ============================================================
+# R15: CANONICAL INVENTORY PO + INVENTORY GOODS RECEIPT
+#
+# Inventory approves the PO (po_mirror), Inventory reports the
+# goods received (inventory_goods_receipt_events), the supplier
+# invoices through the API, procurement runs the match.
+# ============================================================
+
+INVENTORY_PO_ID = "PO-2026-000123"
+INVENTORY_SKU_ID = "SKU-000123"
 
 
+@pytest.fixture
+def inventory_po(po_db):
+    """Approved Inventory PO for SUP-00001: 100 x SKU-000123 at 450.00."""
+    from datetime import datetime, timezone
+
+    from app.models.po_mirror import POMirror
+
+    with po_db() as db:
+        db.add(
+            POMirror(
+                po_id=INVENTORY_PO_ID,
+                event_id="a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                po_number=INVENTORY_PO_ID,
+                supplier_id="SUP-00001",
+                warehouse_id="WH-BLR-01",
+                approval_status="approved",
+                approved_by="3f2b8c1e-7a4d-4e9b-9c2f-1d5e6a7b8c90",
+                approved_at=datetime.now(timezone.utc),
+                total_amount=45000,
+                lines=[
+                    {
+                        "line_number": 1,
+                        "sku_id": INVENTORY_SKU_ID,
+                        "quantity": 100,
+                        "unit_cost": 450.0,
+                        "expected_cost": 45000.0,
+                    }
+                ],
+                event_type="inventory.po.approved",
+                event_version=1,
+                occurred_at=datetime.now(timezone.utc),
+                status="acknowledged",
+            )
+        )
+        db.commit()
+
+    yield po_db
+
+
+def store_inventory_receipt(factory, quantity_received):
+    """Store an inventory.goods.received event as the consumer does."""
+    from app.models.inventory_goods_receipt_event import (
+        InventoryGoodsReceiptEvent,
+    )
+
+    event = {
+        "event_id": "b7c8d9e0-f1a2-4b3c-8d5e-6f7a8b9c0d1e",
+        "event_type": "inventory.goods.received",
+        "event_version": 1,
+        "occurred_at": "2026-10-15T14:15:00Z",
+        "producer": "inventory-service",
+        "payload": {
+            "receipt_id": "GR-2026-000077",
+            "po_id": INVENTORY_PO_ID,
+            "supplier_id": "SUP-00001",
+            "warehouse_id": "WH-BLR-01",
+            "received_by": "warehouse.manager@company.com",
+            "received_at": "2026-10-15T14:15:00Z",
+            "status": "received",
+            "items": [
+                {
+                    "sku_id": INVENTORY_SKU_ID,
+                    "quantity_received": quantity_received,
+                }
+            ],
+        },
+    }
+
+    with factory() as db:
+        db.add(
+            InventoryGoodsReceiptEvent(
+                event_id=event["event_id"],
+                receipt_id=event["payload"]["receipt_id"],
+                po_id=INVENTORY_PO_ID,
+                supplier_id="SUP-00001",
+                payload=event,
+            )
+        )
+        db.commit()
+
+
+def invoice_inventory_po(client, quantity, unit_price=450.0):
+    return client.post(
+        "/api/v1/invoices",
+        json={
+            "invoice_number": "INV-2026-0001",
+            "supplier_id": "SUP-00001",
+            "items": [
+                {
+                    "po_number": INVENTORY_PO_ID,
+                    "sku_id": INVENTORY_SKU_ID,
+                    "description": "Steel bolts",
+                    "quantity": quantity,
+                    "unit_price": unit_price,
+                }
+            ],
+            "amount": quantity * unit_price,
+            "invoice_date": "2026-10-16",
+        },
+    )
+
+
+def test_inventory_receipt_quantity_mismatch_is_flagged_for_review(
+    inventory_po,
+    supplier_client,
+    procurement_client,
+):
+    """Deliberate mismatch: ordered 100, Inventory received 90, invoiced 100."""
+    store_inventory_receipt(inventory_po, quantity_received=90)
+
+    invoice_response = invoice_inventory_po(supplier_client, quantity=100)
+    assert invoice_response.status_code in (200, 201), invoice_response.text
+    assert p2p_states[INVENTORY_PO_ID] == P2PState.invoiced
+
+    response = procurement_client.post(
+        match_url(invoice_number="INV-2026-0001")
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["status"] == "discrepancy"
+    assert data["discrepancies"] == ["quantity_mismatch"]
+
+    line = data["lines"][0]
+    assert line["sku_id"] == INVENTORY_SKU_ID
+    assert line["po_quantity"] == 100
+    assert line["received_quantity"] == 90
+    assert line["invoiced_quantity"] == 100
+    assert line["quantity_matched"] is False
+
+    assert p2p_states[INVENTORY_PO_ID] == P2PState.discrepancy
+
+
+def test_inventory_receipt_full_match_is_matched(
+    inventory_po,
+    supplier_client,
+    procurement_client,
+):
+    store_inventory_receipt(inventory_po, quantity_received=100)
+
+    invoice_response = invoice_inventory_po(supplier_client, quantity=100)
+    assert invoice_response.status_code in (200, 201), invoice_response.text
+
+    response = procurement_client.post(
+        match_url(invoice_number="INV-2026-0001")
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["status"] == "matched"
+    assert data["discrepancies"] == []
+    assert data["lines"][0]["received_quantity"] == 100
+    assert p2p_states[INVENTORY_PO_ID] == P2PState.matched
+
+
+def test_inventory_po_cannot_be_invoiced_before_goods_are_received(
+    inventory_po,
+    supplier_client,
+):
+    response = invoice_inventory_po(supplier_client, quantity=100)
+
+    assert response.status_code == 400, response.text
+    assert "before Inventory has received the goods" in response.text
+    assert INVENTORY_PO_ID not in p2p_states
+
+
+def test_other_supplier_cannot_invoice_inventory_po(
+    inventory_po,
+    supplier_b_client,
+):
+    store_inventory_receipt(inventory_po, quantity_received=100)
+
+    response = supplier_b_client.post(
+        "/api/v1/invoices",
+        json={
+            "invoice_number": "INV-2026-0002",
+            "supplier_id": "SUP-00002",
+            "items": [
+                {
+                    "po_number": INVENTORY_PO_ID,
+                    "sku_id": INVENTORY_SKU_ID,
+                    "description": "Steel bolts",
+                    "quantity": 100,
+                    "unit_price": 450.0,
+                }
+            ],
+            "amount": 45000.0,
+            "invoice_date": "2026-10-16",
+        },
+    )
+
+    assert response.status_code in (400, 403, 404), response.text
+    assert INVENTORY_PO_ID not in p2p_states

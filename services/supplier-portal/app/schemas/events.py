@@ -1,8 +1,9 @@
-
-from enum import Enum
+﻿from enum import Enum
 from typing import List
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from datetime import date
+from pydantic import model_validator
 
 
 # ============================================================
@@ -86,3 +87,102 @@ class SupplierComplianceAudit(BaseModel):
     reason: str = Field(min_length=1)
     occurred_at: AwareDatetime
     processed_at: AwareDatetime
+
+# ============================================================
+# R15: INVENTORY PURCHASE ORDER APPROVED EVENT
+# ============================================================
+class ApprovedPOLinePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    line_number: int = Field(ge=1)
+    sku_id: str = Field(pattern=r"^SKU-\d{6}$")
+    quantity: int = Field(ge=1)
+    unit_cost: float = Field(ge=0)
+    expected_cost: float = Field(ge=0)
+
+
+class ApprovedPOPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    po_id: str = Field(pattern=r"^PO-\d{4}-\d{6}$")
+    supplier_id: str = Field(pattern=r"^SUP-\d{5}$")
+    warehouse_id: str = Field(pattern=r"^WH-[A-Z]{3}-\d{2}$")
+    approval_status: str = Field(pattern=r"^approved$")
+    approved_by: str = Field(min_length=1)
+    approved_at: AwareDatetime
+    total_amount: float = Field(ge=0)
+    lines: list[ApprovedPOLinePayload] = Field(min_length=1)
+
+    po_number: str | None = None
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    expected_delivery_date: date | None = None
+
+
+class POApprovedEvent(BaseModel):
+    """Event envelope published by Inventory Service."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: str = Field(min_length=1, max_length=36)
+    event_type: str = Field(pattern=r"^inventory\.po\.approved$")
+    event_version: int = Field(ge=1, le=1)
+    occurred_at: AwareDatetime
+    producer: str = Field(pattern=r"^inventory-service$")
+    trace_id: str | None = None
+    payload: ApprovedPOPayload
+
+# ============================================================
+# R15: ETA SHIPMENT PREDICTED EVENT
+# ============================================================
+class ETATopFeature(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    feature: str = Field(min_length=1, pattern=r"\S")
+    shap_value: float
+
+class ETAShipmentPredictedPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    shipment_id: str = Field(
+        pattern=r"^SHP-[0-9]{4}-[0-9]{6}$"
+    )
+    po_number: str = Field(
+        pattern=r"^PO-[0-9]{4}-[0-9]{6}$"
+    )
+    eta_days: float = Field(ge=0)
+    confidence_low: float = Field(ge=0)
+    confidence_high: float = Field(ge=0)
+    model_version: str = Field(min_length=1, pattern=r"\S")
+    predicted_at: AwareDatetime
+
+    top_features: list[ETATopFeature] | None = Field(
+        default=None,
+        max_length=5,
+    )
+
+    @model_validator(mode="after")
+    def validate_confidence_interval(self):
+        if self.confidence_low > self.confidence_high:
+            raise ValueError(
+                "confidence_low must be <= confidence_high"
+            )
+        return self
+
+
+class ETAShipmentPredictedEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: str = Field(
+        pattern=(
+            r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-"
+            r"[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        )
+    )
+    event_type: str = Field(
+        pattern=r"^eta\.shipment\.predicted$"
+    )
+    event_version: int = Field(ge=1, le=1)
+    occurred_at: AwareDatetime
+    producer: str = Field(pattern=r"^eta-prediction$")
+    trace_id: str | None = None
+    payload: ETAShipmentPredictedPayload

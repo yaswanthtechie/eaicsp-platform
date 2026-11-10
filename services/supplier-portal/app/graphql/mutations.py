@@ -9,10 +9,79 @@ from app.services.purchase_order_service import (
 from app.graphql.context import require_graphql_write_access
 from app.graphql.queries import _to_purchase_order_type
 from app.graphql.types import PurchaseOrderType
+from app.database import SessionLocal
+from app.models.po_mirror import POMirror
+
+from app.graphql.types import (
+    ApprovedPurchaseOrderType,
+)
+from app.graphql.queries import (
+    _to_approved_purchase_order_type,
+)
+from app.services.po_acknowledgement_service import (
+    POAcknowledgementError,
+    acknowledge_approved_po,
+)
 
 
 @strawberry.type
 class Mutation:
+
+    @strawberry.mutation
+    def acknowledge_approved_purchase_order(
+        self,
+        info: Info,
+        po_id: str,
+    ) -> ApprovedPurchaseOrderType | None:
+        user = info.context["user"]
+
+        # Only the owning supplier can acknowledge approved POs.
+        if user.get("role") != "supplier":
+            raise PermissionError(
+                "Only suppliers can acknowledge approved POs"
+            )
+
+        supplier_id = user.get("supplier_id")
+        if not isinstance(supplier_id, str) or not supplier_id.strip():
+            raise PermissionError("Supplier identity is missing")
+
+        supplier_id = supplier_id.strip()
+
+        db = SessionLocal()
+        try:
+            # Check ownership before compliance validation to preserve
+            # the existing unknown/cross-supplier resource behavior.
+            po = (
+                db.query(POMirror)
+                .filter(
+                    POMirror.po_id == po_id,
+                    POMirror.supplier_id == supplier_id,
+                )
+                .one_or_none()
+            )
+
+            if po is None:
+                return None
+
+            # CLEARED suppliers may write; NEEDS_REVIEW and SUSPENDED
+            # suppliers must not acknowledge.
+            require_graphql_write_access(user)
+
+            try:
+                acknowledged = acknowledge_approved_po(
+                    db=db,
+                    po_id=po_id,
+                    supplier_id=supplier_id,
+                )
+            except POAcknowledgementError as exc:
+                raise ValueError(str(exc)) from exc
+
+            if acknowledged is None:
+                return None
+
+            return _to_approved_purchase_order_type(acknowledged)
+        finally:
+            db.close()
 
     @strawberry.mutation
     def acknowledge_purchase_order(

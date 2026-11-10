@@ -964,7 +964,9 @@ COMPLIANCE_PG_TEST_URL=postgresql+psycopg://compliance:change-me@localhost:5433/
 KAFKA_BOOTSTRAP_SERVERS=localhost:9092
 KAFKA_FLUSH_TIMEOUT_SECONDS=5
 
-INTERNAL_SERVICE_KEYS=inventory-service:change-me,supplier-portal:change-me
+PLATFORM_AUTH_URL=http://127.0.0.1:8005
+PLATFORM_VERIFY_TIMEOUT_SECONDS=2.0
+PLATFORM_SERVICE_API_KEY=your-platform-issued-service-api-key
 
 SLA_LATENCY_THRESHOLD_MS=500
 SLA_ALERT_WEBHOOK_URL=
@@ -1081,14 +1083,15 @@ The service will load sanctions data during application startup.
 Basic service health endpoint:
 
 ```text
-GET /root
+GET /health
 ```
 
 Example response:
 
 ```json
 {
-  "service": "compliance"
+ "status":"ok",
+  "service": "compliance-service"
 }
 ```
 

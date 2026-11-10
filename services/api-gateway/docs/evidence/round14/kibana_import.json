@@ -1,0 +1,57 @@
+{
+  "successCount": 5,
+  "success": true,
+  "warnings": [],
+  "successResults": [
+    {
+      "type": "index-pattern",
+      "id": "2d9f453f-f358-4e7e-aaac-429ff2a85f91",
+      "meta": {
+        "title": "Gateway Logs",
+        "icon": "indexPatternApp"
+      },
+      "managed": false,
+      "overwrite": true
+    },
+    {
+      "type": "lens",
+      "id": "7d40cb3e-2567-4ba7-a4b7-b30d2c596fa8",
+      "meta": {
+        "title": "API Gateway Error Rate",
+        "icon": "lensApp"
+      },
+      "managed": false,
+      "overwrite": true
+    },
+    {
+      "type": "lens",
+      "id": "ebc89e63-ee37-4cb5-b912-8996835611d7",
+      "meta": {
+        "title": "Slow Routes Ranked by Latency",
+        "icon": "lensApp"
+      },
+      "managed": false,
+      "overwrite": true
+    },
+    {
+      "type": "search",
+      "id": "1e6adbaa-1f7b-426c-bad0-d483bfff6c5c",
+      "meta": {
+        "title": "Gateway Logs by Request ID",
+        "icon": "discoverApp"
+      },
+      "managed": false,
+      "overwrite": true
+    },
+    {
+      "type": "dashboard",
+      "id": "b55dd890-69cd-4800-8de1-828ad860dbca",
+      "meta": {
+        "title": "API Gateway - Centralized Logging & Error Monitoring",
+        "icon": "dashboardApp"
+      },
+      "managed": false,
+      "overwrite": true
+    }
+  ]
+}

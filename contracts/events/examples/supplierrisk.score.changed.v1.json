@@ -1,0 +1,20 @@
+{
+  "event_id": "3f6c2a1e-8b4d-4c7a-9e2f-5d1b0a7c6e43",
+  "event_type": "supplierrisk.score.changed",
+  "event_version": 1,
+  "occurred_at": "2026-10-15T10:30:00+00:00",
+  "producer": "supplier-risk-service",
+  "payload": {
+    "supplier": "Unity Manufacturing GmbH",
+    "supplier_id": "SUP-00019",
+    "previous_tier": "medium",
+    "new_tier": "high",
+    "risk_score": 78.5,
+    "supporting_articles": [
+      { "headline": "Regulators launch an investigation into supplier accounting practices.", "date": "2026-10-14", "score": 65.0 },
+      { "headline": "Supplier reports insolvency proceedings at its main plant.", "date": "2026-10-13", "score": 72.0 }
+    ],
+    "evidence_count": 2,
+    "explanation": "Supplier 'Unity Manufacturing GmbH' (SUP-00019) risk tier transitioned from 'medium' to 'high' with accepted score 78.50 backed by 2 supporting article(s)."
+  }
+}

@@ -23,8 +23,8 @@ def forecast_payload(**overrides):
 
     payload = {
         "contract_version": "v1",
-        "sku_id": "SKU001",
-        "warehouse_id": "WH001",
+        "sku_id": "SKU-000001",
+        "warehouse_id": "WH-BLR-01",
         "granularity": "monthly",
         "interval_level": 0.8,
         "model_version": "prophet-xgb-r5",
@@ -46,7 +46,7 @@ def forecast_payload(**overrides):
 def test_contract_accepts_forecast_service_output():
     contract = ForecastContract.model_validate(forecast_payload())
 
-    assert contract.sku_id == "SKU001"
+    assert contract.sku_id == "SKU-000001"
     assert contract.forecast[0].predicted == 310.0
     assert contract.forecast[1].date == date(2026, 11, 1)
 
@@ -131,7 +131,7 @@ def test_uses_forecast_when_fresh_and_matching():
     contract = ForecastContract.model_validate(forecast_payload())
 
     result = resolve_daily_demand(
-        contract, "SKU001", "WH001", date(2026, 10, 20), NOW,
+        contract, "SKU-000001", "WH-BLR-01", date(2026, 10, 20), NOW,
         history_daily_demand=8.0,
     )
 
@@ -145,11 +145,11 @@ def test_uses_forecast_when_fresh_and_matching():
         ({}, "OTHER-SKU", date(2026, 10, 20), "different SKU"),
         (
             {"generated_at": (NOW - timedelta(days=60)).isoformat()},
-            "SKU001",
+            "SKU-000001",
             date(2026, 10, 20),
             "stale",
         ),
-        ({}, "SKU001", date(2027, 3, 1), "does not cover"),
+        ({}, "SKU-000001", date(2027, 3, 1), "does not cover"),
     ],
 )
 def test_falls_back_to_history_when_forecast_unusable(
@@ -160,7 +160,7 @@ def test_falls_back_to_history_when_forecast_unusable(
     )
 
     result = resolve_daily_demand(
-        contract, sku, "WH001", on_date, NOW,
+        contract, sku, "WH-BLR-01", on_date, NOW,
         history_daily_demand=8.0,
     )
 
@@ -171,8 +171,8 @@ def test_falls_back_to_history_when_forecast_unusable(
 
 def test_falls_back_to_history_without_forecast():
     result = resolve_daily_demand(
-        None, "SKU001", "WH001", date(2026, 10, 20), NOW,
+        None, "SKU-000001", "WH-BLR-01", date(2026, 10, 20), NOW,
         history_daily_demand=8.0,
     )
 
-    assert result["source"] == "history"
+    assert result["source"] == "history"

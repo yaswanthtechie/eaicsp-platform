@@ -8,3 +8,7 @@ prometheus/metrics_token
 load_tests/*_stats_history.csv
 load_tests/*_failures.csv
 load_tests/*_exceptions.csv
+
+# Gateway local access logs
+logs/
+*.log

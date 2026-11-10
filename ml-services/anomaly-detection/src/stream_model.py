@@ -122,6 +122,11 @@ class StreamModel:
             for i in order
         ]
 
+    def warm_up(self):
+        """Build the SHAP explainer now so the first event is not slow."""
+
+        self.explain(dict(zip(FEATURES, self.feature_means.tolist())))
+
 
 def train_stream_model(train_n=5000, calibration_n=2000, background_n=200):
 

@@ -2,7 +2,7 @@ from datetime import date
 from typing import List
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.schemas.ids import SUPPLIER_ID_PATTERN
 
 # ============================================================
@@ -46,31 +46,42 @@ class InvoiceDispute(BaseModel):
 # INVOICE LINE ITEM
 # ============================================================
 
+
 class InvoiceLineItem(BaseModel):
     """
-    Represents one invoice line item.
+    Invoice line linked to a PO item.
 
-    Each line item is linked to a specific Purchase Order
-    and a specific item within that Purchase Order.
+    Legacy invoices use item_code.
+    Inventory-backed invoices may use sku_id.
     """
 
     po_number: str = Field(
         pattern=r"^[A-Za-z0-9_-]+$"
     )
 
-    item_code: str = Field(
-        pattern=r"^[A-Za-z0-9_-]+$"
+    item_code: str | None = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
+
+    sku_id: str | None = Field(
+        default=None,
+        pattern=r"^SKU-\d{6}$",
     )
 
     description: str
 
-    quantity: int = Field(
-        gt=0
-    )
+    quantity: int = Field(gt=0)
 
-    unit_price: float = Field(
-        gt=0
-    )
+    unit_price: float = Field(gt=0)
+
+    @model_validator(mode="after")
+    def validate_item_identifier(self):
+        if not self.item_code and not self.sku_id:
+            raise ValueError(
+                "Either item_code or sku_id must be provided."
+            )
+        return self
 
 
 # ============================================================

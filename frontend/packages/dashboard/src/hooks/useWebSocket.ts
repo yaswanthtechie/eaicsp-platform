@@ -1,24 +1,94 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
-    AlertMessage,
-    InventoryUpdate,
-    WebSocketMessage,
+  AlertMessage,
+  AnalyticsEventEnvelope,
+  InventoryItem,
+  InventoryUpdate,
+  WebSocketMessage,
 } from "../types/forecast";
-
+import { mapAnalyticsEventToAlert } from "../utils/alertMapper";
+import { getAuthSession, refreshAuthSession, type AuthSession } from "../api/auth";
 interface UseWebSocketOptions {
   url: string;
   onMessage: (data: WebSocketMessage) => void;
   onError?: (error: Event) => void;
+  onAuthSessionRefreshed?: (session: AuthSession) => void;
+  /** false = no automatic reconnect after a drop. A 4401 still refreshes the JWT and reconnects once. */
   autoReconnect?: boolean;
   maxRetries?: number;
+  /** false = connect without a token (mock auth only). */
+  requireToken?: boolean;
 }
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isInventoryItem(value: unknown): value is InventoryItem {
+  if (!isRecord(value)) return false;
+
+  return (
+    typeof value.sku_id === "string" &&
+    typeof value.product_name === "string" &&
+    typeof value.category === "string" &&
+    typeof value.warehouse_id === "string" &&
+    typeof value.quantity_on_hand === "number" &&
+    typeof value.reorder_point === "number" &&
+    typeof value.needs_reorder === "boolean" &&
+    typeof value.avg_daily_demand === "number"
+  );
+}
+
+function isInventoryUpdate(value: unknown): value is InventoryUpdate {
+  return (
+    isRecord(value) &&
+    value.type === "inventory_update" &&
+    isInventoryItem(value.item)
+  );
+}
+
+
+function isSupportedEventVersion(value: unknown): boolean {
+  return value === 1 || value === "1" || value === "1.0";
+}
+
+
+function isAnalyticsEvent(value: unknown): value is AnalyticsEventEnvelope {
+  return (
+    isRecord(value) &&
+    typeof value.event_id === "string" &&
+    typeof value.event_type === "string" &&
+    isSupportedEventVersion(value.event_version) &&
+    typeof value.occurred_at === "string" &&
+    typeof value.producer === "string" &&
+    isRecord(value.payload) &&
+    (value.trace_id === undefined ||
+      value.trace_id === null ||
+      typeof value.trace_id === "string")
+  );
+}
+
+function getDedupKey(event: AnalyticsEventEnvelope): string {
+  const episodeId = event.payload.episode_id;
+
+  return event.event_type === "iot.anomaly.detected" &&
+    typeof episodeId === "string"
+    ? `iot.anomaly.detected:${episodeId}`
+    : event.event_id;
+}
+
+// Real token expiries are minutes apart. A second 4401 within this window
+// means a fresh token was rejected too, so stop instead of looping.
+const AUTH_REFRESH_MIN_GAP_MS = 60_000;
 
 export function useWebSocket({
   url,
   onMessage,
   onError,
+  onAuthSessionRefreshed,
   autoReconnect = true,
   maxRetries = 5,
+  requireToken = true,
 }: UseWebSocketOptions) {
   const [connected, setConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -28,13 +98,21 @@ export function useWebSocket({
 
   const retryCountRef = useRef(0);
 
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const onMessageRef = useRef(onMessage);
   const onErrorRef = useRef(onError);
+  const onAuthSessionRefreshedRef = useRef(onAuthSessionRefreshed);
 
+  useEffect(() => {
+    onAuthSessionRefreshedRef.current = onAuthSessionRefreshed;
+  }, [onAuthSessionRefreshed]);
+
+  const connectRef = useRef<(() => void) | null>(null);
+  const seenEventIdsRef = useRef(new Set<string>());
+  const intentionalCloseRef = useRef(false);
+  const lastAuthRefreshAtRef = useRef<number | null>(null);
+  
   useEffect(() => {
     onMessageRef.current = onMessage;
   }, [onMessage]);
@@ -42,6 +120,32 @@ export function useWebSocket({
   useEffect(() => {
     onErrorRef.current = onError;
   }, [onError]);
+
+  const retryConnection = useCallback(() => {
+    retryCountRef.current = 0;
+    lastAuthRefreshAtRef.current = null;
+    setFailed(false);
+    intentionalCloseRef.current = true;
+
+    if (reconnectTimerRef.current !== null) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+
+    const socket = socketRef.current;
+    socketRef.current = null;
+
+    if (socket) {
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onerror = null;
+      socket.onclose = null;
+      socket.close();
+    }
+
+    intentionalCloseRef.current = false;
+    connectRef.current?.();
+  }, []);
 
   useEffect(() => {
     let isUnmounted = false;
@@ -53,154 +157,215 @@ export function useWebSocket({
       }
     };
 
+    const scheduleReconnect = (delay: number) => {
+      if (isUnmounted) return;
+
+      if (retryCountRef.current >= maxRetries) {
+        setFailed(true);
+        setIsConnecting(false);
+        return;
+      }
+
+      retryCountRef.current += 1;
+      setIsConnecting(false);
+
+      reconnectTimerRef.current = setTimeout(() => {
+        reconnectTimerRef.current = null;
+        if (!isUnmounted) connect();
+      }, delay);
+    };
+
     const connect = () => {
       if (isUnmounted) {
         return;
       }
 
       clearReconnectTimer();
-
+      setFailed(false);
       setIsConnecting(true);
 
-      const socket = new WebSocket(url);
+      let socket: WebSocket;
+      try {
+        const token = getAuthSession()?.access_token;
+
+        if (!token && requireToken) {
+          console.error("[C3 WS] No valid access token. Connection skipped.");
+          setConnected(false);
+          setIsConnecting(false);
+          setFailed(true);
+          return;
+        }
+        const wsUrl = new URL(url);
+
+        if (token) {
+          wsUrl.searchParams.set("token", token);
+        }
+        
+        socket = new WebSocket(wsUrl.toString());
+      } catch {
+        // Don't log the error object because its message can contain the token.
+        console.error("[C3 WS] Could not create the WebSocket connection.");
+        setConnected(false);
+        setIsConnecting(false);
+
+        if (autoReconnect) {
+          const delay = Math.min(1000 * 2 ** retryCountRef.current, 30000);
+          scheduleReconnect(delay);
+        } else {
+          setFailed(true);
+        }
+
+        return;
+      }
 
       socketRef.current = socket;
 
       socket.onopen = () => {
-        if (isUnmounted) {
-          return;
-        }
+        if (isUnmounted) return;
 
         setConnected(true);
         setIsConnecting(false);
         setFailed(false);
-
         retryCountRef.current = 0;
       };
 
-      socket.onmessage = (event) => {
+      socket.onmessage = (event: MessageEvent) => {
         if (isUnmounted) {
           return;
         }
-
+        let data: unknown;
         try {
-          const data: unknown = JSON.parse(event.data);
-
-          if (
-            typeof data !== "object" ||
-            data === null
-          ) {
-            console.error("Ignoring malformed WebSocket message:", data);
-            return;
-          }
-
-          const message = data as Record<string, unknown>;
-
-          if (message.type === "inventory_update") {
-            const item = message.item;
-
-            if (
-              typeof item !== "object" ||
-              item === null
-            ) {
-              console.error("Ignoring malformed inventory update:", data);
-              return;
-            }
-
-            const inventoryItem = item as Record<string, unknown>;
-
-            if (
-              typeof inventoryItem.sku_id !== "string" ||
-              typeof inventoryItem.product_name !== "string" ||
-              typeof inventoryItem.warehouse_id !== "string" ||
-              typeof inventoryItem.quantity_on_hand !== "number" ||
-              typeof inventoryItem.reorder_point !== "number" ||
-              typeof inventoryItem.needs_reorder !== "boolean" ||
-              typeof inventoryItem.avg_daily_demand !== "number"
-            ) {
-              console.error(
-                "Ignoring malformed inventory update:",
-                data,
-              );
-              return;
-            }
-
-            onMessageRef.current(data as InventoryUpdate);
-            return;
-          }
-
-          if (
-            typeof message.id !== "string" ||
-            typeof message.type !== "string" ||
-            typeof message.severity !== "string" ||
-            typeof message.message !== "string" ||
-            typeof message.timestamp !== "string"
-          ) {
-            console.error("Ignoring malformed alert:", data);
-            return;
-          }
-
-          onMessageRef.current(data as AlertMessage);
-        } catch (error) {
-          console.error("Invalid WebSocket message:", error);
+          data = JSON.parse(String(event.data)) as unknown;
+        } catch {
+          console.error("Ignoring invalid WebSocket JSON.");
+          return;
         }
+
+        if (isInventoryUpdate(data)) {
+          onMessageRef.current(data);
+          return;
+        }
+
+        // Ignore malformed R15-M1 envelopes.
+        if (!isAnalyticsEvent(data)) {
+          console.error("Ignoring malformed analytics event:", data);
+          return;
+        }
+
+        const dedupKey = getDedupKey(data);
+
+        if (seenEventIdsRef.current.has(dedupKey)) return;
+
+        seenEventIdsRef.current.add(dedupKey);
+
+        if (seenEventIdsRef.current.size > 100) {
+          const oldestId = seenEventIdsRef.current.values().next().value;
+          if (oldestId !== undefined) {
+            seenEventIdsRef.current.delete(oldestId);
+          }
+        }
+
+        const alert: AlertMessage | null = mapAnalyticsEventToAlert(data);
+
+        // Valid event types not supported by this dashboard are ignored.
+        if (alert) onMessageRef.current(alert);
       };
 
-      socket.onerror = (error) => {
-        if (isUnmounted) {
-          return;
-        }
-
+      socket.onerror = (error: Event) => {
+        if (isUnmounted) return;
+        
+        // Don't log the event: event.target.url contains the token.
+        console.error("[C3 WS] Gateway WebSocket error:");
         onErrorRef.current?.(error);
       };
 
-      socket.onclose = () => {
-        if (isUnmounted) {
-          return;
+      socket.onclose = (event: CloseEvent) => {
+        if (isUnmounted) return;
+
+        if (event.code !== 1000 && event.code !== 1001) {
+          console.warn("[C3 WS] Gateway WebSocket closed:", {
+            code: event.code,
+            reason: event.reason,
+          });
         }
 
         socketRef.current = null;
-
         setConnected(false);
         setIsConnecting(false);
 
-        if (
-          autoReconnect &&
-          retryCountRef.current < maxRetries
-        ) {
-          const delay = Math.min(
-            1000 * 2 ** retryCountRef.current,
-            30000,
-          );
+        if (intentionalCloseRef.current || event.code === 1000) {
+          return;
+        }
 
-          retryCountRef.current += 1;
+        // Forbidden: do not retry automatically.
+        if (event.code === 4403) {
+          setFailed(true);
+          return;
+        }
 
-          reconnectTimerRef.current = setTimeout(() => {
-            reconnectTimerRef.current = null;
+       // Unauthorized: refresh the JWT before reconnecting.
+        if (event.code === 4401) {
+          const now = Date.now();
+          const lastRefreshAt = lastAuthRefreshAtRef.current;
 
-            if (!isUnmounted) {
-              connect();
-            }
-          }, delay);
-        } else {
-          if (retryCountRef.current >= maxRetries) {
+          if (
+            !requireToken ||
+            (lastRefreshAt !== null &&
+              now - lastRefreshAt < AUTH_REFRESH_MIN_GAP_MS)
+          ) {
             setFailed(true);
+            return;
           }
 
-          clearReconnectTimer();
+          lastAuthRefreshAtRef.current = now;
+          setIsConnecting(true);
+
+          void refreshAuthSession()
+            .then((refreshedSession) => {
+              if (isUnmounted) return;
+
+              onAuthSessionRefreshedRef.current?.(refreshedSession);
+              connect();
+            })
+            .catch(() => {
+              if (isUnmounted) return;
+
+              console.error(
+                "[C3 WS] Authentication refresh failed."
+              );
+              setFailed(true);
+              setIsConnecting(false);
+            });
+
+          return;
         }
+
+        if (!autoReconnect) {
+          setFailed(true);
+          return;
+        }
+
+        // Rate limited: wait 60 seconds before trying again.
+        if (event.code === 4429) {
+          scheduleReconnect(60000);
+          return;
+        }
+
+        // Abnormal closure: exponential backoff, capped at 30 seconds.
+        const delay = Math.min(1000 * 2 ** retryCountRef.current, 30000);
+        scheduleReconnect(delay);
       };
     };
 
+    connectRef.current = connect;
     connect();
 
     return () => {
       isUnmounted = true;
-
+      connectRef.current = null;
       clearReconnectTimer();
 
       const socket = socketRef.current;
-
       socketRef.current = null;
 
       if (socket) {
@@ -208,15 +373,10 @@ export function useWebSocket({
         socket.onmessage = null;
         socket.onerror = null;
         socket.onclose = null;
-
-        socket.close();
+        socket.close(1000, "Component unmounted");
       }
     };
-  }, [url, autoReconnect, maxRetries]);
+  }, [url, autoReconnect, maxRetries, requireToken]);
 
-  return {
-    connected,
-    isConnecting,
-    failed,
-  };
+  return { connected, isConnecting, failed, retryConnection };
 }

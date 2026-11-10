@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import jwt
 from passlib.context import CryptContext
@@ -19,6 +20,28 @@ def hash_password(password: str):
 
 def verify_password(plain_password: str, hashed_password: str):
     return pwd_context.verify(plain_password, hashed_password)
+
+
+def build_access_claims(user: Any, role_name: str | None = None) -> dict[str, Any]:
+    """Build standard JWT access token claims for a user.
+
+    Ensures sub, user_id, role, and user_uuid are consistently populated across
+    all token issuance flows (login, MFA verification, refresh, and SSO).
+    """
+    role = (
+        role_name
+        if role_name is not None
+        else (user.role.name if getattr(user, "role", None) else None)
+    )
+    claims: dict[str, Any] = {
+        "sub": user.email,
+        "user_id": user.id,
+        "role": role,
+    }
+    user_uuid = getattr(user, "user_uuid", None)
+    if user_uuid is not None:
+        claims["user_uuid"] = str(user_uuid)
+    return claims
 
 
 def create_access_token(data: dict, expires_delta=None):

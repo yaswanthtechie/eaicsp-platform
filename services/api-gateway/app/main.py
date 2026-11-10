@@ -24,8 +24,13 @@ from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.prometheus_middleware import PrometheusMiddleware
 from app.middleware.tracing import TracingMiddleware, setup_tracing, shutdown_tracing
 from app.routes.metrics_route import router as metrics_router
-from app.routes import aggregation, dashboard, gateway, health, v2
+from app.core.log_redaction import install_token_redaction
+from app.routes import aggregation, analytics, dashboard, gateway, health, realtime, v2
 from app.schemas.responses import RootResponse
+from app.services.realtime import connection_manager, realtime_consumer_service
+
+# Keep JWT tokens out of Uvicorn access and WebSocket logs.
+install_token_redaction()
 
 # --------------------------------------------------
 # Application Lifespan
@@ -42,11 +47,15 @@ async def lifespan(app: FastAPI):
     app.state.http_client = httpx.AsyncClient(
         timeout=settings.TIMEOUT_SECONDS
     )
+    await realtime_consumer_service.start()
 
     try:
         yield
     finally:
+        await realtime_consumer_service.stop()
+        await connection_manager.close_all()
         await app.state.http_client.aclose()
+        await analytics.analytics_kpi_service.close()
         shutdown_tracing()
 
 
@@ -60,6 +69,7 @@ app = FastAPI(
     version=settings.VERSION,
     openapi_url="/api/v1/openapi.json",
     lifespan=lifespan,
+    telemetry={"auto_configure": False},
 )
 
 # --------------------------------------------------
@@ -77,9 +87,14 @@ app.add_exception_handler(
 # Middlewares
 # --------------------------------------------------
 
-app.add_middleware(LoggingMiddleware)
+# Starlette runs the LAST added middleware first (outermost).
+# Resulting order, outer -> inner:
+#   Tracing -> Prometheus -> RequestID -> Logging -> PerUserRoleRateLimit -> SlowAPI
+# Logging sits inside RequestID/Tracing (so request_id and trace_id are set)
+# but outside the rate limiters (so 429 rejections are logged too).
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(PerUserRoleRateLimitMiddleware)
+app.add_middleware(LoggingMiddleware)
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(PrometheusMiddleware)
 app.add_middleware(TracingMiddleware)
@@ -148,6 +163,16 @@ app.include_router(v2.router)
 # so /api/v1/dashboard/summary is not intercepted.
 
 app.include_router(aggregation.router)
+app.include_router(analytics.router)
+
+
+# --------------------------------------------------
+# Realtime KPI WebSocket Router (R15-M3)
+# --------------------------------------------------
+# NOTE:
+# Must be registered BEFORE the catch-all gateway router.
+
+app.include_router(realtime.router)
 
 
 # --------------------------------------------------

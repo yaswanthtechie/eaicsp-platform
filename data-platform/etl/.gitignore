@@ -41,3 +41,5 @@ data/backfill/
 r14_*.log
 temp_benchmark_section.txt
 dbt/.user.yml
+
+data/batches/

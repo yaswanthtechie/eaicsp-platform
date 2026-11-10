@@ -119,6 +119,11 @@ class KafkaEventPublisher:
         remaining = self._producer.flush(timeout=5.0)
 
         if remaining > 0:
+            # Drop undelivered messages. Delivery stays at-least-once; consumers dedupe on event_id.
+            try:
+                self._producer.purge()
+            except Exception:
+                logger.warning("Failed to purge undelivered Kafka messages", exc_info=True)
             raise KafkaBrokerError(
                 f"Kafka did not acknowledge {remaining} message(s) within 5s"
             )

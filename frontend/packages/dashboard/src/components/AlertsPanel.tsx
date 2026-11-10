@@ -12,6 +12,7 @@ interface AlertsPanelProps {
   isConnecting: boolean;
   failed: boolean;
   onRemove: (id: string) => void;
+  onRetry?: () => void;
 }
 
 export default function AlertsPanel({
@@ -20,20 +21,19 @@ export default function AlertsPanel({
   isConnecting,
   failed,
   onRemove,
+  onRetry,
 }: AlertsPanelProps) {
   const [fadingAlerts, setFadingAlerts] = useState<string[]>([]);
   const visibleAlerts = alerts.slice(0, MAX_VISIBLE_ALERTS);
 
-  const timers = useRef<
-    Record<string, ReturnType<typeof setTimeout>>
-  >({});
+  const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
-  const removeTimers = useRef<
-    Record<string, ReturnType<typeof setTimeout>>
-  >({});
+  const removeTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>(
+    {},
+  );
 
   useEffect(() => {
-    alerts.slice(0,MAX_VISIBLE_ALERTS).forEach((alert) => {
+    alerts.slice(0, MAX_VISIBLE_ALERTS).forEach((alert) => {
       if (timers.current[alert.id]) {
         return;
       }
@@ -50,9 +50,7 @@ export default function AlertsPanel({
         removeTimers.current[alert.id] = setTimeout(() => {
           onRemove(alert.id);
 
-          setFadingAlerts((prev) =>
-            prev.filter((id) => id !== alert.id)
-          );
+          setFadingAlerts((prev) => prev.filter((id) => id !== alert.id));
 
           delete timers.current[alert.id];
           delete removeTimers.current[alert.id];
@@ -77,9 +75,9 @@ export default function AlertsPanel({
   }, []);
 
   const getAlertType = (
-    severity: AlertMessage["severity"]
+    severity: AlertMessage["severity"],
   ): "info" | "success" | "warning" | "danger" => {
-    if (severity === "error") {
+    if (severity === "critical") {
       return "danger";
     }
 
@@ -87,16 +85,44 @@ export default function AlertsPanel({
       return "warning";
     }
 
+    if (severity === "success") {
+      return "success";
+    }
+
     return "info";
   };
 
-  const getTitle = (type: AlertMessage["type"]) => {
-    if (type === "low-stock") {
+  const getTitle = (alert: AlertMessage) => {
+    if (alert.title) {
+      return alert.title;
+    }
+
+    if (alert.type === "low-stock") {
       return "Low Stock Item Alert";
     }
 
-    if (type === "forecast-change") {
+    if (alert.type === "forecast-change") {
       return "Forecast Change";
+    }
+
+    if (alert.type === "cold-chain-anomaly") {
+      return "Cold-Chain Anomaly";
+    }
+
+    if (alert.type === "supplier-risk-change") {
+      return "Supplier Risk Change";
+    }
+
+    if (alert.type === "shipment-eta-update") {
+      return "Shipment ETA Update";
+    }
+
+    if (alert.type === "forecast-batch-completed") {
+      return "Forecast Batch Done";
+    }
+
+    if (alert.type === "data-pipeline-completed") {
+      return "Data Ingestion Sync";
     }
 
     return "System Status";
@@ -106,9 +132,7 @@ export default function AlertsPanel({
     return new Date(timestamp).toLocaleTimeString("en-GB");
   };
 
-  const getAlertColor = (
-    type: "info" | "success" | "warning" | "danger"
-  ) => {
+  const getAlertColor = (type: "info" | "success" | "warning" | "danger") => {
     if (type === "danger") {
       return colors.danger;
     }
@@ -143,27 +167,15 @@ export default function AlertsPanel({
         </div>
 
         <div style={{ marginTop: space.md }}>
-          <Skeleton
-            width="100%"
-            height={90}
-            borderRadius={radius.md}
-          />
+          <Skeleton width="100%" height={90} borderRadius={radius.md} />
         </div>
 
         <div style={{ marginTop: space.sm }}>
-          <Skeleton
-            width="100%"
-            height={90}
-            borderRadius={radius.md}
-          />
+          <Skeleton width="100%" height={90} borderRadius={radius.md} />
         </div>
 
         <div style={{ marginTop: space.sm }}>
-          <Skeleton
-            width="100%"
-            height={90}
-            borderRadius={radius.md}
-          />
+          <Skeleton width="100%" height={90} borderRadius={radius.md} />
         </div>
       </div>
     );
@@ -198,6 +210,24 @@ export default function AlertsPanel({
         >
           Connection failed after multiple retry attempts.
         </p>
+
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            style={{
+              marginTop: space.md,
+              background: colors.primary,
+              color: colors.bg,
+              border: "none",
+              borderRadius: radius.sm,
+              padding: `${space.sm}px ${space.md}px`,
+              cursor: "pointer",
+            }}
+          >
+            Retry connection
+          </button>
+        )}
       </div>
     );
   }
@@ -242,75 +272,74 @@ export default function AlertsPanel({
               background: connected
                 ? colors.successAlpha12
                 : colors.dangerAlpha12,
-              color: connected ? colors.success : colors.danger,      
+              color: connected ? colors.success : colors.danger,
             }}
           >
             {isConnecting
               ? "Connecting…"
               : connected
-              ? "Connected"
-              : "Disconnected"}
+                ? "Connected"
+                : "Disconnected"}
           </Badge>
         </div>
       </CardHeader>
       <CardContent>
-        
-      {visibleAlerts.map((alert) => {
-        const isFading = fadingAlerts.includes(alert.id);
-        const alertType = getAlertType(alert.severity);
-        const alertColor = getAlertColor(alertType);
+        {visibleAlerts.map((alert) => {
+          const isFading = fadingAlerts.includes(alert.id);
+          const alertType = getAlertType(alert.severity);
+          const alertColor = getAlertColor(alertType);
 
-        return (
-          <div
-            key={alert.id}
-            role="article"
-            aria-label={`${getTitle(alert.type)}: ${alert.message}`}
-            style={{
-              opacity: isFading ? 0 : 1,
-              transition: "opacity 0.5s ease",
-              pointerEvents: isFading ? "none" : "auto",
-              marginBottom: space.sm,
-              padding: space.md,
-              borderRadius: radius.md,
-              borderLeft: `4px solid ${alertColor}`,
-              background: colors.bg,
-            }}
-          >
-            <h3
+          return (
+            <div
+              key={alert.id}
+              role="article"
+              aria-label={`${getTitle(alert)}: ${alert.message}`}
               style={{
-                margin: 0,
-                marginBottom: space.xs,
-                color: colors.text,
-                fontSize: "15px",
+                opacity: isFading ? 0 : 1,
+                transition: "opacity 0.5s ease",
+                pointerEvents: isFading ? "none" : "auto",
+                marginBottom: space.sm,
+                padding: space.md,
+                borderRadius: radius.md,
+                borderLeft: `4px solid ${alertColor}`,
+                background: colors.bg,
               }}
             >
-              {getTitle(alert.type)}
-            </h3>
+              <h3
+                style={{
+                  margin: 0,
+                  marginBottom: space.xs,
+                  color: colors.text,
+                  fontSize: "15px",
+                }}
+              >
+                {getTitle(alert)}
+              </h3>
 
-            <p
-              style={{
-                margin: 0,
-                color: colors.textMuted,
-                fontSize: "14px",
-                lineHeight: 1.5,
-              }}
-            >
-              {alert.message}
-            </p>
+              <p
+                style={{
+                  margin: 0,
+                  color: colors.textMuted,
+                  fontSize: "14px",
+                  lineHeight: 1.5,
+                }}
+              >
+                {alert.message}
+              </p>
 
-            <span
-              style={{
-                display: "block",
-                marginTop: space.xs,
-                color: colors.textMuted,
-                fontSize: "12px",
-              }}
-            >
-              {formatTime(alert.timestamp)}
-            </span>
-          </div>
-        );
-      })}
+              <span
+                style={{
+                  display: "block",
+                  marginTop: space.xs,
+                  color: colors.textMuted,
+                  fontSize: "12px",
+                }}
+              >
+                {formatTime(alert.timestamp)}
+              </span>
+            </div>
+          );
+        })}
       </CardContent>
     </Card>
   );

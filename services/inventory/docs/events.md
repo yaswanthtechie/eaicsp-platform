@@ -79,7 +79,7 @@ Every event emitted by the Inventory Service is wrapped in a standard `EventEnve
 Published whenever inventory on hand drops below the calculated Reorder Point (ROP) during creation, stock decrement, or bulk updates.
 
 ### Routing Key
-* Kafka Partition Key: `{sku_id}:{warehouse_id}` (e.g. `SKU-001:WH-001`)
+* Kafka Partition Key: `{sku_id}:{warehouse_id}` (e.g. `SKU-000001:WH-BLR-01`)
 
 ### Payload Fields
 | Field | Type | Description |
@@ -101,8 +101,8 @@ Published whenever inventory on hand drops below the calculated Reorder Point (R
   "event_version": 1,
   "trace_id": "trace-8891-xyz",
   "payload": {
-    "sku_id": "SKU-LOW-1",
-    "warehouse_id": "WH-1",
+    "sku_id": "SKU-000001",
+    "warehouse_id": "WH-BLR-01",
     "quantity_on_hand": 5,
     "reorder_point": 25,
     "safety_stock": 10,
@@ -119,7 +119,7 @@ Published whenever inventory on hand drops below the calculated Reorder Point (R
 Published whenever an automatic draft Purchase Order is generated in response to low stock.
 
 ### Routing Key
-* Kafka Partition Key: `{po_id}` (e.g. `PO-20260930-123456`)
+* Kafka Partition Key: `{po_id}` (e.g. `PO-2026-000123`)
 
 ### Payload Fields
 | Field | Type | Description |
@@ -145,10 +145,10 @@ Published whenever an automatic draft Purchase Order is generated in response to
   "event_version": 1,
   "trace_id": null,
   "payload": {
-    "po_id": "PO-20260930-001",
-    "sku_id": "SKU-PO-DRAFT-1",
-    "warehouse_id": "WH-CENTRAL",
-    "supplier_id": "SUP-TEST-001",
+    "po_id": "PO-2026-000001",
+    "sku_id": "SKU-000002",
+    "warehouse_id": "WH-BLR-01",
+    "supplier_id": "SUP-00045",
     "quantity": 23,
     "unit_cost": 25.0,
     "expected_cost": 575.0,

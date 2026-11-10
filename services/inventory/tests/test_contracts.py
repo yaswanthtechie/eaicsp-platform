@@ -1,3 +1,4 @@
+from unittest.mock import patch
 import pytest
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
@@ -83,11 +84,11 @@ def test_compliance_internal_check_request_contract():
     Proves that request payload matches the required contract.
     """
     req = ComplianceCheckContractRequest(
-        supplier_id="SUP-001",
+        supplier_id="SUP-00001",
         supplier_name="Global Fasteners Inc",
         country="India",
     )
-    assert req.supplier_id == "SUP-001"
+    assert req.supplier_id == "SUP-00001"
     assert req.supplier_name == "Global Fasteners Inc"
     assert req.country == "India"
 
@@ -264,7 +265,7 @@ def test_inventory_po_approved_rejects_non_canonical_ids():
 
     # Invalid PO ID format
     bad_data = json.loads(json.dumps(data))
-    bad_data["payload"]["po_id"] = "PO-123"  # missing year and 6 digits
+    bad_data["payload"]["po_id"] = "PO-123"  # noncanonical-ok  # missing year and 6 digits
     with pytest.raises(pydantic.ValidationError):
         InventoryPOApprovedEvent.model_validate(bad_data)
     with pytest.raises(jsonschema.ValidationError):
@@ -272,7 +273,7 @@ def test_inventory_po_approved_rejects_non_canonical_ids():
 
     # Invalid SKU ID format
     bad_sku_data = json.loads(json.dumps(data))
-    bad_sku_data["payload"]["lines"][0]["sku_id"] = "SKU-1"
+    bad_sku_data["payload"]["lines"][0]["sku_id"] = "SKU-1"  # noncanonical-ok
     with pytest.raises(pydantic.ValidationError):
         InventoryPOApprovedEvent.model_validate(bad_sku_data)
     with pytest.raises(jsonschema.ValidationError):
@@ -323,7 +324,7 @@ def test_inventory_goods_received_rejects_non_canonical_ids():
         data = json.load(f)
 
     bad_data = json.loads(json.dumps(data))
-    bad_data["payload"]["receipt_id"] = "GR-001"
+    bad_data["payload"]["receipt_id"] = "GR-001"  # noncanonical-ok
     with pytest.raises(pydantic.ValidationError):
         InventoryGoodsReceivedEvent.model_validate(bad_data)
     with pytest.raises(jsonschema.ValidationError):
@@ -338,14 +339,19 @@ def test_optimization_recommendations_unauthenticated(client_raw):
     assert resp.status_code == 401
 
 
-def test_optimization_recommendations_endpoint_501(client):
+def test_optimization_recommendations_endpoint_200(client):
     """
-    Contract test: GET /api/v1/inventory/optimization/recommendations returns 501 Not Implemented
-    when called with required permission (Flow A stub).
+    Contract test: GET /api/v1/inventory/optimization/recommendations returns 200 OK
+    and conforms to OptimizationRecommendationsResponse schema (Flow A).
     """
-    resp = client.get("/api/v1/inventory/optimization/recommendations")
-    assert resp.status_code == 501
-    assert "under construction" in resp.json()["detail"].lower()
+    with patch("app.services.optimization_service.forecast_client.fetch_forecast", return_value=None):
+        resp = client.get("/api/v1/inventory/optimization/recommendations")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "generated_at" in data
+    assert "recommendations" in data
+    assert "total_recommended_spend" in data
+    assert isinstance(data["recommendations"], list)
 
 
 def test_goods_receipts_unauthenticated(client_raw):
@@ -369,15 +375,41 @@ def test_goods_receipts_unauthenticated(client_raw):
     assert resp.status_code == 401
 
 
-def test_goods_receipts_endpoint_501(client):
+def test_goods_receipts_endpoint_contract(client, db_session):
     """
-    Contract test: POST /api/v1/inventory/goods-receipts returns 501 Not Implemented
-    when called with required permission (Flow B stub).
+    Contract test: POST /api/v1/inventory/goods-receipts creates goods receipt (Flow B)
+    and response conforms to GoodsReceiptResponse schema.
     """
+    from app.models.inventory import Inventory
+    from app.models.purchase_order import PurchaseOrder
+    from app.schemas.goods_receipt import GoodsReceiptResponse
+
+    inv = Inventory(
+        sku_id="SKU-000123",
+        warehouse_id="WH-BLR-01",
+        product_name="Contract Test SKU",
+        category="Hardware",
+        quantity_on_hand=50,
+        lead_time_days=3,
+        safety_stock=10,
+    )
+    po = PurchaseOrder(
+        po_id="PO-2026-000123",
+        sku_id="SKU-000123",
+        warehouse_id="WH-BLR-01",
+        supplier_id="SUP-00045",
+        quantity=100,
+        unit_cost=450.0,
+        expected_cost=45000.0,
+        status="acknowledged",
+        approval_status="approved",
+    )
+    db_session.add_all([inv, po])
+    db_session.commit()
+
     payload = {
         "po_id": "PO-2026-000123",
         "warehouse_id": "WH-BLR-01",
-        "received_by": "warehouse.manager@company.com",
         "items": [
             {
                 "sku_id": "SKU-000123",
@@ -388,8 +420,13 @@ def test_goods_receipts_endpoint_501(client):
         "notes": "Full shipment received",
     }
     resp = client.post("/api/v1/inventory/goods-receipts", json=payload)
-    assert resp.status_code == 501
-    assert "under construction" in resp.json()["detail"].lower()
+    assert resp.status_code == 201
+    receipt = GoodsReceiptResponse.model_validate(resp.json())
+    assert receipt.po_id == "PO-2026-000123"
+    assert receipt.supplier_id == "SUP-00045"
+    assert receipt.warehouse_id == "WH-BLR-01"
+    assert len(receipt.items) == 1
+    assert receipt.items[0].quantity_received == 100
 
 
 def test_goods_receipts_forbidden_without_write_permission():

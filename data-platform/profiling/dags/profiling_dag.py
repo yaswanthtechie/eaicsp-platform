@@ -110,7 +110,7 @@ def profiling_dag():
 
         # 4. Persist to existing Audit Archive
         archive = AuditArchive()
-        audit_record = archive.save_run(report=report)
+        audit_record = archive.save_run(report=report, dataset=table_name)
 
         log.info("Successfully archived run %s for %s.", audit_record["run_id"], table_name)
         return audit_record["run_id"]

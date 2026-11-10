@@ -587,10 +587,23 @@ def dbt_build_task(**context):
             f"dbt build failed (exit {proc.returncode}):\n{proc.stdout[-3000:]}\n{proc.stderr[-1000:]}"
         )
 def clickhouse_sync_task(**context):
-    from etl.src.clickhouse_sink import sync_marts
+    from etl.src.clickhouse_sink import _client, _database, sync_marts
+    from etl.src.kpi_metrics import refresh_kpi_metrics
+
     result = sync_marts()
+
+    # clickhouse/ is not mounted in the Airflow containers, so use the sink's
+    # ClickHouse helpers. The KPI views come from clickhouse/apply_ddl.py.
+    client = _client()
+    try:
+        kpi_rows = refresh_kpi_metrics(client, _database())
+    finally:
+        client.close()
+
+    result = dict(result) if isinstance(result, dict) else {"sync_result": result}
+    result["kpi_metrics_rows"] = kpi_rows
     context["ti"].xcom_push(key="clickhouse_result", value=result)
-    logger.info("ClickHouse sync result: %s", result)
+    logger.info("ClickHouse sync and KPI refresh result: %s", result)
     return result
 
 

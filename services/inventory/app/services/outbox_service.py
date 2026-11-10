@@ -19,6 +19,7 @@ def record_event(
     aggregate_id: str,
     payload: dict[str, Any],
     trace_id: Optional[str] = None,
+    occurred_at: Optional[str] = None,
 ) -> Outbox:
     """
     Transactional Outbox Writer:
@@ -28,10 +29,12 @@ def record_event(
     The caller commits so that the business mutation and event are committed atomically.
     If the transaction rolls back, the event is also rolled back and never published.
     """
+    envelope_kwargs = {"occurred_at": occurred_at} if occurred_at else {}
     envelope = EventEnvelope(
         event_type=event_type,
         payload=payload,
         trace_id=trace_id,
+        **envelope_kwargs,
     )
 
     serialized_payload = envelope.model_dump_json()

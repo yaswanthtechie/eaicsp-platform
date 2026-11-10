@@ -40,7 +40,15 @@ def test_dhl_tracking():
 
 
 # FEDEX RATE TEST
-def test_fedex_rate():
+def test_fedex_rate(monkeypatch):
+
+    # Disable simulated failures for this success-path test.
+    # The adapter's production failure rate remains unchanged.
+    monkeypatch.setattr(
+        FedExAdapter,
+        "FAILURE_RATE",
+        0,
+    )
 
     fedex = FedExAdapter()
 
