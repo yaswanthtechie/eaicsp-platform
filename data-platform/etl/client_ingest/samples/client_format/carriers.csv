@@ -1,0 +1,7 @@
+﻿carrier_code,carrier_name,carrier_type,base_late_rate,is_active
+CAR-01,Express Logistics,Express,0.08,true
+CAR-02,National Freight,Road,0.22,true
+CAR-03,Regional Transport,Road,0.35,true
+CAR-04,Air Cargo,Air,0.04,true
+CAR-01,,Express,0.08,true
+CAR-02,National Freight,Road,1.5,true

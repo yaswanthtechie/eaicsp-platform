@@ -1,0 +1,8 @@
+﻿warehouse_code,warehouse_name,city,state,pincode,warehouse_type
+HYD-01,Hyderabad Distribution Centre,Hyderabad,Telangana,500001,Regional
+BLR-01,Bengaluru Distribution Centre,Bengaluru,Karnataka,560001,Regional
+MUM-01,Mumbai Distribution Centre,Mumbai,Maharashtra,400001,Regional
+DEL-01,New Delhi Distribution Centre,New Delhi,Delhi,110001,Regional
+CHE-01,Chennai Distribution Centre,Chennai,Tamil Nadu,600001,Regional
+HYD-01,Hyderabad Distribution Centre,Hyderabad,Telangana,,Regional
+,Bengaluru Distribution Centre,Bengaluru,Karnataka,560001,Regional

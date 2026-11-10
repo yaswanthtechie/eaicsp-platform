@@ -1,0 +1,508 @@
+version: 1
+status: draft_inferred_client_format
+description: Synthetic client-format ingestion contract. Confirm inferred columns
+  against the client document when received.
+files:
+  sales_history:
+    staging_table: stg_sales_history
+    canonical_ids:
+    - sku_id
+    - warehouse_id
+    columns:
+      sale_date:
+        type: date
+        required: true
+        format: YYYY-MM-DD
+      product_code:
+        type: string
+        required: true
+        format: PRD-#####
+      warehouse_code:
+        type: string
+        required: true
+        format: CITY-##
+      quantity_sold:
+        type: integer
+        required: true
+        format: non-negative
+      unit_price:
+        type: decimal
+        required: true
+        format: 2 decimal places
+      sales_amount:
+        type: decimal
+        required: true
+        format: 2 decimal places
+      order_number:
+        type: string
+        required: true
+        format: client order reference
+    staging_columns:
+    - sale_date
+    - product_code
+    - warehouse_code
+    - quantity_sold
+    - unit_price
+    - sales_amount
+    - order_number
+    - sku_id
+    - warehouse_id
+    canonical_id_mapping:
+      sku_id:
+        source_column: product_code
+        method: lookup_or_generate
+      warehouse_id:
+        source_column: warehouse_code
+        method: lookup_or_generate
+  inventory_snapshot:
+    staging_table: stg_inventory_snapshot
+    canonical_ids:
+    - sku_id
+    - warehouse_id
+    columns:
+      snapshot_date:
+        type: date
+        required: true
+        format: YYYY-MM-DD
+      product_code:
+        type: string
+        required: true
+        format: PRD-#####
+      warehouse_code:
+        type: string
+        required: true
+        format: CITY-##
+      quantity_on_hand:
+        type: integer
+        required: true
+        format: non-negative
+      quantity_reserved:
+        type: integer
+        required: true
+        format: non-negative
+      reorder_level:
+        type: integer
+        required: true
+        format: non-negative
+    staging_columns:
+    - snapshot_date
+    - product_code
+    - warehouse_code
+    - quantity_on_hand
+    - quantity_reserved
+    - reorder_level
+    - sku_id
+    - warehouse_id
+    canonical_id_mapping:
+      sku_id:
+        source_column: product_code
+        method: lookup_or_generate
+      warehouse_id:
+        source_column: warehouse_code
+        method: lookup_or_generate
+  supplier_lead_times:
+    staging_table: stg_supplier_lead_times
+    canonical_ids:
+    - supplier_id
+    - sku_id
+    columns:
+      supplier_code:
+        type: string
+        required: true
+        format: SUP-####
+      product_code:
+        type: string
+        required: true
+        format: PRD-#####
+      average_lead_time_days:
+        type: integer
+        required: true
+        format: positive integer
+      minimum_lead_time_days:
+        type: integer
+        required: true
+        format: positive integer
+      maximum_lead_time_days:
+        type: integer
+        required: true
+        format: positive integer
+      effective_date:
+        type: date
+        required: true
+        format: YYYY-MM-DD
+    staging_columns:
+    - supplier_code
+    - product_code
+    - average_lead_time_days
+    - minimum_lead_time_days
+    - maximum_lead_time_days
+    - effective_date
+    - supplier_id
+    - sku_id
+    canonical_id_mapping:
+      supplier_id:
+        source_column: supplier_code
+        method: lookup_or_generate
+      sku_id:
+        source_column: product_code
+        method: lookup_or_generate
+  product_master:
+    staging_table: stg_product_master
+    canonical_ids:
+    - sku_id
+    columns:
+      product_code:
+        type: string
+        required: true
+        format: PRD-#####
+      product_name:
+        type: string
+        required: true
+        format: text
+      category:
+        type: string
+        required: true
+        format: text
+      unit_of_measure:
+        type: string
+        required: true
+        format: text
+      unit_price:
+        type: decimal
+        required: true
+        format: 2 decimal places
+      is_active:
+        type: boolean
+        required: true
+        format: true/false
+    staging_columns:
+    - product_code
+    - product_name
+    - category
+    - unit_of_measure
+    - unit_price
+    - is_active
+    - sku_id
+    canonical_id_mapping:
+      sku_id:
+        source_column: product_code
+        method: lookup_or_generate
+  warehouse_master:
+    staging_table: stg_warehouse_master
+    canonical_ids:
+    - warehouse_id
+    columns:
+      warehouse_code:
+        type: string
+        required: true
+        format: CITY-##
+      warehouse_name:
+        type: string
+        required: true
+        format: text
+      city:
+        type: string
+        required: true
+        format: Indian city
+      state:
+        type: string
+        required: true
+        format: Indian state
+      pincode:
+        type: string
+        required: true
+        format: 6 digits
+      warehouse_type:
+        type: string
+        required: true
+        format: text
+    staging_columns:
+    - warehouse_code
+    - warehouse_name
+    - city
+    - state
+    - pincode
+    - warehouse_type
+    - warehouse_id
+    canonical_id_mapping:
+      warehouse_id:
+        source_column: warehouse_code
+        method: lookup_or_generate
+  supplier_master:
+    staging_table: stg_supplier_master
+    canonical_ids:
+    - supplier_id
+    columns:
+      supplier_code:
+        type: string
+        required: true
+        format: SUP-####
+      supplier_name:
+        type: string
+        required: true
+        format: text
+      city:
+        type: string
+        required: true
+        format: text
+      state:
+        type: string
+        required: true
+        format: text
+      contact_email:
+        type: string
+        required: true
+        format: email
+      phone:
+        type: string
+        required: true
+        format: 10 digits
+      is_active:
+        type: boolean
+        required: true
+        format: true/false
+    staging_columns:
+    - supplier_code
+    - supplier_name
+    - city
+    - state
+    - contact_email
+    - phone
+    - is_active
+    - supplier_id
+    canonical_id_mapping:
+      supplier_id:
+        source_column: supplier_code
+        method: lookup_or_generate
+  supplier_incidents:
+    staging_table: stg_supplier_incidents
+    canonical_ids:
+    - supplier_id
+    columns:
+      incident_id:
+        type: string
+        required: true
+        format: INC-######
+      supplier_code:
+        type: string
+        required: true
+        format: SUP-####
+      incident_date:
+        type: date
+        required: true
+        format: YYYY-MM-DD
+      incident_type:
+        type: string
+        required: true
+        format: text
+      severity:
+        type: string
+        required: true
+        format: low/medium/high
+      description:
+        type: string
+        required: false
+        format: text
+      resolved:
+        type: boolean
+        required: true
+        format: true/false
+    staging_columns:
+    - incident_id
+    - supplier_code
+    - incident_date
+    - incident_type
+    - severity
+    - description
+    - resolved
+    - supplier_id
+    canonical_id_mapping:
+      supplier_id:
+        source_column: supplier_code
+        method: lookup_or_generate
+  shipment_history:
+    staging_table: stg_shipment_history
+    canonical_ids:
+    - shipment_id
+    - sku_id
+    - warehouse_id
+    - supplier_id
+    columns:
+      shipment_id:
+        type: string
+        required: true
+        format: SH-######
+      po_number:
+        type: string
+        required: true
+        format: PO-#####
+      supplier_code:
+        type: string
+        required: true
+        format: SUP-####
+      product_code:
+        type: string
+        required: true
+        format: PRD-#####
+      warehouse_code:
+        type: string
+        required: true
+        format: CITY-##
+      carrier_code:
+        type: string
+        required: true
+        format: CAR-##
+      dispatch_date:
+        type: date
+        required: true
+        format: YYYY-MM-DD
+      planned_delivery_date:
+        type: date
+        required: true
+        format: YYYY-MM-DD
+      actual_delivery_date:
+        type: date
+        required: false
+        format: YYYY-MM-DD
+      shipment_status:
+        type: string
+        required: true
+        format: text
+      quantity_shipped:
+        type: integer
+        required: true
+        format: positive integer
+    staging_columns:
+    - client_shipment_id
+    - po_number
+    - supplier_code
+    - product_code
+    - warehouse_code
+    - carrier_code
+    - dispatch_date
+    - planned_delivery_date
+    - actual_delivery_date
+    - shipment_status
+    - quantity_shipped
+    - shipment_id
+    - sku_id
+    - warehouse_id
+    - supplier_id
+    canonical_id_mapping:
+      shipment_id:
+        source_column: shipment_id
+        method: generate_canonical_from_client_reference
+      sku_id:
+        source_column: product_code
+        method: lookup_or_generate
+      warehouse_id:
+        source_column: warehouse_code
+        method: lookup_or_generate
+      supplier_id:
+        source_column: supplier_code
+        method: lookup_or_generate
+  purchase_order_history:
+    staging_table: stg_purchase_order_history
+    canonical_ids:
+    - po_id
+    - sku_id
+    - warehouse_id
+    - supplier_id
+    columns:
+      po_number:
+        type: string
+        required: true
+        format: PO-#####
+      supplier_code:
+        type: string
+        required: true
+        format: SUP-####
+      product_code:
+        type: string
+        required: true
+        format: PRD-#####
+      warehouse_code:
+        type: string
+        required: true
+        format: CITY-##
+      order_date:
+        type: date
+        required: true
+        format: YYYY-MM-DD
+      planned_delivery_date:
+        type: date
+        required: true
+        format: YYYY-MM-DD
+      quantity_ordered:
+        type: integer
+        required: true
+        format: positive integer
+      unit_cost:
+        type: decimal
+        required: true
+        format: 2 decimal places
+      po_status:
+        type: string
+        required: true
+        format: text
+    staging_columns:
+    - po_number
+    - supplier_code
+    - product_code
+    - warehouse_code
+    - order_date
+    - planned_delivery_date
+    - quantity_ordered
+    - unit_cost
+    - po_status
+    - po_id
+    - sku_id
+    - warehouse_id
+    - supplier_id
+    canonical_id_mapping:
+      po_id:
+        source_column: po_number
+        method: lookup_or_generate
+      sku_id:
+        source_column: product_code
+        method: lookup_or_generate
+      warehouse_id:
+        source_column: warehouse_code
+        method: lookup_or_generate
+      supplier_id:
+        source_column: supplier_code
+        method: lookup_or_generate
+  carriers:
+    staging_table: stg_carriers
+    canonical_ids: []
+    columns:
+      carrier_code:
+        type: string
+        required: true
+        format: CAR-##
+      carrier_name:
+        type: string
+        required: true
+        format: text
+      carrier_type:
+        type: string
+        required: true
+        format: text
+      base_late_rate:
+        type: decimal
+        required: true
+        format: 0 to 1
+      is_active:
+        type: boolean
+        required: true
+        format: true/false
+    staging_columns:
+    - carrier_code
+    - carrier_name
+    - carrier_type
+    - base_late_rate
+    - is_active
+    canonical_id_mapping: {}
+staging_status: proposed_client_ingestion_staging_contract
+staging_note: These staging columns describe the proposed client-ingestion contract,
+  not existing dbt models. Existing dbt staging models use canonical IDs.
