@@ -67,6 +67,33 @@ app = FastAPI(
 )
 
 
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    from fastapi.openapi.utils import get_openapi
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        openapi_version=app.openapi_version,
+        description=app.description,
+        routes=app.routes,
+    )
+    schemas = schema.get("components", {}).get("schemas", {})
+    if "ValidationError" in schemas:
+        schemas["ValidationError"].get("properties", {}).pop("input", None)
+        schemas["ValidationError"].get("properties", {}).pop("ctx", None)
+    if "Body_bulk_upload_route_api_v1_inventory_bulk_upload_post" in schemas:
+        file_prop = schemas["Body_bulk_upload_route_api_v1_inventory_bulk_upload_post"].get("properties", {}).get("file", {})
+        if "contentMediaType" in file_prop:
+            file_prop.pop("contentMediaType", None)
+            file_prop["format"] = "binary"
+    app.openapi_schema = schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi
+
+
 @app.get("/health", tags=["Health"])
 def health_check():
     """Healthcheck endpoint for Docker and orchestration probes."""
