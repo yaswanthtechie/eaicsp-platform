@@ -27,21 +27,14 @@ TIER_ORDER: Dict[str, int] = {
 def _resolve_inventory_severity(payload: Dict[str, Any]) -> SeverityLevel:
     """
     inventory.stock.low:
-    - payload.quantity_on_hand == 0 -> 'critical'
+    - payload.quantity_on_hand <= 0 -> 'critical'
     - Stock available but low (quantity_on_hand > 0) -> 'warning'
+    - Missing or non-numeric quantity -> 'warning'
     """
-    qty = payload.get("quantity_on_hand")
-    if qty is not None:
-        try:
-            int_qty = int(qty)
-            if int_qty <= 0:
-                return SEVERITY_CRITICAL
-            return SEVERITY_WARNING
-        except (ValueError, TypeError):
-            pass
-    if qty == 0:
-        return SEVERITY_CRITICAL
-    return SEVERITY_WARNING
+    try:
+        return SEVERITY_CRITICAL if int(payload.get("quantity_on_hand")) <= 0 else SEVERITY_WARNING
+    except (ValueError, TypeError):
+        return SEVERITY_WARNING
 
 
 def _resolve_iot_anomaly_severity(payload: Dict[str, Any]) -> SeverityLevel:

@@ -141,7 +141,7 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 | `occurred_at` | `string` | **Yes** | UTC ISO-8601 with offset, either `Z` or `+00:00` (e.g. `2026-10-15T10:14:22Z` or `2026-10-15T10:14:22.481203+00:00`). Parse with `new Date()`, not string matching. |
 | `producer` | `string` | **Yes** | Canonical service identifier producing the message (e.g. `inventory-service`, `supplier-risk-service`). |
 | `trace_id` | `string \| null` | *No* | Distributed trace identifier (W3C TraceContext / OpenTelemetry). May be absent or `null`. |
-| `severity` | `string` | **Yes** | Outgoing event alert severity decided by API Gateway BFF (`critical`, `warning`, or `info`). Frontend clients use this field directly to drive alert rendering. |
+| `severity` | `string` | **Yes** (added by the BFF) | Alert severity decided by the API Gateway BFF: `critical`, `warning` or `info`. Producers do not send this field. Frontend clients use it directly to drive alert rendering. |
 | `payload` | `object` | **Yes** | Event-specific domain payload conforming to the event schema below. |
 
 > The BFF forwards the producer's envelope and payload **unchanged**, adding only one top-level field: `severity`. The API Gateway BFF determines the severity before fanout broadcast. It never renames, retypes, or removes producer fields, never modifies the producer payload, and never places the BFF severity inside `payload`.
@@ -200,6 +200,7 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 - **Trigger:** One event per detected anomaly episode on a warehouse sensor.
 - **Routing Key:** `{sensor_id}` (e.g. `WH-BLR-01-S1`)
 - **Dedup key:** `payload.episode_id`, **not** `event_id`. A crash replay re-publishes the same episode with a new `event_id`. `episode_id` is opaque: compare it as a string, never rebuild or reformat it.
+- **Display severity:** The alerts panel uses the top-level `severity` set by the BFF, never `payload.severity`. `payload.severity` is the producer's raw value and is forwarded unchanged.
 
 #### Payload Fields
 
@@ -487,16 +488,16 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 
 ## 5. UI Alert Panel Mapping Guide (For Chandhu)
 
-To ensure the alerts panel renders uniformly across the six event types, the table below provides the recommended visual mappings following `frontend/packages/dashboard/src/tokens.ts`:
+To ensure the alerts panel renders uniformly across the six event types, the table below lists the display title, icon and drilldown for each event type. Badge colour comes only from the top-level `severity` field (see 5.1), using the `danger`, `warning` and `info` tokens in `frontend/packages/dashboard/src/tokens.ts`. The client never picks a colour per event type.
 
-| Event Type | Display Title | Severity Color | Icon Hint | Primary UI Action / Drilldown |
+| Event Type | Display Title | Possible top-level `severity` | Icon Hint | Primary UI Action / Drilldown |
 |:---|:---|:---|:---|:---|
-| `inventory.stock.low` | **Low Stock Alert** | Warning (Amber) / Error (Red if 0) | Package / Box | Navigate to Inventory table filtered by `sku_id` & `warehouse_id` |
-| `iot.anomaly.detected` | **Cold-Chain Anomaly** | Critical (Red) / High (Orange) | Alert Triangle / Thermometer | Open anomaly detail (message, peak_score vs threshold, top_features) |
-| `supplierrisk.score.changed` | **Supplier Risk Change**| Warning (Amber) / Error (Red) | Shield Alert | View Supplier Risk breakdown & news citations modal |
-| `eta.shipment.predicted` | **Shipment ETA Update** | Info (Blue) | Truck / Navigation | Open Shipment tracking card for `shipment_id` |
-| `forecast.batch.completed` | **Forecast Batch Done** | Success (Green) / Info (Blue) | Trend / Chart | Refresh demand forecast chart view for updated horizon |
-| `data.pipeline.completed` | **Data Ingestion Sync** | Success (Green) | Database / Refresh | Refresh live KPI snapshot widgets |
+| `inventory.stock.low` | **Low Stock Alert** | `critical` (quantity_on_hand is 0) / `warning` | Package / Box | Navigate to Inventory table filtered by `sku_id` & `warehouse_id` |
+| `iot.anomaly.detected` | **Cold-Chain Anomaly** | `critical` / `warning` / `info` | Alert Triangle / Thermometer | Open anomaly detail (message, peak_score vs threshold, top_features) |
+| `supplierrisk.score.changed` | **Supplier Risk Change** | `warning` (tier up) / `info` (tier down or same) | Shield Alert | View Supplier Risk breakdown & news citations modal |
+| `eta.shipment.predicted` | **Shipment ETA Update** | `info` | Truck / Navigation | Open Shipment tracking card for `shipment_id` |
+| `forecast.batch.completed` | **Forecast Batch Done** | `info` (SUCCESS) / `warning` (PARTIAL) | Trend / Chart | Refresh demand forecast chart view for updated horizon |
+| `data.pipeline.completed` | **Data Ingestion Sync** | `info` | Database / Refresh | Refresh live KPI snapshot widgets |
 
 ### 5.1 BFF Severity Decision & Frontend Display
 
