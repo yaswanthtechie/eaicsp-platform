@@ -101,27 +101,20 @@ The seed generator writes its output to `data-platform/out/`.
 
 Each service seed loader receives its database connection through the `DATABASE_URL` environment variable.
 
-Configure the connection in the repository-root `.env` file using the service-specific variable:
-
-- Inventory: `INVENTORY_DATABASE_URL`
-- Supplier Portal: `SUPPLIER_PORTAL_DATABASE_URL`
-- Compliance: `COMPLIANCE_DATABASE_URL`
-- Platform: `PLATFORM_DATABASE_URL`
-- Logistics: `LOGISTICS_DATABASE_URL`
-
-The shared runner reads the root `.env` file and maps the appropriate `<SERVICE>_DATABASE_URL` value to `DATABASE_URL` for each loader. The service name is derived from its directory under `services/`; hyphens are converted to underscores and the name is uppercased.
-
-For example:
+Currently, the Inventory service is the only service with a seed loader. Configure its connection in the repository-root `.env` file:
 
 ```dotenv
-INVENTORY_DATABASE_URL=postgresql+psycopg2://inventory_user:YOUR_PASSWORD@localhost:5432/shared_platform
+INVENTORY_DB_PASSWORD=your_inventory_password
+POSTGRES_DB=shared_platform
+INVENTORY_DATABASE_URL=postgresql+psycopg2://inventory_user:${INVENTORY_DB_PASSWORD}@localhost:5432/${POSTGRES_DB}
 ```
 
-Use the matching service database user and password. Do not use the PostgreSQL superuser.
+The shared runner reads the root `.env` file and maps `INVENTORY_DATABASE_URL` to `DATABASE_URL` when running the Inventory loader.
 
-If a required service database URL is missing or empty, the runner stops and reports the missing environment variable instead of displaying an unhelpful settings-validation traceback.
+The loader connects as `inventory_user` and writes only to the Inventory schema. Never use the PostgreSQL superuser for service seed loading.
 
-The runner reads the repository-root `.env` file. Variables already set in the process environment take precedence over values in `.env`.
+If a required service database URL is missing or empty, the runner stops and reports the missing configuration instead of displaying an unhelpful settings-validation traceback.
+
 
 ## Running Make on Windows
 
@@ -142,7 +135,7 @@ Alternatively, run the equivalent Docker Compose commands directly from PowerShe
 ## Running the whole platform
 
 1. Copy `.env.example` to `.env` if needed, then set unique local secrets and database passwords. Do not commit `.env`.
-2. Ensure each service with a seed loader has its corresponding `<SERVICE>_DATABASE_URL` configured in the root `.env` file.
+2. Ensure `INVENTORY_DATABASE_URL` is configured in the root `.env` file for the Inventory seed loader.
 3. From the repository root, run `make up`. This starts the shared stores, initializes MinIO buckets, builds the application images, and waits for configured health checks.
 4. Run `make seed` to generate shared seed data and run the available seed loaders.
 5. Run `make logs` to follow container logs, or `make ps` to inspect service status.

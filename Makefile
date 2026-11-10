@@ -33,7 +33,7 @@ buckets:
 seed:
 	cd data-platform && python -m seed.generate --out out/
 	python scripts/run_seed_loaders.py
-	cd services/platform && python -m app.seed --require-service-keys
+	cd services/platform && python -m dotenv -f ../../.env run -- "$(VIRTUAL_ENV)/Scripts/python.exe" -m app.seed --require-service-keys
 
 logs:
 	$(FULL_COMPOSE) logs -f --tail=100
