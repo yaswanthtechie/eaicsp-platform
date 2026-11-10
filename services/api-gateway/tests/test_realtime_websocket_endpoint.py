@@ -26,6 +26,7 @@ from app.services.realtime.connection_manager import connection_manager
 from app.services.realtime.deduplicator import Deduplicator
 from app.services.realtime.dlq import DLQService
 from app.services.realtime.kafka_consumer import RealtimeKafkaConsumerService
+from app.services.realtime.severity import build_outgoing_event, resolve_event_severity
 from tests.test_realtime_events_validation import (
     ALL_SAMPLES,
     IOT_ANOMALY_DETECTED_SAMPLE,
@@ -212,7 +213,11 @@ def test_contract_examples_reach_connected_websocket_clients(mock_post, client, 
             )
         )
         assert handled is True
-        assert json.loads(ws.receive_text()) == example
+        expected = build_outgoing_event(example)
+        received = json.loads(ws.receive_text())
+        assert received == expected
+        assert "severity" in received
+        assert received["severity"] in ("critical", "warning", "info")
 
 
 @patch("httpx.AsyncClient.post", new_callable=AsyncMock)
