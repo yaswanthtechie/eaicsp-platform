@@ -1,1 +1,2 @@
 data-platform/seed/samples/*.csv text eol=lf
+*.sh text eol=lf

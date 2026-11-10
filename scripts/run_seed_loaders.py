@@ -65,7 +65,7 @@ def main() -> None:
 
     # Execute loaders only after all configuration has been validated.
     for loader, database_url in configured_loaders:
-        child_env = os.environ.copy()
+        child_env = root_env.copy()
         child_env["DATABASE_URL"] = database_url
 
         print(f"==> {loader.relative_to(ROOT)}", flush=True)
