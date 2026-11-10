@@ -468,13 +468,15 @@ def test_outbox_relay_publishes_to_real_kafka(db_session):
     End to end against the Kafka from docker-compose.dev.yml:
     outbox row -> relay -> real broker -> a real consumer reads it back.
     """
+    import os
     import socket
-    try:
-        host, _, port = settings.KAFKA_BOOTSTRAP_SERVERS.partition(":")
-        with socket.create_connection((host or "localhost", int(port or 9092)), timeout=1.0):
-            pass
-    except (OSError, ValueError):
-        pytest.skip(f"Live Kafka broker not accessible at {settings.KAFKA_BOOTSTRAP_SERVERS}")
+    if not os.getenv("INTEGRATION_TEST"):
+        try:
+            host, _, port = settings.KAFKA_BOOTSTRAP_SERVERS.partition(":")
+            with socket.create_connection((host or "localhost", int(port or 9092)), timeout=1.0):
+                pass
+        except (OSError, ValueError):
+            pytest.skip(f"Live Kafka broker not accessible at {settings.KAFKA_BOOTSTRAP_SERVERS}")
 
     from confluent_kafka import Consumer
 

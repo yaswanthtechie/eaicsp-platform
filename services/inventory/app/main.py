@@ -67,6 +67,9 @@ app = FastAPI(
 )
 
 
+# Newer FastAPI adds input/ctx to ValidationError and uses contentMediaType
+# for file uploads; this normalizer keeps the generated schema matching
+# contracts/openapi/inventory.yaml until the contract is additively updated.
 def custom_openapi():
     if app.openapi_schema:
         return app.openapi_schema

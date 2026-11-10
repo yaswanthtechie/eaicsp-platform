@@ -1,12 +1,7 @@
 import logging
 from typing import Optional
 
-try:
-    from confluent_kafka import KafkaError, KafkaException, Producer
-except ImportError:
-    KafkaError = None
-    KafkaException = None
-    Producer = None
+from confluent_kafka import KafkaError, KafkaException, Producer
 
 from app.core.config import settings
 
@@ -35,28 +30,24 @@ class KafkaEventError(KafkaPublishError):
 # Anything else Kafka reports (MSG_SIZE_TOO_LARGE, TOPIC_AUTHORIZATION_FAILED,
 # INVALID_TOPIC_EXCEPTION, ...) is a problem with the event and counts towards
 # OUTBOX_MAX_RETRIES.
-if KafkaError is not None:
-    BROKER_ERROR_CODES = {
-        KafkaError._MSG_TIMED_OUT,
-        KafkaError._TRANSPORT,
-        KafkaError._ALL_BROKERS_DOWN,
-        KafkaError._TIMED_OUT,
-        KafkaError._QUEUE_FULL,
-        KafkaError.REQUEST_TIMED_OUT,
-        KafkaError.LEADER_NOT_AVAILABLE,
-        KafkaError.NOT_LEADER_FOR_PARTITION,
-        KafkaError.BROKER_NOT_AVAILABLE,
-        KafkaError.NOT_ENOUGH_REPLICAS,
-        KafkaError.NETWORK_EXCEPTION,
-    }
-else:
-    BROKER_ERROR_CODES = set()
+BROKER_ERROR_CODES = {
+    KafkaError._MSG_TIMED_OUT,
+    KafkaError._TRANSPORT,
+    KafkaError._ALL_BROKERS_DOWN,
+    KafkaError._TIMED_OUT,
+    KafkaError._QUEUE_FULL,
+    KafkaError.REQUEST_TIMED_OUT,
+    KafkaError.LEADER_NOT_AVAILABLE,
+    KafkaError.NOT_LEADER_FOR_PARTITION,
+    KafkaError.BROKER_NOT_AVAILABLE,
+    KafkaError.NOT_ENOUGH_REPLICAS,
+    KafkaError.NETWORK_EXCEPTION,
+}
 
 
-def classify_kafka_error(err) -> type[KafkaPublishError]:
+def classify_kafka_error(err: KafkaError) -> type[KafkaPublishError]:
     """Pick the exception class for a Kafka error, by its code (never its text)."""
-    code = err.code() if hasattr(err, "code") else None
-    return KafkaBrokerError if code in BROKER_ERROR_CODES else KafkaEventError
+    return KafkaBrokerError if err.code() in BROKER_ERROR_CODES else KafkaEventError
 
 
 def is_broker_error(exc: Exception) -> bool:
@@ -82,8 +73,6 @@ class KafkaEventPublisher:
     """
 
     def __init__(self, bootstrap_servers: Optional[str] = None):
-        if Producer is None:
-            raise KafkaBrokerError("confluent-kafka is not available")
         self.bootstrap_servers = (
             bootstrap_servers or settings.KAFKA_BOOTSTRAP_SERVERS
         )
