@@ -259,8 +259,10 @@ def process_po_acknowledged_event(
     )
 
 
+# Intentional persistent heartbeat path; configurable via environment
+# and read by the container healthcheck in docker-compose.dev.yml.
 HEARTBEAT_FILE = Path(
-    os.getenv("PO_ACKNOWLEDGED_CONSUMER_HEARTBEAT_FILE", "/tmp/po-acknowledged-consumer.heartbeat")
+    os.getenv("PO_ACKNOWLEDGED_CONSUMER_HEARTBEAT_FILE", "/tmp/po-acknowledged-consumer.heartbeat")  # nosec B108
 )
 
 
