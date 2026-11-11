@@ -1,6 +1,6 @@
 import threading
 import time
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 import httpx
 import pytest
@@ -59,7 +59,7 @@ def seed_cost_layer(
                 quantity_received=quantity,
                 quantity_remaining=quantity,
                 unit_cost=unit_cost,
-                received_at=datetime.utcnow(),
+                received_at=datetime.now(UTC),
             )
         )
 
@@ -98,7 +98,7 @@ def seed_cost_layers(
                     quantity_received=quantity,
                     quantity_remaining=quantity,
                     unit_cost=unit_cost,
-                    received_at=datetime.utcnow(),
+                    received_at=datetime.now(UTC),
                 )
             )
 
