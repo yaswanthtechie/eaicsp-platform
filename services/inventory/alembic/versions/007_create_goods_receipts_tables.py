@@ -1,7 +1,7 @@
 """Create goods receipts and goods receipt items tables
 
 Revision ID: 007_create_goods_receipts_tables
-Revises: 006_create_products_and_warehouses_tables
+Revises: 006_products_warehouses
 """
 from typing import Sequence, Union
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 revision: str = "007_create_goods_receipts_tables"
-down_revision: Union[str, None] = "006_create_products_and_warehouses_tables"
+down_revision: Union[str, None] = "006_products_warehouses"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
