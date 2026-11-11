@@ -187,8 +187,7 @@ describe("AlertsPanel", () => {
     });
 
     expect(screen.getAllByRole("article")).toHaveLength(1);
-    expect(screen.getByText("warning")).toBeInTheDocument();
-  });
+    expect(screen.getByRole("article")).toHaveTextContent("Warning");  });
 
   it("removes an alert after 5.5 seconds", () => {
     const onRemove = vi.fn();
@@ -278,5 +277,33 @@ describe("AlertsPanel", () => {
     });
 
     expect(alertItem).toBeInTheDocument();
+  });
+
+    it("auto-dismisses the alerts on screen, not hidden ones", () => {
+    vi.useFakeTimers();
+    try {
+      const onRemove = vi.fn();
+      // Newest first, the order App.tsx keeps alerts in.
+      const alerts: AlertMessage[] = [
+        { ...alert, id: "info-new", severity: "info" },
+        { ...alert, id: "info-old", severity: "info" },
+        { ...alert, id: "critical-old", severity: "critical" },
+      ];
+
+      render(
+        <AlertsPanel {...defaultProps} alerts={alerts} onRemove={onRemove} />,
+      );
+
+      // Sorted: critical-old and info-new are on screen, info-old is hidden.
+      act(() => {
+        vi.advanceTimersByTime(5600);
+      });
+
+      expect(onRemove).toHaveBeenCalledWith("critical-old");
+      expect(onRemove).toHaveBeenCalledWith("info-new");
+      expect(onRemove).not.toHaveBeenCalledWith("info-old");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

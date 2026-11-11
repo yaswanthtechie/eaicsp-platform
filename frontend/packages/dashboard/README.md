@@ -245,7 +245,7 @@ The dashboard supports the following six event types:
 | `forecast.batch.completed` | Reports forecast batch completion | Partial: Warning; Success: Info |
 | `data.pipeline.completed` | Reports data pipeline completion | Info |
 
-Severity is calculated by the API Gateway and provides as a top-level `severity` fields in the WebSocket event envelope.The dashboard reads `message.severity` through `src/utils/alertMapper.ts` and does not calculate severity from the event type or payload.
+Severity is calculated by the API Gateway and provided as a top-level `severity` field in the WebSocket event envelope.The dashboard reads `message.severity` through `src/utils/alertMapper.ts` and does not calculate severity from the event type or payload.
 
 The Alerts Panel displays Critical, Warning, and Info badges with icons and shared design tokens. Critical alerts appear first. Users can filter alerts by All, Critical, Warning, or Info. Missing or unknown severity defaults to Info.
 
@@ -1231,11 +1231,11 @@ npm run test:e2e
 
 Test verification completed successfully.
 
-* Vitest: 24 test files, 215/215 tests passed
+* Vitest: 24 test files, 216/216 tests passed
 * Playwright Dashboard E2E: 4/4 tests passed
 * Authentication E2E: 14/14 passed with valid credentials.
 * Live Alerts WebSocket: 1/1 test  passed.
-* Total: 234 tests passed across the three reported test groups.
+* Total: 235 tests passed across the three reported test groups.
 
 The authentication tests are run separately using
 npm run test:e2e:auth.

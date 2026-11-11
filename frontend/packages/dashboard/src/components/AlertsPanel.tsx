@@ -72,7 +72,7 @@ export default function AlertsPanel({
   );
 
   useEffect(() => {
-    alerts.slice(0, MAX_VISIBLE_ALERTS).forEach((alert) => {
+    visibleAlerts.forEach((alert) => {
       if (timers.current[alert.id]) {
         return;
       }
@@ -96,7 +96,7 @@ export default function AlertsPanel({
         }, 500);
       }, 5000);
     });
-  }, [alerts, onRemove]);
+  }, [visibleAlerts, onRemove]);
 
   useEffect(() => {
     const timersMap = timers.current;
