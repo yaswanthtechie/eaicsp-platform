@@ -4,13 +4,7 @@ import AlertsPanel from "../components/AlertsPanel";
 import type { AlertMessage } from "../types/forecast";
 
 vi.mock("../components/Skeleton", () => ({
-  default: ({
-    width,
-    height,
-  }: {
-    width: string;
-    height: number;
-  }) => (
+  default: ({ width, height }: { width: string; height: number }) => (
     <div data-testid="skeleton">
       {width}-{height}
     </div>
@@ -35,13 +29,7 @@ const defaultProps = {
 
 describe("AlertsPanel", () => {
   it("shows loading skeleton while connecting", () => {
-    render(
-      <AlertsPanel
-        {...defaultProps}
-        isConnecting={true}
-        alerts={[]}
-      />
-    );
+    render(<AlertsPanel {...defaultProps} isConnecting={true} alerts={[]} />);
 
     expect(screen.getAllByTestId("skeleton")).toHaveLength(5);
   });
@@ -53,71 +41,41 @@ describe("AlertsPanel", () => {
   });
 
   it("shows disconnected status", () => {
-    render(
-      <AlertsPanel
-        {...defaultProps}
-        connected={false}
-      />
-    );
+    render(<AlertsPanel {...defaultProps} connected={false} />);
 
     expect(screen.getByText("Disconnected")).toBeInTheDocument();
   });
 
   it("shows connecting status", () => {
-    render(
-      <AlertsPanel
-        {...defaultProps}
-        isConnecting={true}
-        alerts={[]}
-      />
-    );
+    render(<AlertsPanel {...defaultProps} isConnecting={true} alerts={[]} />);
 
     expect(screen.getAllByTestId("skeleton")).toHaveLength(5);
   });
 
   it("shows failed connection message", () => {
-    render(
-      <AlertsPanel
-        {...defaultProps}
-        failed={true}
-        alerts={[]}
-      />
-    );
+    render(<AlertsPanel {...defaultProps} failed={true} alerts={[]} />);
 
     expect(
-      screen.getByText("Unable to connect to the alerts service.")
+      screen.getByText("Unable to connect to the alerts service."),
     ).toBeInTheDocument();
 
     expect(
-      screen.getByText(
-        "Connection failed after multiple retry attempts."
-      )
+      screen.getByText("Connection failed after multiple retry attempts."),
     ).toBeInTheDocument();
   });
 
   it("shows no alerts message when alerts are empty", () => {
-    render(
-      <AlertsPanel
-        {...defaultProps}
-        alerts={[]}
-      />
-    );
+    render(<AlertsPanel {...defaultProps} alerts={[]} />);
 
-    expect(
-      screen.getByText("No Alerts Available.")
-    ).toBeInTheDocument();
+    expect(screen.getByText("No Alerts Available.")).toBeInTheDocument();
   });
 
   it("shows a low stock alert", () => {
     render(<AlertsPanel {...defaultProps} />);
 
-    expect(
-      screen.getByText("Low Stock Item Alert")
-    ).toBeInTheDocument();
+    expect(screen.getByText("Low Stock Item Alert")).toBeInTheDocument();
 
-    expect(
-      screen.getByText("Product ABC is running low.")
-    ).toBeInTheDocument();
+    expect(screen.getByText("Product ABC is running low.")).toBeInTheDocument();
   });
 
   it("shows forecast change alert", () => {
@@ -129,19 +87,12 @@ describe("AlertsPanel", () => {
       message: "Forecast changed for Product XYZ.",
     };
 
-    render(
-      <AlertsPanel
-        {...defaultProps}
-        alerts={[forecastAlert]}
-      />
-    );
+    render(<AlertsPanel {...defaultProps} alerts={[forecastAlert]} />);
+
+    expect(screen.getByText("Forecast Change")).toBeInTheDocument();
 
     expect(
-      screen.getByText("Forecast Change")
-    ).toBeInTheDocument();
-
-    expect(
-      screen.getByText("Forecast changed for Product XYZ.")
+      screen.getByText("Forecast changed for Product XYZ."),
     ).toBeInTheDocument();
   });
 
@@ -154,20 +105,89 @@ describe("AlertsPanel", () => {
       message: "System service is unavailable.",
     };
 
-    render(
-      <AlertsPanel
-        {...defaultProps}
-        alerts={[systemAlert]}
-      />
-    );
+    render(<AlertsPanel {...defaultProps} alerts={[systemAlert]} />);
+
+    expect(screen.getByText("System Status")).toBeInTheDocument();
 
     expect(
-      screen.getByText("System Status")
+      screen.getByText("System service is unavailable."),
     ).toBeInTheDocument();
+  });
 
-    expect(
-      screen.getByText("System service is unavailable.")
-    ).toBeInTheDocument();
+  it("displays the Critical severity badge", () => {
+    const testAlert: AlertMessage = {
+      ...alert,
+      severity: "critical",
+    };
+
+    render(<AlertsPanel {...defaultProps} alerts={[testAlert]} />);
+
+    expect(screen.getByText("Critical")).toBeInTheDocument();
+  });
+
+  it("displays the Warning severity badge", () => {
+    const testAlert: AlertMessage = {
+      ...alert,
+      severity: "warning",
+    };
+
+    render(<AlertsPanel {...defaultProps} alerts={[testAlert]} />);
+
+    expect(screen.getByText("Warning")).toBeInTheDocument();
+  });
+
+  it("displays the Info severity badge", () => {
+    const testAlert: AlertMessage = {
+      ...alert,
+      severity: "info",
+    };
+
+    render(<AlertsPanel {...defaultProps} alerts={[testAlert]} />);
+
+    expect(screen.getByText("Info")).toBeInTheDocument();
+  });
+
+  it("defaults missing severity to Info", () => {
+    const testAlert = {
+      ...alert,
+      severity: undefined,
+    } as unknown as AlertMessage;
+
+    render(<AlertsPanel {...defaultProps} alerts={[testAlert]} />);
+
+    expect(screen.getByText("Info")).toBeInTheDocument();
+  });
+
+  it("sorts Critical alerts before Warning and Info", () => {
+    const alerts: AlertMessage[] = [
+      { ...alert, id: "info", severity: "info" },
+      { ...alert, id: "warning", severity: "warning" },
+      { ...alert, id: "critical", severity: "critical" },
+    ];
+
+    render(<AlertsPanel {...defaultProps} alerts={alerts} />);
+
+    const articles = screen.getAllByRole("article");
+
+    expect(articles[0]).toHaveTextContent("Critical");
+    expect(articles[1]).toHaveTextContent("Warning");
+  });
+
+  it("filters alerts by selected severity", () => {
+    const alerts: AlertMessage[] = [
+      { ...alert, id: "critical", severity: "critical" },
+      { ...alert, id: "warning", severity: "warning" },
+      { ...alert, id: "info", severity: "info" },
+    ];
+
+    render(<AlertsPanel {...defaultProps} alerts={alerts} />);
+
+    act(() => {
+      screen.getByRole("button", { name: "warning" }).click();
+    });
+
+    expect(screen.getAllByRole("article")).toHaveLength(1);
+    expect(screen.getByText("warning")).toBeInTheDocument();
   });
 
   it("removes an alert after 5.5 seconds", () => {
@@ -175,59 +195,41 @@ describe("AlertsPanel", () => {
 
     vi.useFakeTimers();
 
-    render(
-      <AlertsPanel
-        {...defaultProps}
-        onRemove={onRemove}
-      />
-    );
+    try {
+      render(<AlertsPanel {...defaultProps} onRemove={onRemove} />);
 
-    expect(
-      screen.getByText("Product ABC is running low.")
-    ).toBeInTheDocument();
+      expect(
+        screen.getByText("Product ABC is running low."),
+      ).toBeInTheDocument();
 
-    act(() => {
-      vi.advanceTimersByTime(5500);
-    });
+      act(() => {
+        vi.advanceTimersByTime(5500);
+      });
 
-    expect(onRemove).toHaveBeenCalledWith("alert-1");
-
-    vi.useRealTimers();
+      expect(onRemove).toHaveBeenCalledWith("alert-1");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("has an accessible loading state", () => {
-    render(
-      <AlertsPanel
-        {...defaultProps}
-        isConnecting={true}
-        alerts={[]}
-      />
-    );
+    render(<AlertsPanel {...defaultProps} isConnecting={true} alerts={[]} />);
 
     const loadingState = screen.getByRole("status");
 
     expect(loadingState).toBeInTheDocument();
     expect(loadingState).toHaveAttribute("aria-busy", "true");
-    expect(loadingState).toHaveAttribute(
-      "aria-label",
-      "Loading live alerts"
-    );
+    expect(loadingState).toHaveAttribute("aria-label", "Loading live alerts");
   });
 
   it("has an accessible error state", () => {
-    render(
-      <AlertsPanel
-        {...defaultProps}
-        failed={true}
-        alerts={[]}
-      />
-    );
+    render(<AlertsPanel {...defaultProps} failed={true} alerts={[]} />);
 
     const errorState = screen.getByRole("alert");
 
     expect(errorState).toBeInTheDocument();
     expect(errorState).toHaveTextContent(
-      "Unable to connect to the alerts service."
+      "Unable to connect to the alerts service.",
     );
   });
 
@@ -241,42 +243,40 @@ describe("AlertsPanel", () => {
     expect(alertItem).toBeInTheDocument();
   });
 
-  it("only auto-dismisses alerts that are visible (Fix 6)", () => {
-  vi.useFakeTimers();
+  it("only auto-dismisses alerts that are visible", () => {
+    vi.useFakeTimers();
 
-  const onRemove = vi.fn();
-  const alerts = ["a", "b", "c"].map((id) => ({
-    ...alert,
-    id,
-  }));
+    try {
+      const onRemove = vi.fn();
 
-  render(
-    <AlertsPanel
-      {...defaultProps}
-      alerts={alerts}
-      onRemove={onRemove}
-    />,
-  );
+      const alerts = ["a", "b", "c"].map((id) => ({
+        ...alert,
+        id,
+      }));
 
-  act(() => {
-    vi.advanceTimersByTime(5600);
+      render(
+        <AlertsPanel {...defaultProps} alerts={alerts} onRemove={onRemove} />,
+      );
+
+      act(() => {
+        vi.advanceTimersByTime(5600);
+      });
+
+      expect(onRemove).toHaveBeenCalledWith("a");
+      expect(onRemove).toHaveBeenCalledWith("b");
+      expect(onRemove).not.toHaveBeenCalledWith("c");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  expect(onRemove).toHaveBeenCalledWith("a");
-  expect(onRemove).toHaveBeenCalledWith("b");
-  expect(onRemove).not.toHaveBeenCalledWith("c");
+  it("has accessible individual alert", () => {
+    render(<AlertsPanel {...defaultProps} />);
 
-  vi.useRealTimers();
-});
+    const alertItem = screen.getByRole("article", {
+      name: "Low Stock Item Alert: Product ABC is running low.",
+    });
 
-it("has accessible individual alert", () => {
-  render(<AlertsPanel {...defaultProps} />);
-
-  const alertItem = screen.getByRole("article", {
-    name: "Low Stock Item Alert: Product ABC is running low.",
+    expect(alertItem).toBeInTheDocument();
   });
-
-  expect(alertItem).toBeInTheDocument();
 });
-});
-

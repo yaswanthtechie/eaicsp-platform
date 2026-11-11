@@ -1,5 +1,6 @@
 import { Card, CardContent, CardTitle, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ShieldAlert, AlertTriangle, Info, CheckCircle2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { colors, radius, space } from "../tokens";
 import type { AlertMessage } from "../types/forecast";
@@ -15,6 +16,21 @@ interface AlertsPanelProps {
   onRetry?: () => void;
 }
 
+function normalizeSeverity(
+  severity: AlertMessage["severity"],
+): "critical" | "warning" | "info" | "success" {
+  if (
+    severity === "critical" ||
+    severity === "warning" ||
+    severity === "info" ||
+    severity === "success"
+  ) {
+    return severity;
+  }
+
+  return "info";
+}
+
 export default function AlertsPanel({
   alerts,
   connected,
@@ -24,7 +40,30 @@ export default function AlertsPanel({
   onRetry,
 }: AlertsPanelProps) {
   const [fadingAlerts, setFadingAlerts] = useState<string[]>([]);
-  const visibleAlerts = alerts.slice(0, MAX_VISIBLE_ALERTS);
+  const [severityFilter, setSeverityFilter] = useState<
+    "all" | "critical" | "warning" | "info"
+  >("all");
+
+  const severityOrder: Record<string, number> = {
+    critical: 0,
+    warning: 1,
+    info: 2,
+    success: 3,
+  };
+
+  const filteredAlerts = alerts
+    .filter((alert) => {
+      const severity = normalizeSeverity(alert.severity);
+
+      return severityFilter === "all" || severity === severityFilter;
+    })
+    .sort(
+      (a, b) =>
+        (severityOrder[normalizeSeverity(a.severity)]) -
+        (severityOrder[normalizeSeverity(b.severity)]),
+    );
+
+  const visibleAlerts = filteredAlerts.slice(0, MAX_VISIBLE_ALERTS);
 
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
@@ -74,22 +113,37 @@ export default function AlertsPanel({
     };
   }, []);
 
-  const getAlertType = (
-    severity: AlertMessage["severity"],
-  ): "info" | "success" | "warning" | "danger" => {
-    if (severity === "critical") {
-      return "danger";
-    }
+  const getSeverityBadge = (severity: AlertMessage["severity"]) => {
+    switch (severity) {
+      case "critical":
+        return {
+          label: "Critical",
+          icon: ShieldAlert,
+          color: colors.danger,
+        };
 
-    if (severity === "warning") {
-      return "warning";
-    }
+      case "warning":
+        return {
+          label: "Warning",
+          icon: AlertTriangle,
+          color: colors.warning,
+        };
 
-    if (severity === "success") {
-      return "success";
-    }
+      case "success":
+        return {
+          label: "Success",
+          icon: CheckCircle2,
+          color: colors.success,
+        };
 
-    return "info";
+      case "info":
+      default:
+        return {
+          label: "Info",
+          icon: Info,
+          color: colors.info,
+        };
+    }
   };
 
   const getTitle = (alert: AlertMessage) => {
@@ -130,22 +184,6 @@ export default function AlertsPanel({
 
   const formatTime = (timestamp: string) => {
     return new Date(timestamp).toLocaleTimeString("en-GB");
-  };
-
-  const getAlertColor = (type: "info" | "success" | "warning" | "danger") => {
-    if (type === "danger") {
-      return colors.danger;
-    }
-
-    if (type === "warning") {
-      return colors.warning;
-    }
-
-    if (type === "success") {
-      return colors.success;
-    }
-
-    return colors.primary;
   };
 
   if (isConnecting) {
@@ -284,62 +322,123 @@ export default function AlertsPanel({
         </div>
       </CardHeader>
       <CardContent>
-        {visibleAlerts.map((alert) => {
-          const isFading = fadingAlerts.includes(alert.id);
-          const alertType = getAlertType(alert.severity);
-          const alertColor = getAlertColor(alertType);
-
-          return (
-            <div
-              key={alert.id}
-              role="article"
-              aria-label={`${getTitle(alert)}: ${alert.message}`}
+        <div
+          style={{
+            display: "flex",
+            gap: space.sm,
+            flexWrap: "wrap",
+            marginBottom: space.md,
+          }}
+        >
+          {(["all", "critical", "warning", "info"] as const).map((filter) => (
+            <button
+              key={filter}
+              type="button"
+              onClick={() => setSeverityFilter(filter)}
+              aria-pressed={severityFilter === filter}
               style={{
-                opacity: isFading ? 0 : 1,
-                transition: "opacity 0.5s ease",
-                pointerEvents: isFading ? "none" : "auto",
-                marginBottom: space.sm,
-                padding: space.md,
-                borderRadius: radius.md,
-                borderLeft: `4px solid ${alertColor}`,
-                background: colors.bg,
+                padding: `${space.xs}px ${space.md}px`,
+                borderRadius: radius.sm,
+                border: `1px solid ${
+                  severityFilter === filter ? colors.primary : colors.border
+                }`,
+                background:
+                  severityFilter === filter ? colors.primary : colors.surface,
+                color: severityFilter === filter ? colors.bg : colors.text,
+                cursor: "pointer",
+                fontWeight: 600,
+                textTransform: "capitalize",
               }}
             >
-              <h3
-                style={{
-                  margin: 0,
-                  marginBottom: space.xs,
-                  color: colors.text,
-                  fontSize: "15px",
-                }}
-              >
-                {getTitle(alert)}
-              </h3>
+              {filter === "all" ? "All" : filter}
+            </button>
+          ))}
+        </div>
+        {visibleAlerts.length === 0 ? (
+          <p style={{ color: colors.textMuted }}>
+            No {severityFilter === "all" ? "" : severityFilter + " "}alerts
+            available.
+          </p>
+        ) : (
+          visibleAlerts.map((alert) => {
+            const isFading = fadingAlerts.includes(alert.id);
+            const severityBadge = getSeverityBadge(
+              normalizeSeverity(alert.severity),
+            );
+            const SeverityIcon = severityBadge.icon;
 
-              <p
+            return (
+              <div
+                key={alert.id}
+                role="article"
+                aria-label={`${getTitle(alert)}: ${alert.message}`}
                 style={{
-                  margin: 0,
-                  color: colors.textMuted,
-                  fontSize: "14px",
-                  lineHeight: 1.5,
+                  opacity: isFading ? 0 : 1,
+                  transition: "opacity 0.5s ease",
+                  pointerEvents: isFading ? "none" : "auto",
+                  marginBottom: space.sm,
+                  padding: space.md,
+                  borderRadius: radius.md,
+                  borderLeft: `4px solid ${severityBadge.color}`,
+                  background: colors.bg,
                 }}
               >
-                {alert.message}
-              </p>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: space.sm,
+                    marginBottom: space.xs,
+                  }}
+                >
+                  <h3
+                    style={{
+                      margin: 0,
+                      color: colors.text,
+                      fontSize: "15px",
+                    }}
+                  >
+                    {getTitle(alert)}
+                  </h3>
+                  <Badge
+                    className="px-3 py-1.5 text-base font-semibold"
+                    style={{
+                      color: severityBadge.color,
+                      backgroundColor: colors.surface,
+                      borderColor: severityBadge.color,
+                    }}
+                  >
+                    <SeverityIcon size={20} />
+                    {severityBadge.label}
+                  </Badge>
+                </div>
 
-              <span
-                style={{
-                  display: "block",
-                  marginTop: space.xs,
-                  color: colors.textMuted,
-                  fontSize: "12px",
-                }}
-              >
-                {formatTime(alert.timestamp)}
-              </span>
-            </div>
-          );
-        })}
+                <p
+                  style={{
+                    margin: 0,
+                    color: colors.textMuted,
+                    fontSize: "14px",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {alert.message}
+                </p>
+
+                <span
+                  style={{
+                    display: "block",
+                    marginTop: space.xs,
+                    color: colors.textMuted,
+                    fontSize: "12px",
+                  }}
+                >
+                  {formatTime(alert.timestamp)}
+                </span>
+              </div>
+            );
+          })
+        )}
       </CardContent>
     </Card>
   );
