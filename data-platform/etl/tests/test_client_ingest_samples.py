@@ -1,4 +1,4 @@
-﻿import csv
+import csv
 from collections import Counter
 from datetime import date, timedelta
 from pathlib import Path
@@ -113,3 +113,30 @@ def test_bad_rows_have_unique_keys():
 
 def test_all_ten_sample_files_exist():
     assert all((SAMPLES / f"{name}.csv").exists() for name in SPEC["files"])
+
+
+def test_every_spec_column_has_type_required_and_format():
+    for name, spec_file in SPEC["files"].items():
+        assert isinstance(spec_file["columns"], dict), name
+        for column, rules in spec_file["columns"].items():
+            assert {"type", "required", "format"} <= set(rules), (name, column)
+
+
+def test_actual_lateness_differs_by_carrier():
+    rows = [r for r in load("shipment_history")[:350] if r["actual_delivery_date"]]
+    totals = Counter(r["carrier_name"] for r in rows)
+    late = Counter(
+        r["carrier_name"] for r in rows
+        if r["actual_delivery_date"] > r["planned_delivery_date"]
+    )
+    rate = {carrier: late[carrier] / totals[carrier] for carrier in totals}
+    assert rate["Regional Transport"] > rate["Air Cargo"] + 0.2
+    assert rate["Regional Transport"] > rate["Express Logistics"] + 0.2
+
+
+def test_shipment_status_matches_dates():
+    for r in load("shipment_history")[:350]:
+        if r["shipment_status"] == "Delayed":
+            assert r["actual_delivery_date"] > r["planned_delivery_date"]
+        elif r["shipment_status"] == "Delivered":
+            assert r["actual_delivery_date"] <= r["planned_delivery_date"]

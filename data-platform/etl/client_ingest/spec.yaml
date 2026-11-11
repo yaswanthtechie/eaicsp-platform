@@ -211,13 +211,37 @@ files:
     canonical_ids:
     - warehouse_id
     columns:
-    - warehouse_code
-    - warehouse_name
-    - city
-    - state
-    - country
-    - pincode
-    - warehouse_type
+      warehouse_code:
+        type: string
+        required: true
+        format: CITY-##
+      warehouse_name:
+        type: string
+        required: true
+        format: text
+        inferred: true
+      city:
+        type: string
+        required: true
+        format: Indian city
+      state:
+        type: string
+        required: true
+        format: Indian state
+      country:
+        type: string
+        required: true
+        format: country name (India)
+      pincode:
+        type: string
+        required: true
+        format: 6 digits
+        inferred: true
+      warehouse_type:
+        type: string
+        required: true
+        format: text
+        inferred: true
     staging_columns:
     - warehouse_code
     - warehouse_name

@@ -1,4 +1,4 @@
-﻿import csv
+import csv
 import random
 from datetime import date, timedelta
 from pathlib import Path
@@ -42,7 +42,7 @@ suppliers = [
      "city":["Hyderabad","Mumbai","Pune","Bengaluru","Chennai"][i%5],
      "state":["Telangana","Maharashtra","Maharashtra","Karnataka","Tamil Nadu"][i%5],
      "contact_email":f"supplier{i+1}@example.test",
-     "phone":f"{random.randint(6000000000,9999999999)}",
+     "phone":f"90000{i+1:05d}",
      "is_active":"true"} for i in range(20)
 ]
 
@@ -112,7 +112,7 @@ for p in products:
         })
 inventory.extend([
     {**inventory[0], "product_code":"PRD-99903"},
-    {**inventory[1], "quantity_on_hand":-5}
+    {"snapshot_date":"2026-11-08", **inventory[1], "quantity_on_hand":-5}
 ])
 write("inventory_snapshot", inventory)
 
@@ -168,9 +168,15 @@ for i in range(365):
     po_number = f"PO-{55120+i}"
     qty = random.randint(10,500)
 
-    # 350 received, 12 open and 3 cancelled.
+    # 338 received, 12 open (in transit) and 15 cancelled.
     status = "Received" if i < 338 else ("Open" if i < 350 else "Cancelled")
-    received = expected + timedelta(days=random.randint(-2,8)) if status == "Received" else None
+
+    # Decide lateness first, then derive the delivery date from it.
+    route_factor = 1.4 if warehouse["city"] in ("New Delhi","Chennai") and carrier["carrier_type"] == "Road" else 1.0
+    late_probability = min(carrier["base_late_rate"]*route_factor,.8)
+    is_late = random.random() < late_probability
+    delay_days = random.randint(1,8) if is_late else random.randint(-2,0)
+    received = expected + timedelta(days=delay_days) if status == "Received" else None
 
     po_history.append({
         "po_number":po_number,
@@ -188,9 +194,6 @@ for i in range(365):
     if status == "Cancelled":
         continue
 
-    route_factor = 1.4 if warehouse["city"] in ("New Delhi","Chennai") and carrier["carrier_type"] == "Road" else 1.0
-    late_probability = min(carrier["base_late_rate"]*route_factor,.8)
-    is_late = random.random() < late_probability
 
     # The final 12 non-cancelled records remain in transit.
     in_transit = i >= 338
