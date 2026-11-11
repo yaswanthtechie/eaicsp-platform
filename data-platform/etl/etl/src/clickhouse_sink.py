@@ -111,10 +111,12 @@ def ensure_schema(client) -> None:
             PARTITION BY {spec['partition_by']}
             ORDER BY {spec['order_by']}
         """)
-        client.command(
-            f"CREATE VIEW IF NOT EXISTS {db}.{mart} AS "
-            f"SELECT * FROM {db}.{_target(mart)} FINAL"
+        client.command(f"DROP VIEW IF EXISTS {db}.{mart}")
+        view_sql = (
+            f"CREATE VIEW {db}.{mart} AS SELECT * FROM "
+            f"{db}.{_target(mart)} FINAL"
         )
+        client.command(view_sql)
 
 
 def _normalise(value):

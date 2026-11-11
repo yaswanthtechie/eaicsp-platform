@@ -23,6 +23,7 @@ os.environ["AIRFLOW__DATABASE__SQL_ALCHEMY_CONN"] = (
     + str(AIRFLOW_DB.resolve()).replace("\\", "/").lstrip("/")
 )
 
+from airflow.configuration import conf
 from airflow.models import DagBag
 from airflow.utils.db import initdb
 
@@ -32,7 +33,7 @@ initdb()
 
 
 def test_sales_runs_before_inventory():
-    dag_folder = Path(__file__).resolve().parents[1] / "dags"
+    dag_folder = conf.get("core", "dags_folder")
 
     dag_bag = DagBag(
         dag_folder=str(dag_folder),
@@ -50,4 +51,4 @@ def test_sales_runs_before_inventory():
     assert sales_join.task_id in {
         task.task_id
         for task in inventory_extract.upstream_list
-    }     
+    }

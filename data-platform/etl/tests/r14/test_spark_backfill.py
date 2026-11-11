@@ -168,9 +168,10 @@ def test_month_rerun_is_idempotent_and_isolated(tmp_path, monkeypatch):
         jan_before = q("SELECT sku_id, updated_at FROM sales_fact WHERE sku_id IN ('R14T1','R14T2') ORDER BY sku_id")
         run(str(csv), "2023-02", "2023-02")          # re-run ONE month
         jan_after = q("SELECT sku_id, updated_at FROM sales_fact WHERE sku_id IN ('R14T1','R14T2') ORDER BY sku_id")
+        print("DEFAULT PARTITION:", q("SELECT sku_id, date, source_batch, run_id FROM sales_fact_default WHERE sku_id LIKE 'R14T%' ORDER BY date"))
         assert jan_before == jan_after                # other month untouched
 
-        run(str(csv), "2023-01", "2023-02")          # full re-run
+        full_rerun = run(str(csv), "2023-01", "2023-02")
         assert q("SELECT date, sku_id, quantity_sold, unit_price FROM sales_fact "
                  "WHERE sku_id LIKE 'R14T%' ORDER BY date, sku_id") == snap  # no dup rows, same data
 
