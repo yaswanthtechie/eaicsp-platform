@@ -2302,6 +2302,45 @@ Use local dev values for the token and password; never commit `.env`. Run `down 
 - Requires the shared stack up, the topics `iot.sensor.reading` and `iot.anomaly.detected` created, and `anomaly-detector` running (log shows `consumer ready`). Kafka host address: `localhost:29092`.
 - Measured delivery time, 5 runs on 5 different sensors: 0.81, 0.72, 0.73, 0.75 and 0.66 seconds after episode start (all within the 5-second target). About 0.55 s of each is the Kafka publish of the 9 readings.
 
+# Round 15 - Sales anomaly detection (#326)
+
+Flags unusual spikes and drops in daily sales, per product and warehouse. Run: `python -m src.sales_anomaly --input <sales.csv> --output output/sales_anomalies.csv`. Input columns: `sale_date` or `date`, `product_code` or `sku_id`, `warehouse` or `warehouse_id`, `quantity_sold` (extra columns such as `unit_price` are ignored). Rows for the same day are summed; a day missing from a series counts as 0 sales (`--no-fill-zero` leaves it unscored). The seed file lists every day for every series (2,190,000 rows = 3,000 series x 730 days), so this rule does not change seed results.
+
+**Method and why.** Seasonal-naive baseline plus a robust z-score. The expected value for a day is the median of the same weekday over the previous 8 weeks, so weekly seasonality is handled without a fitted model. The scale is `max(1.4826 x MAD, sqrt(expected), 1)`: MAD is robust to earlier anomalies, and the `sqrt` floor reflects count noise and keeps flat series from dividing by zero. It needs no training, works per series, and every flag can be explained with two numbers (expected value and score). An Isolation Forest was not used because per-series seasonality and the "no future data" rule are simpler to guarantee with this method.
+
+**No future data.** A day's score uses only values from strictly earlier days (`t-7 ... t-56`). A test changes all later values and checks that earlier scores do not move.
+
+**Skips.** A series with under 56 days (8 weeks) is skipped with a log line (`Skipping <product> / <warehouse>: N days of data, need at least 56`) and never flagged. The first 28 days of a series are not scored (fewer than 4 same-weekday values of history).
+
+**Anomaly and severity** (fixed before any evaluation, not tuned on its results). Anomaly: `|z| >= 3.5`; `z > 0` is a spike, `z < 0` a drop.
+
+| Severity | Rule |
+|---|---|
+| high | `|z| >= 8` |
+| medium | `5 <= |z| < 8` |
+| low | `3.5 <= |z| < 5` |
+
+**Evaluation** (`python -m src.sales_anomaly_eval`, synthetic data only: 40 series x 365 days with weekday pattern, trend and Poisson noise; 6 injected spikes (x2.5 to x4) or drops (x0 to x0.3) per series, at least 14 days apart; precision and recall from `eval_framework.precision_recall`, day level, scored days only):
+
+| Measure | Result |
+|---|---|
+| Precision | 0.9212 |
+| Recall | 0.9250 |
+| F1 | 0.9231 |
+| Spike recall | 105 of 105 found (1.00) |
+| Drop recall | 117 of 135 found (0.8667) |
+| Flagged by severity | high 109, medium 80, low 52 |
+| False alarms on clean series | 28 flagged days of 13,480 scored (2.08 per 1000 days) |
+
+**Runtime.** The full seed (2,190,000 rows, 3,000 series) takes about 10.8 seconds on my machine. Seed run: series skipped (under 56 days): 0  days scored: 2106000  anomalies: 44846
+severity
+low       33232
+medium    10875
+high        739
+written: output\seed_anomalies.csv.
+
+**Limits.** Drops are found less often than spikes: a drop from a low sales level is hard to tell from count noise. Injected events stay in later baselines, which can hide a second event soon after the first. The thresholds are design values; real client data may need a different scale. Publishing events and the batch job are #327.
+
 # Future Improvements
 
 Potential future enhancements include:
