@@ -36,7 +36,6 @@ def run_migrations_offline() -> None:
     with context.begin_transaction():
         context.run_migrations()
 
-
 def run_migrations_online() -> None:
     """Run migrations using a live database connection."""
     connectable = engine_from_config(
@@ -50,10 +49,18 @@ def run_migrations_online() -> None:
             if connection.dialect.name == "postgresql":
                 schema = settings.SUPPLIER_DB_SCHEMA
 
-                # Create the application schema before the migration.
-                connection.exec_driver_sql(
-                    f'CREATE SCHEMA IF NOT EXISTS "{schema}"'
-                )
+                # Create the application schema only when it does not already exist.
+                exists = connection.exec_driver_sql(
+                    "SELECT 1 FROM pg_namespace WHERE nspname = %s",
+                    (schema,),
+                ).scalar()
+
+                if not exists:
+                    connection.exec_driver_sql(
+                        f'CREATE SCHEMA "{schema}"'
+                    )
+
+                # Close the transaction opened by the SELECT before Alembic starts.
                 connection.commit()
 
             context.configure(

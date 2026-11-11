@@ -233,7 +233,7 @@ def health():
             else False
         ),
         "shipment_eta_consumer_alive": (
-            shipment_eta_consumer_runner.is_alive()
+            shipment_eta_consumer_runner.is_alive
             if settings.ETA_KAFKA_ENABLED
             else False
         ),
