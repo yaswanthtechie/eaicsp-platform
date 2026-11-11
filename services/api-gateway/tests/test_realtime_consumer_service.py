@@ -98,7 +98,13 @@ async def test_process_message_valid_event_broadcast_and_committed(mock_componen
     broadcast_text = conn_mgr.broadcast.call_args[0][0]
     broadcast_data = json.loads(broadcast_text)
     assert broadcast_data["event_id"] == event["event_id"]
+    assert broadcast_data["event_type"] == event["event_type"]
+    assert broadcast_data["event_version"] == event["event_version"]
+    assert broadcast_data["occurred_at"] == event["occurred_at"]
+    assert broadcast_data["producer"] == event["producer"]
+    assert broadcast_data["severity"] == "warning"
     assert broadcast_data["payload"]["sku_id"] == "SKU-000123"
+    assert broadcast_data["payload"] == event["payload"]
     # Ensure DLQ was not called
     mock_producer.send_and_wait.assert_not_called()
 

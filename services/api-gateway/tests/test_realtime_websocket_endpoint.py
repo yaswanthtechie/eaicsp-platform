@@ -32,6 +32,16 @@ from tests.test_realtime_events_validation import (
 )
 
 
+EXPECTED_SEVERITY = {
+    "inventory.stock.low": "warning",
+    "iot.anomaly.detected": "critical",
+    "supplierrisk.score.changed": "warning",
+    "eta.shipment.predicted": "info",
+    "forecast.batch.completed": "info",
+    "data.pipeline.completed": "info",
+}
+
+
 def assert_accepted_then_closed(client, url, expected_code):
     """
     Verify that the WebSocket handshake is accepted
@@ -212,7 +222,9 @@ def test_contract_examples_reach_connected_websocket_clients(mock_post, client, 
             )
         )
         assert handled is True
-        assert json.loads(ws.receive_text()) == example
+        received = json.loads(ws.receive_text())
+        assert received["severity"] == EXPECTED_SEVERITY[example["event_type"]]
+        assert {k: v for k, v in received.items() if k != "severity"} == example
 
 
 @patch("httpx.AsyncClient.post", new_callable=AsyncMock)
