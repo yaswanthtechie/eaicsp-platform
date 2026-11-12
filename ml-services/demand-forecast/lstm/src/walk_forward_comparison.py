@@ -18,45 +18,31 @@ from torch.utils.data import DataLoader, TensorDataset
 from src.common import fit_with_early_stopping, set_seed
 from src.global_data import load_global_data
 from src.global_model import GlobalDemandLSTM
+from src.per_sku_model import PerSKUModel
+from src.config import (
+    GLOBAL_SEED as SEED,
+    GLOBAL_DATA_PATH,
+    GLOBAL_LOOKBACK as LOOKBACK,
+    GLOBAL_HORIZON as HORIZON,
+    GLOBAL_BATCH_SIZE as BATCH,
+    GLOBAL_VALIDATION_BATCH_SIZE as VALIDATION_BATCH,
+    GLOBAL_LEARNING_RATE as LEARNING_RATE,
+    GLOBAL_EMBEDDING_DIM as EMBEDDING_DIM,
+    GLOBAL_HIDDEN_SIZE as HIDDEN_SIZE,
+    GLOBAL_NUM_LAYERS as NUM_LAYERS,
+    GLOBAL_DROPOUT as DROPOUT,
+    GLOBAL_EPOCHS as EPOCHS,
+    GLOBAL_PATIENCE as PATIENCE,
+)
 
 DATA = Path("data/global_sku_demand_synthetic.csv")
 OUT = Path("output")
-LOOKBACK = 45
-HORIZON = 7
+DATA = Path(GLOBAL_DATA_PATH)
 FOLDS = 5
-EPOCHS = 50
-PATIENCE = 8
-BATCH = 32
 MIN_TRAIN = 20
-SEED = 42
-LEARNING_RATE = 0.001
-VALIDATION_BATCH = 128
-HIDDEN_SIZE = 64
-NUM_LAYERS = 2
-DROPOUT = 0.2
-EMBEDDING_DIM = 8
 MLFLOW_EXPERIMENT = "Demand-Forecast-LSTM-Walk-Forward"
 MLFLOW_RUN_NAME = "five-fold-global-vs-per-sku"
 
-
-class PerSKUModel(nn.Module):
-    """LSTM trained independently for one SKU."""
-
-    def __init__(self, input_size=4, hidden_size=64, num_layers=2,
-                 horizon=7, dropout=0.2):
-        super().__init__()
-        self.lstm = nn.LSTM(
-            input_size, hidden_size, num_layers, batch_first=True,
-            dropout=dropout if num_layers > 1 else 0.0,
-        )
-        self.head = nn.Sequential(
-            nn.Linear(hidden_size, 64), nn.ReLU(), nn.Dropout(dropout),
-            nn.Linear(64, horizon),
-        )
-
-    def forward(self, x):
-        output, _ = self.lstm(x)
-        return self.head(output[:, -1, :])
 
 
 def score(actual, predicted):

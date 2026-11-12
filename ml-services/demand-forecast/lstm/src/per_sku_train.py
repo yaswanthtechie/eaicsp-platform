@@ -1,6 +1,5 @@
-﻿"""Compare one global LSTM against separate per-SKU LSTMs with MLflow tracking."""
+"""Compare one global LSTM against separate per-SKU LSTMs with MLflow tracking."""
 
-import copy
 import json
 import time
 from pathlib import Path
@@ -12,64 +11,33 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, Subset
 
-from src.reproducibility import set_seed
+from src.common import fit_with_early_stopping, set_seed
 from src.global_data import load_global_data
-from src.global_model import GlobalDemandLSTM
-
-
+from src.global_model import GlobalDemandLSTM, load_global_checkpoint
+from src.per_sku_model import PerSKUModel
+from src.config import (
+    GLOBAL_SEED as SEED,
+    GLOBAL_DATA_PATH as DATA_PATH,
+    GLOBAL_LOOKBACK as LOOKBACK,
+    GLOBAL_HORIZON as HORIZON,
+    GLOBAL_BATCH_SIZE as BATCH_SIZE,
+    GLOBAL_VALIDATION_BATCH_SIZE as VALIDATION_BATCH_SIZE,
+    GLOBAL_LEARNING_RATE as LEARNING_RATE,
+    GLOBAL_HIDDEN_SIZE as HIDDEN_SIZE,
+    GLOBAL_NUM_LAYERS as NUM_LAYERS,
+    GLOBAL_DROPOUT as DROPOUT,
+    GLOBAL_EPOCHS as MAX_EPOCHS,
+    GLOBAL_PATIENCE as PATIENCE,
+)
 # ---------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------
-SEED = 42
-DATA_PATH = "data/global_sku_demand_synthetic.csv"
 OUTPUT_DIR = Path("output")
 
-LOOKBACK = 45
-HORIZON = 7
-BATCH_SIZE = 32
-VALIDATION_BATCH_SIZE = 128
-LEARNING_RATE = 0.001
-HIDDEN_SIZE = 64
-NUM_LAYERS = 2
-DROPOUT = 0.2
-MAX_EPOCHS = 50
-PATIENCE = 8
 
 MLFLOW_EXPERIMENT = "Demand-Forecast-LSTM-Global-vs-Per-SKU"
 MLFLOW_RUN_NAME = "global-vs-per-sku-comparison"
 
-
-class PerSKUModel(nn.Module):
-    """LSTM trained independently for one SKU."""
-
-    def __init__(
-        self,
-        input_size=4,
-        hidden_size=64,
-        num_layers=2,
-        horizon=7,
-        dropout=0.2,
-    ):
-        super().__init__()
-
-        self.lstm = nn.LSTM(
-            input_size=input_size,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            batch_first=True,
-            dropout=dropout if num_layers > 1 else 0.0,
-        )
-
-        self.head = nn.Sequential(
-            nn.Linear(hidden_size, 64),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(64, horizon),
-        )
-
-    def forward(self, x):
-        output, _ = self.lstm(x)
-        return self.head(output[:, -1, :])
 
 
 def get_metrics(actual, predicted):
@@ -112,6 +80,11 @@ def sku_indices(dataset, sku_index):
 
     return torch.where(sku_tensor == sku_index)[0].tolist()
 
+
+def _sku_forward(model, batch, device):
+    """Forward one per-SKU batch through the shared training interface."""
+    x, _sku, _category, _warehouse, y = batch
+    return model(x.to(device)), y.to(device)
 
 def train_one_sku(
     data,
@@ -161,63 +134,37 @@ def train_one_sku(
 
     loss_fn = nn.MSELoss()
 
-    best_loss = float("inf")
-    best_state = None
-    best_epoch = 0
-    waiting = 0
-
     start = time.perf_counter()
 
-    for epoch in range(1, max_epochs + 1):
-        model.train()
+    def log_epoch_metrics(epoch, train_loss, val_loss):
+        mlflow.log_metric(
+            f"sku_{sku_index}_train_loss",
+            train_loss,
+            step=epoch,
+        )
+        mlflow.log_metric(
+            f"sku_{sku_index}_validation_loss",
+            val_loss,
+            step=epoch,
+        )
 
-        for x, _sku, _category, _warehouse, y in train_loader:
-            x = x.to(device)
-            y = y.to(device)
-
-            optimizer.zero_grad()
-
-            prediction = model(x)
-            loss = loss_fn(prediction, y)
-
-            loss.backward()
-
-            nn.utils.clip_grad_norm_(
-                model.parameters(),
-                max_norm=1.0,
-            )
-
-            optimizer.step()
-
-        model.eval()
-        losses = []
-
-        with torch.no_grad():
-            for x, _sku, _category, _warehouse, y in val_loader:
-                prediction = model(x.to(device))
-                losses.append(
-                    loss_fn(prediction, y.to(device)).item()
-                )
-
-        val_loss = float(np.mean(losses))
-
-        if val_loss < best_loss:
-            best_loss = val_loss
-            best_state = copy.deepcopy(model.state_dict())
-            best_epoch = epoch
-            waiting = 0
-        else:
-            waiting += 1
-
-        if waiting >= patience:
-            break
+    fit_result = fit_with_early_stopping(
+        model=model,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        optimizer=optimizer,
+        loss_fn=loss_fn,
+        device=device,
+        epochs=max_epochs,
+        patience=patience,
+        forward_batch=_sku_forward,
+        on_epoch_end=log_epoch_metrics,
+    )
 
     training_seconds = time.perf_counter() - start
+    best_loss = fit_result["best_val_loss"]
+    best_epoch = fit_result["best_epoch"]
 
-    if best_state is None:
-        return None
-
-    model.load_state_dict(best_state)
     model.eval()
 
     predictions = []
@@ -287,42 +234,24 @@ def _run_comparison():
         "device": str(device),
     })
 
-    checkpoint_path = OUTPUT_DIR / "global_best_model.pt"
 
-    if not checkpoint_path.exists():
-        raise FileNotFoundError(
-            f"Missing {checkpoint_path}. Run src.global_train first."
-        )
-
-    checkpoint = torch.load(
-        checkpoint_path,
-        map_location=device,
-        weights_only=False,
+    model, checkpoint = load_global_checkpoint(
+        OUTPUT_DIR / "global_best_model.pt"
     )
+    model.to(device)
 
-    model = GlobalDemandLSTM(
-        num_skus=checkpoint["num_skus"],
-        num_categories=checkpoint["num_categories"],
-        num_warehouses=checkpoint["num_warehouses"],
-        num_numeric_features=checkpoint["num_numeric_features"],
-        embedding_dim=checkpoint["embedding_dim"],
-        hidden_size=checkpoint["hidden_size"],
-        num_layers=checkpoint["num_layers"],
-        horizon=checkpoint["horizon"],
-        dropout=checkpoint["dropout"],
-    ).to(device)
-
-    model.load_state_dict(checkpoint["model_state_dict"])
-    model.eval()
-
-    if (
-        checkpoint["sku_mapping"] != data.sku_mapping
-        or checkpoint["category_mapping"] != data.category_mapping
-        or checkpoint["warehouse_mapping"] != data.warehouse_mapping
+    for key, current in (
+        ("sku_mapping", data.sku_mapping),
+        ("category_mapping", data.category_mapping),
+        ("warehouse_mapping", data.warehouse_mapping),
     ):
-        raise ValueError(
-            "Saved checkpoint mappings do not match the loaded dataset."
-        )
+        if checkpoint[key] != {
+            str(k): int(v) for k, v in current.items()
+        }:
+            raise ValueError(
+                f"{key} in checkpoint does not match the loaded dataset."
+            )
+
 
     # Evaluate global model, preserving the original test-window order.
     global_scaled = []

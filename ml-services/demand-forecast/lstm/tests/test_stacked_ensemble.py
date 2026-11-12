@@ -1,8 +1,8 @@
-﻿import numpy as np
+import numpy as np
 import pandas as pd
 import pytest
 
-import stacked_ensemble as stacked
+from src import stacked_ensemble as stacked
 
 
 def sample_data(rows=120):

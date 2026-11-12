@@ -1,8 +1,9 @@
-﻿
+
 """Global multi-SKU LSTM with categorical embeddings and UNK handling."""
 
 import torch
 import torch.nn as nn
+from pathlib import Path
 
 
 class GlobalDemandLSTM(nn.Module):
@@ -111,3 +112,50 @@ class GlobalDemandLSTM(nn.Module):
         )
 
         return self.head(combined)
+
+CHECKPOINT_KEYS = {
+    "state_dict",
+    "config",
+    "scaler_mean",
+    "scaler_scale",
+    "sku_mapping",
+    "category_mapping",
+    "warehouse_mapping",
+    "lookback",
+}
+
+
+def load_global_checkpoint(path, map_location="cpu"):
+    """Load a checkpoint written by src.global_train safely."""
+    path = Path(path)
+
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Checkpoint not found: {path}. "
+            "Run python -m src.global_train first."
+        )
+
+    checkpoint = torch.load(
+        path,
+        map_location=map_location,
+        weights_only=True,
+    )
+
+    if not isinstance(checkpoint, dict):
+        raise ValueError(
+            f"Invalid checkpoint format: {path}"
+        )
+
+    missing = CHECKPOINT_KEYS - set(checkpoint)
+
+    if missing:
+        raise ValueError(
+            f"Checkpoint {path} is missing keys {sorted(missing)}; "
+            "retrain with python -m src.global_train."
+        )
+
+    model = GlobalDemandLSTM(**checkpoint["config"])
+    model.load_state_dict(checkpoint["state_dict"], strict=True)
+    model.eval()
+
+    return model, checkpoint

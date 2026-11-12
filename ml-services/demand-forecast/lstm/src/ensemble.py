@@ -443,9 +443,10 @@ def evaluate_all(actual: np.ndarray, predictions: dict, title: str) -> dict:
     for name, pred in predictions.items():
         metrics = calculate_metrics(actual, pred)
         results[name] = metrics
+        mape_text = "n/a" if metrics["MAPE"] is None else f"{metrics['MAPE']:.4f}"
         print(
             f"{name:<26} MAE: {metrics['MAE']:.4f} | "
-            f"RMSE: {metrics['RMSE']:.4f} | MAPE: {metrics['MAPE']:.4f}"
+            f"RMSE: {metrics['RMSE']:.4f} | MAPE: {mape_text}"
         )
     return results
 

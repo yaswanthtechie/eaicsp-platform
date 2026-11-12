@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import random
 import time
 from pathlib import Path
 
@@ -13,6 +12,9 @@ import torch
 from sklearn.preprocessing import StandardScaler
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
+from src.global_data import read_global_csv
+from src.common import set_seed
+from src.evaluate import calculate_metrics
 
 
 # ---------------------------------------------------------
@@ -44,49 +46,6 @@ EXPERIMENT_NAME = "Demand-Forecast-Cold-Start"
 
 
 # ---------------------------------------------------------
-# Reproducibility
-# ---------------------------------------------------------
-
-def set_seed(seed: int = SEED) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-
-
-# ---------------------------------------------------------
-# Metrics
-# ---------------------------------------------------------
-
-def calculate_metrics(
-    actual: np.ndarray,
-    predicted: np.ndarray,
-) -> dict:
-    actual = np.asarray(actual, dtype=np.float64).reshape(-1)
-    predicted = np.asarray(predicted, dtype=np.float64).reshape(-1)
-
-    if actual.size == 0:
-        raise ValueError("Cannot calculate metrics: no test targets.")
-
-    errors = actual - predicted
-
-    nonzero = np.abs(actual) > 1e-8
-    mape = (
-        np.mean(np.abs(errors[nonzero] / actual[nonzero])) * 100
-        if nonzero.any()
-        else float("nan")
-    )
-
-    return {
-        "mae": float(np.mean(np.abs(errors))),
-        "rmse": float(np.sqrt(np.mean(errors ** 2))),
-        "mape": float(mape),
-    }
-
-
-# ---------------------------------------------------------
 # Data preparation
 # ---------------------------------------------------------
 
@@ -96,44 +55,7 @@ def load_and_prepare_data() -> dict:
             f"Dataset not found: {DATA_PATH.resolve()}"
         )
 
-    df = pd.read_csv(DATA_PATH)
-
-    required = {
-        "date",
-        "sku_id",
-        "category",
-        "warehouse_id",
-        "sales",
-        "promotion",
-        "day_of_week",
-    }
-
-    missing = required - set(df.columns)
-    if missing:
-        raise ValueError(f"Missing required columns: {sorted(missing)}")
-
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df["sales"] = pd.to_numeric(df["sales"], errors="coerce")
-    df["promotion"] = pd.to_numeric(
-        df["promotion"], errors="coerce"
-    )
-    df["day_of_week"] = pd.to_numeric(
-        df["day_of_week"], errors="coerce"
-    )
-
-    df = df.dropna(
-        subset=[
-            "date",
-            "sku_id",
-            "category",
-            "warehouse_id",
-            "sales",
-            "promotion",
-            "day_of_week",
-        ]
-    ).copy()
-
-    df["sku_id"] = df["sku_id"].astype(str)
+    df = read_global_csv(DATA_PATH)
     df = df.sort_values(["date", "sku_id"]).reset_index(drop=True)
 
     cold_skus = sorted(COLD_SKUS.intersection(set(df["sku_id"])))
@@ -746,18 +668,26 @@ def main() -> None:
                 predictions_scaled.reshape(-1, 1)
             ).reshape(predictions_scaled.shape)
 
-            metrics = calculate_metrics(actual, predictions)
+            shared_metrics = calculate_metrics(actual, predictions)
+            metrics = {
+                "mae": shared_metrics["MAE"],
+                "rmse": shared_metrics["RMSE"],
+                "mape": shared_metrics["MAPE"],
+            }
             metrics["training_seconds"] = float(training_seconds)
             results[model_name] = metrics
 
-            mlflow.log_metrics(
-                {
-                    "test_mae": metrics["mae"],
-                    "test_rmse": metrics["rmse"],
-                    "test_mape": metrics["mape"],
-                    "training_seconds": training_seconds,
-                }
-            )
+            model_mlflow_metrics = {
+                "test_mae": metrics["mae"],
+                "test_rmse": metrics["rmse"],
+                "test_mape": metrics["mape"],
+                "training_seconds": training_seconds,
+            }
+            mlflow.log_metrics({
+                key: float(value)
+                for key, value in model_mlflow_metrics.items()
+                if value is not None and np.isfinite(float(value))
+            })
 
             model_path = OUTPUT_DIR / f"{model_name}.pt"
             torch.save(model.state_dict(), model_path)
@@ -774,7 +704,12 @@ def main() -> None:
             for sample in cold_samples
         ]
     )
-    baseline_metrics = calculate_metrics(actual, baseline_predictions)
+    shared_baseline_metrics = calculate_metrics(actual, baseline_predictions)
+    baseline_metrics = {
+        "mae": shared_baseline_metrics["MAE"],
+        "rmse": shared_baseline_metrics["RMSE"],
+        "mape": shared_baseline_metrics["MAPE"],
+    }
     baseline_metrics["training_seconds"] = 0.0
     results["last_value_baseline"] = baseline_metrics
 
@@ -787,14 +722,17 @@ def main() -> None:
                 "cold_skus": ",".join(data["cold_skus"]),
             }
         )
-        mlflow.log_metrics(
-            {
-                "test_mae": baseline_metrics["mae"],
-                "test_rmse": baseline_metrics["rmse"],
-                "test_mape": baseline_metrics["mape"],
-                "training_seconds": 0.0,
-            }
-        )
+        baseline_mlflow_metrics = {
+            "test_mae": baseline_metrics["mae"],
+            "test_rmse": baseline_metrics["rmse"],
+            "test_mape": baseline_metrics["mape"],
+            "training_seconds": 0.0,
+        }
+        mlflow.log_metrics({
+            key: float(value)
+            for key, value in baseline_mlflow_metrics.items()
+            if value is not None and np.isfinite(float(value))
+        })
 
     summary = {
         "experiment": EXPERIMENT_NAME,

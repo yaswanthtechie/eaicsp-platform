@@ -25,7 +25,7 @@
     "RMSE": 15.759096145629883,
     "MAPE_percent": 13.800764083862305
   },
-  "global_checkpoint_training_seconds": 149.0050603000018,
+  "global_checkpoint_training_seconds": 158.99597929999982,
   "per_sku_total_training_seconds": 84.71,
   "per_sku_wall_clock_seconds": 88.13,
   "note": "Full-test metrics use all test windows. Any global-vs-per-SKU comparison must use the same common eligible test windows. The test set was not used for checkpoint selection.",
@@ -52,13 +52,14 @@
       "SKU009",
       "SKU010"
     ],
-    "skus_mapped_to_unk": [],
-    "too_short_skipped_skus": [
+    "skus_mapped_to_unk": [
       "SKU011",
       "SKU012",
-      "SKU013",
       "SKU014",
       "SKU015"
+    ],
+    "too_short_skipped_skus": [
+      "SKU013"
     ]
   },
   "best_epoch": 32,

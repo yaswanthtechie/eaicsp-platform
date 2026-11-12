@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from src.global_model import GlobalDemandLSTM
+from src.global_model import load_global_checkpoint
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -18,26 +18,11 @@ DEFAULT_DATA = PROJECT_ROOT / "data" / "global_sku_demand_synthetic.csv"
 
 
 def load_model(checkpoint_path):
-    """Load checkpoint, model configuration, scaler, and categorical mappings."""
-    checkpoint_path = Path(checkpoint_path)
-
-    if not checkpoint_path.exists():
-        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
-
-    # This is a trusted checkpoint produced by our own training script.
-    checkpoint = torch.load(
+    """Load a validated model and its scaler/mapping metadata."""
+    return load_global_checkpoint(
         checkpoint_path,
         map_location="cpu",
-        weights_only=True,
     )
-
-    config = checkpoint["config"]
-
-    model = GlobalDemandLSTM(**config)
-    model.load_state_dict(checkpoint["state_dict"])
-    model.eval()
-
-    return model, checkpoint
 
 
 def make_input(history, lookback, scaler_mean, scaler_scale):

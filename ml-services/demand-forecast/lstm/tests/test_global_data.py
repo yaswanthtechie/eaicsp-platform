@@ -115,3 +115,50 @@ def test_sku_without_train_windows_maps_to_unk(small_df, tmp_path):
     assert data.sku_mapping.get("LATE_SKU", UNK) == UNK
     assert "LATE_SKU" in data.skus_mapped_to_unk
     assert "LATE_SKU" not in data.too_short_skipped
+
+def test_explicit_fold_dates_are_used(small_df, tmp_path):
+    csv_path = tmp_path / "small.csv"
+    small_df.to_csv(csv_path, index=False)
+
+    early = load_global_data(
+        csv_path,
+        lookback=5,
+        horizon=2,
+        train_end="2026-01-15",
+        validation_end="2026-01-22",
+        test_end="2026-01-30",
+    )
+
+    late = load_global_data(
+        csv_path,
+        lookback=5,
+        horizon=2,
+        train_end="2026-01-20",
+        validation_end="2026-01-28",
+        test_end="2026-02-05",
+    )
+
+    assert early.split_dates["train_end"] == "2026-01-15"
+    assert early.split_dates["validation_end"] == "2026-01-22"
+
+    assert len(early.train) < len(late.train)
+
+    test_dates = pd.to_datetime(
+        np.asarray(late.test_target_dates).reshape(-1)
+    )
+
+    assert test_dates.max() <= pd.Timestamp("2026-02-05")
+    assert late.split_dates["test_end"] == "2026-02-05"
+
+
+def test_bad_sales_value_raises(small_df, tmp_path):
+    from src.global_data import read_global_csv
+
+    bad = small_df.astype({"sales": object})
+    bad.loc[3, "sales"] = "oops"
+
+    csv_path = tmp_path / "bad.csv"
+    bad.to_csv(csv_path, index=False)
+
+    with pytest.raises(ValueError):
+        read_global_csv(csv_path)

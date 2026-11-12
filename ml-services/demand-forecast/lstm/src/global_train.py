@@ -12,23 +12,25 @@ from torch.utils.data import DataLoader
 from src.common import set_seed, fit_with_early_stopping
 from src.global_data import load_global_data
 from src.global_model import GlobalDemandLSTM
+from src.config import (
+    GLOBAL_SEED as SEED,
+    GLOBAL_DATA_PATH as DATA_PATH,
+    GLOBAL_LOOKBACK as LOOKBACK,
+    GLOBAL_HORIZON as HORIZON,
+    GLOBAL_BATCH_SIZE as BATCH_SIZE,
+    GLOBAL_VALIDATION_BATCH_SIZE as VALIDATION_BATCH_SIZE,
+    GLOBAL_LEARNING_RATE as LEARNING_RATE,
+    GLOBAL_EMBEDDING_DIM as EMBEDDING_DIM,
+    GLOBAL_HIDDEN_SIZE as HIDDEN_SIZE,
+    GLOBAL_NUM_LAYERS as NUM_LAYERS,
+    GLOBAL_DROPOUT as DROPOUT,
+    GLOBAL_EPOCHS as EPOCHS,
+    GLOBAL_PATIENCE as PATIENCE,
+)
 
 
-SEED = 42
-DATA_PATH = "data/global_sku_demand_synthetic.csv"
 OUTPUT_DIR = Path("output")
 
-LOOKBACK = 45
-HORIZON = 7
-BATCH_SIZE = 32
-VALIDATION_BATCH_SIZE = 128
-LEARNING_RATE = 0.001
-EMBEDDING_DIM = 8
-HIDDEN_SIZE = 64
-NUM_LAYERS = 2
-DROPOUT = 0.2
-EPOCHS = 50
-PATIENCE = 8
 
 MLFLOW_EXPERIMENT = "Demand-Forecast-LSTM-Global"
 

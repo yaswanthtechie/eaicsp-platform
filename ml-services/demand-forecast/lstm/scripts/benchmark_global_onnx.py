@@ -1,4 +1,4 @@
-﻿import csv
+import csv
 import json
 import time
 import statistics
@@ -8,7 +8,7 @@ import numpy as np
 import torch
 import onnxruntime as ort
 
-from src.global_model import GlobalDemandLSTM
+from src.global_model import load_global_checkpoint
 
 CHECKPOINT = Path("output/global_best_model.pt")
 ONNX_MODEL = Path("output/global_best_model.onnx")
@@ -27,14 +27,8 @@ def percentile(values, p):
 def main():
     torch.set_num_threads(1)
 
-    checkpoint = torch.load(
-        CHECKPOINT, map_location="cpu", weights_only=False
-    )
+    model, checkpoint = load_global_checkpoint(CHECKPOINT)
     config = checkpoint["config"]
-
-    model = GlobalDemandLSTM(**config)
-    model.load_state_dict(checkpoint["state_dict"])
-    model.eval()
 
     session_options = ort.SessionOptions()
     session_options.intra_op_num_threads = 1

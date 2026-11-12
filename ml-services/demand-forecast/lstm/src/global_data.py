@@ -51,6 +51,50 @@ class GlobalData:
     too_short_skipped: list
 
 
+def read_global_csv(csv_path) -> pd.DataFrame:
+    """Read CSV and validate values, duplicates and daily date continuity."""
+
+    df = pd.read_csv(csv_path)
+
+    missing = REQUIRED_COLUMNS - set(df.columns)
+    if missing:
+        raise ValueError(f"Missing CSV columns: {sorted(missing)}")
+
+    df["date"] = pd.to_datetime(df["date"], errors="raise")
+    df["sales"] = pd.to_numeric(df["sales"], errors="raise")
+    df["promotion"] = pd.to_numeric(df["promotion"], errors="raise")
+    df["day_of_week"] = pd.to_numeric(df["day_of_week"], errors="raise")
+
+    if df[list(REQUIRED_COLUMNS)].isna().any().any():
+        raise ValueError("Dataset contains missing required values.")
+
+    if (df["sales"] < 0).any():
+        raise ValueError("Sales must be non-negative.")
+
+    df["sku_id"] = df["sku_id"].astype(str)
+    df = df.sort_values(["sku_id", "date"]).reset_index(drop=True)
+
+    if df.duplicated(["sku_id", "date"]).any():
+        raise ValueError("Duplicate date/SKU rows found.")
+
+    for sku, group in df.groupby("sku_id", sort=False):
+        group = group.sort_values("date")
+        full_dates = pd.date_range(
+            start=group["date"].min(),
+            end=group["date"].max(),
+            freq="D",
+        )
+
+        if len(full_dates) != len(group):
+            missing_days = len(full_dates) - len(group)
+            raise ValueError(
+                f"{sku}: {missing_days} missing days; "
+                "reindex/impute before windowing"
+            )
+
+    return df
+
+
 def load_global_data(
     csv_path,
     lookback=45,
@@ -67,49 +111,13 @@ def load_global_data(
     if horizon < 1:
         raise ValueError("horizon must be at least 1.")
 
-    df = pd.read_csv(csv_path)
+    df = read_global_csv(csv_path)
 
-    missing = REQUIRED_COLUMNS - set(df.columns)
-    if missing:
-        raise ValueError(f"Missing CSV columns: {sorted(missing)}")
-
-    df["date"] = pd.to_datetime(df["date"], errors="raise")
-    df["sales"] = pd.to_numeric(df["sales"], errors="raise")
-    df["promotion"] = pd.to_numeric(
-        df["promotion"], errors="raise"
-    )
-    df["day_of_week"] = pd.to_numeric(
-        df["day_of_week"], errors="raise"
-    )
-
-    if df[list(REQUIRED_COLUMNS)].isna().any().any():
-        raise ValueError("Dataset contains missing required values.")
-
-    if (df["sales"] < 0).any():
-        raise ValueError("Sales must be non-negative.")
-
-    df["sku_id"] = df["sku_id"].astype(str)
-    df = df.sort_values(["sku_id", "date"]).reset_index(drop=True)
-
-    if df.duplicated(["sku_id", "date"]).any():
-        raise ValueError("Duplicate date/SKU rows found.")
-
-    # Validate daily date continuity for each SKU.
-    for sku, group in df.groupby("sku_id", sort=False):
-        group = group.sort_values("date")
-
-        full_dates = pd.date_range(
-            start=group["date"].min(),
-            end=group["date"].max(),
-            freq="D",
-        )
-
-        if len(full_dates) != len(group):
-            missing_days = len(full_dates) - len(group)
-            raise ValueError(
-                f"{sku}: {missing_days} missing days; "
-                "reindex/impute before windowing"
-            )
+    # Restrict to the fold's horizon so no test target falls after test_end.
+    if test_end is not None:
+        df = df[
+            df["date"] <= pd.Timestamp(test_end)
+        ].reset_index(drop=True)
 
     unique_dates = np.sort(df["date"].unique())
 
@@ -118,12 +126,39 @@ def load_global_data(
             "Not enough unique dates for requested windows."
         )
 
-    train_cut = unique_dates[
-        int(len(unique_dates) * 0.70) - 1
-    ]
-    val_cut = unique_dates[
-        int(len(unique_dates) * 0.85) - 1
-    ]
+    if train_end is None and validation_end is None:
+        train_cut = unique_dates[
+            int(len(unique_dates) * 0.70) - 1
+        ]
+        val_cut = unique_dates[
+            int(len(unique_dates) * 0.85) - 1
+        ]
+
+    elif train_end is not None and validation_end is not None:
+        train_cut = np.datetime64(
+            pd.Timestamp(train_end), "ns"
+        )
+        val_cut = np.datetime64(
+            pd.Timestamp(validation_end), "ns"
+        )
+
+    else:
+        raise ValueError(
+            "Pass both train_end and validation_end, or neither."
+        )
+
+    if not train_cut < val_cut:
+        raise ValueError(
+            "train_end must be before validation_end."
+        )
+
+    if test_end is not None and not (
+        val_cut < np.datetime64(pd.Timestamp(test_end), "ns")
+    ):
+        raise ValueError(
+            "validation_end must be before test_end."
+        )
+
 
     # Fit scaler only on rows within the training period.
     scaler = StandardScaler()
@@ -345,12 +380,9 @@ def load_global_data(
         horizon=horizon,
 
         split_dates={
-            "train_end": str(
-                pd.Timestamp(train_cut).date()
-            ),
-            "validation_end": str(
-                pd.Timestamp(val_cut).date()
-            ),
+            "train_end": str(pd.Timestamp(train_cut).date()),
+            "validation_end": str(pd.Timestamp(val_cut).date()),
+            "test_end": str(pd.Timestamp(unique_dates[-1]).date()),
         },
 
         train_target_dates=target_date_buckets["train"],

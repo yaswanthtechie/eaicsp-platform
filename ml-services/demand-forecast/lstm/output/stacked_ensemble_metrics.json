@@ -1,8 +1,8 @@
 {
   "dataset": "generate_data(days=DATASET_DAYS)",
   "dataset_rows": 1000,
-  "data_seed": 77,
-  "model_seed": 77,
+  "data_seed": 123,
+  "model_seed": 123,
   "initial_history_rows": 600,
   "oof_rows": 250,
   "test_rows": 150,
@@ -15,37 +15,37 @@
   "test_end_date": "2024-09-26",
   "metrics": {
     "Prophet": {
-      "MAE": 2.4028785988405685,
-      "RMSE": 3.078143277312716,
-      "MAPE": 1.78886588424342
+      "MAE": 2.339007917679491,
+      "RMSE": 3.0018531133528,
+      "MAPE": 1.740296226656873
     },
     "XGBoost": {
-      "MAE": 3.2521666592947636,
-      "RMSE": 4.099881231780257,
-      "MAPE": 2.4138507940192433
+      "MAE": 3.3900740767194977,
+      "RMSE": 4.218662490574367,
+      "MAPE": 2.4998750586546636
     },
     "LSTM": {
-      "MAE": 3.797418630052483,
-      "RMSE": 4.6500001936318265,
-      "MAPE": 2.8134857667310578
+      "MAE": 5.008665965834814,
+      "RMSE": 6.06360498225956,
+      "MAPE": 3.7195090580884007
     },
     "EqualWeightAverage": {
-      "MAE": 2.854744568400966,
-      "RMSE": 3.5151615399484575,
-      "MAPE": 2.119471648149411
+      "MAE": 3.1788633348244764,
+      "RMSE": 3.8872852845691956,
+      "MAPE": 2.3553093269263288
     },
     "StackedRidge": {
-      "MAE": 2.3773976252534137,
-      "RMSE": 3.0395232913496892,
-      "MAPE": 1.7693148276544384
+      "MAE": 2.3382460872162127,
+      "RMSE": 2.997656443272897,
+      "MAPE": 1.7379603064470548
     }
   },
   "ridge_coefficients": {
-    "Prophet": 0.9277410412974337,
-    "XGBoost": 0.05479235842739522,
-    "LSTM": 0.009743049067081068
+    "Prophet": 0.9332219562214829,
+    "XGBoost": -0.1026046111980894,
+    "LSTM": 0.15611963853267216
   },
-  "ridge_intercept": 1.0239108384670885,
+  "ridge_intercept": 1.78637407503183,
   "artifacts": {
     "oof_predictions": "output\\stacked_oof_predictions.csv",
     "test_predictions": "output\\stacked_test_predictions.csv"

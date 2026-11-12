@@ -1,4 +1,4 @@
-﻿import json
+import json
 from pathlib import Path
 
 import numpy as np
@@ -6,27 +6,16 @@ import torch
 import onnx
 import onnxruntime as ort
 
-from src.global_model import GlobalDemandLSTM
+from src.global_model import load_global_checkpoint
 
 CHECKPOINT_PATH = Path("output/global_best_model.pt")
 ONNX_PATH = Path("output/global_best_model.onnx")
 
 def main():
-    if not CHECKPOINT_PATH.exists():
-        raise FileNotFoundError(f"Checkpoint not found: {CHECKPOINT_PATH}")
-
-    checkpoint = torch.load(
-        CHECKPOINT_PATH,
-        map_location="cpu",
-        weights_only=False,
-    )
+    model, checkpoint = load_global_checkpoint(CHECKPOINT_PATH)
 
     config = checkpoint["config"]
     lookback = int(checkpoint["lookback"])
-
-    model = GlobalDemandLSTM(**config)
-    model.load_state_dict(checkpoint["state_dict"])
-    model.eval()
 
     # Sample inputs: 45 days, 4 numerical features.
     batch_size = 2
