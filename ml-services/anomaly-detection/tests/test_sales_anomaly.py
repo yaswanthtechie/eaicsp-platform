@@ -6,9 +6,9 @@ import pytest
 
 from src.sales_anomaly import (
     MIN_SERIES_DAYS,
+    classify,
     detect,
     score_series,
-    severity_for_score,
 )
 
 
@@ -63,7 +63,7 @@ def test_injected_spike_is_found_as_a_high_spike():
     assert row["severity"] == "high"
 
 
-def test_injected_drop_is_found_as_a_medium_drop():
+def test_injected_drop_to_zero_is_found_as_a_high_drop():
 
     values = flat()
     values[100] = 0.0
@@ -73,27 +73,52 @@ def test_injected_drop_is_found_as_a_medium_drop():
 
     assert len(hit) == 1
     assert hit.iloc[0]["direction"] == "drop"
-    assert hit.iloc[0]["severity"] == "medium"
+    assert hit.iloc[0]["severity"] == "high"
 
 
-def test_small_spike_is_low_severity():
+def test_normal_noise_size_bump_is_not_flagged():
 
     values = flat()
-    values[100] = 80.0
+    values[100] = 80.0  # +60% on 50: inside day-to-day noise for real sales
 
     scores, _ = detect(frame(values))
 
-    assert scores[scores["is_anomaly"]].iloc[0]["severity"] == "low"
+    assert not scores["is_anomaly"].any()
 
 
 @pytest.mark.parametrize(
-    "score,expected",
-    [(0.0, ""), (3.4, ""), (3.5, "low"), (-4.9, "low"), (5.0, "medium"),
-     (-7.9, "medium"), (8.0, "high"), (-30.0, "high"), (float("nan"), "")],
+    "quantity,expected,z,direction,severity",
+    [
+        (50, 50, 0.0, "", ""),
+        (60, 50, 4.8, "", ""),
+        (100, 50, 4.9, "spike", "low"),
+        (120, 50, 7.0, "spike", "medium"),
+        (200, 50, 10.0, "spike", "high"),
+        (11, 50, -2.0, "", ""),
+        (10, 50, -2.0, "drop", "low"),
+        (5, 50, -2.3, "drop", "medium"),
+        (2, 50, -2.5, "drop", "high"),
+        (0, 10, -1.8, "", ""),  # expected under 15: too small to call a drop
+        (99, 50, float("nan"), "", ""),
+    ],
 )
-def test_severity_rule(score, expected):
+def test_classify_rule(quantity, expected, z, direction, severity):
 
-    assert severity_for_score(score) == expected
+    d, s = classify([quantity], [expected], [z])
+
+    assert (d[0], s[0]) == (direction, severity)
+
+
+def test_series_that_stops_selling_is_flagged_as_a_drop():
+
+    selling = frame(flat(120), warehouse="WH-BLR-01")
+    stopped = frame(flat(100), warehouse="WH-DEL-01")  # no rows after day 100
+
+    scores, _ = detect(pd.concat([selling, stopped]))
+    hit = scores[(scores["warehouse"] == "WH-DEL-01") & scores["is_anomaly"]]
+
+    assert len(hit) > 0
+    assert set(hit["direction"]) == {"drop"}
 
 
 def test_scores_use_no_future_data():

@@ -9,11 +9,18 @@ Method: seasonal-naive baseline + robust z-score (see README).
 
     expected(t) = median of the same weekday over the previous 8 weeks
                   (values at t-7, t-14, ..., t-56; at least 4 needed)
-    scale(t)    = max(1.4826 * MAD of those values, sqrt(expected), 1)
+    rate(t)     = max(expected, mean of those values, 1)
+    scale(t)    = max(1.4826 * MAD of those values,
+                      sqrt(rate + rate^2 / DISPERSION_K), 1)
     z(t)        = (quantity(t) - expected(t)) / scale(t)
 
+Spikes are flagged by z (z >= Z_SPIKE). Drops are flagged by share of the
+expected value (see classify), because under over-dispersed sales a fall to
+zero is only a few scale units and z cannot separate it from spike noise.
+
 Only strictly earlier days are used: a day's score never depends on that
-day's future. Thresholds are fixed design values, not tuned on any result.
+day's future. Thresholds are design values; Z_SPIKE is calibrated on the
+clean seed (see src/calibrate_sales_anomaly.py).
 
 Run (from ml-services/anomaly-detection):
     python -m src.sales_anomaly --input <sales.csv> --output output/sales_anomalies.csv
@@ -34,9 +41,22 @@ LOOKBACK_WEEKS = 8
 MIN_WEEKS = 4
 MIN_SERIES_DAYS = 56
 
-Z_LOW = 3.5
-Z_MEDIUM = 5.0
-Z_HIGH = 8.0
+# Daily sales are over-dispersed (variance = mu + mu^2 / k). k = 8 matches
+# data-platform/seed/demand.py:45 (gamma shape 8).
+DISPERSION_K = 8.0
+
+# Spike threshold calibrated on the clean seed (no planted anomalies) to a
+# false-alarm budget of 2 per 1000 scored days. See README.
+Z_SPIKE = 4.9
+SPIKE_MEDIUM = 7.0
+SPIKE_HIGH = 10.0
+
+# A drop is a share of the expected value; z cannot see drops under
+# over-dispersion (a fall to 0 is only about sqrt(k) = 2.8 scale units).
+DROP_MIN_EXPECTED = 15.0
+DROP_LOW = 0.20
+DROP_MEDIUM = 0.10
+DROP_HIGH = 0.05
 
 COLUMN_ALIASES = {
     "date": ("sale_date", "date"),
@@ -84,32 +104,55 @@ def normalize_columns(df):
         }
     )
 
-    bad = out["date"].isna() | out["quantity"].isna()
+    blank_key = (
+        df[picked["product"]].isna().to_numpy()
+        | df[picked["warehouse"]].isna().to_numpy()
+    )
+    bad = out["date"].isna() | out["quantity"].isna() | blank_key | (out["quantity"] < 0)
 
     if bad.any():
-        log.warning("Dropping %d rows with an invalid date or quantity.", int(bad.sum()))
-        out = out[~bad]
+        log.warning(
+            "Dropping %d rows with an invalid date, quantity, product or warehouse.",
+            int(bad.sum()),
+        )
+        out = out[~bad].copy()
 
     out["date"] = out["date"].dt.normalize()
 
     return out
 
 
-def severity_for_score(score):
-    """high / medium / low from |z|; empty string if not an anomaly."""
+def classify(quantity, expected, z):
+    """Return (direction, severity) arrays; empty strings where not an anomaly."""
 
-    a = abs(score)
+    quantity = np.asarray(quantity, dtype=float)
+    expected = np.asarray(expected, dtype=float)
+    z = np.asarray(z, dtype=float)
+    scored = np.isfinite(z)
 
-    if not np.isfinite(a) or a < Z_LOW:
-        return ""
+    spike = scored & (z >= Z_SPIKE)
+    drop = (
+        scored
+        & ~spike
+        & (expected >= DROP_MIN_EXPECTED)
+        & (quantity <= DROP_LOW * expected)
+    )
 
-    if a >= Z_HIGH:
-        return "high"
+    direction = np.where(spike, "spike", np.where(drop, "drop", ""))
+    severity = np.select(
+        [
+            spike & (z >= SPIKE_HIGH),
+            spike & (z >= SPIKE_MEDIUM),
+            spike,
+            drop & (quantity <= DROP_HIGH * expected),
+            drop & (quantity <= DROP_MEDIUM * expected),
+            drop,
+        ],
+        ["high", "medium", "low", "high", "medium", "low"],
+        default="",
+    )
 
-    if a >= Z_MEDIUM:
-        return "medium"
-
-    return "low"
+    return direction, severity
 
 
 def score_series(values):
@@ -137,10 +180,12 @@ def score_series(values):
         warnings.simplefilter("ignore", RuntimeWarning)
         expected = np.nanmedian(lagged, axis=1)
         mad = np.nanmedian(np.abs(lagged - expected[:, None]), axis=1)
+        mean = np.nanmean(lagged, axis=1)
 
-    scale = np.maximum.reduce(
-        [1.4826 * mad, np.sqrt(np.maximum(expected, 1.0)), np.ones(n)]
-    )
+    # The mean keeps the scale honest when the median is 0 (slow sellers).
+    rate = np.maximum(np.maximum(expected, mean), 1.0)
+    noise = np.sqrt(rate + rate**2 / DISPERSION_K)
+    scale = np.maximum.reduce([1.4826 * mad, noise, np.ones(n)])
 
     z = (v - expected) / scale
     z[count < MIN_WEEKS] = np.nan
@@ -158,6 +203,7 @@ def detect(df, fill_missing_as_zero=True):
     """
 
     data = normalize_columns(df)
+    end = data["date"].max()
     frames = []
     skipped = []
 
@@ -166,7 +212,7 @@ def detect(df, fill_missing_as_zero=True):
     ):
         daily = group.groupby("date")["quantity"].sum()
         daily = daily.reindex(
-            pd.date_range(daily.index.min(), daily.index.max(), freq="D")
+            pd.date_range(daily.index.min(), end, freq="D")
         )
 
         if fill_missing_as_zero:
@@ -183,9 +229,9 @@ def detect(df, fill_missing_as_zero=True):
             skipped.append((product, warehouse, len(daily)))
             continue
 
-        expected, scale, z = score_series(daily.to_numpy())
-        abs_z = np.abs(z)
-        flagged = abs_z >= Z_LOW
+        quantity = daily.to_numpy()
+        expected, scale, z = score_series(quantity)
+        direction, severity = classify(quantity, expected, z)
 
         frames.append(
             pd.DataFrame(
@@ -193,27 +239,21 @@ def detect(df, fill_missing_as_zero=True):
                     "product": product,
                     "warehouse": warehouse,
                     "date": daily.index,
-                    "quantity": daily.to_numpy(),
+                    "quantity": quantity,
                     "expected": expected,
                     "scale": scale,
                     "score": z,
-                    "is_anomaly": flagged,
-                    "severity": np.select(
-                        [abs_z >= Z_HIGH, abs_z >= Z_MEDIUM, abs_z >= Z_LOW],
-                        ["high", "medium", "low"],
-                        default="",
-                    ),
-                    "direction": np.where(
-                        flagged, np.where(z > 0, "spike", "drop"), ""
-                    ),
+                    "is_anomaly": direction != "",
+                    "severity": severity,
+                    "direction": direction,
                 }
             )
         )
 
     if not frames:
-       empty = pd.DataFrame(columns=OUTPUT_COLUMNS)
-       empty["is_anomaly"] = empty["is_anomaly"].astype(bool)
-       return empty, skipped
+        empty = pd.DataFrame(columns=OUTPUT_COLUMNS)
+        empty["is_anomaly"] = empty["is_anomaly"].astype(bool)
+        return empty, skipped
 
     return pd.concat(frames, ignore_index=True)[OUTPUT_COLUMNS], skipped
 
@@ -243,7 +283,7 @@ def main(argv=None):
         f"anomalies: {len(anomalies)}"
     )
     if len(anomalies):
-       print(anomalies["severity"].value_counts().to_string())
+        print(anomalies.groupby(["direction", "severity"]).size().to_string())
     print(f"written: {args.output}")
 
 

@@ -2304,42 +2304,58 @@ Use local dev values for the token and password; never commit `.env`. Run `down 
 
 # Round 15 - Sales anomaly detection (#326)
 
-Flags unusual spikes and drops in daily sales, per product and warehouse. Run: `python -m src.sales_anomaly --input <sales.csv> --output output/sales_anomalies.csv`. Input columns: `sale_date` or `date`, `product_code` or `sku_id`, `warehouse` or `warehouse_id`, `quantity_sold` (extra columns such as `unit_price` are ignored). Rows for the same day are summed; a day missing from a series counts as 0 sales (`--no-fill-zero` leaves it unscored). The seed file lists every day for every series (2,190,000 rows = 3,000 series x 730 days), so this rule does not change seed results.
+Flags unusual spikes and drops in daily sales, per product and warehouse. Run: `python -m src.sales_anomaly --input <sales.csv> --output output/sales_anomalies.csv`. Input columns: `sale_date` or `date`, `product_code` or `sku_id`, `warehouse` or `warehouse_id`, `quantity_sold` (extra columns such as `unit_price` are ignored). Rows for the same day are summed; a day missing from a series counts as 0 sales (`--no-fill-zero` leaves it unscored). Every series is scored up to the last date in the whole file, so a product that stops selling gets trailing zero days and is flagged as a drop. Rows with an invalid date or quantity, a blank product or warehouse, or a negative quantity (returns) are dropped with a warning. The seed file lists every day for every series (2,190,000 rows = 3,000 series x 730 days), so the zero-fill rule does not change seed results.
 
-**Method and why.** Seasonal-naive baseline plus a robust z-score. The expected value for a day is the median of the same weekday over the previous 8 weeks, so weekly seasonality is handled without a fitted model. The scale is `max(1.4826 x MAD, sqrt(expected), 1)`: MAD is robust to earlier anomalies, and the `sqrt` floor reflects count noise and keeps flat series from dividing by zero. It needs no training, works per series, and every flag can be explained with two numbers (expected value and score). An Isolation Forest was not used because per-series seasonality and the "no future data" rule are simpler to guarantee with this method.
+**Method and why.** Seasonal-naive baseline plus a robust z-score. The expected value for a day is the median of the same weekday over the previous 8 weeks, so weekly seasonality is handled without a fitted model. Daily sales are over-dispersed (variance = mu + mu^2 / k, with k = 8 as in the seed, `data-platform/seed/demand.py:45`), so the scale is `max(1.4826 x MAD, sqrt(rate + rate^2 / 8), 1)`, where `rate = max(expected, mean of the 8 lagged values, 1)`. MAD is robust to earlier anomalies, the dispersion term reflects real day-to-day noise, and the mean keeps the scale honest for slow sellers whose median is 0. It needs no training, works per series, and every flag can be explained with two numbers (expected value and score). An Isolation Forest was not used because per-series seasonality and the "no future data" rule are simpler to guarantee with this method.
 
 **No future data.** A day's score uses only values from strictly earlier days (`t-7 ... t-56`). A test changes all later values and checks that earlier scores do not move.
 
 **Skips.** A series with under 56 days (8 weeks) is skipped with a log line (`Skipping <product> / <warehouse>: N days of data, need at least 56`) and never flagged. The first 28 days of a series are not scored (fewer than 4 same-weekday values of history).
 
-**Anomaly and severity** (fixed before any evaluation, not tuned on its results). Anomaly: `|z| >= 3.5`; `z > 0` is a spike, `z < 0` a drop.
+**Anomaly and severity.** Spikes and drops use separate rules, both in one tested function (`classify`). Under over-dispersed sales a fall to 0 is only about sqrt(8) = 2.8 scale units, so no z threshold can catch drops without flooding spikes; drops are therefore judged by share of the expected value.
 
-| Severity | Rule |
+| Direction | Rule | Low | Medium | High |
+|---|---|---|---|---|
+| Spike | z score | >= 4.9 | >= 7 | >= 10 |
+| Drop (only when expected >= 15) | share of expected | <= 20% | <= 10% | <= 5% |
+
+**Calibration.** `Z_SPIKE = 4.9` is set so that spike and drop false alarms together stay at 2 per 1000 scored days on the clean seed (no planted anomalies, so there are no labels to overfit to). To regenerate it when client data arrives:
+
+```
+python -m seed.generate
+python -m src.calibrate_sales_anomaly <seed out>/sales_daily.csv
+```
+
+On the current seed this prints `drop false alarms per 1000: 0.49` and `Z_SPIKE = 4.9`. The eval data uses different seeds.
+
+**Evaluation** (`python -m src.sales_anomaly_eval`, synthetic data only: 40 series x 365 days with weekday pattern, trend, gamma day-level noise (shape 8) and Poisson noise, 25% slow sellers (0.5 to 3 units a day); 6 injected spikes (x2.5 to x4) or drops (x0 to x0.3) per series, at least 14 days apart; precision and recall from `eval_framework.precision_recall`, day level, scored days only). The realistic run is the default; the Poisson run (`dispersion=None, slow_share=0.0`) is the old generator, kept for comparison.
+
+| Measure | Before fixes | After fixes |
+|---|---|---|
+| Seed false alarms per 1000 days | 21.3 (44,846 flags) | 2.01 (4,236 flags) |
+| Realistic eval: precision / recall | 0.18 / 0.47 | 0.81 / 0.55 |
+| Realistic eval: spike / drop recall | 0.82 / 0.13 | 0.60 / 0.49 |
+| Realistic eval: clean false alarms per 1000 | 40.2 | 1.78 |
+| Poisson eval: precision / recall | 0.92 / 0.93 | 1.00 / 0.76 |
+
+Recall goes down, and that is the honest number: under real noise a x2.5 one-day spike on a 50-unit item is often inside normal variation.
+
+Realistic run in detail: precision 0.8086, recall 0.5458, F1 0.6517; spikes found 71 of 118, drops found 60 of 122; flagged by severity low 92, medium 39, high 31; clean series 24 flagged days of 13,480 scored. Poisson run: precision 1.00, recall 0.7625, F1 0.8652; spikes found 81 of 105, drops found 102 of 135; no false alarms on 13,480 clean days.
+
+**Runtime.** Full seed after the fixes, on my machine:
+
+| Item | Value |
 |---|---|
-| high | `|z| >= 8` |
-| medium | `5 <= |z| < 8` |
-| low | `3.5 <= |z| < 5` |
+| Rows | 2,190,000 |
+| Series | 3,000 |
+| Runtime | about 9.9 seconds |
+| Days scored | 2,106,000 |
+| Flags | 4,236 |
+| Flags per 1000 days | 2.01 |
+| Spikes (low / medium / high) | 2,957 / 247 / 5 (3,209 total) |
+| Drops (low / medium / high) | 911 / 90 / 26 (1,027 total) |
 
-**Evaluation** (`python -m src.sales_anomaly_eval`, synthetic data only: 40 series x 365 days with weekday pattern, trend and Poisson noise; 6 injected spikes (x2.5 to x4) or drops (x0 to x0.3) per series, at least 14 days apart; precision and recall from `eval_framework.precision_recall`, day level, scored days only):
-
-| Measure | Result |
-|---|---|
-| Precision | 0.9212 |
-| Recall | 0.9250 |
-| F1 | 0.9231 |
-| Spike recall | 105 of 105 found (1.00) |
-| Drop recall | 117 of 135 found (0.8667) |
-| Flagged by severity | high 109, medium 80, low 52 |
-| False alarms on clean series | 28 flagged days of 13,480 scored (2.08 per 1000 days) |
-
-**Runtime.** The full seed (2,190,000 rows, 3,000 series) takes about 10.8 seconds on my machine. Seed run: series skipped (under 56 days): 0  days scored: 2106000  anomalies: 44846
-severity
-low       33232
-medium    10875
-high        739
-written: output\seed_anomalies.csv.
-
-**Limits.** Drops are found less often than spikes: a drop from a low sales level is hard to tell from count noise. Injected events stay in later baselines, which can hide a second event soon after the first. The thresholds are design values; real client data may need a different scale. Publishing events and the batch job are #327.
+**Limits.** Under realistic noise the detector is conservative: it keeps false alarms near 2 per 1000 days and accepts that moderate one-day spikes are missed. Drops are only called when the expected value is at least 15 units, so slow sellers get no drop flags. Injected events stay in later baselines, which can hide a second event soon after the first. The thresholds are design values calibrated on the seed; real client data may need `src.calibrate_sales_anomaly` re-run. Publishing events and the batch job are #327.
 
 # Future Improvements
 
@@ -2463,7 +2479,7 @@ The validated continuous-lifecycle results are:
 ## Test suite
 
 ```text
-694 passed
+721 passed
 3 warnings
 0 failures
 ```
