@@ -69,7 +69,9 @@ class InventoryCache:
             return False
 
         self._down_until = None
-        logger.warning("Redis recovered; flushed inventory keys before re-enabling cache")
+        logger.warning(
+            "Redis recovered; flushed inventory keys before re-enabling cache"
+        )
         return True
 
     def _delete_matching(self, pattern: str) -> int:
@@ -150,7 +152,6 @@ cache = InventoryCache()
 
 
 import threading
-import time
 
 
 def make_item_key(sku_id: str, warehouse_id: str) -> str:
@@ -275,7 +276,7 @@ def invalidate_inventory_cache(
 ) -> None:
     """
     Invalidate inventory cache upon mutation.
-    
+
     Rules:
     - If sku_id and warehouse_id are provided:
       1. Invalidate single-item cache: 'inventory:item:{sku_id}:{warehouse_id}'
@@ -309,7 +310,9 @@ def invalidate_inventory_cache(
                     warehouse_id,
                 )
 
-            logger.debug("Invalidated cache for %s:%s and collection", sku_id, warehouse_id)
+            logger.debug(
+                "Invalidated cache for %s:%s and collection", sku_id, warehouse_id
+            )
 
             # Delayed double-delete to eliminate concurrent read-write race window
             def _delayed_delete():

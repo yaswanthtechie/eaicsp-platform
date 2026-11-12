@@ -11,6 +11,7 @@ Verifies:
 
 from datetime import date, datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
+
 import httpx
 import pytest
 
@@ -58,9 +59,19 @@ def mock_forecast_payload():
     }
 
 
-def seed_inventory_and_supplier(db_session, sku_id, warehouse_id, qty_on_hand, safety_stock=10, lead_time=5, unit_cost=20.0):
+def seed_inventory_and_supplier(
+    db_session,
+    sku_id,
+    warehouse_id,
+    qty_on_hand,
+    safety_stock=10,
+    lead_time=5,
+    unit_cost=20.0,
+):
     supplier_id = "SUP-00045"
-    supplier = db_session.query(Supplier).filter(Supplier.supplier_id == supplier_id).first()
+    supplier = (
+        db_session.query(Supplier).filter(Supplier.supplier_id == supplier_id).first()
+    )
     if not supplier:
         supplier = Supplier(
             supplier_id=supplier_id,
@@ -71,10 +82,14 @@ def seed_inventory_and_supplier(db_session, sku_id, warehouse_id, qty_on_hand, s
         )
         db_session.add(supplier)
 
-    inv = db_session.query(Inventory).filter(
-        Inventory.sku_id == sku_id,
-        Inventory.warehouse_id == warehouse_id,
-    ).first()
+    inv = (
+        db_session.query(Inventory)
+        .filter(
+            Inventory.sku_id == sku_id,
+            Inventory.warehouse_id == warehouse_id,
+        )
+        .first()
+    )
     if not inv:
         inv = Inventory(
             sku_id=sku_id,
@@ -126,8 +141,12 @@ def test_forecast_client_success_on_first_attempt(mock_forecast_payload):
         mock_client_cls.return_value.__enter__.return_value = mock_instance
         mock_instance.get.return_value = mock_resp
 
-        client = ForecastClient(base_url="http://localhost:8007", timeout_seconds=1.0, max_retries=1)
-        res = client.fetch_forecast(sku_id="SKU-000123", warehouse_id="WH-BLR-01", horizon=30)
+        client = ForecastClient(
+            base_url="http://localhost:8007", timeout_seconds=1.0, max_retries=1
+        )
+        res = client.fetch_forecast(
+            sku_id="SKU-000123", warehouse_id="WH-BLR-01", horizon=30
+        )
 
         assert mock_instance.get.call_count == 1
         assert res is not None
@@ -145,10 +164,17 @@ def test_forecast_client_retry_once_on_timeout(mock_forecast_payload):
     with patch("app.services.forecast_client.httpx.Client") as mock_client_cls:
         mock_instance = MagicMock()
         mock_client_cls.return_value.__enter__.return_value = mock_instance
-        mock_instance.get.side_effect = [httpx.TimeoutException("Read timed out"), mock_success]
+        mock_instance.get.side_effect = [
+            httpx.TimeoutException("Read timed out"),
+            mock_success,
+        ]
 
-        client = ForecastClient(base_url="http://localhost:8007", timeout_seconds=1.0, max_retries=1)
-        res = client.fetch_forecast(sku_id="SKU-000123", warehouse_id="WH-BLR-01", horizon=30)
+        client = ForecastClient(
+            base_url="http://localhost:8007", timeout_seconds=1.0, max_retries=1
+        )
+        res = client.fetch_forecast(
+            sku_id="SKU-000123", warehouse_id="WH-BLR-01", horizon=30
+        )
 
         assert mock_instance.get.call_count == 2
         assert res is not None
@@ -166,8 +192,16 @@ def test_forecast_client_exhausts_retries_and_falls_back(db_session):
         mock_client_cls.return_value.__enter__.return_value = mock_instance
         mock_instance.get.side_effect = httpx.ConnectError("Connection refused")
 
-        client = ForecastClient(base_url="http://localhost:8007", timeout_seconds=1.0, max_retries=1)
-        res = client.resolve_demand(db=db_session, sku_id=sku_id, warehouse_id=warehouse_id, horizon=30, fallback_days=28)
+        client = ForecastClient(
+            base_url="http://localhost:8007", timeout_seconds=1.0, max_retries=1
+        )
+        res = client.resolve_demand(
+            db=db_session,
+            sku_id=sku_id,
+            warehouse_id=warehouse_id,
+            horizon=30,
+            fallback_days=28,
+        )
 
         # 1 initial + 1 retry = 2 calls
         assert mock_instance.get.call_count == 2
@@ -192,8 +226,16 @@ def test_forecast_client_503_unavailable_falls_back(db_session):
         mock_client_cls.return_value.__enter__.return_value = mock_instance
         mock_instance.get.return_value = mock_503
 
-        client = ForecastClient(base_url="http://localhost:8007", timeout_seconds=1.0, max_retries=1)
-        res = client.resolve_demand(db=db_session, sku_id=sku_id, warehouse_id=warehouse_id, horizon=30, fallback_days=28)
+        client = ForecastClient(
+            base_url="http://localhost:8007", timeout_seconds=1.0, max_retries=1
+        )
+        res = client.resolve_demand(
+            db=db_session,
+            sku_id=sku_id,
+            warehouse_id=warehouse_id,
+            horizon=30,
+            fallback_days=28,
+        )
 
         assert mock_instance.get.call_count == 2
         assert res.forecast_source == "fallback"
@@ -225,7 +267,10 @@ def test_recommendations_with_model_forecast(client, db_session, mock_forecast_p
 
     parsed_forecast = ForecastServingResponse.model_validate(mock_forecast_payload)
 
-    with patch("app.services.optimization_service.forecast_client.fetch_forecast", return_value=parsed_forecast):
+    with patch(
+        "app.services.optimization_service.forecast_client.fetch_forecast",
+        return_value=parsed_forecast,
+    ):
         resp = client.get("/api/v1/inventory/optimization/recommendations")
 
     assert resp.status_code == 200
@@ -235,7 +280,14 @@ def test_recommendations_with_model_forecast(client, db_session, mock_forecast_p
     assert "recommendations" in data
     assert len(data["recommendations"]) >= 1
 
-    item = next((r for r in data["recommendations"] if r["sku_id"] == sku_id and r["warehouse_id"] == warehouse_id), None)
+    item = next(
+        (
+            r
+            for r in data["recommendations"]
+            if r["sku_id"] == sku_id and r["warehouse_id"] == warehouse_id
+        ),
+        None,
+    )
     assert item is not None
     assert item["supplier_id"] == "SUP-00045"
     assert item["current_stock"] == 15
@@ -268,13 +320,23 @@ def test_recommendations_with_fallback_source(client, db_session):
         unit_cost=15.0,
     )
 
-    with patch("app.services.optimization_service.forecast_client.fetch_forecast", return_value=None):
+    with patch(
+        "app.services.optimization_service.forecast_client.fetch_forecast",
+        return_value=None,
+    ):
         resp = client.get("/api/v1/inventory/optimization/recommendations")
 
     assert resp.status_code == 200
     data = resp.json()
 
-    item = next((r for r in data["recommendations"] if r["sku_id"] == sku_id and r["warehouse_id"] == warehouse_id), None)
+    item = next(
+        (
+            r
+            for r in data["recommendations"]
+            if r["sku_id"] == sku_id and r["warehouse_id"] == warehouse_id
+        ),
+        None,
+    )
     assert item is not None
     assert item["forecast_source"] == "fallback"
     assert item["reorder_point"] == 44
@@ -284,7 +346,9 @@ def test_recommendations_with_fallback_source(client, db_session):
     assert item["estimated_total_cost"] == 510.0
 
 
-def test_items_above_reorder_point_are_not_recommended(client, db_session, mock_forecast_payload):
+def test_items_above_reorder_point_are_not_recommended(
+    client, db_session, mock_forecast_payload
+):
     """Items with sufficient on-hand inventory (quantity >= reorder_point) are excluded from recommendations."""
     sku_id = "SKU-000125"
     warehouse_id = "WH-BOM-01"
@@ -303,12 +367,22 @@ def test_items_above_reorder_point_are_not_recommended(client, db_session, mock_
     mock_forecast_payload["warehouse_id"] = warehouse_id
     parsed_forecast = ForecastServingResponse.model_validate(mock_forecast_payload)
 
-    with patch("app.services.optimization_service.forecast_client.fetch_forecast", return_value=parsed_forecast):
+    with patch(
+        "app.services.optimization_service.forecast_client.fetch_forecast",
+        return_value=parsed_forecast,
+    ):
         resp = client.get("/api/v1/inventory/optimization/recommendations")
 
     assert resp.status_code == 200
     data = resp.json()
-    item = next((r for r in data["recommendations"] if r["sku_id"] == sku_id and r["warehouse_id"] == warehouse_id), None)
+    item = next(
+        (
+            r
+            for r in data["recommendations"]
+            if r["sku_id"] == sku_id and r["warehouse_id"] == warehouse_id
+        ),
+        None,
+    )
     assert item is None
 
 
@@ -316,7 +390,6 @@ def test_recommendations_unauthenticated_returns_401(client_raw):
     """Unauthenticated calls are rejected with 401."""
     resp = client_raw.get("/api/v1/inventory/optimization/recommendations")
     assert resp.status_code == 401
-
 
 
 def test_forecast_down_is_called_only_once_per_request(db_session):
@@ -329,7 +402,9 @@ def test_forecast_down_is_called_only_once_per_request(db_session):
         mock_client_cls.return_value.__enter__.return_value = mock_instance
         mock_instance.get.side_effect = httpx.ConnectError("Connection refused")
 
-        fc = ForecastClient(base_url="http://localhost:8007", timeout_seconds=1.0, max_retries=1)
+        fc = ForecastClient(
+            base_url="http://localhost:8007", timeout_seconds=1.0, max_retries=1
+        )
         result = generate_recommendations(db=db_session, client=fc)
 
         # 1 row x (1 attempt + 1 retry); later rows never call the service
@@ -353,7 +428,10 @@ def test_sku_without_supplier_is_skipped(client, db_session):
     )
     db_session.commit()
 
-    with patch("app.services.optimization_service.forecast_client.fetch_forecast", return_value=None):
+    with patch(
+        "app.services.optimization_service.forecast_client.fetch_forecast",
+        return_value=None,
+    ):
         resp = client.get("/api/v1/inventory/optimization/recommendations")
 
     assert resp.status_code == 200
@@ -369,7 +447,9 @@ def test_forecast_for_other_sku_is_not_used(db_session, mock_forecast_payload):
     fc = ForecastClient(base_url="http://localhost:8007")
 
     with patch.object(fc, "fetch_forecast", return_value=parsed):
-        res = fc.resolve_demand(db=db_session, sku_id="SKU-000124", warehouse_id="WH-BLR-01")
+        res = fc.resolve_demand(
+            db=db_session, sku_id="SKU-000124", warehouse_id="WH-BLR-01"
+        )
 
     assert res.forecast_source == "fallback"
     assert res.daily_demand == 5.0
@@ -384,6 +464,8 @@ def test_stale_forecast_is_not_used(db_session, mock_forecast_payload):
     fc = ForecastClient(base_url="http://localhost:8007")
 
     with patch.object(fc, "fetch_forecast", return_value=parsed):
-        res = fc.resolve_demand(db=db_session, sku_id="SKU-000123", warehouse_id="WH-BLR-01")
+        res = fc.resolve_demand(
+            db=db_session, sku_id="SKU-000123", warehouse_id="WH-BLR-01"
+        )
 
     assert res.forecast_source == "fallback"

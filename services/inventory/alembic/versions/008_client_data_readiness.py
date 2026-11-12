@@ -6,9 +6,9 @@ Revises: 007_create_goods_receipts_tables
 
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 revision: str = "008_client_data_readiness"
 down_revision: Union[str, None] = "007_create_goods_receipts_tables"

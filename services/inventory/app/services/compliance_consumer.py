@@ -1,10 +1,10 @@
-from datetime import UTC, datetime, timedelta
-from dataclasses import dataclass, field
 import json
 import logging
 import os
-from pathlib import Path
 import time
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, Optional
 
 from sqlalchemy import func
@@ -27,8 +27,8 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 EVENT_TYPE = "compliance.supplier.status_changed"
-SUPPORTED_EVENT_VERSIONS = {1}            # matches EVENT_VERSION in the compliance producer
-MAX_FUTURE_SKEW = timedelta(minutes=5)    # tolerate small clock drift, nothing more
+SUPPORTED_EVENT_VERSIONS = {1}  # matches EVENT_VERSION in the compliance producer
+MAX_FUTURE_SKEW = timedelta(minutes=5)  # tolerate small clock drift, nothing more
 
 
 class InvalidMessageError(Exception):
@@ -96,7 +96,9 @@ def resolve_supplier_id(db: Session, payload: dict[str, Any]) -> Optional[str]:
 
     name = payload.get("supplier_name")
     if not isinstance(name, str) or not name.strip():
-        raise InvalidMessageError("Missing 'supplier_name' (and no 'supplier_id') in payload")
+        raise InvalidMessageError(
+            "Missing 'supplier_name' (and no 'supplier_id') in payload"
+        )
 
     matches = (
         db.query(Supplier.supplier_id)
@@ -110,15 +112,19 @@ def resolve_supplier_id(db: Session, payload: dict[str, Any]) -> Optional[str]:
     return matches[0][0] if matches else None
 
 
-def _record_processed(db: Session, *, event_id, event_type, supplier_id, occurred_at, status) -> None:
-    db.add(ProcessedEvent(
-        event_id=event_id,
-        event_type=event_type,
-        supplier_id=supplier_id,
-        occurred_at=occurred_at,
-        status=status,
-        processed_at=datetime.now(UTC),
-    ))
+def _record_processed(
+    db: Session, *, event_id, event_type, supplier_id, occurred_at, status
+) -> None:
+    db.add(
+        ProcessedEvent(
+            event_id=event_id,
+            event_type=event_type,
+            supplier_id=supplier_id,
+            occurred_at=occurred_at,
+            status=status,
+            processed_at=datetime.now(UTC),
+        )
+    )
 
 
 def _commit_or_duplicate(db: Session, event_id: str) -> bool:
@@ -131,7 +137,10 @@ def _commit_or_duplicate(db: Session, event_id: str) -> bool:
         return True
     except IntegrityError:
         db.rollback()
-        if db.query(ProcessedEvent).filter(ProcessedEvent.event_id == event_id).first() is not None:
+        if (
+            db.query(ProcessedEvent).filter(ProcessedEvent.event_id == event_id).first()
+            is not None
+        ):
             return False
         raise
     except Exception:
@@ -140,11 +149,16 @@ def _commit_or_duplicate(db: Session, event_id: str) -> bool:
 
 
 def _duplicate(event_id: str) -> ProcessingResult:
-    return ProcessingResult(status="DUPLICATE", event_id=event_id,
-                            details=f"Event {event_id} already processed")
+    return ProcessingResult(
+        status="DUPLICATE",
+        event_id=event_id,
+        details=f"Event {event_id} already processed",
+    )
 
 
-def process_compliance_event(db: Session, event_data: dict[str, Any]) -> ProcessingResult:
+def process_compliance_event(
+    db: Session, event_data: dict[str, Any]
+) -> ProcessingResult:
     """
     React to compliance.supplier.status_changed.
     1. Idempotency: duplicate event_ids leave state untouched.
@@ -161,14 +175,18 @@ def process_compliance_event(db: Session, event_data: dict[str, Any]) -> Process
     if not isinstance(event_id, str) or not event_id:
         raise InvalidMessageError("Missing or invalid 'event_id' in event envelope")
     if event_type != EVENT_TYPE:
-        raise InvalidMessageError(f"Unexpected event_type {event_type!r} (expected {EVENT_TYPE!r})")
+        raise InvalidMessageError(
+            f"Unexpected event_type {event_type!r} (expected {EVENT_TYPE!r})"
+        )
     if isinstance(event_version, bool) or event_version not in SUPPORTED_EVENT_VERSIONS:
         raise InvalidMessageError(
             f"Unknown or unsupported event_version: {event_version!r} "
             f"(supported: {sorted(SUPPORTED_EVENT_VERSIONS)})"
         )
     if not isinstance(payload, dict) or not payload:
-        raise InvalidMessageError("Missing or invalid 'payload' object in event envelope")
+        raise InvalidMessageError(
+            "Missing or invalid 'payload' object in event envelope"
+        )
 
     # 2. Payload
     new_status = payload.get("new_status")
@@ -176,14 +194,18 @@ def process_compliance_event(db: Session, event_data: dict[str, Any]) -> Process
         raise InvalidMessageError("Missing or invalid 'new_status' in payload")
     classified = classify_compliance_status(new_status)
     if classified is None:
-        raise InvalidMessageError(f"Unknown compliance status in payload: '{new_status}'")
+        raise InvalidMessageError(
+            f"Unknown compliance status in payload: '{new_status}'"
+        )
     reason = payload.get("reason") or "Compliance status changed"
 
     occurred_at_raw = event_data.get("occurred_at")
     try:
         occurred_at = parse_iso_datetime(occurred_at_raw)
     except Exception as exc:
-        raise InvalidMessageError(f"Invalid 'occurred_at' timestamp: {occurred_at_raw}") from exc
+        raise InvalidMessageError(
+            f"Invalid 'occurred_at' timestamp: {occurred_at_raw}"
+        ) from exc
     if occurred_at > datetime.now(UTC) + MAX_FUTURE_SKEW:
         raise InvalidMessageError(
             f"'occurred_at' {occurred_at.isoformat()} is in the future; "
@@ -191,26 +213,46 @@ def process_compliance_event(db: Session, event_data: dict[str, Any]) -> Process
         )
 
     # 3. Idempotency
-    existing = db.query(ProcessedEvent).filter(ProcessedEvent.event_id == event_id).first()
+    existing = (
+        db.query(ProcessedEvent).filter(ProcessedEvent.event_id == event_id).first()
+    )
     if existing is not None:
-        logger.info("Event %s already processed at %s (%s). Skipping.",
-                    event_id, existing.processed_at, existing.status)
+        logger.info(
+            "Event %s already processed at %s (%s). Skipping.",
+            event_id,
+            existing.processed_at,
+            existing.status,
+        )
         return _duplicate(event_id)
 
     # 4. Which inventory supplier is this?
     supplier_id = resolve_supplier_id(db, payload)
     if supplier_id is None:
-        logger.warning("No inventory supplier named %r; event %s recorded with no PO changes.",
-                       payload.get("supplier_name"), event_id)
-        _record_processed(db, event_id=event_id, event_type=event_type, supplier_id=None,
-                          occurred_at=occurred_at, status="SKIPPED_UNKNOWN_SUPPLIER")
+        logger.warning(
+            "No inventory supplier named %r; event %s recorded with no PO changes.",
+            payload.get("supplier_name"),
+            event_id,
+        )
+        _record_processed(
+            db,
+            event_id=event_id,
+            event_type=event_type,
+            supplier_id=None,
+            occurred_at=occurred_at,
+            status="SKIPPED_UNKNOWN_SUPPLIER",
+        )
         if not _commit_or_duplicate(db, event_id):
             return _duplicate(event_id)
-        return ProcessingResult(status="UNKNOWN_SUPPLIER", event_id=event_id,
-                                details=f"No inventory supplier named {payload.get('supplier_name')!r}")
+        return ProcessingResult(
+            status="UNKNOWN_SUPPLIER",
+            event_id=event_id,
+            details=f"No inventory supplier named {payload.get('supplier_name')!r}",
+        )
 
     # Item 8: Lock the supplier row to close the race with PO creation
-    db.query(Supplier).filter(Supplier.supplier_id == supplier_id).with_for_update().first()
+    db.query(Supplier).filter(
+        Supplier.supplier_id == supplier_id
+    ).with_for_update().first()
 
     # 5. Out-of-order
     state = (
@@ -220,24 +262,44 @@ def process_compliance_event(db: Session, event_data: dict[str, Any]) -> Process
     )
     if state is not None:
         state_ts = state.last_occurred_at
-        state_ts = state_ts.replace(tzinfo=UTC) if state_ts.tzinfo is None else state_ts.astimezone(UTC)
+        state_ts = (
+            state_ts.replace(tzinfo=UTC)
+            if state_ts.tzinfo is None
+            else state_ts.astimezone(UTC)
+        )
         if occurred_at < state_ts:
-            logger.warning("Out-of-order event %s for supplier %s (%s < %s). Ignored.",
-                           event_id, supplier_id, occurred_at, state_ts)
-            _record_processed(db, event_id=event_id, event_type=event_type, supplier_id=supplier_id,
-                              occurred_at=occurred_at, status="SKIPPED_OUT_OF_ORDER")
+            logger.warning(
+                "Out-of-order event %s for supplier %s (%s < %s). Ignored.",
+                event_id,
+                supplier_id,
+                occurred_at,
+                state_ts,
+            )
+            _record_processed(
+                db,
+                event_id=event_id,
+                event_type=event_type,
+                supplier_id=supplier_id,
+                occurred_at=occurred_at,
+                status="SKIPPED_OUT_OF_ORDER",
+            )
             if not _commit_or_duplicate(db, event_id):
                 return _duplicate(event_id)
-            return ProcessingResult(status="OUT_OF_ORDER", event_id=event_id,
-                                    details=f"Event at {occurred_at} is older than last known {state_ts}")
+            return ProcessingResult(
+                status="OUT_OF_ORDER",
+                event_id=event_id,
+                details=f"Event at {occurred_at} is older than last known {state_ts}",
+            )
 
     # 6. Hold or release
     affected_pos: list[str] = []
     if classified in {"BLOCKED", "NEEDS_REVIEW"}:
         pos = (
             db.query(PurchaseOrder)
-            .filter(PurchaseOrder.supplier_id == supplier_id,
-                    PurchaseOrder.status.in_(["draft", "on_hold"]))
+            .filter(
+                PurchaseOrder.supplier_id == supplier_id,
+                PurchaseOrder.status.in_(["draft", "on_hold"]),
+            )
             .all()
         )
         for po in pos:
@@ -247,10 +309,19 @@ def process_compliance_event(db: Session, event_data: dict[str, Any]) -> Process
             if po.status == "draft":
                 affected_pos.append(po.po_id)
             po.status = "on_hold"
-            po.hold_reason = reason          # REVIEW -> BLOCK also refreshes the reason on held POs
-            po.hold_source = "compliance"    # Item 7: Record compliance as the hold source
-        logger.info("Supplier %s -> %s (%s). Put %d draft POs on hold.",
-                    supplier_id, new_status, classified, len(affected_pos))
+            po.hold_reason = (
+                reason  # REVIEW -> BLOCK also refreshes the reason on held POs
+            )
+            po.hold_source = (
+                "compliance"  # Item 7: Record compliance as the hold source
+            )
+        logger.info(
+            "Supplier %s -> %s (%s). Put %d draft POs on hold.",
+            supplier_id,
+            new_status,
+            classified,
+            len(affected_pos),
+        )
     else:  # CLEARED
         held = (
             db.query(PurchaseOrder)
@@ -262,19 +333,29 @@ def process_compliance_event(db: Session, event_data: dict[str, Any]) -> Process
             .all()
         )
         for po in held:
-            po.status = "draft"              # released, NOT sent
+            po.status = "draft"  # released, NOT sent
             po.hold_reason = None
             po.hold_source = None
             affected_pos.append(po.po_id)
-        logger.info("Supplier %s cleared. Released %d POs back to draft.", supplier_id, len(affected_pos))
+        logger.info(
+            "Supplier %s cleared. Released %d POs back to draft.",
+            supplier_id,
+            len(affected_pos),
+        )
 
     # 7. Supplier state + processed event, committed with the PO changes
     now = datetime.now(UTC)
     if state is None:
-        db.add(SupplierComplianceState(
-            supplier_id=supplier_id, last_status=new_status, last_occurred_at=occurred_at,
-            last_event_id=event_id, last_reason=reason, updated_at=now,
-        ))
+        db.add(
+            SupplierComplianceState(
+                supplier_id=supplier_id,
+                last_status=new_status,
+                last_occurred_at=occurred_at,
+                last_event_id=event_id,
+                last_reason=reason,
+                updated_at=now,
+            )
+        )
     else:
         state.last_status = new_status
         state.last_occurred_at = occurred_at
@@ -282,19 +363,31 @@ def process_compliance_event(db: Session, event_data: dict[str, Any]) -> Process
         state.last_reason = reason
         state.updated_at = now
 
-    _record_processed(db, event_id=event_id, event_type=event_type, supplier_id=supplier_id,
-                      occurred_at=occurred_at, status="PROCESSED")
+    _record_processed(
+        db,
+        event_id=event_id,
+        event_type=event_type,
+        supplier_id=supplier_id,
+        occurred_at=occurred_at,
+        status="PROCESSED",
+    )
     if not _commit_or_duplicate(db, event_id):
         return _duplicate(event_id)
 
-    return ProcessingResult(status="PROCESSED", event_id=event_id, affected_pos=affected_pos,
-                            details=f"Processed {new_status} for supplier {supplier_id}")
+    return ProcessingResult(
+        status="PROCESSED",
+        event_id=event_id,
+        affected_pos=affected_pos,
+        details=f"Processed {new_status} for supplier {supplier_id}",
+    )
 
 
 # Intentional persistent heartbeat path; configurable via environment
 # and read by the container healthcheck in docker-compose.dev.yml.
 HEARTBEAT_FILE = Path(
-    os.getenv("COMPLIANCE_CONSUMER_HEARTBEAT_FILE", "/tmp/compliance-consumer.heartbeat")  # nosec B108
+    os.getenv(
+        "COMPLIANCE_CONSUMER_HEARTBEAT_FILE", "/tmp/compliance-consumer.heartbeat"
+    )  # nosec B108
 )
 
 
@@ -304,11 +397,14 @@ def write_heartbeat(path: Path = HEARTBEAT_FILE) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(str(time.time()), encoding="utf-8")
     except OSError as exc:
-        logger.warning("Could not write compliance consumer heartbeat %s: %s", path, exc)
+        logger.warning(
+            "Could not write compliance consumer heartbeat %s: %s", path, exc
+        )
 
 
 class _SimpleTopicPartition:
     """Used only when confluent_kafka isn't installed (unit tests)."""
+
     def __init__(self, topic, partition, offset):
         self.topic, self.partition, self.offset = topic, partition, offset
 
@@ -316,7 +412,7 @@ class _SimpleTopicPartition:
 class ComplianceConsumerWorker:
     """
     Kafka consumer worker for compliance.supplier.status_changed events.
-    
+
     Guarantees:
     - At-least-once delivery: Offset is committed only AFTER database write succeeds.
     - Idempotent: Same event processed twice produces no side effects.
@@ -343,14 +439,16 @@ class ComplianceConsumerWorker:
         if self._consumer is None:
             if Consumer is None:
                 raise RuntimeError("confluent_kafka is required for live Consumer")
-            self._consumer = Consumer({
-                "bootstrap.servers": settings.KAFKA_BOOTSTRAP_SERVERS,
-                "group.id": settings.KAFKA_CONSUMER_GROUP,
-                "auto.offset.reset": "earliest",
-                "enable.auto.commit": False,  # Manual commit after confirmed DB write
-                "socket.timeout.ms": 3000,
-                "session.timeout.ms": 10000,
-            })
+            self._consumer = Consumer(
+                {
+                    "bootstrap.servers": settings.KAFKA_BOOTSTRAP_SERVERS,
+                    "group.id": settings.KAFKA_CONSUMER_GROUP,
+                    "auto.offset.reset": "earliest",
+                    "enable.auto.commit": False,  # Manual commit after confirmed DB write
+                    "socket.timeout.ms": 3000,
+                    "session.timeout.ms": 10000,
+                }
+            )
             self._consumer.subscribe([settings.COMPLIANCE_STATUS_CHANGED_TOPIC])
         return self._consumer
 
@@ -358,6 +456,7 @@ class ComplianceConsumerWorker:
     def dlq_publisher(self):
         if self._dlq_publisher is None:
             from app.services.kafka_producer import KafkaEventPublisher
+
             self._dlq_publisher = KafkaEventPublisher()
         return self._dlq_publisher
 
@@ -365,6 +464,7 @@ class ComplianceConsumerWorker:
     def db_session_factory(self):
         if self._db_session_factory is None:
             from app.database import SessionLocal
+
             self._db_session_factory = SessionLocal
         return self._db_session_factory
 
@@ -394,7 +494,7 @@ class ComplianceConsumerWorker:
         try:
             ok = self.dlq_publisher.publish(
                 topic=settings.COMPLIANCE_DLQ_TOPIC,
-                key=f"{topic}-{partition}-{offset}",      # traceable back to the source message
+                key=f"{topic}-{partition}-{offset}",  # traceable back to the source message
                 value=json.dumps(dlq_payload),
             )
         except Exception as exc:
@@ -430,7 +530,9 @@ class ComplianceConsumerWorker:
         3. If valid: execute process_compliance_event and commit DB transaction.
         4. If DB committed: commit Kafka offset.
         """
-        topic = getattr(msg, "topic", lambda: settings.COMPLIANCE_STATUS_CHANGED_TOPIC)()
+        topic = getattr(
+            msg, "topic", lambda: settings.COMPLIANCE_STATUS_CHANGED_TOPIC
+        )()
         partition = getattr(msg, "partition", lambda: 0)()
         offset = getattr(msg, "offset", lambda: 0)()
 
@@ -468,11 +570,16 @@ class ComplianceConsumerWorker:
             db.rollback()
             self.route_to_dlq(raw_text, str(exc), topic, partition, offset)
             self.commit_offset(msg)
-            return ProcessingResult(status="DLQ", event_id=event_data.get("event_id", ""), details=str(exc))
+            return ProcessingResult(
+                status="DLQ", event_id=event_data.get("event_id", ""), details=str(exc)
+            )
         except Exception as exc:
             # DB write error or infrastructure failure: DO NOT COMMIT OFFSET!
             db.rollback()
-            logger.error("Transient error processing event: %s. Offset will NOT be committed.", exc)
+            logger.error(
+                "Transient error processing event: %s. Offset will NOT be committed.",
+                exc,
+            )
             raise
 
         # Database write confirmed! Now commit the Kafka offset
@@ -545,7 +652,10 @@ class ComplianceConsumerWorker:
                         self._attempts.pop(key, None)
                         processed_count += 1
                     except Exception as dlq_err:
-                        logger.critical("Could not route failed message to DLQ after max retries: %s", dlq_err)
+                        logger.critical(
+                            "Could not route failed message to DLQ after max retries: %s",
+                            dlq_err,
+                        )
                         self._rewind(msg, attempt)
                 else:
                     logger.error(

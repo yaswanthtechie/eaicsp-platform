@@ -22,9 +22,7 @@ class ForecastPoint(BaseModel):
 
     # Tolerant reader: the forecast service may add fields
     # later without breaking Inventory.
-    model_config = ConfigDict(
-        extra="ignore"
-    )
+    model_config = ConfigDict(extra="ignore")
 
     date: date
 
@@ -47,15 +45,11 @@ class ForecastPoint(BaseModel):
     def check_point(self):
         if self.date.day != 1:
             raise ValueError(
-                "Monthly forecast dates must be the first "
-                "day of the month"
+                "Monthly forecast dates must be the first day of the month"
             )
 
         if not (self.lower <= self.predicted <= self.upper):
-            raise ValueError(
-                "Forecast point must satisfy "
-                "lower <= predicted <= upper"
-            )
+            raise ValueError("Forecast point must satisfy lower <= predicted <= upper")
 
         return self
 
@@ -74,9 +68,7 @@ class ForecastContract(BaseModel):
 
     # Tolerant reader: extra response fields such as
     # latency_ms are ignored rather than rejected.
-    model_config = ConfigDict(
-        extra="ignore"
-    )
+    model_config = ConfigDict(extra="ignore")
 
     contract_version: Literal["v1"]
 
@@ -118,10 +110,7 @@ class ForecastContract(BaseModel):
         dates = [point.date for point in self.forecast]
 
         if dates != sorted(set(dates)):
-            raise ValueError(
-                "Forecast dates must be unique and in "
-                "ascending order"
-            )
+            raise ValueError("Forecast dates must be unique and in ascending order")
 
         return self
 
@@ -188,7 +177,5 @@ class ForecastServingResponse(BaseModel):
     def check_forecast_order(self):
         dates = [point.date for point in self.forecast]
         if dates != sorted(set(dates)):
-            raise ValueError(
-                "Forecast dates must be unique and in ascending order"
-            )
+            raise ValueError("Forecast dates must be unique and in ascending order")
         return self

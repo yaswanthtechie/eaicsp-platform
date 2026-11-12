@@ -8,19 +8,23 @@ def test_approval_status_migration_is_idempotent(tmp_path):
 
     # A purchase_orders table as it existed before Round 10.
     with engine.begin() as connection:
-        connection.execute(text(
-            "CREATE TABLE purchase_orders ("
-            "po_id VARCHAR PRIMARY KEY, sku_id VARCHAR NOT NULL, "
-            "warehouse_id VARCHAR NOT NULL, supplier_id VARCHAR NOT NULL, "
-            "quantity INTEGER NOT NULL, unit_cost FLOAT NOT NULL, "
-            "expected_cost FLOAT NOT NULL, status VARCHAR NOT NULL, "
-            "created_at DATETIME NOT NULL)"
-        ))
-        connection.execute(text(
-            "INSERT INTO purchase_orders VALUES "
-            "('PO-OLD', 'SKU1', 'WH1', 'SUP1', 10, 5.0, 50.0, 'draft', "  # noncanonical-ok
-            "'2026-09-01 00:00:00')"
-        ))
+        connection.execute(
+            text(
+                "CREATE TABLE purchase_orders ("
+                "po_id VARCHAR PRIMARY KEY, sku_id VARCHAR NOT NULL, "
+                "warehouse_id VARCHAR NOT NULL, supplier_id VARCHAR NOT NULL, "
+                "quantity INTEGER NOT NULL, unit_cost FLOAT NOT NULL, "
+                "expected_cost FLOAT NOT NULL, status VARCHAR NOT NULL, "
+                "created_at DATETIME NOT NULL)"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO purchase_orders VALUES "
+                "('PO-OLD', 'SKU1', 'WH1', 'SUP1', 10, 5.0, 50.0, 'draft', "  # noncanonical-ok
+                "'2026-09-01 00:00:00')"
+            )
+        )
 
     assert migrate(engine) is True
     assert migrate(engine) is False  # second run is a no-op
@@ -29,9 +33,9 @@ def test_approval_status_migration_is_idempotent(tmp_path):
     assert "approval_status" in columns
 
     with engine.connect() as connection:
-        status = connection.execute(text(
-            "SELECT approval_status FROM purchase_orders WHERE po_id = 'PO-OLD'"
-        )).scalar_one()
+        status = connection.execute(
+            text("SELECT approval_status FROM purchase_orders WHERE po_id = 'PO-OLD'")
+        ).scalar_one()
 
     # Pre-existing drafts must stay receivable.
     assert status == "approved"
@@ -43,10 +47,12 @@ def test_alembic_upgrade_head_creates_matching_schema_and_allows_po_insert(tmp_p
     Verify that alembic upgrade head creates the matching schema
     (including approval_status) and allows inserting a PO on an empty database.
     """
+    from datetime import UTC, datetime
+
     from alembic.config import Config
-    from alembic import command
     from sqlalchemy.orm import Session
-    from datetime import datetime, UTC
+
+    from alembic import command
     from app.models.purchase_order import PurchaseOrder
 
     db_file = tmp_path / "test_fresh_upgrade.db"
@@ -60,13 +66,17 @@ def test_alembic_upgrade_head_creates_matching_schema_and_allows_po_insert(tmp_p
     test_engine = create_engine(db_url)
     inspector = inspect(test_engine)
     columns = {c["name"] for c in inspector.get_columns("purchase_orders")}
-    assert "approval_status" in columns, "approval_status column must exist in purchase_orders"
+    assert "approval_status" in columns, (
+        "approval_status column must exist in purchase_orders"
+    )
     assert "hold_reason" in columns, "hold_reason column must exist in purchase_orders"
     assert "hold_source" in columns, "hold_source column must exist in purchase_orders"
 
     tables = set(inspector.get_table_names())
     assert "processed_events" in tables, "processed_events table must exist"
-    assert "supplier_compliance_states" in tables, "supplier_compliance_states table must exist"
+    assert "supplier_compliance_states" in tables, (
+        "supplier_compliance_states table must exist"
+    )
 
     with Session(test_engine) as session:
         po = PurchaseOrder(
@@ -97,6 +107,7 @@ def test_alembic_upgrade_head_creates_matching_schema_and_allows_po_insert(tmp_p
 def test_alembic_revisions_fit_postgres_varchar32_and_single_chain():
     """Every Alembic revision ID must fit Postgres alembic_version VARCHAR(32) in one chain."""
     from pathlib import Path
+
     from alembic.config import Config
     from alembic.script import ScriptDirectory
 
@@ -113,11 +124,15 @@ def test_alembic_revisions_fit_postgres_varchar32_and_single_chain():
     revisions = list(script.walk_revisions())
     assert revisions, "Expected at least one Alembic revision"
 
-    too_long = [(rev.revision, len(rev.revision)) for rev in revisions if len(rev.revision) > 32]
+    too_long = [
+        (rev.revision, len(rev.revision)) for rev in revisions if len(rev.revision) > 32
+    ]
     assert not too_long, f"Revision IDs exceed VARCHAR(32): {too_long}"
 
     for rev in revisions:
-        assert not isinstance(rev.down_revision, tuple), f"Unexpected merge revision: {rev.revision}"
+        assert not isinstance(rev.down_revision, tuple), (
+            f"Unexpected merge revision: {rev.revision}"
+        )
     assert revisions[0].revision == heads[0]
     assert revisions[-1].down_revision is None
 
@@ -125,8 +140,10 @@ def test_alembic_revisions_fit_postgres_varchar32_and_single_chain():
 def test_alembic_upgrade_downgrade_roundtrip(tmp_path):
     """Verify full upgrade -> downgrade -> upgrade migration cycle on a clean SQLite DB."""
     from pathlib import Path
-    from alembic import command
+
     from alembic.config import Config
+
+    from alembic import command
 
     service_dir = Path(__file__).resolve().parents[1]
     db_file = tmp_path / "test_roundtrip.db"
@@ -140,5 +157,6 @@ def test_alembic_upgrade_downgrade_roundtrip(tmp_path):
 
     inspector = inspect(create_engine(f"sqlite:///{db_file}"))
     tables = set(inspector.get_table_names())
-    assert {"products", "warehouses", "goods_receipts", "goods_receipt_items"}.issubset(tables)
-
+    assert {"products", "warehouses", "goods_receipts", "goods_receipt_items"}.issubset(
+        tables
+    )

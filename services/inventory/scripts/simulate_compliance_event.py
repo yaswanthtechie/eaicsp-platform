@@ -2,17 +2,19 @@
 CLI script to simulate compliance.supplier.status_changed event directly
 against the local database without needing a running Kafka broker.
 """
+
 import argparse
-from datetime import UTC, datetime
-import json
 import logging
 import sys
 import uuid
+from datetime import UTC, datetime
 
 from app.database import SessionLocal
 from app.services.compliance_consumer import process_compliance_event
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
+)
 logger = logging.getLogger("simulate_compliance_event")
 
 
@@ -35,7 +37,9 @@ def build_event(
             "country": country,
             "old_status": old_status,
             "new_status": new_status,
-            "matched_list": ["OFAC"] if new_status.upper() in ("BLOCK", "BLOCKED") else [],
+            "matched_list": ["OFAC"]
+            if new_status.upper() in ("BLOCK", "BLOCKED")
+            else [],
             "reason": reason,
             "screening_run_id": f"manual-{uuid.uuid4().hex[:8]}",
         },
@@ -59,7 +63,12 @@ def simulate_event(
 
     db = SessionLocal()
     try:
-        logger.info("Processing event %s for supplier '%s' (new_status=%s)...", envelope["event_id"], supplier_name, new_status)
+        logger.info(
+            "Processing event %s for supplier '%s' (new_status=%s)...",
+            envelope["event_id"],
+            supplier_name,
+            new_status,
+        )
         result = process_compliance_event(db=db, event_data=envelope)
         logger.info(
             "Result: %s | Affected POs: %s | Details: %s",
@@ -73,8 +82,14 @@ def simulate_event(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Simulate compliance status changed event on local database")
-    parser.add_argument("--supplier-name", default="ABC Supplies", help="Supplier name (e.g. 'ABC Supplies')")
+    parser = argparse.ArgumentParser(
+        description="Simulate compliance status changed event on local database"
+    )
+    parser.add_argument(
+        "--supplier-name",
+        default="ABC Supplies",
+        help="Supplier name (e.g. 'ABC Supplies')",
+    )
     parser.add_argument(
         "--new-status",
         default="BLOCK",
@@ -82,7 +97,11 @@ def main():
         help="New compliance status",
     )
     parser.add_argument("--old-status", default="CLEAR", help="Old compliance status")
-    parser.add_argument("--reason", default="Entity matched sanctions list", help="Reason for status change")
+    parser.add_argument(
+        "--reason",
+        default="Entity matched sanctions list",
+        help="Reason for status change",
+    )
     parser.add_argument("--country", default="India", help="Supplier country")
 
     args = parser.parse_args()

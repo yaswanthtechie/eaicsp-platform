@@ -106,39 +106,24 @@ def test_network_optimization_aggregates_child_demand(
     assert result["warehouses"]
 
     local_result = next(
-        item
-        for item in result["warehouses"]
-        if item["warehouse_id"] == "WH-LOCAL"
+        item for item in result["warehouses"] if item["warehouse_id"] == "WH-LOCAL"
     )
 
     regional_result = next(
-        item
-        for item in result["warehouses"]
-        if item["warehouse_id"] == "WH-REGIONAL"
+        item for item in result["warehouses"] if item["warehouse_id"] == "WH-REGIONAL"
     )
 
     central_result = next(
-        item
-        for item in result["warehouses"]
-        if item["warehouse_id"] == "WH-CENTRAL"
+        item for item in result["warehouses"] if item["warehouse_id"] == "WH-CENTRAL"
     )
 
     assert local_result["own_daily_demand"] == 5.0
 
-    assert (
-        local_result["downstream_daily_demand"]
-        == 5.0
-    )
+    assert local_result["downstream_daily_demand"] == 5.0
 
-    assert (
-        regional_result["downstream_daily_demand"]
-        == 8.0
-    )
+    assert regional_result["downstream_daily_demand"] == 8.0
 
-    assert (
-        central_result["downstream_daily_demand"]
-        == 10.0
-    )
+    assert central_result["downstream_daily_demand"] == 10.0
 
 
 def test_network_optimization_rejects_invalid_window(
@@ -150,10 +135,7 @@ def test_network_optimization_rejects_invalid_window(
             days=0,
         )
 
-    assert (
-        "Demand window must be greater than zero"
-        in str(exc_info.value)
-    )
+    assert "Demand window must be greater than zero" in str(exc_info.value)
 
 
 def test_network_optimization_detects_hierarchy_cycle(
@@ -202,7 +184,4 @@ def test_network_optimization_detects_hierarchy_cycle(
             days=30,
         )
 
-    assert (
-        "Warehouse hierarchy contains a cycle"
-        in str(exc_info.value)
-    )
+    assert "Warehouse hierarchy contains a cycle" in str(exc_info.value)

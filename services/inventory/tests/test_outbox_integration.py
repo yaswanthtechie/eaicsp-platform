@@ -1,27 +1,26 @@
 import json
-import uuid
-import pytest
 import time
+import uuid
+from unittest.mock import MagicMock
+
+import pytest
 
 from app.core.config import settings
-from datetime import UTC, datetime
-from unittest.mock import MagicMock
-from tests.fakes import InMemoryKafkaPublisher
-from tests.conftest import TestingSessionLocal, seed_sales_history
 from app.models.inventory import Inventory
-from app.models.supplier import Supplier
-from app.models.purchase_order import PurchaseOrder
 from app.models.outbox import Outbox
-from app.schemas.events import EventEnvelope, StockLowPayload, PurchaseOrderDraftedPayload
-from app.services.outbox_service import record_event, get_pending_events
-from app.services.outbox_relay import OutboxRelay
+from app.models.purchase_order import PurchaseOrder
+from app.models.supplier import Supplier
+from app.services.inventory_service import check_and_record_low_stock
 from app.services.kafka_producer import (
     KafkaEventError,
     KafkaEventPublisher,
     KafkaPublishError,
 )
+from app.services.outbox_relay import OutboxRelay
+from app.services.outbox_service import get_pending_events, record_event
 from app.services.purchase_order_service import create_draft_po_for_inventory
-from app.services.inventory_service import check_and_record_low_stock
+from tests.conftest import TestingSessionLocal, seed_sales_history
+from tests.fakes import InMemoryKafkaPublisher
 
 
 @pytest.fixture
@@ -42,6 +41,7 @@ def mock_supplier(db_session):
 # ============================================================================
 # 1. OUTBOX TABLE & ENVELOPE CONTRACT TESTS
 # ============================================================================
+
 
 def test_outbox_table_persists_envelope_structure(db_session):
     """
@@ -80,6 +80,7 @@ def test_outbox_table_persists_envelope_structure(db_session):
 # ============================================================================
 # 2. HAPPY PATH EVENT EMISSION TESTS
 # ============================================================================
+
 
 def test_stock_low_event_emitted_on_reorder_threshold(db_session):
     """
@@ -141,7 +142,9 @@ def test_po_drafted_event_emitted_atomically(db_session, mock_supplier):
     assert po is not None
 
     # Verify PO exists in DB
-    po_in_db = db_session.query(PurchaseOrder).filter(PurchaseOrder.po_id == po.po_id).first()
+    po_in_db = (
+        db_session.query(PurchaseOrder).filter(PurchaseOrder.po_id == po.po_id).first()
+    )
     assert po_in_db is not None
     assert po_in_db.status == "draft"
 
@@ -174,11 +177,12 @@ def test_po_drafted_event_emitted_atomically(db_session, mock_supplier):
 # 3. FAILURE MODE 1: TRANSACTION ROLLBACK -> NO EVENT EMITTED
 # ============================================================================
 
+
 def test_failure_mode_rollback_guarantees_no_event_emitted(db_session):
     """
     Milestone 2 Requirement:
     Failure Case (1): Transaction rollback -> no event emitted.
-    
+
     The database write and event must NEVER disagree.
     If an operation rolls back, the outbox record must be rolled back too.
     """
@@ -214,20 +218,21 @@ def test_failure_mode_rollback_guarantees_no_event_emitted(db_session):
         db_session.rollback()
 
     # VERIFY: Neither the business record nor the outbox record exist!
-    po_check = db_session.query(PurchaseOrder).filter(PurchaseOrder.po_id == po_id).first()
+    po_check = (
+        db_session.query(PurchaseOrder).filter(PurchaseOrder.po_id == po_id).first()
+    )
     assert po_check is None, "Purchase order must not exist after rollback"
 
-    outbox_check = (
-        db_session.query(Outbox)
-        .filter(Outbox.aggregate_id == po_id)
-        .first()
+    outbox_check = db_session.query(Outbox).filter(Outbox.aggregate_id == po_id).first()
+    assert outbox_check is None, (
+        "Outbox event must NOT be emitted when transaction rolls back"
     )
-    assert outbox_check is None, "Outbox event must NOT be emitted when transaction rolls back"
 
 
 # ============================================================================
 # 4. FAILURE MODE 2: KAFKA DOWN -> EVENT NOT LOST, PUBLISHED ON RECOVERY
 # ============================================================================
+
 
 def test_failure_mode_kafka_downtime_and_recovery(db_session):
     """
@@ -238,7 +243,7 @@ def test_failure_mode_kafka_downtime_and_recovery(db_session):
     # 1. Store event atomically in DB
     event_id = str(uuid.uuid4())
     test_po_id = f"PO-KAFKA-DOWN-{event_id[:8]}"
-    
+
     outbox_entry = record_event(
         db=db_session,
         event_type="inventory.po.drafted",
@@ -270,8 +275,12 @@ def test_failure_mode_kafka_downtime_and_recovery(db_session):
     assert failed_count == 1
 
     # VERIFY: Event is NOT lost. It remains stored in outbox marked FAILED
-    failed_record = db_session.query(Outbox).filter(Outbox.id == outbox_entry.id).first()
-    assert failed_record is not None, "Outbox record must never be lost during Kafka outage"
+    failed_record = (
+        db_session.query(Outbox).filter(Outbox.id == outbox_entry.id).first()
+    )
+    assert failed_record is not None, (
+        "Outbox record must never be lost during Kafka outage"
+    )
     assert failed_record.status == "FAILED"
     assert failed_record.retry_count == 1
     assert "Connection refused" in failed_record.last_error
@@ -281,7 +290,9 @@ def test_failure_mode_kafka_downtime_and_recovery(db_session):
     recovered_publisher = InMemoryKafkaPublisher()
     recovery_relay = OutboxRelay(publisher=recovered_publisher)
 
-    published_count_2, failed_count_2 = recovery_relay.relay_pending_events(db=db_session)
+    published_count_2, failed_count_2 = recovery_relay.relay_pending_events(
+        db=db_session
+    )
 
     assert published_count_2 >= 1
     assert failed_count_2 == 0
@@ -293,7 +304,8 @@ def test_failure_mode_kafka_downtime_and_recovery(db_session):
 
     # VERIFY: Recovered publisher received the message
     delivered = [
-        msg for msg in recovered_publisher.published_messages
+        msg
+        for msg in recovered_publisher.published_messages
         if msg["key"] == test_po_id
     ]
     assert len(delivered) == 1
@@ -305,6 +317,7 @@ def test_failure_mode_kafka_downtime_and_recovery(db_session):
 # ============================================================================
 # 5. RELAY ORDERING & IDEMPOTENCY
 # ============================================================================
+
 
 def test_outbox_relay_fifo_ordering_and_idempotency(db_session):
     """
@@ -344,6 +357,7 @@ def test_outbox_relay_fifo_ordering_and_idempotency(db_session):
 # ============================================================================
 # 6. END-TO-END HTTP API OUTBOX INTEGRATION
 # ============================================================================
+
 
 def test_api_create_inventory_low_stock_records_outbox(client, db_session):
     """
@@ -429,6 +443,7 @@ def test_api_update_inventory_low_stock_records_outbox(client, db_session):
     parsed = json.loads(outbox_entry.payload)
     assert parsed["payload"]["quantity_on_hand"] == 5
 
+
 def test_real_producer_raises_when_broker_unreachable_and_event_is_kept(db_session):
     """
     Uses the REAL KafkaEventPublisher (no fake) pointed at a dead port.
@@ -470,13 +485,18 @@ def test_outbox_relay_publishes_to_real_kafka(db_session):
     """
     import os
     import socket
+
     if not os.getenv("INTEGRATION_TEST"):
         try:
             host, _, port = settings.KAFKA_BOOTSTRAP_SERVERS.partition(":")
-            with socket.create_connection((host or "localhost", int(port or 9092)), timeout=1.0):
+            with socket.create_connection(
+                (host or "localhost", int(port or 9092)), timeout=1.0
+            ):
                 pass
         except (OSError, ValueError):
-            pytest.skip(f"Live Kafka broker not accessible at {settings.KAFKA_BOOTSTRAP_SERVERS}")
+            pytest.skip(
+                f"Live Kafka broker not accessible at {settings.KAFKA_BOOTSTRAP_SERVERS}"
+            )
 
     from confluent_kafka import Consumer
 
@@ -634,7 +654,9 @@ def test_broker_outage_never_dead_letters_events(db_session, monkeypatch):
     db_session.commit()
 
     down_relay = OutboxRelay(
-        publisher=InMemoryKafkaPublisher(fail_with=KafkaBrokerError("broker connection refused")),
+        publisher=InMemoryKafkaPublisher(
+            fail_with=KafkaBrokerError("broker connection refused")
+        ),
         circuit_cooldown_seconds=0.0,  # instant reset for test loop
     )
 
@@ -679,7 +701,9 @@ def test_circuit_breaker_stops_batch_on_broker_outage(db_session):
         )
     db_session.commit()
 
-    broker_down_publisher = InMemoryKafkaPublisher(fail_with=KafkaBrokerError("broker unreachable"))
+    broker_down_publisher = InMemoryKafkaPublisher(
+        fail_with=KafkaBrokerError("broker unreachable")
+    )
     relay = OutboxRelay(publisher=broker_down_publisher, circuit_cooldown_seconds=30.0)
 
     pub, fail = relay.relay_pending_events(db=db_session, batch_size=5)
@@ -750,27 +774,39 @@ def test_low_stock_event_deduplication_on_repeated_decrements(client, db_session
         )
         .all()
     )
-    assert len(events_after) == 1, "Duplicate low-stock event was emitted on repeat decrement"
-
-
-
+    assert len(events_after) == 1, (
+        "Duplicate low-stock event was emitted on repeat decrement"
+    )
 
 
 # ---- Kafka error classification (by code, never by message text) ------------
 
+
 def test_kafka_errors_are_classified_by_code():
     from confluent_kafka import KafkaError
+
     from app.services.kafka_producer import (
         KafkaBrokerError,
         KafkaEventError,
         classify_kafka_error,
     )
 
-    assert classify_kafka_error(KafkaError(KafkaError._MSG_TIMED_OUT)) is KafkaBrokerError
-    assert classify_kafka_error(KafkaError(KafkaError._ALL_BROKERS_DOWN)) is KafkaBrokerError
-    assert classify_kafka_error(KafkaError(KafkaError.MSG_SIZE_TOO_LARGE)) is KafkaEventError
+    assert (
+        classify_kafka_error(KafkaError(KafkaError._MSG_TIMED_OUT)) is KafkaBrokerError
+    )
+    assert (
+        classify_kafka_error(KafkaError(KafkaError._ALL_BROKERS_DOWN))
+        is KafkaBrokerError
+    )
+    assert (
+        classify_kafka_error(KafkaError(KafkaError.MSG_SIZE_TOO_LARGE))
+        is KafkaEventError
+    )
     # Not "too large", but still the event's fault: must be dead-lettered eventually.
-    assert classify_kafka_error(KafkaError(KafkaError.TOPIC_AUTHORIZATION_FAILED)) is KafkaEventError
+    assert (
+        classify_kafka_error(KafkaError(KafkaError.TOPIC_AUTHORIZATION_FAILED))
+        is KafkaEventError
+    )
 
 
 def test_unknown_errors_are_retried_not_dead_lettered():
@@ -781,6 +817,7 @@ def test_unknown_errors_are_retried_not_dead_lettered():
 
 def test_relay_writes_heartbeat_each_cycle(tmp_path, monkeypatch):
     import threading
+
     import app.database
     from app.services import outbox_relay
 
@@ -789,7 +826,9 @@ def test_relay_writes_heartbeat_each_cycle(tmp_path, monkeypatch):
     monkeypatch.setattr(
         outbox_relay, "write_heartbeat", lambda path=beat: beat.write_text("ok")
     )
-    monkeypatch.setattr(outbox_relay, "KafkaEventPublisher", lambda: InMemoryKafkaPublisher())
+    monkeypatch.setattr(
+        outbox_relay, "KafkaEventPublisher", lambda: InMemoryKafkaPublisher()
+    )
     monkeypatch.setattr(app.database, "SessionLocal", TestingSessionLocal)
 
     stop = threading.Event()
@@ -811,6 +850,7 @@ def test_relay_writes_heartbeat_each_cycle(tmp_path, monkeypatch):
 
 
 # ---- version must change on every stock change (Fix A) -----------------------
+
 
 def _create_item(client, sku, quantity=50):
     seed_sales_history(sku, "WH-BLR-01", daily_quantity=5)
@@ -859,5 +899,4 @@ def test_put_from_before_a_sale_gets_a_conflict(client, db_session):
     assert stale_put.status_code == 409
 
     item = db_session.query(Inventory).filter_by(sku_id="SKU-VER-LOCK").one()
-    assert item.quantity_on_hand == 30          # the sale was not overwritten
-
+    assert item.quantity_on_hand == 30  # the sale was not overwritten

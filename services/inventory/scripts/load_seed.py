@@ -43,7 +43,9 @@ from app.models.supplier import Supplier
 from app.models.warehouse import Warehouse
 from app.services.demand_service import calculate_rolling_average_demand
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
+)
 logger = logging.getLogger("seed_loader")
 
 SKU_RE = re.compile(r"^SKU-\d{6}$")
@@ -287,7 +289,9 @@ def load_current_stock(db, seed_dir: Path) -> int:
                 "quantity_on_hand": qty,
                 "avg_daily_demand": avg_demand,
                 "lead_time_days": lead_time,
-                "safety_stock": max(MIN_SAFETY_STOCK, int(avg_demand * SAFETY_STOCK_DAYS)),
+                "safety_stock": max(
+                    MIN_SAFETY_STOCK, int(avg_demand * SAFETY_STOCK_DAYS)
+                ),
                 "warehouse_type": warehouse.warehouse_type,
                 "parent_warehouse_id": warehouse.parent_warehouse_id,
             },

@@ -119,8 +119,13 @@ def test_alignment_with_322_spec_and_synthetic_samples(tmp_path: Path, db_sessio
     client_ingest = repo_root / "data-platform" / "etl" / "client_ingest"
     spec = yaml.safe_load((client_ingest / "spec.yaml").read_text(encoding="utf-8"))
 
-    assert STAGING_TABLES["products"] == spec["files"]["product_master"]["staging_table"]
-    assert STAGING_TABLES["warehouses"] == spec["files"]["warehouse_master"]["staging_table"]
+    assert (
+        STAGING_TABLES["products"] == spec["files"]["product_master"]["staging_table"]
+    )
+    assert (
+        STAGING_TABLES["warehouses"]
+        == spec["files"]["warehouse_master"]["staging_table"]
+    )
     assert (
         STAGING_TABLES["supplier_lead_times"]
         == spec["files"]["supplier_lead_times"]["staging_table"]
@@ -136,12 +141,15 @@ def test_alignment_with_322_spec_and_synthetic_samples(tmp_path: Path, db_sessio
     with (samples / "supplier_lead_times.csv").open(encoding="utf-8", newline="") as f:
         raw_lead_times = list(csv.DictReader(f))[:100]
 
-    prod_map = {r["product_code"]: f"SKU-{i + 1:06d}" for i, r in enumerate(raw_products)}
-    sup_map = {r["supplier_code"]: f"SUP-{i + 1:05d}" for i, r in enumerate(raw_suppliers)}
+    prod_map = {
+        r["product_code"]: f"SKU-{i + 1:06d}" for i, r in enumerate(raw_products)
+    }
+    sup_map = {
+        r["supplier_code"]: f"SUP-{i + 1:05d}" for i, r in enumerate(raw_suppliers)
+    }
     iata_map = spec["warehouse_city_to_iata"]
     wh_map = {
-        r["warehouse_code"]: f"WH-{iata_map[r['city']]}-01"
-        for r in raw_warehouses
+        r["warehouse_code"]: f"WH-{iata_map[r['city']]}-01" for r in raw_warehouses
     }
 
     # Suppliers are owned by Supplier Portal and pre-exist in Inventory's read copy.
@@ -185,7 +193,16 @@ def test_alignment_with_322_spec_and_synthetic_samples(tmp_path: Path, db_sessio
     )
     _write_csv(
         tmp_path / "stg_warehouse_master.csv",
-        ["warehouse_code", "warehouse_name", "city", "state", "country", "pincode", "warehouse_type", "warehouse_id"],
+        [
+            "warehouse_code",
+            "warehouse_name",
+            "city",
+            "state",
+            "country",
+            "pincode",
+            "warehouse_type",
+            "warehouse_id",
+        ],
         [
             [
                 r["warehouse_code"],
@@ -242,11 +259,21 @@ def test_alignment_with_322_spec_and_synthetic_samples(tmp_path: Path, db_sessio
     assert db_session.query(Product).count() == 50
     assert db_session.query(Warehouse).count() == 5
     assert db_session.query(SupplierLeadTime).count() == 100
-    assert all(w.warehouse_type == "regional" for w in db_session.query(Warehouse).all())
+    assert all(
+        w.warehouse_type == "regional" for w in db_session.query(Warehouse).all()
+    )
 
     second = run_client_data_import(db=db_session, staging_dir=tmp_path, dry_run=False)
-    assert (second.products.added, second.products.updated, second.products.unchanged) == (0, 0, 50)
-    assert (second.warehouses.added, second.warehouses.updated, second.warehouses.unchanged) == (0, 0, 5)
+    assert (
+        second.products.added,
+        second.products.updated,
+        second.products.unchanged,
+    ) == (0, 0, 50)
+    assert (
+        second.warehouses.added,
+        second.warehouses.updated,
+        second.warehouses.unchanged,
+    ) == (0, 0, 5)
     assert (
         second.supplier_lead_times.added,
         second.supplier_lead_times.updated,
@@ -255,9 +282,15 @@ def test_alignment_with_322_spec_and_synthetic_samples(tmp_path: Path, db_sessio
 
 
 def test_product_upsert_canonical_identity_and_idempotency(db_session):
-    p1 = _valid_product("SKU-000001", product_code="PRD-10482", name="Bolt", unit_cost="12.5")
+    p1 = _valid_product(
+        "SKU-000001", product_code="PRD-10482", name="Bolt", unit_cost="12.5"
+    )
     res1 = import_staging_dataset(db_session, StagingDataset(products=[p1]))
-    assert (res1.products.added, res1.products.updated, res1.products.unchanged) == (1, 0, 0)
+    assert (res1.products.added, res1.products.updated, res1.products.unchanged) == (
+        1,
+        0,
+        0,
+    )
 
     stored = db_session.get(Product, "SKU-000001")
     assert stored is not None
@@ -268,7 +301,11 @@ def test_product_upsert_canonical_identity_and_idempotency(db_session):
 
     # Unchanged re-import does nothing.
     res2 = import_staging_dataset(db_session, StagingDataset(products=[p1]))
-    assert (res2.products.added, res2.products.updated, res2.products.unchanged) == (0, 0, 1)
+    assert (res2.products.added, res2.products.updated, res2.products.unchanged) == (
+        0,
+        0,
+        1,
+    )
 
     # Same client product_code with updated fields updates in place without duplicate rows.
     p1_updated = _valid_product(
@@ -280,7 +317,11 @@ def test_product_upsert_canonical_identity_and_idempotency(db_session):
         unit_cost="19.75",
     )
     res3 = import_staging_dataset(db_session, StagingDataset(products=[p1_updated]))
-    assert (res3.products.added, res3.products.updated, res3.products.unchanged) == (0, 1, 0)
+    assert (res3.products.added, res3.products.updated, res3.products.unchanged) == (
+        0,
+        1,
+        0,
+    )
     assert db_session.query(Product).count() == 1
     db_session.refresh(stored)
     assert stored.name == "Bolt M8"
@@ -293,7 +334,9 @@ def test_new_product_without_unit_cost_fails_and_existing_preserves_cost(db_sess
     no_cost_new = _valid_product("SKU-000050", unit_price="120.00")
     no_cost_new.pop("unit_cost")
 
-    with pytest.raises(ClientImportValidationError, match="has no unit_cost in staging"):
+    with pytest.raises(
+        ClientImportValidationError, match="has no unit_cost in staging"
+    ):
         import_staging_dataset(
             db_session,
             StagingDataset(
@@ -308,10 +351,18 @@ def test_new_product_without_unit_cost_fails_and_existing_preserves_cost(db_sess
     seeded = _valid_product("SKU-000050", unit_price="100.00", unit_cost="60.00")
     import_staging_dataset(db_session, StagingDataset(products=[seeded]))
 
-    update_price_only = _valid_product("SKU-000050", name="Updated Prod", unit_price="135.00")
+    update_price_only = _valid_product(
+        "SKU-000050", name="Updated Prod", unit_price="135.00"
+    )
     update_price_only.pop("unit_cost")
-    res = import_staging_dataset(db_session, StagingDataset(products=[update_price_only]))
-    assert (res.products.added, res.products.updated, res.products.unchanged) == (0, 1, 0)
+    res = import_staging_dataset(
+        db_session, StagingDataset(products=[update_price_only])
+    )
+    assert (res.products.added, res.products.updated, res.products.unchanged) == (
+        0,
+        1,
+        0,
+    )
     prod = db_session.get(Product, "SKU-000050")
     assert prod is not None
     assert prod.unit_price == 135.0
@@ -321,7 +372,11 @@ def test_new_product_without_unit_cost_fails_and_existing_preserves_cost(db_sess
 def test_warehouse_upsert_canonical_identity_and_idempotency(db_session):
     w1 = _valid_warehouse("WH-BLR-01", warehouse_code="BLR-01", name="BLR Hub")
     res1 = import_staging_dataset(db_session, StagingDataset(warehouses=[w1]))
-    assert (res1.warehouses.added, res1.warehouses.updated, res1.warehouses.unchanged) == (1, 0, 0)
+    assert (
+        res1.warehouses.added,
+        res1.warehouses.updated,
+        res1.warehouses.unchanged,
+    ) == (1, 0, 0)
 
     wh = db_session.get(Warehouse, "WH-BLR-01")
     assert wh is not None
@@ -330,7 +385,11 @@ def test_warehouse_upsert_canonical_identity_and_idempotency(db_session):
     assert db_session.get(Warehouse, "BLR-01") is None
 
     res2 = import_staging_dataset(db_session, StagingDataset(warehouses=[w1]))
-    assert (res2.warehouses.added, res2.warehouses.updated, res2.warehouses.unchanged) == (0, 0, 1)
+    assert (
+        res2.warehouses.added,
+        res2.warehouses.updated,
+        res2.warehouses.unchanged,
+    ) == (0, 0, 1)
 
     w1_updated = _valid_warehouse(
         "WH-BLR-01",
@@ -342,7 +401,11 @@ def test_warehouse_upsert_canonical_identity_and_idempotency(db_session):
         warehouse_type="Central",
     )
     res3 = import_staging_dataset(db_session, StagingDataset(warehouses=[w1_updated]))
-    assert (res3.warehouses.added, res3.warehouses.updated, res3.warehouses.unchanged) == (0, 1, 0)
+    assert (
+        res3.warehouses.added,
+        res3.warehouses.updated,
+        res3.warehouses.unchanged,
+    ) == (0, 1, 0)
     assert db_session.query(Warehouse).count() == 1
     db_session.refresh(wh)
     assert wh.name == "BLR Central Hub"
@@ -355,11 +418,18 @@ def test_supplier_lead_times_upsert_idempotency_and_existing_supplier_fk(db_sess
     dataset = StagingDataset(
         products=[
             _valid_product("SKU-000001", product_code="PRD-10001"),
-            _valid_product("SKU-000002", product_code="PRD-10002", name="Synthetic Widget B"),
+            _valid_product(
+                "SKU-000002", product_code="PRD-10002", name="Synthetic Widget B"
+            ),
         ],
         supplier_lead_times=[
             _valid_lead_time("SUP-00001", "SKU-000001", average_lead_time_days=8),
-            _valid_lead_time("SUP-00001", "SKU-000002", average_lead_time_days=12, effective_date="2026-02-01"),
+            _valid_lead_time(
+                "SUP-00001",
+                "SKU-000002",
+                average_lead_time_days=12,
+                effective_date="2026-02-01",
+            ),
         ],
     )
     res1 = import_staging_dataset(db_session, dataset)
@@ -410,7 +480,9 @@ def test_unknown_supplier_in_lead_times_or_products_fails_with_zero_writes(db_se
 
     prod_with_missing_sup = {**_valid_product("SKU-000001"), "supplier_id": "SUP-99999"}
     with pytest.raises(ClientImportValidationError, match="not in suppliers"):
-        import_staging_dataset(db_session, StagingDataset(products=[prod_with_missing_sup]))
+        import_staging_dataset(
+            db_session, StagingDataset(products=[prod_with_missing_sup])
+        )
     assert db_session.query(Product).count() == 0
 
 
@@ -438,11 +510,22 @@ def test_dry_run_performs_zero_db_writes_and_computes_accurate_counts(db_session
     initial = StagingDataset(
         products=[
             _valid_product("SKU-000001", product_code="PRD-10001", name="Unchanged"),
-            _valid_product("SKU-000002", product_code="PRD-10002", name="Old Name", unit_cost="20.0"),
+            _valid_product(
+                "SKU-000002",
+                product_code="PRD-10002",
+                name="Old Name",
+                unit_cost="20.0",
+            ),
         ],
         warehouses=[
             _valid_warehouse("WH-BLR-01", warehouse_code="BLR-01", name="BLR Existing"),
-            _valid_warehouse("WH-BOM-01", warehouse_code="MUM-01", name="BOM Old", city="Mumbai", state="Maharashtra"),
+            _valid_warehouse(
+                "WH-BOM-01",
+                warehouse_code="MUM-01",
+                name="BOM Old",
+                city="Mumbai",
+                state="Maharashtra",
+            ),
         ],
         supplier_lead_times=[
             _valid_lead_time("SUP-00001", "SKU-000001", average_lead_time_days=10),
@@ -454,13 +537,30 @@ def test_dry_run_performs_zero_db_writes_and_computes_accurate_counts(db_session
     next_batch = StagingDataset(
         products=[
             _valid_product("SKU-000001", product_code="PRD-10001", name="Unchanged"),
-            _valid_product("SKU-000002", product_code="PRD-10002", name="New Name", unit_cost="25.0"),
+            _valid_product(
+                "SKU-000002",
+                product_code="PRD-10002",
+                name="New Name",
+                unit_cost="25.0",
+            ),
             _valid_product("SKU-000003", product_code="PRD-10003", name="Added Prod"),
         ],
         warehouses=[
             _valid_warehouse("WH-BLR-01", warehouse_code="BLR-01", name="BLR Existing"),
-            _valid_warehouse("WH-BOM-01", warehouse_code="MUM-01", name="BOM Updated", city="Mumbai", state="Maharashtra"),
-            _valid_warehouse("WH-DEL-01", warehouse_code="DEL-01", name="DEL New", city="New Delhi", state="Delhi"),
+            _valid_warehouse(
+                "WH-BOM-01",
+                warehouse_code="MUM-01",
+                name="BOM Updated",
+                city="Mumbai",
+                state="Maharashtra",
+            ),
+            _valid_warehouse(
+                "WH-DEL-01",
+                warehouse_code="DEL-01",
+                name="DEL New",
+                city="New Delhi",
+                state="Delhi",
+            ),
         ],
         supplier_lead_times=[
             _valid_lead_time("SUP-00001", "SKU-000001", average_lead_time_days=10),
@@ -469,8 +569,16 @@ def test_dry_run_performs_zero_db_writes_and_computes_accurate_counts(db_session
         ],
     )
     dry = import_staging_dataset(db_session, next_batch, dry_run=True)
-    assert (dry.products.added, dry.products.updated, dry.products.unchanged) == (1, 1, 1)
-    assert (dry.warehouses.added, dry.warehouses.updated, dry.warehouses.unchanged) == (1, 1, 1)
+    assert (dry.products.added, dry.products.updated, dry.products.unchanged) == (
+        1,
+        1,
+        1,
+    )
+    assert (dry.warehouses.added, dry.warehouses.updated, dry.warehouses.unchanged) == (
+        1,
+        1,
+        1,
+    )
     assert (
         dry.supplier_lead_times.added,
         dry.supplier_lead_times.updated,
@@ -482,7 +590,12 @@ def test_dry_run_performs_zero_db_writes_and_computes_accurate_counts(db_session
     assert db_session.query(SupplierLeadTime).count() == 2
     assert db_session.get(Product, "SKU-000002").name == "Old Name"
     assert db_session.get(Warehouse, "WH-BOM-01").name == "BOM Old"
-    assert db_session.get(SupplierLeadTime, ("SUP-00001", "SKU-000002")).average_lead_time_days == 12
+    assert (
+        db_session.get(
+            SupplierLeadTime, ("SUP-00001", "SKU-000002")
+        ).average_lead_time_days
+        == 12
+    )
 
 
 @pytest.mark.parametrize(
@@ -503,7 +616,9 @@ def test_dry_run_performs_zero_db_writes_and_computes_accurate_counts(db_session
             "unit_cost",
         ),
         (
-            lambda ds: ds.products.append(_valid_product("SKU-000001", product_code="PRD-OTHER")),
+            lambda ds: ds.products.append(
+                _valid_product("SKU-000001", product_code="PRD-OTHER")
+            ),
             "duplicate canonical sku_id",
         ),
         (
@@ -511,15 +626,21 @@ def test_dry_run_performs_zero_db_writes_and_computes_accurate_counts(db_session
             "warehouse_id",
         ),
         (
-            lambda ds: ds.warehouses.append(_valid_warehouse("WH001")),  # noncanonical-ok
+            lambda ds: ds.warehouses.append(
+                _valid_warehouse("WH001")
+            ),  # noncanonical-ok
             "non-canonical warehouse_id",
         ),
         (
-            lambda ds: ds.warehouses.append(_valid_warehouse("WH-BLR-01", warehouse_code="BLR-ALT")),
+            lambda ds: ds.warehouses.append(
+                _valid_warehouse("WH-BLR-01", warehouse_code="BLR-ALT")
+            ),
             "duplicate canonical warehouse_id",
         ),
         (
-            lambda ds: ds.supplier_lead_times.append(_valid_lead_time("", "SKU-000001")),
+            lambda ds: ds.supplier_lead_times.append(
+                _valid_lead_time("", "SKU-000001")
+            ),
             "supplier_id",
         ),
         (
@@ -541,20 +662,29 @@ def test_dry_run_performs_zero_db_writes_and_computes_accurate_counts(db_session
             "minimum <= average <= maximum",
         ),
         (
-            lambda ds: ds.supplier_lead_times.append(_valid_lead_time("SUP-99999", "SKU-000001")),
+            lambda ds: ds.supplier_lead_times.append(
+                _valid_lead_time("SUP-99999", "SKU-000001")
+            ),
             "unknown supplier_id",
         ),
         (
-            lambda ds: ds.supplier_lead_times.append(_valid_lead_time("SUP-00001", "SKU-999999")),
+            lambda ds: ds.supplier_lead_times.append(
+                _valid_lead_time("SUP-00001", "SKU-999999")
+            ),
             "unknown sku_id",
         ),
         (
-            lambda ds: ds.supplier_lead_times.append(_valid_lead_time("SUP-00001", "SKU-000001")),
+            lambda ds: ds.supplier_lead_times.append(
+                _valid_lead_time("SUP-00001", "SKU-000001")
+            ),
             "duplicate canonical key",
         ),
         (
             lambda ds: ds.products.append(
-                {**_valid_product("SKU-000002", product_code="PRD-10002"), None: ["extra-col"]}
+                {
+                    **_valid_product("SKU-000002", product_code="PRD-10002"),
+                    None: ["extra-col"],
+                }
             ),
             "malformed staging record",
         ),
@@ -567,7 +697,9 @@ def test_validation_failure_raises_clearly_and_rolls_back_transaction(
     baseline = StagingDataset(
         products=[_valid_product("SKU-000001", name="Original")],
         warehouses=[_valid_warehouse("WH-BLR-01", name="Original WH")],
-        supplier_lead_times=[_valid_lead_time("SUP-00001", "SKU-000001", average_lead_time_days=10)],
+        supplier_lead_times=[
+            _valid_lead_time("SUP-00001", "SKU-000001", average_lead_time_days=10)
+        ],
     )
     import_staging_dataset(db_session, baseline)
 
@@ -587,7 +719,12 @@ def test_validation_failure_raises_clearly_and_rolls_back_transaction(
     assert db_session.get(Product, "SKU-000001").name == "Original"
     assert db_session.query(Warehouse).count() == 1
     assert db_session.get(Warehouse, "WH-BLR-01").name == "Original WH"
-    assert db_session.get(SupplierLeadTime, ("SUP-00001", "SKU-000001")).average_lead_time_days == 10
+    assert (
+        db_session.get(
+            SupplierLeadTime, ("SUP-00001", "SKU-000001")
+        ).average_lead_time_days
+        == 10
+    )
 
 
 def test_import_from_db_staging_tables(db_session):
@@ -660,7 +797,9 @@ def test_import_from_db_staging_tables(db_session):
         db_session.commit()
 
 
-def test_cli_import_client_data_dry_run_and_live(tmp_path: Path, db_session, monkeypatch, capsys):
+def test_cli_import_client_data_dry_run_and_live(
+    tmp_path: Path, db_session, monkeypatch, capsys
+):
     _seed_supplier(db_session, "SUP-00011", name="CLI Supplier")
     _write_csv(
         tmp_path / "product_master.csv",
@@ -673,7 +812,17 @@ def test_cli_import_client_data_dry_run_and_live(tmp_path: Path, db_session, mon
             "unit_cost",
             "sku_id",
         ],
-        [["PRD-10001", "CLI Product", "Electronics", "PCS", "195.0", "150.0", "SKU-000101"]],
+        [
+            [
+                "PRD-10001",
+                "CLI Product",
+                "Electronics",
+                "PCS",
+                "195.0",
+                "150.0",
+                "SKU-000101",
+            ]
+        ],
     )
     _write_csv(
         tmp_path / "warehouse_master.csv",
@@ -720,7 +869,9 @@ def test_cli_import_client_data_dry_run_and_live(tmp_path: Path, db_session, mon
         TestingSessionLocal,
     )
 
-    exit_dry = cli.main(["import-client-data", "--dry-run", "--staging-dir", str(tmp_path)])
+    exit_dry = cli.main(
+        ["import-client-data", "--dry-run", "--staging-dir", str(tmp_path)]
+    )
     assert exit_dry == 0
     dry_out = capsys.readouterr().out
     assert "Client data import - DRY RUN" in dry_out
@@ -747,7 +898,17 @@ def test_cli_import_client_data_dry_run_and_live(tmp_path: Path, db_session, mon
             "unit_cost",
             "sku_id",
         ],
-        [["PRD-10002", "Broken Product", "Electronics", "PCS", "10.0", "-5", "SKU-000102"]],
+        [
+            [
+                "PRD-10002",
+                "Broken Product",
+                "Electronics",
+                "PCS",
+                "10.0",
+                "-5",
+                "SKU-000102",
+            ]
+        ],
     )
     exit_bad = cli.main(["import-client-data", "--staging-dir", str(tmp_path)])
     assert exit_bad == 1
@@ -779,9 +940,10 @@ def test_missing_staging_dir_fails_clearly(db_session):
 
 
 def test_alembic_008_adds_and_downgrades_client_data_readiness_schema(tmp_path: Path):
-    from alembic import command
     from alembic.config import Config
     from sqlalchemy import create_engine, inspect
+
+    from alembic import command
 
     db_file = tmp_path / "m008.db"
     db_url = f"sqlite:///{db_file}"
@@ -792,13 +954,17 @@ def test_alembic_008_adds_and_downgrades_client_data_readiness_schema(tmp_path: 
     engine = create_engine(db_url)
     insp = inspect(engine)
     assert "supplier_lead_times" in set(insp.get_table_names())
-    assert {"unit_of_measure", "is_active"} <= {c["name"] for c in insp.get_columns("products")}
+    assert {"unit_of_measure", "is_active"} <= {
+        c["name"] for c in insp.get_columns("products")
+    }
     assert {"country", "pincode"} <= {c["name"] for c in insp.get_columns("warehouses")}
 
     command.downgrade(cfg, "007_create_goods_receipts_tables")
     insp_after = inspect(create_engine(db_url))
     assert "supplier_lead_times" not in set(insp_after.get_table_names())
-    assert "unit_of_measure" not in {c["name"] for c in insp_after.get_columns("products")}
+    assert "unit_of_measure" not in {
+        c["name"] for c in insp_after.get_columns("products")
+    }
     assert "country" not in {c["name"] for c in insp_after.get_columns("warehouses")}
 
 

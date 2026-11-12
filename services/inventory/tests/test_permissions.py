@@ -1,10 +1,10 @@
 import httpx
 import pytest
 
-
 # ============================================================
 # FAKE PLATFORM RESPONSE
 # ============================================================
+
 
 class _FakeResponse:
     def __init__(self, status_code, payload=None):
@@ -18,6 +18,7 @@ class _FakeResponse:
 # ============================================================
 # FAKE PLATFORM AUTH
 # ============================================================
+
 
 @pytest.fixture
 def fake_platform(monkeypatch):
@@ -45,6 +46,7 @@ def fake_platform(monkeypatch):
 # AUTH HEADER HELPER
 # ============================================================
 
+
 def auth_header(token="test-token"):
     return {
         "Authorization": f"Bearer {token}",
@@ -54,6 +56,7 @@ def auth_header(token="test-token"):
 # ============================================================
 # INVENTORY READ PERMISSION
 # ============================================================
+
 
 def test_inventory_read_permission_allowed(
     client_raw,
@@ -102,15 +105,13 @@ def test_inventory_read_permission_denied(
     )
 
     assert response.status_code == 403
-    assert (
-        response.json()["detail"]
-        == "Forbidden: Insufficient permissions"
-    )
+    assert response.json()["detail"] == "Forbidden: Insufficient permissions"
 
 
 # ============================================================
 # INVENTORY WRITE PERMISSION
 # ============================================================
+
 
 def test_inventory_write_permission_allowed(
     client_raw,
@@ -175,15 +176,13 @@ def test_inventory_write_permission_denied(
     )
 
     assert response.status_code == 403
-    assert (
-        response.json()["detail"]
-        == "Forbidden: Insufficient permissions"
-    )
+    assert response.json()["detail"] == "Forbidden: Insufficient permissions"
 
 
 # ============================================================
 # ANALYST PERMISSIONS
 # ============================================================
+
 
 def test_analyst_can_read_inventory(
     client_raw,
@@ -245,6 +244,7 @@ def test_analyst_cannot_write_inventory(
 # CEO PERMISSIONS
 # ============================================================
 
+
 def test_ceo_has_inventory_read_and_write(
     client_raw,
     fake_platform,
@@ -289,6 +289,7 @@ def test_ceo_has_inventory_read_and_write(
 # MISSING TOKEN
 # ============================================================
 
+
 def test_missing_token_returns_401(client_raw):
     response = client_raw.get(
         "/api/v1/inventory",
@@ -300,6 +301,7 @@ def test_missing_token_returns_401(client_raw):
 # ============================================================
 # INVALID TOKEN
 # ============================================================
+
 
 def test_invalid_token_returns_401(
     client_raw,
@@ -324,15 +326,12 @@ def test_invalid_token_returns_401(
 # PLATFORM TIMEOUT
 # ============================================================
 
+
 def test_platform_timeout_returns_503(
     client_raw,
     fake_platform,
 ):
-    fake_platform(
-        exc=httpx.TimeoutException(
-            "Platform timeout"
-        )
-    )
+    fake_platform(exc=httpx.TimeoutException("Platform timeout"))
 
     response = client_raw.get(
         "/api/v1/inventory",
@@ -340,15 +339,13 @@ def test_platform_timeout_returns_503(
     )
 
     assert response.status_code == 503
-    assert (
-        "timed out"
-        in response.json()["detail"].lower()
-    )
+    assert "timed out" in response.json()["detail"].lower()
 
 
 # ============================================================
 # BULK UPDATE ROLE ACCESS
 # ============================================================
+
 
 def test_bulk_update_allows_warehouse_manager(
     client_raw,
@@ -432,6 +429,7 @@ def test_bulk_update_rejects_analyst(
 # ============================================================
 # WHAT-IF ROLE ACCESS
 # ============================================================
+
 
 def test_what_if_allows_ceo(
     client_raw,

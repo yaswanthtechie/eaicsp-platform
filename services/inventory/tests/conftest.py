@@ -13,19 +13,17 @@ else:
 from datetime import date, timedelta
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
-from fastapi.testclient import TestClient
 
-from app.main import app
-from app.database import Base, get_db
-from app.core.config import settings
 from app.core.auth import verify_token
+from app.core.config import settings
+from app.database import Base, get_db
+from app.main import app
 from app.models.sales_history import SalesHistory
 from app.services.cache_service import cache
 from tests.fakes import FakeRedis
-
-
 
 
 @pytest.fixture(autouse=True)
@@ -43,13 +41,19 @@ def fake_redis(request, monkeypatch):
 
 from sqlalchemy.pool import NullPool
 
-TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL") or settings.TEST_DATABASE_URL or "sqlite:///./test.db"
+TEST_DATABASE_URL = (
+    os.getenv("TEST_DATABASE_URL")
+    or settings.TEST_DATABASE_URL
+    or "sqlite:///./test.db"
+)
 
 test_engine = create_engine(
     TEST_DATABASE_URL,
     pool_pre_ping=True,
     poolclass=NullPool,
-    connect_args={"check_same_thread": False} if TEST_DATABASE_URL.startswith("sqlite") else {},
+    connect_args={"check_same_thread": False}
+    if TEST_DATABASE_URL.startswith("sqlite")
+    else {},
 )
 
 TestingSessionLocal = sessionmaker(
@@ -62,6 +66,7 @@ TestingSessionLocal = sessionmaker(
 # ============================================================
 # DATABASE FIXTURES
 # ============================================================
+
 
 def override_get_db():
     db = TestingSessionLocal()
@@ -81,7 +86,9 @@ def reset_database():
     test_engine.dispose()
     if test_engine.dialect.name == "postgresql":
         if not (test_engine.url.database or "").endswith("_test"):
-            raise RuntimeError(f"Refusing to wipe non-test database {test_engine.url.database!r}")
+            raise RuntimeError(
+                f"Refusing to wipe non-test database {test_engine.url.database!r}"
+            )
         with test_engine.begin() as conn:
             conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
     else:
@@ -94,7 +101,9 @@ def reset_database():
     test_engine.dispose()
     if test_engine.dialect.name == "postgresql":
         if not (test_engine.url.database or "").endswith("_test"):
-            raise RuntimeError(f"Refusing to wipe non-test database {test_engine.url.database!r}")
+            raise RuntimeError(
+                f"Refusing to wipe non-test database {test_engine.url.database!r}"
+            )
         with test_engine.begin() as conn:
             conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
     else:
@@ -124,6 +133,7 @@ def db_session():
 # monkeypatch, which takes precedence.
 # ============================================================
 
+
 @pytest.fixture(autouse=True)
 def mock_compliance_clear(monkeypatch):
     def fake_check_supplier_compliance(
@@ -146,6 +156,7 @@ def mock_compliance_clear(monkeypatch):
 # ============================================================
 # SALES HISTORY SEED HELPER
 # ============================================================
+
 
 # IMPORTANT:
 # This is a NORMAL FUNCTION.
@@ -251,13 +262,12 @@ def _as_user(role: str):
 # warehouse_manager
 # ============================================================
 
+
 @pytest.fixture
 def client():
     app.dependency_overrides[get_db] = override_get_db
 
-    app.dependency_overrides[verify_token] = _as_user(
-        "warehouse_manager"
-    )
+    app.dependency_overrides[verify_token] = _as_user("warehouse_manager")
 
     with TestClient(app) as c:
         yield c
@@ -269,6 +279,7 @@ def client():
 # RAW CLIENT
 # No authentication override
 # ============================================================
+
 
 @pytest.fixture
 def client_raw():
@@ -284,13 +295,12 @@ def client_raw():
 # CEO CLIENT
 # ============================================================
 
+
 @pytest.fixture
 def client_ceo():
     app.dependency_overrides[get_db] = override_get_db
 
-    app.dependency_overrides[verify_token] = _as_user(
-        "ceo"
-    )
+    app.dependency_overrides[verify_token] = _as_user("ceo")
 
     with TestClient(app) as c:
         yield c
@@ -302,13 +312,12 @@ def client_ceo():
 # WAREHOUSE MANAGER CLIENT
 # ============================================================
 
+
 @pytest.fixture
 def client_warehouse_manager():
     app.dependency_overrides[get_db] = override_get_db
 
-    app.dependency_overrides[verify_token] = _as_user(
-        "warehouse_manager"
-    )
+    app.dependency_overrides[verify_token] = _as_user("warehouse_manager")
 
     with TestClient(app) as c:
         yield c

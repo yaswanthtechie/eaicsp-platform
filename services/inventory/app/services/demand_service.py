@@ -15,15 +15,10 @@ def calculate_rolling_average_demand(
 ) -> float:
     """Average daily demand over the `days` ending at end_date (default: today)."""
     if days <= 0:
-        raise ValueError(
-            "Demand window must be greater than zero"
-        )
+        raise ValueError("Demand window must be greater than zero")
     end_date = end_date or date.today()
 
-    start_date = (
-        end_date
-        - timedelta(days=days - 1)
-    )
+    start_date = end_date - timedelta(days=days - 1)
 
     records = (
         db.query(SalesHistory)
@@ -39,11 +34,8 @@ def calculate_rolling_average_demand(
     total_quantity = 0
 
     for record in records:
-
         if record.quantity_sold < 0:
-            raise ValueError(
-                "Negative demand data is not allowed"
-            )
+            raise ValueError("Negative demand data is not allowed")
 
         total_quantity += record.quantity_sold
 
@@ -52,14 +44,9 @@ def calculate_rolling_average_demand(
 
     # Use the actual number of observed days
     # instead of always dividing by 30.
-    first_sale_date = min(
-        record.sale_date
-        for record in records
-    )
+    first_sale_date = min(record.sale_date for record in records)
 
-    observed_days = (
-        end_date - first_sale_date
-    ).days + 1
+    observed_days = (end_date - first_sale_date).days + 1
 
     effective_days = min(
         days,
@@ -77,14 +64,9 @@ def calculate_rolling_average_demand_all(
     days: int = 30,
 ):
     if days <= 0:
-        raise ValueError(
-            "Demand window must be greater than zero"
-        )
+        raise ValueError("Demand window must be greater than zero")
 
-    start_date = (
-        date.today()
-        - timedelta(days=days - 1)
-    )
+    start_date = date.today() - timedelta(days=days - 1)
 
     end_date = date.today()
 
@@ -101,11 +83,8 @@ def calculate_rolling_average_demand_all(
     first_sale_dates = {}
 
     for record in records:
-
         if record.quantity_sold < 0:
-            raise ValueError(
-                "Negative demand data is not allowed"
-            )
+            raise ValueError("Negative demand data is not allowed")
 
         key = (
             record.sku_id,
@@ -114,23 +93,13 @@ def calculate_rolling_average_demand_all(
 
         totals[key] += record.quantity_sold
 
-        if (
-            key not in first_sale_dates
-            or record.sale_date
-            < first_sale_dates[key]
-        ):
-            first_sale_dates[key] = (
-                record.sale_date
-            )
+        if key not in first_sale_dates or record.sale_date < first_sale_dates[key]:
+            first_sale_dates[key] = record.sale_date
 
     result = {}
 
     for key, quantity in totals.items():
-
-        observed_days = (
-            end_date
-            - first_sale_dates[key]
-        ).days + 1
+        observed_days = (end_date - first_sale_dates[key]).days + 1
 
         effective_days = min(
             days,

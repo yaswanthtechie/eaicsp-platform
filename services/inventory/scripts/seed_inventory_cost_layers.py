@@ -4,7 +4,6 @@ from app.database import SessionLocal
 from app.models.inventory import Inventory
 from app.models.inventory_cost_layer import InventoryCostLayer
 
-
 CATEGORY_BASE_COST = {
     "Electronics": 50.00,
     "Accessories": 15.00,
@@ -50,7 +49,6 @@ def seed_cost_layers():
     db = SessionLocal()
 
     try:
-
         print("Deleting old inventory cost layers...")
 
         db.query(InventoryCostLayer).delete()
@@ -75,25 +73,19 @@ def seed_cost_layers():
         now = datetime.utcnow()
 
         for inventory in inventories:
-
             quantity = inventory.quantity_on_hand
 
             if quantity <= 0:
                 continue
 
-            category = (
-                inventory.category
-                or "Uncategorized"
-            )
+            category = inventory.category or "Uncategorized"
 
             base_cost = CATEGORY_BASE_COST.get(
                 category,
                 50.00,
             )
 
-            quantities = split_quantity(
-                quantity
-            )
+            quantities = split_quantity(quantity)
 
             costs = [
                 round(base_cost * 0.90, 2),
@@ -101,10 +93,7 @@ def seed_cost_layers():
                 round(base_cost * 1.10, 2),
             ]
 
-            for index, layer_quantity in enumerate(
-                quantities
-            ):
-
+            for index, layer_quantity in enumerate(quantities):
                 layers.append(
                     InventoryCostLayer(
                         sku_id=inventory.sku_id,
@@ -113,75 +102,40 @@ def seed_cost_layers():
                         quantity_received=layer_quantity,
                         quantity_remaining=layer_quantity,
                         unit_cost=costs[index],
-                        received_at=(
-                            now
-                            - timedelta(
-                                days=(10 - index * 5)
-                            )
-                        ),
+                        received_at=(now - timedelta(days=(10 - index * 5))),
                     )
                 )
 
-        print(
-            f"Creating {len(layers)} cost layers..."
-        )
+        print(f"Creating {len(layers)} cost layers...")
 
         db.add_all(layers)
 
         db.commit()
 
-        total_layers = (
-            db.query(
-                InventoryCostLayer
-            ).count()
-        )
+        total_layers = db.query(InventoryCostLayer).count()
 
-        unique_skus = (
-            db.query(
-                InventoryCostLayer.sku_id
-            )
-            .distinct()
-            .count()
-        )
+        unique_skus = db.query(InventoryCostLayer.sku_id).distinct().count()
 
-        unique_warehouses = (
-            db.query(
-                InventoryCostLayer.warehouse_id
-            )
-            .distinct()
-            .count()
-        )
+        unique_warehouses = db.query(InventoryCostLayer.warehouse_id).distinct().count()
 
         print()
         print("=" * 45)
         print("   INVENTORY COST LAYER SEED COMPLETE")
         print("=" * 45)
-        print(
-            f"Inventory records : {len(inventories)}"
-        )
-        print(
-            f"Cost layers       : {total_layers}"
-        )
-        print(
-            f"Unique SKUs       : {unique_skus}"
-        )
-        print(
-            f"Warehouses        : {unique_warehouses}"
-        )
+        print(f"Inventory records : {len(inventories)}")
+        print(f"Cost layers       : {total_layers}")
+        print(f"Unique SKUs       : {unique_skus}")
+        print(f"Warehouses        : {unique_warehouses}")
         print("=" * 45)
 
     except Exception as exc:
-
         db.rollback()
 
-        print(
-            f"ERROR: {exc}"
-        )
+        print(f"ERROR: {exc}")
 
         raise
 
     finally:
-
         db.close()
 
 

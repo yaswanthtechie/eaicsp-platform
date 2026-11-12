@@ -54,14 +54,10 @@ def transfer_stock(
     quantity: int,
 ):
     if quantity <= 0:
-        raise ValueError(
-            "Transfer quantity must be greater than zero"
-        )
+        raise ValueError("Transfer quantity must be greater than zero")
 
     if source_warehouse_id == destination_warehouse_id:
-        raise ValueError(
-            "Source and destination warehouses cannot be the same"
-        )
+        raise ValueError("Source and destination warehouses cannot be the same")
 
     source = (
         db.query(Inventory)
@@ -84,21 +80,16 @@ def transfer_stock(
     )
 
     if source is None:
-        raise ValueError(
-            f"Source inventory not found: "
-            f"{sku_id}/{source_warehouse_id}"
-        )
+        raise ValueError(f"Source inventory not found: {sku_id}/{source_warehouse_id}")
 
     if destination is None:
         raise ValueError(
-            f"Destination inventory not found: "
-            f"{sku_id}/{destination_warehouse_id}"
+            f"Destination inventory not found: {sku_id}/{destination_warehouse_id}"
         )
 
     if source.quantity_on_hand < quantity:
         raise ValueError(
-            f"Insufficient stock in source warehouse: "
-            f"{source_warehouse_id}"
+            f"Insufficient stock in source warehouse: {source_warehouse_id}"
         )
 
     # -----------------------------------------------------
@@ -117,8 +108,7 @@ def transfer_stock(
     )
 
     consumed_quantity = sum(
-        layer_quantity
-        for layer_quantity, _unit_cost in consumed_layers
+        layer_quantity for layer_quantity, _unit_cost in consumed_layers
     )
 
     if consumed_quantity < quantity:
@@ -169,9 +159,7 @@ def fulfill_shortage(
     required_quantity: int,
 ):
     if required_quantity <= 0:
-        raise ValueError(
-            "Required quantity must be greater than zero"
-        )
+        raise ValueError("Required quantity must be greater than zero")
 
     local = get_inventory(
         db=db,
@@ -180,10 +168,7 @@ def fulfill_shortage(
     )
 
     if local is None:
-        raise ValueError(
-            f"Inventory not found: "
-            f"{sku_id}/{warehouse_id}"
-        )
+        raise ValueError(f"Inventory not found: {sku_id}/{warehouse_id}")
 
     if local.quantity_on_hand >= required_quantity:
         return {
@@ -197,10 +182,7 @@ def fulfill_shortage(
             "supplier_po": None,
         }
 
-    shortage = (
-        required_quantity
-        - local.quantity_on_hand
-    )
+    shortage = required_quantity - local.quantity_on_hand
 
     transfers = []
 
@@ -215,12 +197,9 @@ def fulfill_shortage(
 
     current_warehouse_id = warehouse_id
 
-    visited_warehouse_ids = {
-        warehouse_id
-    }
+    visited_warehouse_ids = {warehouse_id}
 
     while shortage > 0:
-
         parent = get_parent_warehouse(
             db=db,
             sku_id=sku_id,
@@ -242,9 +221,7 @@ def fulfill_shortage(
                 "for this SKU before requesting fulfilment."
             )
 
-        visited_warehouse_ids.add(
-            parent.warehouse_id
-        )
+        visited_warehouse_ids.add(parent.warehouse_id)
 
         available_stock = max(
             parent.quantity_on_hand,
@@ -257,7 +234,6 @@ def fulfill_shortage(
         )
 
         if transfer_quantity > 0:
-
             transfer_stock(
                 db=db,
                 sku_id=sku_id,
@@ -294,10 +270,7 @@ def fulfill_shortage(
         quantity=supplier_quantity,
     )
 
-    transferred_quantity = sum(
-        transfer["quantity"]
-        for transfer in transfers
-    )
+    transferred_quantity = sum(transfer["quantity"] for transfer in transfers)
 
     # -----------------------------------------------------
     # COMMIT THE COMPLETE NETWORK OPERATION

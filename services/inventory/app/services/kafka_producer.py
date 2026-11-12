@@ -73,9 +73,7 @@ class KafkaEventPublisher:
     """
 
     def __init__(self, bootstrap_servers: Optional[str] = None):
-        self.bootstrap_servers = (
-            bootstrap_servers or settings.KAFKA_BOOTSTRAP_SERVERS
-        )
+        self.bootstrap_servers = bootstrap_servers or settings.KAFKA_BOOTSTRAP_SERVERS
         self._producer = Producer(
             {
                 "bootstrap.servers": self.bootstrap_servers,
@@ -111,7 +109,9 @@ class KafkaEventPublisher:
             )
         except KafkaException as exc:
             err = exc.args[0]
-            raise classify_kafka_error(err)(f"Message rejected by Kafka: {err}") from exc
+            raise classify_kafka_error(err)(
+                f"Message rejected by Kafka: {err}"
+            ) from exc
         except BufferError as exc:
             # Local queue full: the broker isn't draining it.
             raise KafkaBrokerError(f"Could not enqueue message: {exc}") from exc
@@ -123,7 +123,9 @@ class KafkaEventPublisher:
             try:
                 self._producer.purge()
             except Exception:
-                logger.warning("Failed to purge undelivered Kafka messages", exc_info=True)
+                logger.warning(
+                    "Failed to purge undelivered Kafka messages", exc_info=True
+                )
             raise KafkaBrokerError(
                 f"Kafka did not acknowledge {remaining} message(s) within 5s"
             )

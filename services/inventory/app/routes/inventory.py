@@ -1,4 +1,3 @@
-
 import logging
 import time
 
@@ -18,73 +17,65 @@ from app.core.auth import (
 )
 from app.database import get_db
 from app.models.inventory import Inventory
+from app.schemas.inventory import (
+    BulkUpdateItem,
+    BulkUploadResponse,
+    DeleteResponse,
+    DemandSpikeRequest,
+    InventoryCreate,
+    InventoryResponse,
+    InventoryUpdate,
+    LowStockResponse,
+    MultiEchelonResponse,
+    ReorderCheckResponse,
+    ReorderPlanEntry,
+    SimulationResponse,
+    WhatIfRequest,
+    WhatIfResponse,
+)
+from app.services.cache_service import (
+    get_all_inventory_generation,
+    get_cached_all_inventory,
+    get_cached_inventory,
+    invalidate_inventory_cache,
+    set_cached_all_inventory,
+    set_cached_inventory,
+)
+from app.services.inventory_service import (
+    bulk_update_inventory,
+    bulk_upload_csv,
+    check_and_record_low_stock,
+    create_inventory,
+    delete_inventory,
+    generate_draft_po_if_required,
+    get_all_inventory,
+    get_inventory,
+    get_low_stock_items,
+    inventory_response,
+    simulate_demand_spike,
+    update_inventory,
+    what_if_simulation,
+)
+from app.services.multi_echelon_service import (
+    fulfill_shortage,
+)
 from app.services.network_optimization_service import (
     optimize_network_safety_stock,
 )
-
-from app.schemas.inventory import (
-    InventoryCreate,
-    InventoryUpdate,
-    InventoryResponse,
-    ReorderCheckResponse,
-    LowStockResponse,
-    DemandSpikeRequest,
-    SimulationResponse,
-    DeleteResponse,
-    BulkUploadResponse,
-    BulkUpdateItem,
-    ReorderPlanEntry,
-    WhatIfRequest,
-    WhatIfResponse,
-    MultiEchelonResponse,
-)
-
-from app.services.inventory_service import (
-    create_inventory,
-    get_all_inventory,
-    get_inventory,
-    update_inventory,
-    delete_inventory,
-    get_low_stock_items,
-    simulate_demand_spike,
-    bulk_upload_csv,
-    bulk_update_inventory,
-    what_if_simulation,
-    inventory_response,
-    generate_draft_po_if_required,
-    check_and_record_low_stock,
-)
-
 from app.services.reorder_service import (
     build_reorder_context,
     calculate_reorder_point,
     calculate_urgency_score,
 )
-
-from app.services.transfer_service import (
-    find_transfer_suggestion,
-)
-
 from app.services.simulation_service import (
     simulate_demand_growth,
 )
-
-from app.services.multi_echelon_service import (
-    fulfill_shortage,
+from app.services.transfer_service import (
+    find_transfer_suggestion,
 )
-
 from app.services.valuation_service import (
     consume_cost_layers,
 )
-from app.services.cache_service import (
-    get_cached_inventory,
-    set_cached_inventory,
-    get_cached_all_inventory,
-    set_cached_all_inventory,
-    get_all_inventory_generation,
-    invalidate_inventory_cache,
-)
-
 
 logger = logging.getLogger(__name__)
 
@@ -96,13 +87,12 @@ router = APIRouter()
 # Permission: inventory:write
 # =========================================================
 
+
 @router.post(
     "",
     response_model=InventoryResponse,
     status_code=201,
-    dependencies=[
-        Depends(require_permission("inventory:write"))
-    ],
+    dependencies=[Depends(require_permission("inventory:write"))],
 )
 def create_inventory_route(
     inventory: InventoryCreate,
@@ -142,12 +132,11 @@ def create_inventory_route(
 # Permission: inventory:read
 # =========================================================
 
+
 @router.get(
     "",
     response_model=list[InventoryResponse],
-    dependencies=[
-        Depends(require_permission("inventory:read"))
-    ],
+    dependencies=[Depends(require_permission("inventory:read"))],
 )
 def get_all_inventory_route(
     db: Session = Depends(get_db),
@@ -174,21 +163,17 @@ def get_all_inventory_route(
 # Permission: inventory:read
 # =========================================================
 
+
 @router.get(
     "/reorder-plan",
     response_model=list[ReorderPlanEntry],
-    dependencies=[
-        Depends(require_permission("inventory:read"))
-    ],
+    dependencies=[Depends(require_permission("inventory:read"))],
 )
 def reorder_plan(
     db: Session = Depends(get_db),
 ):
     try:
-        inventories = (
-            db.query(Inventory)
-            .all()
-        )
+        inventories = db.query(Inventory).all()
 
         context = build_reorder_context(
             db=db,
@@ -210,9 +195,7 @@ def reorder_plan(
             if inventory.quantity_on_hand >= reorder_point:
                 continue
 
-            avg_demand = calculation[
-                "rolling_avg_demand"
-            ]
+            avg_demand = calculation["rolling_avg_demand"]
 
             urgency_score = calculate_urgency_score(
                 quantity_on_hand=inventory.quantity_on_hand,
@@ -237,9 +220,7 @@ def reorder_plan(
                     "urgency_score": urgency_score,
                     "rolling_avg_demand": avg_demand,
                     "abc_tier": calculation["abc_tier"],
-                    "adjusted_safety_stock": calculation[
-                        "adjusted_safety_stock"
-                    ],
+                    "adjusted_safety_stock": calculation["adjusted_safety_stock"],
                     "transfer_suggestion": transfer,
                 }
             )
@@ -263,12 +244,11 @@ def reorder_plan(
 # Permission: inventory:read
 # =========================================================
 
+
 @router.get(
     "/low-stock",
     response_model=list[LowStockResponse],
-    dependencies=[
-        Depends(require_permission("inventory:read"))
-    ],
+    dependencies=[Depends(require_permission("inventory:read"))],
 )
 def low_stock_route(
     db: Session = Depends(get_db),
@@ -288,6 +268,7 @@ def low_stock_route(
 # Roles:
 # warehouse_manager OR procurement_manager
 # =========================================================
+
 
 @router.post(
     "/bulk-upload",
@@ -311,9 +292,7 @@ def bulk_upload_route(
             file=file,
         )
 
-        elapsed_seconds = (
-            time.perf_counter() - start_time
-        )
+        elapsed_seconds = time.perf_counter() - start_time
 
         return {
             **result,
@@ -337,6 +316,7 @@ def bulk_upload_route(
 # Roles:
 # warehouse_manager OR procurement_manager
 # =========================================================
+
 
 @router.post(
     "/bulk-update",
@@ -380,6 +360,7 @@ def bulk_update_route(
 # ceo OR vp_operations
 # =========================================================
 
+
 @router.post(
     "/what-if",
     response_model=WhatIfResponse,
@@ -412,11 +393,10 @@ async def what_if_route(
 # Permission: inventory:read
 # =========================================================
 
+
 @router.get(
     "/simulate",
-    dependencies=[
-        Depends(require_permission("inventory:read"))
-    ],
+    dependencies=[Depends(require_permission("inventory:read"))],
 )
 def simulate_inventory(
     growth_percent: float = 30.0,
@@ -453,11 +433,10 @@ def simulate_inventory(
 # movement. They only affect valuation accuracy.
 # =========================================================
 
+
 @router.post(
     "/decrement",
-    dependencies=[
-        Depends(require_permission("inventory:write"))
-    ],
+    dependencies=[Depends(require_permission("inventory:write"))],
 )
 def decrement_inventory_route(
     sku_id: str,
@@ -504,8 +483,7 @@ def decrement_inventory_route(
         )
 
         consumed_quantity = sum(
-            layer_quantity
-            for layer_quantity, _unit_cost in consumed_layers
+            layer_quantity for layer_quantity, _unit_cost in consumed_layers
         )
 
         # Stock with no or partial cost history still moves.
@@ -576,12 +554,11 @@ def decrement_inventory_route(
 # Permission: inventory:read
 # =========================================================
 
+
 @router.get(
     "/{sku_id}/{warehouse_id}/reorder-check",
     response_model=ReorderCheckResponse,
-    dependencies=[
-        Depends(require_permission("inventory:read"))
-    ],
+    dependencies=[Depends(require_permission("inventory:read"))],
 )
 def reorder_check_route(
     sku_id: str,
@@ -608,10 +585,7 @@ def reorder_check_route(
 
         reorder_point = calculation["reorder_point"]
 
-        needs_reorder = (
-            inventory.quantity_on_hand
-            < reorder_point
-        )
+        needs_reorder = inventory.quantity_on_hand < reorder_point
 
         suggested_order_qty = max(
             reorder_point - inventory.quantity_on_hand,
@@ -638,12 +612,11 @@ def reorder_check_route(
 # Permission: inventory:read
 # =========================================================
 
+
 @router.post(
     "/{sku_id}/{warehouse_id}/simulate",
     response_model=SimulationResponse,
-    dependencies=[
-        Depends(require_permission("inventory:read"))
-    ],
+    dependencies=[Depends(require_permission("inventory:read"))],
 )
 def simulate_route(
     sku_id: str,
@@ -656,9 +629,7 @@ def simulate_route(
             db=db,
             sku_id=sku_id,
             warehouse_id=warehouse_id,
-            demand_spike_percent=(
-                request.demand_spike_percent
-            ),
+            demand_spike_percent=(request.demand_spike_percent),
         )
 
         if result is None:
@@ -684,12 +655,11 @@ def simulate_route(
 # Permission: inventory:write
 # =========================================================
 
+
 @router.put(
     "/{sku_id}/{warehouse_id}",
     response_model=InventoryResponse,
-    dependencies=[
-        Depends(require_permission("inventory:write"))
-    ],
+    dependencies=[Depends(require_permission("inventory:write"))],
 )
 def update_inventory_route(
     sku_id: str,
@@ -730,12 +700,11 @@ def update_inventory_route(
 # Permission: inventory:write
 # =========================================================
 
+
 @router.post(
     "/multi-echelon/fulfill",
     response_model=MultiEchelonResponse,
-    dependencies=[
-        Depends(require_permission("inventory:write"))
-    ],
+    dependencies=[Depends(require_permission("inventory:write"))],
 )
 def multi_echelon_fulfill_route(
     sku_id: str,
@@ -771,12 +740,11 @@ def multi_echelon_fulfill_route(
 # Permission: inventory:read
 # =========================================================
 
+
 @router.get(
     "/{sku_id}/{warehouse_id}",
     response_model=InventoryResponse,
-    dependencies=[
-        Depends(require_permission("inventory:read"))
-    ],
+    dependencies=[Depends(require_permission("inventory:read"))],
 )
 def get_inventory_route(
     sku_id: str,
@@ -823,12 +791,11 @@ def get_inventory_route(
 # Permission: inventory:write
 # =========================================================
 
+
 @router.delete(
     "/{sku_id}/{warehouse_id}",
     response_model=DeleteResponse,
-    dependencies=[
-        Depends(require_permission("inventory:write"))
-    ],
+    dependencies=[Depends(require_permission("inventory:write"))],
 )
 def delete_inventory_route(
     sku_id: str,
@@ -848,9 +815,7 @@ def delete_inventory_route(
                 detail="Inventory not found",
             )
 
-        return {
-            "message": "Inventory deleted successfully"
-        }
+        return {"message": "Inventory deleted successfully"}
 
     except HTTPException:
         raise
@@ -858,15 +823,15 @@ def delete_inventory_route(
     except Exception:
         db.rollback()
         raise
+
+
 @router.get(
     "/network-optimization",
 )
 def network_optimization(
     days: int = 30,
     db: Session = Depends(get_db),
-    auth=Depends(
-        require_permission("inventory:read")
-    ),
+    auth=Depends(require_permission("inventory:read")),
 ):
     try:
         return optimize_network_safety_stock(

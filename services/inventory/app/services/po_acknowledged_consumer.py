@@ -1,15 +1,15 @@
-from datetime import UTC, datetime, timedelta
-from dataclasses import dataclass, field
 import json
 import logging
 import os
-from pathlib import Path
 import time
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, Optional
 
+from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from pydantic import ValidationError
 
 from app.core.config import settings
 from app.models.compliance_event import ProcessedEvent
@@ -41,7 +41,9 @@ class DeadLetterPublishError(Exception):
 
 @dataclass
 class ProcessingResult:
-    status: str  # "PROCESSED", "DUPLICATE", "PO_NOT_FOUND", "SKIPPED_INVALID_STATE", "DLQ"
+    status: (
+        str  # "PROCESSED", "DUPLICATE", "PO_NOT_FOUND", "SKIPPED_INVALID_STATE", "DLQ"
+    )
     event_id: str
     affected_po: Optional[str] = None
     details: str = ""
@@ -93,9 +95,7 @@ def _commit_or_duplicate(db: Session, event_id: str) -> bool:
     except IntegrityError:
         db.rollback()
         if (
-            db.query(ProcessedEvent)
-            .filter(ProcessedEvent.event_id == event_id)
-            .first()
+            db.query(ProcessedEvent).filter(ProcessedEvent.event_id == event_id).first()
             is not None
         ):
             return False
@@ -136,7 +136,9 @@ def process_po_acknowledged_event(
             f"(supported: {sorted(SUPPORTED_EVENT_VERSIONS)})"
         )
     if not isinstance(payload, dict) or not payload:
-        raise InvalidMessageError("Missing or invalid 'payload' object in event envelope")
+        raise InvalidMessageError(
+            "Missing or invalid 'payload' object in event envelope"
+        )
 
     # 2. Payload validation against the contract
     try:
@@ -152,7 +154,9 @@ def process_po_acknowledged_event(
     try:
         occurred_at = parse_iso_datetime(occurred_at_raw) if occurred_at_raw else None
     except Exception as exc:
-        raise InvalidMessageError(f"Invalid 'occurred_at' timestamp: {occurred_at_raw}") from exc
+        raise InvalidMessageError(
+            f"Invalid 'occurred_at' timestamp: {occurred_at_raw}"
+        ) from exc
 
     if occurred_at and occurred_at > datetime.now(UTC) + MAX_FUTURE_SKEW:
         raise InvalidMessageError(
@@ -161,9 +165,7 @@ def process_po_acknowledged_event(
 
     # 3. Idempotency check
     existing = (
-        db.query(ProcessedEvent)
-        .filter(ProcessedEvent.event_id == event_id)
-        .first()
+        db.query(ProcessedEvent).filter(ProcessedEvent.event_id == event_id).first()
     )
     if existing is not None:
         logger.info(
@@ -262,7 +264,10 @@ def process_po_acknowledged_event(
 # Intentional persistent heartbeat path; configurable via environment
 # and read by the container healthcheck in docker-compose.dev.yml.
 HEARTBEAT_FILE = Path(
-    os.getenv("PO_ACKNOWLEDGED_CONSUMER_HEARTBEAT_FILE", "/tmp/po-acknowledged-consumer.heartbeat")  # nosec B108
+    os.getenv(
+        "PO_ACKNOWLEDGED_CONSUMER_HEARTBEAT_FILE",
+        "/tmp/po-acknowledged-consumer.heartbeat",
+    )  # nosec B108
 )
 
 
@@ -271,7 +276,9 @@ def write_heartbeat(path: Path = HEARTBEAT_FILE) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(str(time.time()), encoding="utf-8")
     except OSError as exc:
-        logger.warning("Could not write PO acknowledged consumer heartbeat %s: %s", path, exc)
+        logger.warning(
+            "Could not write PO acknowledged consumer heartbeat %s: %s", path, exc
+        )
 
 
 class _SimpleTopicPartition:
@@ -308,14 +315,16 @@ class POAcknowledgedConsumerWorker:
         if self._consumer is None:
             if Consumer is None:
                 raise RuntimeError("confluent_kafka is required for live Consumer")
-            self._consumer = Consumer({
-                "bootstrap.servers": settings.KAFKA_BOOTSTRAP_SERVERS,
-                "group.id": settings.PO_ACKNOWLEDGED_CONSUMER_GROUP,
-                "auto.offset.reset": "earliest",
-                "enable.auto.commit": False,
-                "socket.timeout.ms": 3000,
-                "session.timeout.ms": 10000,
-            })
+            self._consumer = Consumer(
+                {
+                    "bootstrap.servers": settings.KAFKA_BOOTSTRAP_SERVERS,
+                    "group.id": settings.PO_ACKNOWLEDGED_CONSUMER_GROUP,
+                    "auto.offset.reset": "earliest",
+                    "enable.auto.commit": False,
+                    "socket.timeout.ms": 3000,
+                    "session.timeout.ms": 10000,
+                }
+            )
             self._consumer.subscribe([settings.PO_ACKNOWLEDGED_TOPIC])
         return self._consumer
 
@@ -323,6 +332,7 @@ class POAcknowledgedConsumerWorker:
     def dlq_publisher(self):
         if self._dlq_publisher is None:
             from app.services.kafka_producer import KafkaEventPublisher
+
             self._dlq_publisher = KafkaEventPublisher()
         return self._dlq_publisher
 
@@ -330,6 +340,7 @@ class POAcknowledgedConsumerWorker:
     def db_session_factory(self):
         if self._db_session_factory is None:
             from app.database import SessionLocal
+
             self._db_session_factory = SessionLocal
         return self._db_session_factory
 
@@ -377,7 +388,9 @@ class POAcknowledgedConsumerWorker:
         if TopicPartition is not None or hasattr(self.consumer, "seek"):
             tp_cls = TopicPartition or _SimpleTopicPartition
             self.consumer.seek(tp_cls(msg.topic(), msg.partition(), msg.offset()))
-        time.sleep(min(settings.PO_ACKNOWLEDGED_CONSUMER_INTERVAL_SECONDS * attempt, 30.0))
+        time.sleep(
+            min(settings.PO_ACKNOWLEDGED_CONSUMER_INTERVAL_SECONDS * attempt, 30.0)
+        )
 
     def handle_kafka_message(
         self,
@@ -423,7 +436,10 @@ class POAcknowledgedConsumerWorker:
             )
         except Exception as exc:
             db.rollback()
-            logger.error("Transient error processing event: %s. Offset will NOT be committed.", exc)
+            logger.error(
+                "Transient error processing event: %s. Offset will NOT be committed.",
+                exc,
+            )
             raise
 
         self.commit_offset(msg)
@@ -476,7 +492,11 @@ class POAcknowledgedConsumerWorker:
                         exc,
                     )
                     raw_val = msg.value() if hasattr(msg, "value") else msg
-                    raw_text = raw_val.decode("utf-8", errors="replace") if isinstance(raw_val, bytes) else str(raw_val)
+                    raw_text = (
+                        raw_val.decode("utf-8", errors="replace")
+                        if isinstance(raw_val, bytes)
+                        else str(raw_val)
+                    )
                     try:
                         self.route_to_dlq(
                             raw_message=raw_text,
@@ -489,7 +509,9 @@ class POAcknowledgedConsumerWorker:
                         self._attempts.pop(key, None)
                         processed_count += 1
                     except Exception as dlq_err:
-                        logger.critical("Could not route failed message to DLQ: %s", dlq_err)
+                        logger.critical(
+                            "Could not route failed message to DLQ: %s", dlq_err
+                        )
                         self._rewind(msg, attempt)
                 else:
                     logger.error(
@@ -522,5 +544,3 @@ if __name__ == "__main__":
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
     run_po_acknowledged_consumer()
-
-

@@ -87,9 +87,17 @@ class ForecastClient:
         max_retries: Optional[int] = None,
     ):
         self.base_url = (base_url or settings.FORECAST_SERVICE_URL).rstrip("/")
-        self.api_key = settings.INVENTORY_SERVICE_API_KEY if api_key is None else api_key
-        self.timeout = settings.FORECAST_TIMEOUT_SECONDS if timeout_seconds is None else timeout_seconds
-        self.max_retries = settings.FORECAST_RETRY_COUNT if max_retries is None else max_retries
+        self.api_key = (
+            settings.INVENTORY_SERVICE_API_KEY if api_key is None else api_key
+        )
+        self.timeout = (
+            settings.FORECAST_TIMEOUT_SECONDS
+            if timeout_seconds is None
+            else timeout_seconds
+        )
+        self.max_retries = (
+            settings.FORECAST_RETRY_COUNT if max_retries is None else max_retries
+        )
 
         if not self.api_key:
             logger.warning(
@@ -207,10 +215,14 @@ class ForecastClient:
                     horizon=horizon,
                 )
             except ForecastUnavailable as exc:
-                logger.warning("%s; using fallback for SKU %s at %s", exc, sku_id, warehouse_id)
+                logger.warning(
+                    "%s; using fallback for SKU %s at %s", exc, sku_id, warehouse_id
+                )
                 service_unavailable = True
 
-        if forecast_response is not None and _is_usable(forecast_response, sku_id, warehouse_id):
+        if forecast_response is not None and _is_usable(
+            forecast_response, sku_id, warehouse_id
+        ):
             total_predicted = sum(p.predicted for p in forecast_response.forecast)
             num_points = len(forecast_response.forecast)
             daily_demand = round(total_predicted / max(num_points, 1), 2)

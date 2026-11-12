@@ -1,22 +1,23 @@
 import json
 from pathlib import Path
+
 import pytest
 from jsonschema import Draft202012Validator
 
 from app.core.auth import verify_token
-from app.models.outbox import Outbox
-from app.services.outbox_relay import OutboxRelay
-from tests.fakes import InMemoryKafkaPublisher
-from app.schemas.events import InventoryPOApprovedEvent
 from app.main import app
 from app.models.inventory import Inventory
+from app.models.outbox import Outbox
 from app.models.purchase_order import PurchaseOrder
 from app.models.supplier import Supplier
-from tests.conftest import _as_user, seed_sales_history
+from app.schemas.events import InventoryPOApprovedEvent
+from app.services.outbox_relay import OutboxRelay
 from app.services.purchase_order_service import (
     approve_purchase_order,
     receive_purchase_order,
 )
+from tests.conftest import _as_user, seed_sales_history
+from tests.fakes import InMemoryKafkaPublisher
 
 
 def _seed_reorderable_sku(db_session, unit_cost):
@@ -52,7 +53,9 @@ def _seed_reorderable_sku(db_session, unit_cost):
 
 
 def test_draft_po_awaits_procurement_approval(client, db_session):
-    _seed_reorderable_sku(db_session, unit_cost=1.0)   # small PO: no auto-approval any more.
+    _seed_reorderable_sku(
+        db_session, unit_cost=1.0
+    )  # small PO: no auto-approval any more.
 
     response = client.post(
         "/api/v1/inventory/purchase-orders/draft",
@@ -82,15 +85,11 @@ def test_approval_requires_procurement_manager(client, db_session, role):
     ).json()["po_id"]
 
     app.dependency_overrides[verify_token] = _as_user(role)
-    rejected = client.post(
-        f"/api/v1/inventory/purchase-orders/{po_id}/approve"
-    )
+    rejected = client.post(f"/api/v1/inventory/purchase-orders/{po_id}/approve")
     assert rejected.status_code == 403
 
     app.dependency_overrides[verify_token] = _as_user("procurement_manager")
-    approved = client.post(
-        f"/api/v1/inventory/purchase-orders/{po_id}/approve"
-    )
+    approved = client.post(f"/api/v1/inventory/purchase-orders/{po_id}/approve")
     assert approved.status_code == 200
     assert approved.json()["approval_status"] == "approved"
 
@@ -98,9 +97,7 @@ def test_approval_requires_procurement_manager(client, db_session, role):
 def test_approving_missing_po_returns_404(client):
     app.dependency_overrides[verify_token] = _as_user("procurement_manager")
 
-    response = client.post(
-        "/api/v1/inventory/purchase-orders/PO-2026-999999/approve"
-    )
+    response = client.post("/api/v1/inventory/purchase-orders/PO-2026-999999/approve")
 
     assert response.status_code == 404
 
@@ -164,15 +161,10 @@ def test_already_approved_po_cannot_be_approved_again(
             po_id="PO-2026-900002",
             approved_by="7",
         )
-        assert False, (
-            "Expected ValueError for already approved PO"
-        )
+        assert False, "Expected ValueError for already approved PO"
 
     except ValueError as exc:
-        assert (
-            "is not awaiting approval"
-            in str(exc)
-        )
+        assert "is not awaiting approval" in str(exc)
 
 
 def test_pending_po_cannot_be_received(db_session):
@@ -197,15 +189,10 @@ def test_pending_po_cannot_be_received(db_session):
             po_id="PO-2026-900003",
             received_by="1",
         )
-        assert False, (
-            "Expected ValueError for pending approval PO"
-        )
+        assert False, "Expected ValueError for pending approval PO"
 
     except ValueError as exc:
-        assert (
-            "must be approved by a procurement manager"
-            in str(exc)
-        )
+        assert "must be approved by a procurement manager" in str(exc)
 
 
 def test_approve_po_publishes_inventory_po_approved_event(client, db_session):
@@ -277,7 +264,9 @@ def test_approve_po_publishes_inventory_po_approved_event(client, db_session):
         schema = json.load(f)
 
     envelope = json.loads(msg["value"])
-    Draft202012Validator(schema, format_checker=Draft202012Validator.FORMAT_CHECKER).validate(envelope)
+    Draft202012Validator(
+        schema, format_checker=Draft202012Validator.FORMAT_CHECKER
+    ).validate(envelope)
 
     # 6. Verify with strict Pydantic model
     event = InventoryPOApprovedEvent.model_validate(envelope)

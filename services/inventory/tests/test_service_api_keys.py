@@ -24,7 +24,6 @@ from app.services.compliance_client import (
 )
 from app.services.forecast_client import ForecastClient
 
-
 TEST_SECRET_KEY = "sk_test_inventory_secret_key_999"
 REAL_HTTPX_CLIENT = httpx.Client
 
@@ -108,7 +107,9 @@ def test_compliance_client_sends_x_api_key_header():
     assert captured_request["headers"]["x-caller-service"] == "inventory-service"
 
 
-def test_forecast_client_handles_401_with_fallback_and_no_key_in_logs(caplog, db_session):
+def test_forecast_client_handles_401_with_fallback_and_no_key_in_logs(
+    caplog, db_session
+):
     """When Forecast Serving returns 401, client logs cleanly without key and falls back without crashing."""
     sensitive_key = "sk_very_secret_inventory_key_do_not_leak"
 
@@ -187,8 +188,9 @@ def test_empty_api_key_logs_warning_and_omits_header(caplog):
         captured_request["headers"] = dict(request.headers)
         return httpx.Response(401, json={"detail": "Missing service API key"})
 
-    with caplog.at_level(logging.WARNING), patch.object(
-        settings, "INVENTORY_SERVICE_API_KEY", ""
+    with (
+        caplog.at_level(logging.WARNING),
+        patch.object(settings, "INVENTORY_SERVICE_API_KEY", ""),
     ):
         client = ForecastClient(base_url="http://localhost:8007")
         with patch(

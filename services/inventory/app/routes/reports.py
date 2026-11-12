@@ -5,20 +5,16 @@ from fastapi import (
     Depends,
     HTTPException,
 )
-
 from sqlalchemy.orm import Session
 
 from app.core.auth import require_roles
 from app.database import get_db
-
 from app.schemas.inventory_report import (
     InventoryValueReportResponse,
 )
-
 from app.services.inventory_report_service import (
     generate_inventory_value_report,
 )
-
 
 router = APIRouter(
     prefix="/reports",

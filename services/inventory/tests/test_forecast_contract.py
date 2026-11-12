@@ -10,7 +10,6 @@ from app.services.forecast_adapter import (
     resolve_daily_demand,
 )
 
-
 NOW = datetime(2026, 10, 5, tzinfo=timezone.utc)
 
 
@@ -43,6 +42,7 @@ def forecast_payload(**overrides):
 # CONTRACT VALIDATION
 # ============================================================
 
+
 def test_contract_accepts_forecast_service_output():
     contract = ForecastContract.model_validate(forecast_payload())
 
@@ -54,9 +54,7 @@ def test_contract_accepts_forecast_service_output():
 def test_contract_ignores_extra_fields():
     # latency_ms is in the payload; new service fields must not
     # break Inventory (tolerant reader).
-    contract = ForecastContract.model_validate(
-        forecast_payload(debug_info={"x": 1})
-    )
+    contract = ForecastContract.model_validate(forecast_payload(debug_info={"x": 1}))
 
     assert not hasattr(contract, "latency_ms")
 
@@ -104,7 +102,12 @@ def test_contract_rejects_invalid_points(point):
 
 def test_contract_rejects_out_of_order_or_duplicate_months():
     october = {"date": "2026-10-01", "predicted": 300.0, "lower": 250.0, "upper": 370.0}
-    november = {"date": "2026-11-01", "predicted": 300.0, "lower": 240.0, "upper": 360.0}
+    november = {
+        "date": "2026-11-01",
+        "predicted": 300.0,
+        "lower": 240.0,
+        "upper": 360.0,
+    }
 
     for points in ([november, october], [october, october]):
         with pytest.raises(ValidationError):
@@ -115,6 +118,7 @@ def test_contract_rejects_out_of_order_or_duplicate_months():
 # HOW INVENTORY USES IT (not wired yet)
 # ============================================================
 
+
 def test_monthly_forecast_becomes_daily_mean_and_std():
     contract = ForecastContract.model_validate(forecast_payload())
 
@@ -122,16 +126,18 @@ def test_monthly_forecast_becomes_daily_mean_and_std():
 
     z80 = NormalDist().inv_cdf(0.9)
     assert daily["daily_demand"] == pytest.approx(310 / 31)
-    assert daily["daily_std"] == pytest.approx(
-        ((370 - 250) / (2 * z80)) / 31 ** 0.5
-    )
+    assert daily["daily_std"] == pytest.approx(((370 - 250) / (2 * z80)) / 31**0.5)
 
 
 def test_uses_forecast_when_fresh_and_matching():
     contract = ForecastContract.model_validate(forecast_payload())
 
     result = resolve_daily_demand(
-        contract, "SKU-000001", "WH-BLR-01", date(2026, 10, 20), NOW,
+        contract,
+        "SKU-000001",
+        "WH-BLR-01",
+        date(2026, 10, 20),
+        NOW,
         history_daily_demand=8.0,
     )
 
@@ -155,12 +161,14 @@ def test_uses_forecast_when_fresh_and_matching():
 def test_falls_back_to_history_when_forecast_unusable(
     contract_overrides, sku, on_date, expected_reason
 ):
-    contract = ForecastContract.model_validate(
-        forecast_payload(**contract_overrides)
-    )
+    contract = ForecastContract.model_validate(forecast_payload(**contract_overrides))
 
     result = resolve_daily_demand(
-        contract, sku, "WH-BLR-01", on_date, NOW,
+        contract,
+        sku,
+        "WH-BLR-01",
+        on_date,
+        NOW,
         history_daily_demand=8.0,
     )
 
@@ -171,8 +179,12 @@ def test_falls_back_to_history_when_forecast_unusable(
 
 def test_falls_back_to_history_without_forecast():
     result = resolve_daily_demand(
-        None, "SKU-000001", "WH-BLR-01", date(2026, 10, 20), NOW,
+        None,
+        "SKU-000001",
+        "WH-BLR-01",
+        date(2026, 10, 20),
+        NOW,
         history_daily_demand=8.0,
     )
 
-    assert result["source"] == "history"
+    assert result["source"] == "history"

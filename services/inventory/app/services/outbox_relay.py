@@ -3,11 +3,11 @@ import os
 import time
 from pathlib import Path
 from typing import Optional
+
 from sqlalchemy.orm import Session
 
 from app.services.kafka_producer import (
     KafkaEventPublisher,
-    KafkaPublishError,
     is_broker_error,
 )
 from app.services.outbox_service import (
@@ -59,7 +59,7 @@ class OutboxRelay:
     ) -> tuple[int, int]:
         """
         Process a batch of pending outbox events.
-        
+
         Returns:
             tuple[int, int]: (published_count, failed_count)
         """
