@@ -1,9 +1,13 @@
 
 """Adapter for the R15 client shipment-history format."""
 
+import logging
 from pathlib import Path
 
 import pandas as pd
+
+
+logger = logging.getLogger(__name__)
 
 
 REQUIRED_COLUMNS = [
@@ -36,7 +40,8 @@ def adapt_client_shipments(
     Validate and normalize client shipment-history data.
 
     Optional weight and volume columns are added when absent.
-    Rows are not silently dropped.
+    Duplicate shipment IDs are counted, logged, and resolved
+    by keeping the last occurrence.
     """
 
     if not isinstance(shipments, pd.DataFrame):
@@ -74,8 +79,18 @@ def adapt_client_shipments(
     if shipments["shipment_id"].eq("").any():
         raise ValueError("shipment_id contains empty values.")
 
-    if shipments["shipment_id"].duplicated().any():
-        raise ValueError("Duplicate shipment_id values found.")
+    # Count duplicates and keep the last occurrence.
+    duplicate_mask = shipments["shipment_id"].duplicated(keep="last")
+    duplicate_count = int(duplicate_mask.sum())
+
+    if duplicate_count:
+        logger.warning(
+            "Dropping %d duplicate shipment_id rows (kept last).",
+            duplicate_count,
+        )
+        shipments = shipments.loc[~duplicate_mask].copy()
+
+    shipments.attrs["duplicate_shipment_count"] = duplicate_count
 
     # Normalize text fields without changing their meaning.
     text_columns = [
@@ -92,12 +107,12 @@ def adapt_client_shipments(
             .str.strip()
         )
 
-    # Invalid or missing dates become NaT.
-    # We retain the rows so later validation can report them.
+    # Strictly accept YYYY-MM-DD dates.
+    # Invalid or missing dates become NaT; rows are retained.
     for column in DATE_COLUMNS:
         shipments[column] = pd.to_datetime(
             shipments[column],
-            format="mixed",
+            format="%Y-%m-%d",
             errors="coerce",
         )
 

@@ -72,9 +72,7 @@ def compare_client_baseline_and_model(
     model_predictions: pd.Series,
     metadata: pd.DataFrame,
 ) -> dict:
-    """
-    Compare model and planned-date baseline on identical test shipments.
-    """
+    """Compare model and planned-date baseline on identical shipments."""
 
     if not (
         len(y_true) == len(model_predictions) == len(metadata)
@@ -103,9 +101,7 @@ def compare_client_baseline_and_model(
         metadata["planned_delivery_days"], errors="coerce"
     ).reset_index(drop=True)
 
-    carriers = metadata["carrier_name"].reset_index(drop=True)
-
-    # Both evaluations must use exactly the same shipments.
+    # Build one common mask so both evaluations use identical shipments.
     valid = (
         np.isfinite(actual)
         & np.isfinite(predicted)
@@ -117,24 +113,31 @@ def compare_client_baseline_and_model(
             "No common valid shipments for baseline and model comparison."
         )
 
-    actual_valid = actual[valid]
-    predicted_valid = predicted[valid]
-    planned_valid = planned[valid]
-    carriers_valid = carriers[valid].fillna("Unknown")
-
-    model_errors = (actual_valid - predicted_valid).abs()
-    baseline_errors = (actual_valid - planned_valid).abs()
-
-    model_per_carrier = (
-        model_errors.groupby(carriers_valid).mean().to_dict()
+    # Filter all three inputs using the same mask.
+    actual_valid = actual[valid].reset_index(drop=True)
+    predicted_valid = predicted[valid].reset_index(drop=True)
+    planned_valid = planned[valid].reset_index(drop=True)
+    metadata_valid = (
+        metadata.reset_index(drop=True)
+        .loc[valid]
+        .reset_index(drop=True)
     )
 
-    baseline_per_carrier = (
-        baseline_errors.groupby(carriers_valid).mean().to_dict()
+    # Reuse the shared evaluation helper instead of duplicating MAE logic.
+    model_result = evaluate_client_predictions(
+        y_true=actual_valid,
+        predictions=predicted_valid,
+        metadata=metadata_valid,
     )
 
-    model_mae = float(model_errors.mean())
-    baseline_mae = float(baseline_errors.mean())
+    baseline_result = evaluate_client_predictions(
+        y_true=actual_valid,
+        predictions=planned_valid,
+        metadata=metadata_valid,
+    )
+
+    model_mae = model_result["mae_days"]
+    baseline_mae = baseline_result["mae_days"]
 
     return {
         "evaluated_shipments": int(valid.sum()),
@@ -143,12 +146,6 @@ def compare_client_baseline_and_model(
         "model_mae_days": model_mae,
         "model_beats_baseline": model_mae < baseline_mae,
         "improvement_days": baseline_mae - model_mae,
-        "model_per_carrier_mae": {
-            str(carrier): float(mae)
-            for carrier, mae in model_per_carrier.items()
-        },
-        "baseline_per_carrier_mae": {
-            str(carrier): float(mae)
-            for carrier, mae in baseline_per_carrier.items()
-        },
+        "model_per_carrier_mae": model_result["per_carrier_mae"],
+        "baseline_per_carrier_mae": baseline_result["per_carrier_mae"],
     }

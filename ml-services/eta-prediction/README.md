@@ -120,24 +120,40 @@ The client workflow is separate from the existing R14 and R15-H2 models. It uses
 
 ### Input data
 
-The shipment-history adapter accepts these columns:
+The client shipment-history adapter expects the following columns:
 
-| Column | Purpose |
+| Column | Description |
 |---|---|
 | `shipment_id` | Unique shipment identifier |
-| `po_number` | Purchase order reference |
+| `po_number` | Purchase order number |
 | `origin_city` | Shipment origin city |
-| `destination_warehouse_code` | Client warehouse identifier |
-| `carrier_name` | Carrier handling the shipment |
-| `dispatch_date` | Shipment dispatch timestamp |
-| `planned_delivery_date` | Client's planned delivery date |
-| `actual_delivery_date` | Actual delivery timestamp; used to construct the target |
-| `weight_kg` | Shipment weight; optional |
-| `volume_m3` | Shipment volume; optional |
+| `destination_warehouse_code` | Destination warehouse code |
+| `carrier_name` | Carrier name |
+| `dispatch_date` | Shipment dispatch date |
+| `planned_delivery_date` | Planned delivery date |
+| `actual_delivery_date` | Actual delivery date |
+| `weight_kg` | Shipment weight in kilograms |
+| `volume_m3` | Shipment volume in cubic metres |
 
-The adapter validates shipment identifiers, parses date columns, and supports missing optional weight and volume columns. Additional input columns are not passed into the model feature matrix.
+Dates must use the `YYYY-MM-DD` format.
 
-Use synthetic shipment data for development and testing. Real client shipment files must not be committed, attached to issues, or included in pull requests. Client landing folders are excluded through `.gitignore`.
+Duplicate `shipment_id` records are removed by keeping the last occurrence. The number of removed duplicate records is recorded in the training metadata.
+
+Weight and volume are optional inputs. Missing values are handled by the feature pipeline.
+
+Additional columns are not used by the client ETA adapter.
+
+### Client data storage
+
+Place the client-format CSV files under:
+
+    data/raw/client/
+    ├── shipment_history.csv
+    └── warehouse_master.csv
+
+This directory is relative to `ml-services/eta-prediction/`.
+
+Only synthetic sample data should be committed to the repository. Real client data must not be committed, attached to issues, or included in pull requests.
 
 ### Route distance resolution
 
@@ -153,25 +169,28 @@ Route distances are calculated using city coordinates from the existing seed dat
 
 ### Model features and target
 
-The client model uses these features:
+The client ETA model uses the following dispatch-known features:
 
 - `dispatch_month`
 - `dispatch_day_of_week`
 - `distance_km`
 - `weight_kg`
 - `volume_m3`
+- `planned_delivery_days`
+- `carrier_name`
 
-The target is the number of days between `dispatch_date` and `actual_delivery_date`.
+`planned_delivery_days` is calculated from `planned_delivery_date` and `dispatch_date`.
 
-`actual_delivery_date` is used only to construct the target. `planned_delivery_date` is retained separately for baseline evaluation. Neither date is passed as a model feature.
+`carrier_name` is handled as a categorical feature using one-hot encoding.
 
-Missing numeric feature values are handled by a median imputer inside the scikit-learn pipeline. The imputer is fitted on training data only. Infinite numeric values are converted to missing values before preprocessing.
+`actual_delivery_date` is used only to calculate the training target. It must never be used as a model input feature.
 
 ### Chronological training and evaluation
 
 The workflow sorts shipments by dispatch date and uses earlier shipments for training and later shipments for testing. Feature, target, and metadata indexes must match before the split.
 
 The model is evaluated against the client's own planned-delivery-date baseline. Both MAE values are calculated on the same eligible test shipments. Per-carrier MAE is also reported.
+
 
 **Current synthetic-data evaluation:**
 
@@ -180,43 +199,67 @@ The model is evaluated against the client's own planned-delivery-date baseline. 
 | Source shipments | 353 |
 | Prepared shipments | 340 |
 | Rows excluded due to invalid target dates | 13 |
-| Training shipments | 272 |
+| Training shipments | 260 |
 | Test shipments | 68 |
+| Training shipments purged by cutoff | 12 |
+| Duplicate shipments removed | 0 |
 | Unknown locations | 0 |
 | Planned-date baseline MAE | 1.618 days |
-| Client model MAE | 3.539 days |
-| Model improvement over baseline | -1.921 days |
+| Client model MAE | 1.975 days |
+| Model improvement over baseline | -0.357 days |
 | Model beats baseline | No |
+| Accepted model saved | No |
 
-The client model currently performs worse than the planned-date baseline. This is reported as-is; the model is not claimed to be better.
+**Chronological split:**
+
+- Training dispatch period: `2025-11-10` to `2026-07-29`
+- Test dispatch period: `2026-08-07` to `2026-10-13`
+
+The 12 purged training shipments had actual delivery dates on or after the test cutoff and were excluded to prevent future-label leakage.
+
+The client model currently performs worse than the planned-date baseline by approximately 0.357 days. The model was therefore rejected, and the previously accepted model artifact was not overwritten.
 
 **Per-carrier test MAE:**
 
 | Carrier | Planned-date baseline MAE | Model MAE |
 |---|---:|---:|
-| Air Cargo | 0.563 days | 2.510 days |
-| Express Logistics | 1.182 days | 4.063 days |
-| National Freight | 1.846 days | 3.600 days |
-| Regional Transport | 3.000 days | 3.782 days |
+| Air Cargo | 0.563 days | 0.651 days |
+| Express Logistics | 1.182 days | 1.363 days |
+| National Freight | 1.846 days | 2.916 days |
+| Regional Transport | 3.000 days | 3.293 days |
 
 These results are from the current synthetic sample and should not be interpreted as expected performance on real client data.
 
+
 ### Training workflow
 
-From `ml-services/eta-prediction/`, run:
+Run the client ETA training script from the `ml-services/eta-prediction/` directory:
 
 ```bash
-python client_train.py
+python client_train.py \
+    --shipments data/raw/client/shipment_history.csv \
+    --warehouse-master data/raw/client/warehouse_master.csv
 ```
 
-The workflow loads the client shipment-history file and warehouse master, loads the existing seed supplier and warehouse coordinate data, prepares route distances and leak-free features, performs a chronological split, trains the client-specific pipeline, and evaluates it against the planned-date baseline.
+The training workflow:
 
-The workflow saves the H4 model and metadata separately:
+1. Loads and validates the client shipment-history data.
+2. Removes duplicate shipment IDs, keeping the last occurrence.
+3. Calculates route distances using the seed coordinate data.
+4. Prepares dispatch-known model features.
+5. Performs a chronological train/test split.
+6. Purges training shipments whose actual delivery dates are on or after the test cutoff.
+7. Evaluates the planned delivery-date baseline and the ML model.
+8. Reports overall and per-carrier MAE.
+9. Saves the model only when it beats the planned delivery-date baseline.
 
-- `models/eta_client_pipeline_h4.joblib`
-- `models/eta_client_metadata_h4.json`
+Accepted model artifacts are saved separately from rejected model metadata:
 
-The H4 artifacts are separate from the existing H2 model artifacts.
+- Accepted model: `models/eta_client_pipeline_h4.joblib`
+- Accepted metadata: `models/eta_client_metadata_h4.json`
+- Rejected metadata: `models/eta_client_metadata_h4_rejected.json`
+
+Rejected models do not overwrite previously accepted model artifacts.
 
 ### R15-H4 tests
 
@@ -234,8 +277,10 @@ The client workflow has dedicated tests covering:
 - Per-carrier evaluation
 - Pipeline preprocessing and training-only imputation
 - Training workflow and artifact handling
+- End-to-end integration test covering shipment loading, route-distance
+  enrichment, and feature preparation
 
-The full ETA prediction test suite currently passes with **279 tests**.
+The full ETA prediction test suite currently passes with **294 tests**.
 
 ### R15-H4 limitations
 
@@ -458,6 +503,7 @@ eta-prediction/
 │   ├── test_client_routes.py
 │   ├── test_client_split.py
 │   └── test_client_train.py
+│   ├── test_client_integration.py
 ├── artifacts/
 │   ├── eta_model.joblib
 │   ├── calibration_model.joblib
@@ -1698,6 +1744,7 @@ Run individual test modules when debugging a specific area:
 | `tests/test_client_pipeline.py` | Tests client pipeline construction and training-only imputation |
 | `tests/test_client_evaluate.py` | Tests client model evaluation, planned-date baseline, and per-carrier MAE |
 | `tests/test_client_train.py` | Tests the client shipment-history training workflow |
+| `tests/test_client_integration.py` | Tests the complete client shipment pipeline from CSV loading through route enrichment and feature preparation |
 
 ## Round 14 Feature-Library Integration
 

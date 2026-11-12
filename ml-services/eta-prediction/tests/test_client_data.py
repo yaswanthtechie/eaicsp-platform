@@ -1,4 +1,6 @@
 
+import logging
+
 import pandas as pd
 import pytest
 
@@ -34,6 +36,7 @@ def test_adapter_preserves_all_shipments():
 
     assert len(result) == 2
     assert result["shipment_id"].is_unique
+    assert result.attrs["duplicate_shipment_count"] == 0
 
 
 @pytest.mark.parametrize(
@@ -57,12 +60,37 @@ def test_missing_required_column_raises_error():
         adapt_client_shipments(shipments)
 
 
-def test_duplicate_shipment_id_is_rejected():
+def test_duplicate_shipment_id_keeps_last_occurrence(caplog):
     shipments = make_shipments()
     shipments.loc[1, "shipment_id"] = "SHP001"
+    shipments.loc[1, "carrier_name"] = "Updated Carrier"
 
-    with pytest.raises(ValueError, match="Duplicate shipment_id"):
-        adapt_client_shipments(shipments)
+    with caplog.at_level(logging.WARNING):
+        result = adapt_client_shipments(shipments)
+
+    assert len(result) == 1
+    assert result.loc[0, "shipment_id"] == "SHP001"
+    assert result.loc[0, "carrier_name"] == "Updated Carrier"
+    assert result.attrs["duplicate_shipment_count"] == 1
+    assert "Dropping 1 duplicate shipment_id rows" in caplog.text
+
+
+def test_multiple_duplicate_rows_are_counted():
+    shipments = make_shipments()
+    shipments = pd.concat(
+        [
+            shipments,
+            shipments.iloc[[0]],
+            shipments.iloc[[0]],
+        ],
+        ignore_index=True,
+    )
+
+    result = adapt_client_shipments(shipments)
+
+    assert len(result) == 2
+    assert result["shipment_id"].is_unique
+    assert result.attrs["duplicate_shipment_count"] == 2
 
 
 def test_invalid_date_does_not_drop_shipment():
@@ -73,6 +101,29 @@ def test_invalid_date_does_not_drop_shipment():
 
     assert len(result) == 2
     assert pd.isna(result.loc[0, "dispatch_date"])
+
+
+def test_alternative_date_format_is_rejected():
+    shipments = make_shipments()
+    shipments.loc[0, "dispatch_date"] = "13/11/2025"
+
+    result = adapt_client_shipments(shipments)
+
+    assert len(result) == 2
+    assert pd.isna(result.loc[0, "dispatch_date"])
+    assert result.loc[1, "dispatch_date"] == pd.Timestamp("2026-01-02")
+
+
+def test_valid_iso_date_format_is_accepted():
+    result = adapt_client_shipments(make_shipments())
+
+    assert result.loc[0, "dispatch_date"] == pd.Timestamp("2026-01-01")
+    assert result.loc[0, "planned_delivery_date"] == pd.Timestamp(
+        "2026-01-05"
+    )
+    assert result.loc[0, "actual_delivery_date"] == pd.Timestamp(
+        "2026-01-06"
+    )
 
 
 def test_both_optional_columns_missing():

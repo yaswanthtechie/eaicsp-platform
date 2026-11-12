@@ -8,6 +8,16 @@ import pytest
 from client_train import train_client_eta
 
 
+@pytest.fixture(autouse=True)
+def isolated_mlflow(tmp_path, monkeypatch):
+    tracking_db = (tmp_path / "mlflow.db").as_posix()
+
+    monkeypatch.setenv(
+        "MLFLOW_TRACKING_URI",
+        f"sqlite:///{tracking_db}",
+    )
+
+
 class FakePipeline:
     """Lightweight model for testing training orchestration."""
 
@@ -86,6 +96,7 @@ def training_data(tmp_path):
 def artifact_paths(tmp_path, monkeypatch):
     model_path = tmp_path / "client_model.joblib"
     metadata_path = tmp_path / "client_metadata.json"
+    rejected_path = tmp_path / "rejected.json"
 
     monkeypatch.setattr(
         "client_train.H4_MODEL_PATH",
@@ -98,6 +109,11 @@ def artifact_paths(tmp_path, monkeypatch):
     )
 
     monkeypatch.setattr(
+        "client_train.H4_REJECTED_METADATA_PATH",
+        rejected_path,
+    )
+
+    monkeypatch.setattr(
         "client_train.ensure_directories",
         lambda: None,
     )
@@ -107,7 +123,7 @@ def artifact_paths(tmp_path, monkeypatch):
         FakePipeline,
     )
 
-    return model_path, metadata_path
+    return model_path, metadata_path, rejected_path
 
 
 def test_training_workflow_saves_model_and_metadata(
@@ -121,7 +137,7 @@ def test_training_workflow_saves_model_and_metadata(
         warehouse_master,
     ) = training_data
 
-    model_path, metadata_path = artifact_paths
+    model_path, metadata_path, rejected_path = artifact_paths
 
     result = train_client_eta(
         shipment_file,
@@ -132,21 +148,25 @@ def test_training_workflow_saves_model_and_metadata(
 
     assert model_path.is_file()
     assert metadata_path.is_file()
+    assert not rejected_path.exists()
 
     saved_model = joblib.load(model_path)
 
     assert isinstance(saved_model, FakePipeline)
-    assert saved_model.training_rows == 8
+    assert saved_model.training_rows == 5
 
     with metadata_path.open(encoding="utf-8") as file:
         saved_metadata = json.load(file)
 
     assert saved_metadata["model_name"] == "R15-H4-client-eta"
-    assert saved_metadata["training_shipments"] == 8
+    assert saved_metadata["training_shipments"] == 5
     assert saved_metadata["test_shipments"] == 2
+    assert saved_metadata["purged_training_shipments"] == 3
+    assert saved_metadata["model_saved"] is True
 
     assert result["evaluation"]["evaluated_shipments"] == 2
     assert result["evaluation"]["model_beats_baseline"] is True
+    assert result["model_path"] == model_path
 
 
 def test_training_reports_route_diagnostics(
@@ -183,7 +203,7 @@ def test_model_is_not_saved_when_evaluation_fails(
         warehouse_master,
     ) = training_data
 
-    model_path, metadata_path = artifact_paths
+    model_path, metadata_path, rejected_path = artifact_paths
 
     def fail_evaluation(**kwargs):
         raise ValueError("Evaluation failed")
@@ -203,6 +223,7 @@ def test_model_is_not_saved_when_evaluation_fails(
 
     assert not model_path.exists()
     assert not metadata_path.exists()
+    assert not rejected_path.exists()
 
 
 def test_training_rejects_missing_shipment_file(
@@ -236,3 +257,48 @@ def test_training_rejects_missing_shipment_file(
             warehouses,
             warehouse_master,
         )
+
+
+def test_model_is_not_saved_when_it_loses_to_baseline(
+    training_data,
+    artifact_paths,
+    monkeypatch,
+):
+    shipment_file, suppliers, warehouses, warehouse_master = training_data
+    model_path, metadata_path, rejected_path = artifact_paths
+
+    def losing_evaluation(**kwargs):
+        return {
+            "evaluated_shipments": 10,
+            "excluded_shipments": 0,
+            "baseline_mae_days": 1.0,
+            "model_mae_days": 3.0,
+            "model_beats_baseline": False,
+            "improvement_days": -2.0,
+            "model_per_carrier_mae": {"Air Cargo": 3.0},
+            "baseline_per_carrier_mae": {"Air Cargo": 1.0},
+        }
+
+    monkeypatch.setattr(
+        "client_train.compare_client_baseline_and_model",
+        losing_evaluation,
+    )
+
+    result = train_client_eta(
+        shipment_file,
+        suppliers,
+        warehouses,
+        warehouse_master,
+    )
+
+    assert not model_path.exists()
+    assert not metadata_path.exists()
+    assert rejected_path.exists()
+
+    with rejected_path.open(encoding="utf-8") as file:
+        rejected_metadata = json.load(file)
+
+    assert rejected_metadata["model_saved"] is False
+    assert result["metadata"]["model_saved"] is False
+    assert result["model_path"] is None
+    assert result["metadata_path"] == rejected_path

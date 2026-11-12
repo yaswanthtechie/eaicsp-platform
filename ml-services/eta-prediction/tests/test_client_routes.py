@@ -103,8 +103,6 @@ def test_client_mumbai_code_uses_mumbai_coordinates(
         shipment, suppliers, warehouses, warehouse_master
     )
 
-    # A zero distance proves Mumbai coordinates were used,
-    # rather than the seed warehouse city Bhiwandi.
     assert result.loc[0, "distance_km"] == pytest.approx(0.0)
     assert diagnostics["unknown_location_count"] == 0
 
@@ -121,8 +119,6 @@ def test_client_delhi_code_uses_new_delhi_coordinates(
         shipment, suppliers, warehouses, warehouse_master
     )
 
-    # A zero distance proves New Delhi coordinates were used,
-    # rather than the seed warehouse city Gurugram.
     assert result.loc[0, "distance_km"] == pytest.approx(0.0)
     assert diagnostics["unknown_location_count"] == 0
 
@@ -191,7 +187,7 @@ def test_unknown_destination_city_is_counted_and_row_is_preserved(
 
     assert len(result) == len(shipments)
     assert pd.isna(result.loc[0, "distance_km"])
-    assert diagnostics["unknown_warehouse_count"] == 1
+    assert diagnostics["unknown_warehouse_count"] == 0
     assert diagnostics["unknown_destination_city_count"] == 1
     assert diagnostics["unknown_location_count"] == 1
     assert "madeupdestinationcity" in (
@@ -211,13 +207,74 @@ def test_unknown_warehouse_code_is_counted_and_row_is_preserved(
     assert len(result) == len(shipments)
     assert pd.isna(result.loc[0, "distance_km"])
     assert diagnostics["unknown_warehouse_count"] == 1
+    assert diagnostics["unknown_destination_city_count"] == 0
     assert diagnostics["unknown_location_count"] == 1
+
+
+def test_warehouse_and_destination_city_counters_are_independent(
+    suppliers, warehouses, warehouse_master
+):
+    shipments = pd.DataFrame({
+        "shipment_id": ["SHP001", "SHP002"],
+        "origin_city": ["Mumbai", "New Delhi"],
+        "destination_warehouse_code": [
+            "UNKNOWN-01",
+            "MUM-01",
+        ],
+    })
+
+    warehouse_master.loc[
+        warehouse_master["warehouse_code"] == "MUM-01",
+        "city",
+    ] = "CityWithoutSeedCoordinates"
+
+    result, diagnostics = add_client_route_distances(
+        shipments, suppliers, warehouses, warehouse_master
+    )
+
+    assert len(result) == 2
+    assert result["distance_km"].isna().all()
+
+    assert diagnostics["unknown_warehouse_count"] == 1
+    assert diagnostics["unknown_destination_city_count"] == 1
+    assert diagnostics["unknown_location_count"] == 2
 
 
 def test_conflicting_coordinates_across_seed_files_are_rejected(
     shipments, suppliers, warehouses, warehouse_master
 ):
     warehouses.loc[2, "city"] = "Mumbai"
+
+    with pytest.raises(ValueError, match="Conflicting coordinates"):
+        add_client_route_distances(
+            shipments, suppliers, warehouses, warehouse_master
+        )
+
+
+def test_tiny_coordinate_differences_are_accepted_after_rounding(
+    shipments, suppliers, warehouses, warehouse_master
+):
+    # These coordinates differ slightly from Mumbai's supplier
+    # coordinates but become identical after rounding to 4 decimals.
+    warehouses.loc[2, "city"] = "Mumbai"
+    warehouses.loc[2, "lat"] = 19.07604
+    warehouses.loc[2, "lng"] = 72.87774
+
+    result, diagnostics = add_client_route_distances(
+        shipments, suppliers, warehouses, warehouse_master
+    )
+
+    assert result["distance_km"].notna().all()
+    assert diagnostics["unknown_location_count"] == 0
+
+
+def test_genuine_coordinate_conflicts_are_still_rejected(
+    shipments, suppliers, warehouses, warehouse_master
+):
+    # This difference remains after rounding to 4 decimal places.
+    warehouses.loc[2, "city"] = "Mumbai"
+    warehouses.loc[2, "lat"] = 19.3002
+    warehouses.loc[2, "lng"] = 73.0581
 
     with pytest.raises(ValueError, match="Conflicting coordinates"):
         add_client_route_distances(
@@ -248,6 +305,7 @@ def test_unknown_location_generates_warning(
 
     assert "Unknown shipment locations" in caplog.text
 
+
 def test_missing_origin_and_warehouse_code_are_counted_and_rows_preserved(
     shipments, suppliers, warehouses, warehouse_master
 ):
@@ -265,4 +323,4 @@ def test_missing_origin_and_warehouse_code_are_counted_and_rows_preserved(
     assert diagnostics["unknown_origin_count"] == 1
     assert diagnostics["unknown_warehouse_count"] == 1
     assert diagnostics["unknown_location_count"] == 2
-    assert diagnostics["missing_distance_count"] == 2  
+    assert diagnostics["missing_distance_count"] == 2

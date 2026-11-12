@@ -35,7 +35,6 @@ def _build_city_coordinates(suppliers, warehouses):
                 f"Missing {name} coordinate columns: {sorted(missing)}"
             )
 
-    # Combine city coordinates from both seed sources.
     cities = pd.concat(
         [
             suppliers[["city", "lat", "lng"]],
@@ -60,7 +59,10 @@ def _build_city_coordinates(suppliers, warehouses):
 
     cities = cities.loc[valid].copy()
 
-    # Reject cities that have conflicting coordinates across either source.
+    # Normalize coordinate precision before checking for conflicts.
+    cities["lat"] = cities["lat"].round(4)
+    cities["lng"] = cities["lng"].round(4)
+
     coordinate_counts = (
         cities.groupby("_city_key")[["lat", "lng"]]
         .nunique()
@@ -180,7 +182,7 @@ def add_client_route_distances(
     destination_lat = destination_keys.map(city_coordinates["lat"])
     destination_lng = destination_keys.map(city_coordinates["lng"])
 
-    # 6. Identify unknown origins and destination cities.
+    # 6. Identify unknown origins and destination locations.
     unknown_origins = (
         origin_keys.isna()
         | origin_keys.eq("")
@@ -195,6 +197,18 @@ def add_client_route_distances(
         | ~destination_keys.isin(city_coordinates.index)
     )
 
+    unknown_warehouse_codes_mask = (
+        warehouse_keys.isna()
+        | warehouse_keys.eq("")
+        | destination_keys.isna()
+    ).fillna(True)
+
+    unknown_destination_cities_mask = (
+        destination_keys.notna()
+        & ~destination_keys.isin(city_coordinates.index)
+    ).fillna(False)
+
+    # Keep the combined location check unchanged.
     known_locations = ~(unknown_origins | unknown_warehouses)
 
     # 7. Calculate distances without dropping unknown-location rows.
@@ -211,15 +225,17 @@ def add_client_route_distances(
 
     # 8. Collect diagnostics.
     unknown_destination_cities = destination_keys[
-        unknown_warehouses
+        unknown_destination_cities_mask
     ].dropna()
 
     diagnostics = {
         "total_shipments": len(result),
         "unknown_origin_count": int(unknown_origins.sum()),
-        "unknown_warehouse_count": int(unknown_warehouses.sum()),
+        "unknown_warehouse_count": int(
+            unknown_warehouse_codes_mask.sum()
+        ),
         "unknown_destination_city_count": int(
-            unknown_warehouses.sum()
+            unknown_destination_cities_mask.sum()
         ),
         "unknown_location_count": int(
             (unknown_origins | unknown_warehouses).sum()
@@ -231,7 +247,10 @@ def add_client_route_distances(
             origin_keys[unknown_origins].dropna().unique().tolist()
         ),
         "unknown_warehouse_codes": sorted(
-            warehouse_keys[unknown_warehouses].dropna().unique().tolist()
+            warehouse_keys[unknown_warehouse_codes_mask]
+            .dropna()
+            .unique()
+            .tolist()
         ),
         "unknown_destination_cities": sorted(
             unknown_destination_cities.unique().tolist()
