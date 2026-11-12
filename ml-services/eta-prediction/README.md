@@ -13,7 +13,13 @@ tracking, and automated pytest coverage.
 # Current Status
 
 The ETA prediction service has completed the Round 14 implementation and
-validation.
+validation. R15-H2 seed-route training and R15-H3 event-driven prediction
+workflows are documented below.
+
+R15-H4 adds a separate client shipment-history training workflow. Its
+implementation and synthetic-data testing are complete, but the current
+client model does not outperform the planned-delivery-date baseline.
+Real client shipment-history validation is still pending.
 
 ## Round 14 Completed
 
@@ -105,6 +111,138 @@ Known limitation: duplicate `event_id`s are remembered in memory only (last 10,0
 After a restart, a message that was published but not yet committed can be predicted
 again. The `eta.shipment.predicted` contract allows this: consumers keep the latest
 `predicted_at` per `shipment_id`.
+
+## R15-H4: Client Shipment-History ETA Training
+
+R15-H4 prepares the ETA prediction service to train on a client's shipment history when the client data becomes available.
+
+The client workflow is separate from the existing R14 and R15-H2 models. It uses dedicated H4 model and metadata artifact paths so that existing model artifacts and prediction behaviour remain unchanged.
+
+### Input data
+
+The shipment-history adapter accepts these columns:
+
+| Column | Purpose |
+|---|---|
+| `shipment_id` | Unique shipment identifier |
+| `po_number` | Purchase order reference |
+| `origin_city` | Shipment origin city |
+| `destination_warehouse_code` | Client warehouse identifier |
+| `carrier_name` | Carrier handling the shipment |
+| `dispatch_date` | Shipment dispatch timestamp |
+| `planned_delivery_date` | Client's planned delivery date |
+| `actual_delivery_date` | Actual delivery timestamp; used to construct the target |
+| `weight_kg` | Shipment weight; optional |
+| `volume_m3` | Shipment volume; optional |
+
+The adapter validates shipment identifiers, parses date columns, and supports missing optional weight and volume columns. Additional input columns are not passed into the model feature matrix.
+
+Use synthetic shipment data for development and testing. Real client shipment files must not be committed, attached to issues, or included in pull requests. Client landing folders are excluded through `.gitignore`.
+
+### Route distance resolution
+
+Route distances are calculated using city coordinates from the existing seed data.
+
+- The city-coordinate lookup is built from `data-platform/seed/samples/suppliers.csv` and `data-platform/seed/samples/warehouses.csv`.
+- The client warehouse code is first mapped to its city using the client `warehouse_master.csv`.
+- City matching ignores case and surrounding whitespace.
+- Haversine distance is calculated between the shipment origin and the resolved warehouse city.
+- Unknown origin cities and warehouse destinations are logged and counted.
+- Rows with unknown locations are retained; they are not silently discarded.
+- No files under `data-platform/seed/` are modified.
+
+### Model features and target
+
+The client model uses these features:
+
+- `dispatch_month`
+- `dispatch_day_of_week`
+- `distance_km`
+- `weight_kg`
+- `volume_m3`
+
+The target is the number of days between `dispatch_date` and `actual_delivery_date`.
+
+`actual_delivery_date` is used only to construct the target. `planned_delivery_date` is retained separately for baseline evaluation. Neither date is passed as a model feature.
+
+Missing numeric feature values are handled by a median imputer inside the scikit-learn pipeline. The imputer is fitted on training data only. Infinite numeric values are converted to missing values before preprocessing.
+
+### Chronological training and evaluation
+
+The workflow sorts shipments by dispatch date and uses earlier shipments for training and later shipments for testing. Feature, target, and metadata indexes must match before the split.
+
+The model is evaluated against the client's own planned-delivery-date baseline. Both MAE values are calculated on the same eligible test shipments. Per-carrier MAE is also reported.
+
+**Current synthetic-data evaluation:**
+
+| Metric | Result |
+|---|---:|
+| Source shipments | 353 |
+| Prepared shipments | 340 |
+| Rows excluded due to invalid target dates | 13 |
+| Training shipments | 272 |
+| Test shipments | 68 |
+| Unknown locations | 0 |
+| Planned-date baseline MAE | 1.618 days |
+| Client model MAE | 3.539 days |
+| Model improvement over baseline | -1.921 days |
+| Model beats baseline | No |
+
+The client model currently performs worse than the planned-date baseline. This is reported as-is; the model is not claimed to be better.
+
+**Per-carrier test MAE:**
+
+| Carrier | Planned-date baseline MAE | Model MAE |
+|---|---:|---:|
+| Air Cargo | 0.563 days | 2.510 days |
+| Express Logistics | 1.182 days | 4.063 days |
+| National Freight | 1.846 days | 3.600 days |
+| Regional Transport | 3.000 days | 3.782 days |
+
+These results are from the current synthetic sample and should not be interpreted as expected performance on real client data.
+
+### Training workflow
+
+From `ml-services/eta-prediction/`, run:
+
+```bash
+python client_train.py
+```
+
+The workflow loads the client shipment-history file and warehouse master, loads the existing seed supplier and warehouse coordinate data, prepares route distances and leak-free features, performs a chronological split, trains the client-specific pipeline, and evaluates it against the planned-date baseline.
+
+The workflow saves the H4 model and metadata separately:
+
+- `models/eta_client_pipeline_h4.joblib`
+- `models/eta_client_metadata_h4.json`
+
+The H4 artifacts are separate from the existing H2 model artifacts.
+
+### R15-H4 tests
+
+The client workflow has dedicated tests covering:
+
+- Shipment-history schema adaptation and validation
+- Missing optional weight and volume columns
+- City-coordinate lookup and client warehouse mapping
+- Case- and whitespace-insensitive city matching
+- Unknown locations, diagnostics, logging, and row preservation
+- Feature preparation and target construction
+- Exclusion of actual and planned delivery dates from model features
+- Chronological splitting and index alignment
+- Baseline and model MAE evaluation
+- Per-carrier evaluation
+- Pipeline preprocessing and training-only imputation
+- Training workflow and artifact handling
+
+The full ETA prediction test suite currently passes with **279 tests**.
+
+### R15-H4 limitations
+
+- Current evaluation uses synthetic shipment data, not real client shipment history.
+- The model does not currently beat the planned-date baseline.
+- Performance must be re-evaluated when the approved client shipment-history files become available.
+- Unknown cities are retained and reported with missing route distance; their impact on model evaluation should be reviewed when real data is received.
 
 ## Round 14 Evaluation
 
@@ -261,57 +399,72 @@ time.
 
 The ETA prediction service is organized as follows:
 
-    eaicsp-platfrom/
-    ├── main.py
-    ├── requirements.txt
-    ├── README.md
-    ├── src/
-    │   ├── config.py
-    │   ├── data.py
-    │   ├── features.py
-    │   ├── preprocess.py
-    │   ├── split.py
-    │   ├── pipeline.py
-    │   ├── xg_boost_model.py
-    │   ├── train.py
-    │   ├── evaluate.py
-    │   ├── model_loader.py
-    │   ├── predict.py
-    │   ├── shap_explainer.py
-    │   ├── mlflow_tracking.py
-    │   ├── paths.py
-    │   ├── h2_features.py
-    │   ├── h2_train.py
-    │   ├── h2_predict.py
-    │   ├── seed_routes.py
-    │   ├── eta_publisher.py
-    │   └── stream_consumer.py
-    ├── tests/
-    │   ├── conftest.py
-    │   ├── test_api.py
-    │   ├── test_dashboard_services.py
-    │   ├── test_evaluate.py
-    │   ├── test_features.py
-    │   ├── test_mlflow_tracking.py
-    │   ├── test_predict.py
-    │   ├── test_preprocess.py
-    │   ├── test_route_insights.py
-    │   ├── test_shap_explainer.py
-    │   ├── test_split.py
-    │   ├── test_train.py
-    │   ├── test_h2_features.py
-    │   ├── test_h2_predict.py
-    │   ├── test_h2_train.py
-    │   ├── test_seed_routes.py
-    │   ├── test_eta_publisher.py
-    │   └── test_h3_stream_consumer.py
-    ├── artifacts/
-    │   ├── eta_model.joblib
-    │   ├── calibration_model.joblib
-    │   ├── eta_seed_routes_pipeline.joblib
-    │   └── eta_seed_routes_interval.joblib
-    └── data/
-        └── olist/
+```text
+eta-prediction/
+├── main.py
+├── client_train.py
+├── requirements.txt
+├── README.md
+├── src/
+│   ├── config.py
+│   ├── data.py
+│   ├── features.py
+│   ├── preprocess.py
+│   ├── split.py
+│   ├── pipeline.py
+│   ├── xg_boost_model.py
+│   ├── train.py
+│   ├── evaluate.py
+│   ├── model_loader.py
+│   ├── predict.py
+│   ├── shap_explainer.py
+│   ├── mlflow_tracking.py
+│   ├── paths.py
+│   ├── h2_features.py
+│   ├── h2_train.py
+│   ├── h2_predict.py
+│   ├── seed_routes.py
+│   ├── eta_publisher.py
+│   ├── stream_consumer.py
+│   ├── client_data.py
+│   ├── client_evaluate.py
+│   ├── client_features.py
+│   ├── client_pipeline.py
+│   ├── client_routes.py
+│   └── client_split.py
+├── tests/
+│   ├── conftest.py
+│   ├── test_api.py
+│   ├── test_dashboard_services.py
+│   ├── test_evaluate.py
+│   ├── test_features.py
+│   ├── test_mlflow_tracking.py
+│   ├── test_predict.py
+│   ├── test_preprocess.py
+│   ├── test_route_insights.py
+│   ├── test_shap_explainer.py
+│   ├── test_split.py
+│   ├── test_train.py
+│   ├── test_h2_features.py
+│   ├── test_h2_predict.py
+│   ├── test_h2_train.py
+│   ├── test_seed_routes.py
+│   ├── test_eta_publisher.py
+│   ├── test_h3_stream_consumer.py
+│   ├── test_client_data.py
+│   ├── test_client_evaluate.py
+│   ├── test_client_features.py
+│   ├── test_client_pipeline.py
+│   ├── test_client_routes.py
+│   ├── test_client_split.py
+│   └── test_client_train.py
+├── artifacts/
+│   ├── eta_model.joblib
+│   ├── calibration_model.joblib
+│   ├── eta_seed_routes_pipeline.joblib
+│   └── eta_seed_routes_interval.joblib
+└── data/
+    └── olist/
 
 ## Shared Feature Engineering Library
 
@@ -1494,8 +1647,9 @@ Run individual test modules when debugging a specific area:
 # Module Guide
 
 | Module | Responsibility |
-|--------|----------------|
+|---|---|
 | `main.py` | End-to-end feature engineering, inherited-vs-Round-14 training, evaluation, calibration, SHAP generation, and MLflow workflow |
+| `client_train.py` | Runs the client shipment-history ETA training and evaluation workflow |
 | `src/config.py` | Single source of truth for model hyperparameters and configuration |
 | `src/data.py` | Loads the Olist raw datasets |
 | `src/features.py` | Builds one ETA feature row per order, creates the target, and integrates shared `eaicsp-feature-lib` ETA history features |
@@ -1509,7 +1663,19 @@ Run individual test modules when debugging a specific area:
 | `src/predict.py` | Implements the public ETA prediction contract |
 | `src/mlflow_tracking.py` | Logs model parameters, metrics, metadata, calibration, and model artifacts for both inherited and Round 14 runs |
 | `src/shap_explainer.py` | Generates SHAP explanations for Round 14 model predictions |
-| `src/paths.py` | Centralizes project and artifact paths |
+| `src/paths.py` | Centralizes project and artifact paths, including separate H4 client model and metadata paths |
+| `src/h2_features.py` | Prepares features for the R15-H2 seed supplier-to-warehouse ETA model |
+| `src/h2_train.py` | Trains the R15-H2 seed-route ETA model |
+| `src/h2_predict.py` | Provides prediction functionality for the R15-H2 seed-route model |
+| `src/seed_routes.py` | Loads and resolves seed supplier and warehouse route information |
+| `src/eta_publisher.py` | Publishes ETA prediction events to Kafka |
+| `src/stream_consumer.py` | Consumes shipment-dispatched events, invokes ETA prediction, and handles event processing |
+| `src/client_data.py` | Adapts and validates client shipment-history data, including optional weight and volume columns |
+| `src/client_routes.py` | Builds city-coordinate lookups, maps client warehouse codes to cities, and calculates route distances |
+| `src/client_features.py` | Prepares client ETA model features and constructs the delivery-time target while preventing leakage |
+| `src/client_split.py` | Performs chronological client shipment train/test splitting and validates index alignment |
+| `src/client_pipeline.py` | Creates the client-specific preprocessing and XGBoost pipeline with training-only imputation |
+| `src/client_evaluate.py` | Evaluates client model and planned-date baseline MAE, including per-carrier metrics |
 | `tests/conftest.py` | Provides reusable synthetic test fixtures and temporary model artifacts |
 | `tests/test_features.py` | Tests feature engineering, leakage protection, and Round 14 as-of historical feature behavior |
 | `tests/test_preprocess.py` | Tests preprocessing validation and cleaning |
@@ -1519,6 +1685,19 @@ Run individual test modules when debugging a specific area:
 | `tests/test_predict.py` | Tests model loading, city lookup, prediction contract, calibration bounds, and payload validation |
 | `tests/test_mlflow_tracking.py` | Tests MLflow tracking, model loading, and prediction logging behavior |
 | `tests/test_shap_explainer.py` | Tests SHAP explanation generation and expected explanation behavior |
+| `tests/test_h2_features.py` | Tests R15-H2 seed-route feature preparation |
+| `tests/test_h2_predict.py` | Tests R15-H2 seed-route prediction behavior |
+| `tests/test_h2_train.py` | Tests R15-H2 model training |
+| `tests/test_seed_routes.py` | Tests seed supplier and warehouse route loading and resolution |
+| `tests/test_eta_publisher.py` | Tests ETA Kafka event publishing |
+| `tests/test_h3_stream_consumer.py` | Tests R15-H3 shipment event consumption and processing |
+| `tests/test_client_data.py` | Tests client shipment-history schema adaptation and validation |
+| `tests/test_client_routes.py` | Tests client warehouse mapping, city lookup, route distances, and unknown-location handling |
+| `tests/test_client_features.py` | Tests client feature preparation, target construction, and leakage prevention |
+| `tests/test_client_split.py` | Tests chronological splitting and index alignment |
+| `tests/test_client_pipeline.py` | Tests client pipeline construction and training-only imputation |
+| `tests/test_client_evaluate.py` | Tests client model evaluation, planned-date baseline, and per-carrier MAE |
+| `tests/test_client_train.py` | Tests the client shipment-history training workflow |
 
 ## Round 14 Feature-Library Integration
 
