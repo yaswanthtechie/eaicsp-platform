@@ -538,7 +538,7 @@ def test_dry_run_performs_zero_db_writes_and_computes_accurate_counts(db_session
                     minimum_lead_time_days=8,
                 ),
             ),
-            "minimum_lead_time_days",
+            "minimum <= average <= maximum",
         ),
         (
             lambda ds: ds.supplier_lead_times.append(_valid_lead_time("SUP-99999", "SKU-000001")),
@@ -677,13 +677,40 @@ def test_cli_import_client_data_dry_run_and_live(tmp_path: Path, db_session, mon
     )
     _write_csv(
         tmp_path / "warehouse_master.csv",
-        ["warehouse_code", "warehouse_name", "city", "state", "country", "warehouse_id"],
-        [["MAA-01", "Chennai Hub", "Chennai", "Tamil Nadu", "India", "WH-MAA-01"]],
+        [
+            "warehouse_code",
+            "warehouse_name",
+            "city",
+            "state",
+            "country",
+            "pincode",
+            "warehouse_type",
+            "warehouse_id",
+        ],
+        [
+            [
+                "MAA-01",
+                "Chennai Hub",
+                "Chennai",
+                "Tamil Nadu",
+                "India",
+                "600001",
+                "Regional",
+                "WH-MAA-01",
+            ]
+        ],
     )
     _write_csv(
         tmp_path / "supplier_lead_times.csv",
-        ["supplier_id", "sku_id", "average_lead_time_days"],
-        [["SUP-00011", "SKU-000101", "5"]],
+        [
+            "supplier_id",
+            "sku_id",
+            "average_lead_time_days",
+            "minimum_lead_time_days",
+            "maximum_lead_time_days",
+            "effective_date",
+        ],
+        [["SUP-00011", "SKU-000101", "5", "3", "8", "2026-01-15"]],
     )
 
     from tests.conftest import TestingSessionLocal
@@ -773,3 +800,80 @@ def test_alembic_008_adds_and_downgrades_client_data_readiness_schema(tmp_path: 
     assert "supplier_lead_times" not in set(insp_after.get_table_names())
     assert "unit_of_measure" not in {c["name"] for c in insp_after.get_columns("products")}
     assert "country" not in {c["name"] for c in insp_after.get_columns("warehouses")}
+
+
+@pytest.mark.parametrize(
+    "missing",
+    ["minimum_lead_time_days", "maximum_lead_time_days", "effective_date"],
+)
+def test_lead_time_missing_required_field_fails_and_keeps_stored_values(
+    db_session, missing
+):
+    _seed_supplier(db_session, "SUP-00001")
+    dataset = StagingDataset(
+        products=[_valid_product("SKU-000001", product_code="PRD-10001")],
+        supplier_lead_times=[_valid_lead_time("SUP-00001", "SKU-000001")],
+    )
+    import_staging_dataset(db_session, dataset)
+
+    partial = _valid_lead_time("SUP-00001", "SKU-000001")
+    partial.pop(missing)
+    dataset.supplier_lead_times = [partial]
+
+    with pytest.raises(ClientImportValidationError, match=f"missing {missing}"):
+        import_staging_dataset(db_session, dataset)
+
+    stored = db_session.get(SupplierLeadTime, ("SUP-00001", "SKU-000001"))
+    assert stored.minimum_lead_time_days == 5
+    assert stored.maximum_lead_time_days == 15
+    assert stored.effective_date == date(2026, 1, 1)
+
+
+def test_cli_file_read_error_prints_utf8_hint(monkeypatch, capsys):
+    def _boom(**_kwargs):
+        raise UnicodeDecodeError("utf-8", b"\xe9", 0, 1, "invalid continuation byte")
+
+    monkeypatch.setattr(cli, "run_client_data_import", _boom)
+    exit_code = cli.main(["import-client-data"])
+    assert exit_code == 1
+    assert "could not read staging file" in capsys.readouterr().err
+
+
+def test_warehouse_missing_type_or_invalid_pincode_fails(db_session):
+    bad_pin = _valid_warehouse("WH-BLR-01", pincode="56001")
+    with pytest.raises(ClientImportValidationError, match="pincode must be 6 digits"):
+        import_staging_dataset(db_session, StagingDataset(warehouses=[bad_pin]))
+    assert db_session.query(Warehouse).count() == 0
+
+    no_type = _valid_warehouse("WH-BLR-01")
+    no_type.pop("warehouse_type")
+    with pytest.raises(
+        ClientImportValidationError, match="missing required field 'warehouse_type'"
+    ):
+        import_staging_dataset(db_session, StagingDataset(warehouses=[no_type]))
+    assert db_session.query(Warehouse).count() == 0
+
+
+def test_blank_primary_column_falls_back_to_canonical_alias(db_session):
+    product_with_alias = _valid_product("")
+    product_with_alias["canonical_product_id"] = "SKU-000001"
+    warehouse_with_alias = _valid_warehouse("")
+    warehouse_with_alias["canonical_warehouse_id"] = "WH-BLR-01"
+
+    res = import_staging_dataset(
+        db_session,
+        StagingDataset(
+            products=[product_with_alias],
+            warehouses=[warehouse_with_alias],
+        ),
+    )
+    assert res.products.added == 1
+    assert res.warehouses.added == 1
+    assert db_session.get(Product, "SKU-000001") is not None
+    assert db_session.get(Warehouse, "WH-BLR-01") is not None
+
+    empty_both = _valid_product("")
+    with pytest.raises(
+        ClientImportValidationError, match="empty value for required field 'sku_id'"
+    ):
+        import_staging_dataset(db_session, StagingDataset(products=[empty_both]))

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import sys
 from typing import Sequence
 
@@ -63,6 +64,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(
                 "Client data import failed: database error "
                 f"({type(exc).__name__}). No changes were written.",
+                file=sys.stderr,
+            )
+            return 1
+        except (UnicodeDecodeError, csv.Error, OSError) as exc:
+            print(
+                "Client data import failed: could not read staging file "
+                f"({type(exc).__name__}). Save the CSV as UTF-8 and retry.",
                 file=sys.stderr,
             )
             return 1

@@ -384,3 +384,9 @@ python scripts/load_seed.py # or: --seed-dir PATH, --wipe to reset
 ```
 
 The load runs in one transaction, so it either fully succeeds or changes nothing. Re-running it is safe and doesn't duplicate rows.
+
+### Client Staging Import (`python -m app.cli import-client-data`)
+
+A new client supplier must exist in Inventory's `suppliers` table (seed data or Supplier Portal sync) before its lead times are imported; otherwise the whole import is rejected.
+
+`supplier_lead_times` keeps one row per `(supplier_id, sku_id)`. A newer `effective_date` replaces the previous lead time; history is not kept.

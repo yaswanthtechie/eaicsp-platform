@@ -5,7 +5,6 @@ from __future__ import annotations
 import csv
 import logging
 import math
-import os
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -15,6 +14,7 @@ from typing import Any, Callable, Iterable, Mapping
 from sqlalchemy import MetaData, Table, inspect, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.database import SessionLocal
 from app.models.product import Product
 from app.models.supplier import Supplier, SupplierLeadTime
@@ -39,7 +39,6 @@ STAGING_CSV_CANDIDATES = {
     "supplier_lead_times": ("stg_supplier_lead_times.csv", "supplier_lead_times.csv"),
 }
 
-STAGING_DIR_ENV_VAR = "CLIENT_STAGING_DIR"
 VALID_WAREHOUSE_TYPES = frozenset({"central", "regional", "local"})
 
 
@@ -142,10 +141,10 @@ def _has_value(raw: Any) -> bool:
 
 
 def _pick_present(row: Mapping[str, Any], keys: tuple[str, ...]) -> tuple[bool, Any]:
-    has_key, raw = _pick_first(row, keys)
-    if not has_key or not _has_value(raw):
-        return False, None
-    return True, raw
+    for key in keys:
+        if key in row and _has_value(row[key]):
+            return True, row[key]
+    return False, None
 
 
 def _as_clean_str(value: Any) -> str:
@@ -179,10 +178,16 @@ def _require_non_empty_str(
     *,
     max_len: int | None = None,
 ) -> str:
-    present, raw = _pick_first(row, keys)
+    present, raw = _pick_present(row, keys)
     if not present:
+        has_key, _ = _pick_first(row, keys)
+        reason = (
+            "empty value for required field"
+            if has_key
+            else "missing required field"
+        )
         raise ClientImportValidationError(
-            f"{dataset}[row {row_num}]: missing required field '{field_label}'"
+            f"{dataset}[row {row_num}]: {reason} '{field_label}'"
         )
     try:
         cleaned = _as_clean_str(raw)
@@ -472,26 +477,23 @@ def _parse_warehouses(rows: Iterable[Mapping[str, Any]]) -> list[_ParsedWarehous
             ),
         }
 
-        has_pin, raw_pin = _pick_present(row, ("pincode",))
-        if has_pin:
-            values["pincode"] = _check_max_len(
-                _as_clean_str(raw_pin), 16, "warehouses", row_num, "pincode"
+        pincode = _require_non_empty_str(
+            row, ("pincode",), "warehouses", row_num, "pincode", max_len=16
+        )
+        if not re.fullmatch(r"\d{6}", pincode):
+            raise ClientImportValidationError(
+                f"warehouses[row {row_num}]: pincode must be 6 digits"
             )
+        values["pincode"] = pincode
 
-        has_type, raw_type = _pick_present(row, ("warehouse_type",))
-        if has_type:
-            warehouse_type = _check_max_len(
-                _as_clean_str(raw_type).lower(),
-                32,
-                "warehouses",
-                row_num,
-                "warehouse_type",
+        warehouse_type = _require_non_empty_str(
+            row, ("warehouse_type",), "warehouses", row_num, "warehouse_type", max_len=32
+        ).lower()
+        if warehouse_type not in VALID_WAREHOUSE_TYPES:
+            raise ClientImportValidationError(
+                f"warehouses[row {row_num}]: invalid warehouse_type"
             )
-            if warehouse_type not in VALID_WAREHOUSE_TYPES:
-                raise ClientImportValidationError(
-                    f"warehouses[row {row_num}]: invalid warehouse_type"
-                )
-            values["warehouse_type"] = warehouse_type
+        values["warehouse_type"] = warehouse_type
 
         has_cap, raw_cap = _pick_present(row, ("capacity_units",))
         if has_cap:
@@ -547,39 +549,38 @@ def _parse_supplier_lead_times(
             raw_avg, "supplier_lead_times", row_num, "average_lead_time_days", minimum=1
         )
 
-        min_days = None
         has_min, raw_min = _pick_present(row, ("minimum_lead_time_days",))
-        if has_min:
-            min_days = _parse_int_value(
-                raw_min, "supplier_lead_times", row_num, "minimum_lead_time_days", minimum=1
+        if not has_min:
+            raise ClientImportValidationError(
+                f"supplier_lead_times[row {row_num}]: missing minimum_lead_time_days"
             )
+        min_days = _parse_int_value(
+            raw_min, "supplier_lead_times", row_num, "minimum_lead_time_days", minimum=1
+        )
 
-        max_days = None
         has_max, raw_max = _pick_present(row, ("maximum_lead_time_days",))
-        if has_max:
-            max_days = _parse_int_value(
-                raw_max, "supplier_lead_times", row_num, "maximum_lead_time_days", minimum=1
+        if not has_max:
+            raise ClientImportValidationError(
+                f"supplier_lead_times[row {row_num}]: missing maximum_lead_time_days"
+            )
+        max_days = _parse_int_value(
+            raw_max, "supplier_lead_times", row_num, "maximum_lead_time_days", minimum=1
+        )
+
+        if not min_days <= avg_days <= max_days:
+            raise ClientImportValidationError(
+                f"supplier_lead_times[row {row_num}]: lead times must satisfy "
+                "minimum <= average <= maximum"
             )
 
-        if min_days is not None and min_days > avg_days:
-            raise ClientImportValidationError(
-                f"supplier_lead_times[row {row_num}]: minimum_lead_time_days exceeds average_lead_time_days"
-            )
-        if max_days is not None and max_days < avg_days:
-            raise ClientImportValidationError(
-                f"supplier_lead_times[row {row_num}]: maximum_lead_time_days below average_lead_time_days"
-            )
-        if min_days is not None and max_days is not None and min_days > max_days:
-            raise ClientImportValidationError(
-                f"supplier_lead_times[row {row_num}]: minimum_lead_time_days exceeds maximum_lead_time_days"
-            )
-
-        eff_date = None
         has_eff, raw_eff = _pick_present(row, ("effective_date",))
-        if has_eff:
-            eff_date = _parse_iso_date(
-                raw_eff, "supplier_lead_times", row_num, "effective_date"
+        if not has_eff:
+            raise ClientImportValidationError(
+                f"supplier_lead_times[row {row_num}]: missing effective_date"
             )
+        eff_date = _parse_iso_date(
+            raw_eff, "supplier_lead_times", row_num, "effective_date"
+        )
 
         parsed_items.append(
             _ParsedLeadTime(
@@ -690,7 +691,6 @@ def _apply_warehouses(
     for item in parsed:
         insert_vals = dict(item.values)
         insert_vals.setdefault("capacity_units", 0)
-        insert_vals.setdefault("warehouse_type", "central")
         plan.append(
             (
                 item.warehouse_id,
@@ -893,14 +893,14 @@ def run_client_data_import(
     if source not in {"auto", "csv", "db"}:
         raise ClientImportError(f"Unsupported staging source '{source}'")
 
-    configured_dir = staging_dir or os.getenv(STAGING_DIR_ENV_VAR)
+    configured_dir = staging_dir or settings.CLIENT_STAGING_DIR
     session = db or SessionLocal()
     try:
         if source == "csv":
             if not configured_dir:
                 raise ClientImportError(
                     "CSV staging source requested, but neither --staging-dir "
-                    f"nor {STAGING_DIR_ENV_VAR} was provided"
+                    "nor CLIENT_STAGING_DIR was provided"
                 )
             dataset = load_staging_dataset_from_dir(configured_dir)
         elif source == "db":
@@ -913,7 +913,7 @@ def run_client_data_import(
             else:
                 raise ClientImportError(
                     "No client staging source found. Pass --staging-dir <path>, "
-                    f"set {STAGING_DIR_ENV_VAR}, or populate staging tables "
+                    "set CLIENT_STAGING_DIR, or populate staging tables "
                     "(stg_product_master, stg_warehouse_master, stg_supplier_lead_times)."
                 )
 
