@@ -122,6 +122,7 @@ Clients must implement the exponential backoff reconnection behavior established
 - **Consumer group:** `api-gateway-bff` (its own group; does not share with any other service).
 - **Validation:** Each message must parse as JSON, have all required envelope fields, a known `event_type`, and major `event_version` 1. Anything else is published to `<topic>.dlq` (e.g. `inventory.stock.low.dlq`) with the error reason, its offset is committed, and it is **never** forwarded to WebSocket clients. The BFF does not crash on a bad message.
 - **Dedup:** Messages whose dedup key was already broadcast are dropped before broadcast. The dedup key is `event_id` for all events except `iot.anomaly.detected`, which uses `payload.episode_id`.
+- **Severity mapping:** For valid, non-duplicate events, the BFF resolves top-level `severity` (`critical`, `warning`, `info`) before WebSocket broadcast. Producer envelope and payload fields are forwarded unchanged.
 - **Offset commit:** After the message is broadcast / added to the reconnect buffer.
 
 ---
@@ -140,9 +141,10 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 | `occurred_at` | `string` | **Yes** | UTC ISO-8601 with offset, either `Z` or `+00:00` (e.g. `2026-10-15T10:14:22Z` or `2026-10-15T10:14:22.481203+00:00`). Parse with `new Date()`, not string matching. |
 | `producer` | `string` | **Yes** | Canonical service identifier producing the message (e.g. `inventory-service`, `supplier-risk-service`). |
 | `trace_id` | `string \| null` | *No* | Distributed trace identifier (W3C TraceContext / OpenTelemetry). May be absent or `null`. |
+| `severity` | `string` | **Yes** (added by the BFF) | Alert severity decided by the API Gateway BFF: `critical`, `warning` or `info`. Producers do not send this field. Frontend clients use it directly to drive alert rendering. |
 | `payload` | `object` | **Yes** | Event-specific domain payload conforming to the event schema below. |
 
-> The BFF forwards the producer's envelope **unchanged**. It does not rename, retype or add envelope fields.
+> The BFF forwards the producer's envelope and payload **unchanged**, adding only one top-level field: `severity`. The API Gateway BFF determines the severity before fanout broadcast. It never renames, retypes, or removes producer fields, never modifies the producer payload, and never places the BFF severity inside `payload`.
 
 ---
 
@@ -177,6 +179,7 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
   "occurred_at": "2026-10-15T10:14:22.481203+00:00",
   "producer": "inventory-service",
   "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "severity": "warning",
   "payload": {
     "sku_id": "SKU-000123",
     "warehouse_id": "WH-BLR-01",
@@ -197,6 +200,7 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 - **Trigger:** One event per detected anomaly episode on a warehouse sensor.
 - **Routing Key:** `{sensor_id}` (e.g. `WH-BLR-01-S1`)
 - **Dedup key:** `payload.episode_id`, **not** `event_id`. A crash replay re-publishes the same episode with a new `event_id`. `episode_id` is opaque: compare it as a string, never rebuild or reformat it.
+- **Display severity:** The alerts panel uses the top-level `severity` set by the BFF, never `payload.severity`. `payload.severity` is the producer's raw value and is forwarded unchanged.
 
 #### Payload Fields
 
@@ -227,6 +231,7 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
   "occurred_at": "2026-10-15T10:46:12.418532+00:00",
   "event_version": 1,
   "trace_id": null,
+  "severity": "critical",
   "payload": {
     "episode_id": "WH-BLR-01-S1|2026-10-15T10:05:00+00:00",
     "sensor_id": "WH-BLR-01-S1",
@@ -284,6 +289,7 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
   "event_version": 1,
   "occurred_at": "2026-10-15T10:22:10.118342+00:00",
   "producer": "supplier-risk-service",
+  "severity": "warning",
   "payload": {
     "supplier": "Apex Industries Pvt Ltd",
     "supplier_id": "SUP-00031",
@@ -340,6 +346,7 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
   "event_version": 1,
   "occurred_at": "2026-10-15T06:31:05Z",
   "producer": "eta-prediction",
+  "severity": "info",
   "payload": {
     "shipment_id": "SHP-2026-000077",
     "po_number": "PO-2026-000123",
@@ -401,6 +408,7 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
   "event_version": 1,
   "occurred_at": "2026-10-15T06:15:30Z",
   "producer": "demand-forecast-service",  
+  "severity": "info",
   "payload": {
     "run_id": "BATCH-20261015-01",
     "model_version": "demand_forecast/4",
@@ -456,6 +464,7 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
   "occurred_at": "2026-10-15T08:30:15Z",
   "producer": "etl",
   "trace_id": "993a4bc03e12480bb41209e843c01192",
+  "severity": "info",
   "payload": {
     "run_id": 1042,
     "status": "SUCCESS",
@@ -479,27 +488,53 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 
 ## 5. UI Alert Panel Mapping Guide (For Chandhu)
 
-To ensure the alerts panel renders uniformly across the six event types, the table below provides the recommended visual mappings following `frontend/packages/dashboard/src/tokens.ts`:
+To ensure the alerts panel renders uniformly across the six event types, the table below lists the display title, icon and drilldown for each event type. Badge colour comes only from the top-level `severity` field (see 5.1), using the `danger`, `warning` and `info` tokens in `frontend/packages/dashboard/src/tokens.ts`. The client never picks a colour per event type.
 
-| Event Type | Display Title | Severity Color | Icon Hint | Primary UI Action / Drilldown |
+| Event Type | Display Title | Possible top-level `severity` | Icon Hint | Primary UI Action / Drilldown |
 |:---|:---|:---|:---|:---|
-| `inventory.stock.low` | **Low Stock Alert** | Warning (Amber) / Error (Red if 0) | Package / Box | Navigate to Inventory table filtered by `sku_id` & `warehouse_id` |
-| `iot.anomaly.detected` | **Cold-Chain Anomaly** | Critical (Red) / High (Orange) | Alert Triangle / Thermometer | Open anomaly detail (message, peak_score vs threshold, top_features) |
-| `supplierrisk.score.changed` | **Supplier Risk Change**| Warning (Amber) / Error (Red) | Shield Alert | View Supplier Risk breakdown & news citations modal |
-| `eta.shipment.predicted` | **Shipment ETA Update** | Info (Blue) | Truck / Navigation | Open Shipment tracking card for `shipment_id` |
-| `forecast.batch.completed` | **Forecast Batch Done** | Success (Green) / Info (Blue) | Trend / Chart | Refresh demand forecast chart view for updated horizon |
-| `data.pipeline.completed` | **Data Ingestion Sync** | Success (Green) | Database / Refresh | Refresh live KPI snapshot widgets |
+| `inventory.stock.low` | **Low Stock Alert** | `critical` (quantity_on_hand is 0) / `warning` | Package / Box | Navigate to Inventory table filtered by `sku_id` & `warehouse_id` |
+| `iot.anomaly.detected` | **Cold-Chain Anomaly** | `critical` / `warning` / `info` | Alert Triangle / Thermometer | Open anomaly detail (message, peak_score vs threshold, top_features) |
+| `supplierrisk.score.changed` | **Supplier Risk Change** | `warning` (tier up) / `info` (tier down or same) | Shield Alert | View Supplier Risk breakdown & news citations modal |
+| `eta.shipment.predicted` | **Shipment ETA Update** | `info` | Truck / Navigation | Open Shipment tracking card for `shipment_id` |
+| `forecast.batch.completed` | **Forecast Batch Done** | `info` (SUCCESS) / `warning` (PARTIAL) | Trend / Chart | Refresh demand forecast chart view for updated horizon |
+| `data.pipeline.completed` | **Data Ingestion Sync** | `info` | Database / Refresh | Refresh live KPI snapshot widgets |
 
-#### UI severity (derived by the client; producers are not asked to add fields)
+### 5.1 BFF Severity Decision & Frontend Display
 
-| Event | Rule to UI severity (`info` / `success` / `warning` / `critical`) |
-|:---|:---|
-| `inventory.stock.low` | `quantity_on_hand == 0` to `critical`, else `warning` |
-| `iot.anomaly.detected` | `payload.severity`: `low` to `info`, `medium` to `warning`, `high`/`critical` to `critical` |
-| `supplierrisk.score.changed` | `new_tier`: `high` to `critical`, `medium` to `warning`, `low` to `info` |
-| `eta.shipment.predicted` | `info` (the producer contract has no delay field; see 4.4) |
-| `forecast.batch.completed` | `status == "PARTIAL"` to `warning`, else `success` |
-| `data.pipeline.completed` | `success` |
+The top-level `severity` field (`critical`, `warning`, `info`) is decided exclusively by the API Gateway BFF before WebSocket fanout broadcast. The frontend does not calculate, infer, or re-derive severity; it consumes the top-level `severity` directly to render alert styling (e.g. `critical` -> Red / Error, `warning` -> Amber / Warning, `info` -> Blue / Informational). Producers are not required or asked to add severity fields to their envelope.
+
+### 5.2 BFF Severity Mapping Rules
+
+The BFF consumer pipeline evaluates each valid, deduplicated event and applies the following deterministic mapping logic across the six canonical event types:
+
+| Event Type | BFF Severity Mapping Rule | Resolved Severity |
+|:---|:---|:---|
+| `inventory.stock.low` | `payload.quantity_on_hand == 0` | `critical` |
+| `inventory.stock.low` | Stock available but low (`payload.quantity_on_hand > 0`) | `warning` |
+| `iot.anomaly.detected` | `payload.severity == "critical"` | `critical` |
+| `iot.anomaly.detected` | `payload.severity == "high"` | `critical` |
+| `iot.anomaly.detected` | `payload.severity == "medium"` | `warning` |
+| `iot.anomaly.detected` | `payload.severity == "low"` | `info` |
+| `supplierrisk.score.changed` | Risk tier increases (`low` -> `medium`, `medium` -> `high`, `low` -> `high`) based on tier ordering `low < medium < high` | `warning` |
+| `supplierrisk.score.changed` | Risk tier decreases (`high` -> `medium`, `medium` -> `low`, `high` -> `low`) | `info` |
+| `supplierrisk.score.changed` | Same tier (`low` -> `low`, `medium` -> `medium`, `high` -> `high`) or unexpected value fallback | `info` |
+| `eta.shipment.predicted` | Delivery transit prediction updated (always) | `info` |
+| `forecast.batch.completed` | `payload.status == "SUCCESS"` | `info` |
+| `forecast.batch.completed` | `payload.status == "PARTIAL"` | `warning` |
+| `data.pipeline.completed` | Completed ETL batch run (always) | `info` |
+
+#### Detailed Event Mapping Specifications:
+- **Inventory (`inventory.stock.low`):** The original producer payload remains untouched. When physical stock reaches zero (`quantity_on_hand == 0`), severity maps to `critical`. When stock is available but below reorder point (`quantity_on_hand > 0`), severity maps to `warning`.
+- **IoT Anomaly (`iot.anomaly.detected`):** The producer's `payload.severity` is preserved untouched. The BFF maps both `critical` and `high` to top-level `critical`, `medium` to `warning`, and `low` to `info`.
+- **Supplier Risk (`supplierrisk.score.changed`):** The BFF compares the direction of change between `payload.previous_tier` and `payload.new_tier` using the strict tier ordering `low < medium < high`. The new tier alone does not determine severity. An escalating risk tier maps to `warning`; a de-escalating risk tier maps to `info`. Same-tier transitions and unexpected values safely fall back to `info`.
+- **ETA Prediction (`eta.shipment.predicted`):** Always maps to `info`. Due-date or shipment-delay logic is out of scope.
+- **Forecast Batch (`forecast.batch.completed`):** `payload.status == "SUCCESS"` maps to `info`; `payload.status == "PARTIAL"` maps to `warning`. FAILED status is outside the producer contract.
+- **Pipeline Completed (`data.pipeline.completed`):** Completed DAG execution always maps to `info`.
+
+### 5.3 Unknown Event Types & DLQ Routing Behavior
+
+- **Severity Resolver Fallback:** If an unknown or unrecognized event type is processed by the severity resolver, it returns a safe fallback of `info`.
+- **Relationship with Existing Schema Validation & DLQ:** In accordance with Section 2.6 and `realtime_events.py`, the gateway strictly validates the six canonical event types. Any unknown event type fails envelope validation, is routed directly to `<topic>.dlq` with its offset committed, and is **never** broadcast to WebSocket clients. The unknown-event resolver fallback acts as a defensive safety mechanism within the helper function and does not alter or weaken the existing schema validation or DLQ behavior.
 
 ---
 

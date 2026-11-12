@@ -92,3 +92,53 @@ def test_alembic_upgrade_head_creates_matching_schema_and_allows_po_insert(tmp_p
         assert queried.status == "on_hold"
         assert queried.hold_reason == "Supplier moved to BLOCK"
         assert queried.hold_source == "compliance"
+
+
+def test_alembic_revisions_fit_postgres_varchar32_and_single_chain():
+    """Every Alembic revision ID must fit Postgres alembic_version VARCHAR(32) in one chain."""
+    from pathlib import Path
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    service_dir = Path(__file__).resolve().parents[1]
+    alembic_cfg = Config(str(service_dir / "alembic.ini"))
+    alembic_cfg.set_main_option("script_location", str(service_dir / "alembic"))
+    script = ScriptDirectory.from_config(alembic_cfg)
+
+    heads = script.get_heads()
+    bases = script.get_bases()
+    assert len(heads) == 1, f"Expected single Alembic head, got {heads}"
+    assert len(bases) == 1, f"Expected single Alembic base, got {bases}"
+
+    revisions = list(script.walk_revisions())
+    assert revisions, "Expected at least one Alembic revision"
+
+    too_long = [(rev.revision, len(rev.revision)) for rev in revisions if len(rev.revision) > 32]
+    assert not too_long, f"Revision IDs exceed VARCHAR(32): {too_long}"
+
+    for rev in revisions:
+        assert not isinstance(rev.down_revision, tuple), f"Unexpected merge revision: {rev.revision}"
+    assert revisions[0].revision == heads[0]
+    assert revisions[-1].down_revision is None
+
+
+def test_alembic_upgrade_downgrade_roundtrip(tmp_path):
+    """Verify full upgrade -> downgrade -> upgrade migration cycle on a clean SQLite DB."""
+    from pathlib import Path
+    from alembic import command
+    from alembic.config import Config
+
+    service_dir = Path(__file__).resolve().parents[1]
+    db_file = tmp_path / "test_roundtrip.db"
+    alembic_cfg = Config(str(service_dir / "alembic.ini"))
+    alembic_cfg.set_main_option("script_location", str(service_dir / "alembic"))
+    alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_file}")
+
+    command.upgrade(alembic_cfg, "head")
+    command.downgrade(alembic_cfg, "base")
+    command.upgrade(alembic_cfg, "head")
+
+    inspector = inspect(create_engine(f"sqlite:///{db_file}"))
+    tables = set(inspector.get_table_names())
+    assert {"products", "warehouses", "goods_receipts", "goods_receipt_items"}.issubset(tables)
+

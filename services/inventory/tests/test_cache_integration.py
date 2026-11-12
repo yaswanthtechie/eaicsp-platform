@@ -20,7 +20,7 @@ from tests.conftest import seed_sales_history
 
 
 @pytest.fixture(autouse=True)
-def clean_cache():
+def clean_cache(fake_redis):
     """Ensure clean cache before and after every test."""
     cache.clear()
     yield

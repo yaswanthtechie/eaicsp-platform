@@ -291,8 +291,10 @@ def process_compliance_event(db: Session, event_data: dict[str, Any]) -> Process
                             details=f"Processed {new_status} for supplier {supplier_id}")
 
 
+# Intentional persistent heartbeat path; configurable via environment
+# and read by the container healthcheck in docker-compose.dev.yml.
 HEARTBEAT_FILE = Path(
-    os.getenv("COMPLIANCE_CONSUMER_HEARTBEAT_FILE", "/tmp/compliance-consumer.heartbeat")
+    os.getenv("COMPLIANCE_CONSUMER_HEARTBEAT_FILE", "/tmp/compliance-consumer.heartbeat")  # nosec B108
 )
 
 

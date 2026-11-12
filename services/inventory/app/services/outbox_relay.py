@@ -119,8 +119,10 @@ class OutboxRelay:
         return published_count, failed_count
 
 
+# Intentional persistent heartbeat path; configurable via environment
+# and read by the container healthcheck in docker-compose.dev.yml.
 HEARTBEAT_FILE = Path(
-    os.getenv("OUTBOX_RELAY_HEARTBEAT_FILE", "/tmp/outbox-relay.heartbeat")
+    os.getenv("OUTBOX_RELAY_HEARTBEAT_FILE", "/tmp/outbox-relay.heartbeat")  # nosec B108
 )
 
 
