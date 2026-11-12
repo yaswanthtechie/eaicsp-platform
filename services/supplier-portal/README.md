@@ -950,6 +950,8 @@ Dependency versions are maintained in `requirements.txt`. The Supplier Portal co
 
 ---
 
+If your local SQLite dev DB was migrated before R15-R9, delete it and run `alembic upgrade head` again. The revision ID `004_inventory_goods_receipt_events` was renamed.
+
 # 5. Project Structure
 
 The project separates application configuration, authentication, REST routes, GraphQL operations, schemas, business services, storage integrations, Kafka processing, database models, migrations, and tests.
@@ -960,7 +962,7 @@ supplier-portal/
 │   └── versions/
 │       ├── 002_po_mirror.py
 │       ├── 003_po_ack_outbox.py
-│       ├── 004_inventory_goods_receipt_events.py
+│       ├── 004_inventory_goods_receipt.py
 │       ├── 005_shipment_outbox.py
 │       ├── 006_create_shipments_table.py
 │       ├── 007_shipment_details.py

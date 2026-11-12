@@ -36,6 +36,7 @@ def run_migrations_offline() -> None:
     with context.begin_transaction():
         context.run_migrations()
 
+
 def run_migrations_online() -> None:
     """Run migrations using a live database connection."""
     connectable = engine_from_config(
@@ -57,7 +58,7 @@ def run_migrations_online() -> None:
 
                 if not exists:
                     connection.exec_driver_sql(
-                        f'CREATE SCHEMA "{schema}"'
+                        f'CREATE SCHEMA IF NOT EXISTS "{schema}"'
                     )
 
                 # Close the transaction opened by the SELECT before Alembic starts.
