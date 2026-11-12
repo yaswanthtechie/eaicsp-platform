@@ -949,8 +949,11 @@ Dependency versions are maintained in `requirements.txt`. Supplier Portal consum
 Dependency versions are maintained in `requirements.txt`. The Supplier Portal consumes compliance status and Inventory goods-received events; external producer implementation is outside its scope.
 
 ---
-
 If your local SQLite dev DB was migrated before R15-R9, delete it and run `alembic upgrade head` again. The revision ID `004_inventory_goods_receipt_events` was renamed.
+
+The `supplier_portal` PostgreSQL schema is created by `infra/postgres/init-schemas.sh` when the shared stack is initialized. In online Alembic mode, `alembic/env.py` also creates the schema if it is missing.
+
+Offline SQL generation with `alembic upgrade head --sql` does not create the schema. Create the `supplier_portal` schema before applying generated SQL.
 
 # 5. Project Structure
 

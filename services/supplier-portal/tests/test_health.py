@@ -33,6 +33,12 @@ def test_health_returns_200_when_all_consumers_enabled(monkeypatch):
     response = TestClient(main.app).get("/health")
 
     assert response.status_code == 200
-    body = response.json()
-    assert body.pop("status") == "healthy"
-    assert all(value is True for value in body.values()), body
+    assert response.json() == {
+        "status": "healthy",
+        "kafka_consumer_alive": True,
+        "po_kafka_consumer_alive": True,
+        "po_outbox_publisher_alive": True,
+        "shipment_outbox_publisher_alive": True,
+        "shipment_eta_consumer_alive": True,
+        "goods_received_consumer_alive": True,
+    }
