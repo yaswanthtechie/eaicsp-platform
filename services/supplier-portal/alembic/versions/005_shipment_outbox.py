@@ -5,7 +5,7 @@ import sqlalchemy as sa
 from app.core.config import settings
 
 revision = "005_shipment_outbox"
-down_revision = "004_inventory_goods_receipt_events"
+down_revision = "004_inventory_goods_receipt"
 branch_labels = None
 depends_on = None
 

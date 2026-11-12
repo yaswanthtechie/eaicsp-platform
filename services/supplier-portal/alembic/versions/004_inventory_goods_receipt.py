@@ -3,7 +3,7 @@ import sqlalchemy as sa
 
 from app.core.config import settings
 
-revision = "004_inventory_goods_receipt_events"
+revision = "004_inventory_goods_receipt"
 # Runs after #261's PO mirror and outbox migrations (one Alembic head).
 down_revision = "003_po_ack_outbox"
 branch_labels = None
