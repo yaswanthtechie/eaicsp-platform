@@ -31,17 +31,16 @@ STAGING_TABLES = {
     "products": "stg_product_master",
     "warehouses": "stg_warehouse_master",
     "supplier_lead_times": "stg_supplier_lead_times",
-    "suppliers": "stg_supplier_master",
 }
 
 STAGING_CSV_CANDIDATES = {
     "products": ("stg_product_master.csv", "product_master.csv"),
     "warehouses": ("stg_warehouse_master.csv", "warehouse_master.csv"),
     "supplier_lead_times": ("stg_supplier_lead_times.csv", "supplier_lead_times.csv"),
-    "suppliers": ("stg_supplier_master.csv", "supplier_master.csv"),
 }
 
 STAGING_DIR_ENV_VAR = "CLIENT_STAGING_DIR"
+VALID_WAREHOUSE_TYPES = frozenset({"central", "regional", "local"})
 
 
 class ClientImportError(Exception):
@@ -69,7 +68,6 @@ class ClientImportSummary:
     products: EntityImportCounts = field(default_factory=EntityImportCounts)
     warehouses: EntityImportCounts = field(default_factory=EntityImportCounts)
     supplier_lead_times: EntityImportCounts = field(default_factory=EntityImportCounts)
-    suppliers: EntityImportCounts = field(default_factory=EntityImportCounts)
 
     def format_summary(self) -> str:
         header = (
@@ -107,27 +105,18 @@ class StagingDataset:
     products: list[Mapping[str, Any]] = field(default_factory=list)
     warehouses: list[Mapping[str, Any]] = field(default_factory=list)
     supplier_lead_times: list[Mapping[str, Any]] = field(default_factory=list)
-    suppliers: list[Mapping[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
 class _ParsedProduct:
     sku_id: str
     values: dict[str, Any]
-    has_explicit_unit_cost: bool
-    has_explicit_unit_price: bool
 
 
 @dataclass(frozen=True)
 class _ParsedWarehouse:
     warehouse_id: str
     values: dict[str, Any]
-
-
-@dataclass(frozen=True)
-class _ParsedSupplier:
-    supplier_id: str
-    supplier_name: str
 
 
 @dataclass(frozen=True)
@@ -167,12 +156,28 @@ def _as_clean_str(value: Any) -> str:
     return str(value).strip()
 
 
+def _check_max_len(
+    value: str,
+    max_len: int,
+    dataset: str,
+    row_num: int,
+    field_label: str,
+) -> str:
+    if len(value) > max_len:
+        raise ClientImportValidationError(
+            f"{dataset}[row {row_num}]: {field_label} longer than {max_len} characters"
+        )
+    return value
+
+
 def _require_non_empty_str(
     row: Mapping[str, Any],
     keys: tuple[str, ...],
     dataset: str,
     row_num: int,
     field_label: str,
+    *,
+    max_len: int | None = None,
 ) -> str:
     present, raw = _pick_first(row, keys)
     if not present:
@@ -189,6 +194,8 @@ def _require_non_empty_str(
         raise ClientImportValidationError(
             f"{dataset}[row {row_num}]: empty value for required field '{field_label}'"
         )
+    if max_len is not None:
+        _check_max_len(cleaned, max_len, dataset, row_num, field_label)
     return cleaned
 
 
@@ -359,40 +366,45 @@ def _parse_products(rows: Iterable[Mapping[str, Any]]) -> list[_ParsedProduct]:
         )
 
         name = _require_non_empty_str(
-            row, ("product_name", "name"), "products", row_num, "product_name"
+            row,
+            ("product_name", "name"),
+            "products",
+            row_num,
+            "product_name",
+            max_len=255,
         )
         category = _require_non_empty_str(
-            row, ("category",), "products", row_num, "category"
+            row, ("category",), "products", row_num, "category", max_len=64
         )
         unit_of_measure = _require_non_empty_str(
-            row, ("unit_of_measure", "unit"), "products", row_num, "unit_of_measure"
+            row,
+            ("unit_of_measure", "unit"),
+            "products",
+            row_num,
+            "unit_of_measure",
+            max_len=32,
         )
 
-        has_cost, raw_cost = _pick_present(row, ("unit_cost",))
         has_price, raw_price = _pick_present(row, ("unit_price",))
-        cost_val = (
-            _parse_non_negative_float(raw_cost, "products", row_num, "unit_cost")
-            if has_cost
-            else None
-        )
-        price_val = (
-            _parse_non_negative_float(raw_price, "products", row_num, "unit_price")
-            if has_price
-            else None
-        )
-
-        if cost_val is None and price_val is None:
+        if not has_price:
             raise ClientImportValidationError(
-                f"products[row {row_num}]: missing required unit_cost / unit_price for '{sku_id}'"
+                f"products[row {row_num}]: missing required unit_price for '{sku_id}'"
             )
 
         values: dict[str, Any] = {
             "name": name,
             "category": category,
             "unit_of_measure": unit_of_measure,
-            "unit_cost": cost_val if cost_val is not None else price_val,
-            "unit_price": price_val if price_val is not None else cost_val,
+            "unit_price": _parse_non_negative_float(
+                raw_price, "products", row_num, "unit_price"
+            ),
         }
+
+        has_cost, raw_cost = _pick_present(row, ("unit_cost",))
+        if has_cost:
+            values["unit_cost"] = _parse_non_negative_float(
+                raw_cost, "products", row_num, "unit_cost"
+            )
 
         has_active, raw_active = _pick_present(row, ("is_active",))
         if has_active:
@@ -406,14 +418,7 @@ def _parse_products(rows: Iterable[Mapping[str, Any]]) -> list[_ParsedProduct]:
                 row, ("supplier_id",), SUPPLIER_ID_RE, "products", row_num, "supplier_id"
             )
 
-        parsed_items.append(
-            _ParsedProduct(
-                sku_id=sku_id,
-                values=values,
-                has_explicit_unit_cost=cost_val is not None,
-                has_explicit_unit_price=price_val is not None,
-            )
-        )
+        parsed_items.append(_ParsedProduct(sku_id=sku_id, values=values))
 
     return parsed_items
 
@@ -449,26 +454,44 @@ def _parse_warehouses(rows: Iterable[Mapping[str, Any]]) -> list[_ParsedWarehous
 
         values: dict[str, Any] = {
             "name": _require_non_empty_str(
-                row, ("warehouse_name", "name"), "warehouses", row_num, "warehouse_name"
+                row,
+                ("warehouse_name", "name"),
+                "warehouses",
+                row_num,
+                "warehouse_name",
+                max_len=255,
             ),
             "city": _require_non_empty_str(
-                row, ("city",), "warehouses", row_num, "city"
+                row, ("city",), "warehouses", row_num, "city", max_len=64
             ),
             "state": _require_non_empty_str(
-                row, ("state",), "warehouses", row_num, "state"
+                row, ("state",), "warehouses", row_num, "state", max_len=64
             ),
             "country": _require_non_empty_str(
-                row, ("country",), "warehouses", row_num, "country"
+                row, ("country",), "warehouses", row_num, "country", max_len=64
             ),
         }
 
         has_pin, raw_pin = _pick_present(row, ("pincode",))
         if has_pin:
-            values["pincode"] = _as_clean_str(raw_pin)
+            values["pincode"] = _check_max_len(
+                _as_clean_str(raw_pin), 16, "warehouses", row_num, "pincode"
+            )
 
         has_type, raw_type = _pick_present(row, ("warehouse_type",))
         if has_type:
-            values["warehouse_type"] = _as_clean_str(raw_type)
+            warehouse_type = _check_max_len(
+                _as_clean_str(raw_type).lower(),
+                32,
+                "warehouses",
+                row_num,
+                "warehouse_type",
+            )
+            if warehouse_type not in VALID_WAREHOUSE_TYPES:
+                raise ClientImportValidationError(
+                    f"warehouses[row {row_num}]: invalid warehouse_type"
+                )
+            values["warehouse_type"] = warehouse_type
 
         has_cap, raw_cap = _pick_present(row, ("capacity_units",))
         if has_cap:
@@ -477,35 +500,6 @@ def _parse_warehouses(rows: Iterable[Mapping[str, Any]]) -> list[_ParsedWarehous
             )
 
         parsed_items.append(_ParsedWarehouse(warehouse_id=warehouse_id, values=values))
-
-    return parsed_items
-
-
-def _parse_suppliers(rows: Iterable[Mapping[str, Any]]) -> list[_ParsedSupplier]:
-    parsed_items: list[_ParsedSupplier] = []
-    seen_ids: set[str] = set()
-
-    for row_num, raw_row in enumerate(rows, start=1):
-        row = _validate_row_mapping(raw_row, "suppliers", row_num)
-        supplier_id = _require_canonical_id(
-            row,
-            ("supplier_id", "canonical_supplier_id"),
-            SUPPLIER_ID_RE,
-            "suppliers",
-            row_num,
-            "supplier_id",
-        )
-        if supplier_id in seen_ids:
-            raise ClientImportValidationError(
-                f"suppliers[row {row_num}]: duplicate canonical supplier_id '{supplier_id}' in staging"
-            )
-        seen_ids.add(supplier_id)
-        supplier_name = _require_non_empty_str(
-            row, ("supplier_name", "name"), "suppliers", row_num, "supplier_name"
-        )
-        parsed_items.append(
-            _ParsedSupplier(supplier_id=supplier_id, supplier_name=supplier_name)
-        )
 
     return parsed_items
 
@@ -614,12 +608,12 @@ def _values_equal(current: Any, incoming: Any) -> bool:
 def _upsert_mapped_records(
     db: Session,
     existing_map: dict[Any, Any],
-    items: Iterable[tuple[Any, dict[str, Any], Callable[[], dict[str, Any]], dict[str, Any]]],
+    items: Iterable[tuple[Any, Callable[[], Any], dict[str, Any]]],
     dry_run: bool,
 ) -> EntityImportCounts:
     """Generic idempotent diff/upsert engine for canonical-keyed Inventory models."""
     counts = EntityImportCounts()
-    for key, key_fields, build_insert_obj, update_fields in items:
+    for key, build_insert_obj, update_fields in items:
         existing_obj = existing_map.get(key)
         if existing_obj is None:
             counts.added += 1
@@ -649,37 +643,36 @@ def _upsert_mapped_records(
 def _apply_products(
     db: Session,
     parsed: list[_ParsedProduct],
+    existing: dict[str, Product],
     dry_run: bool,
 ) -> EntityImportCounts:
-    existing = {row.sku_id: row for row in db.query(Product).all()}
     plan = []
     for item in parsed:
         existing_obj = existing.get(item.sku_id)
+        if existing_obj is None and "unit_cost" not in item.values:
+            raise ClientImportValidationError(
+                f"products: new sku_id '{item.sku_id}' has no unit_cost in staging"
+            )
         insert_vals = dict(item.values)
         insert_vals.setdefault("is_active", True)
 
         update_vals = {
-            "name": item.values["name"],
-            "category": item.values["category"],
-            "unit_of_measure": item.values["unit_of_measure"],
+            key: item.values[key]
+            for key in (
+                "name",
+                "category",
+                "unit_of_measure",
+                "unit_price",
+                "unit_cost",
+                "is_active",
+                "supplier_id",
+            )
+            if key in item.values
         }
-        if item.has_explicit_unit_cost:
-            update_vals["unit_cost"] = item.values["unit_cost"]
-        elif existing_obj is None:
-            update_vals["unit_cost"] = item.values["unit_cost"]
-        if item.has_explicit_unit_price:
-            update_vals["unit_price"] = item.values["unit_price"]
-        elif existing_obj is None:
-            update_vals["unit_price"] = item.values["unit_price"]
-        if "is_active" in item.values:
-            update_vals["is_active"] = item.values["is_active"]
-        if "supplier_id" in item.values:
-            update_vals["supplier_id"] = item.values["supplier_id"]
 
         plan.append(
             (
                 item.sku_id,
-                {"sku_id": item.sku_id},
                 lambda sku=item.sku_id, v=insert_vals: Product(sku_id=sku, **v),
                 update_vals,
             )
@@ -701,34 +694,8 @@ def _apply_warehouses(
         plan.append(
             (
                 item.warehouse_id,
-                {"warehouse_id": item.warehouse_id},
                 lambda wh=item.warehouse_id, v=insert_vals: Warehouse(warehouse_id=wh, **v),
                 dict(item.values),
-            )
-        )
-    return _upsert_mapped_records(db, existing, plan, dry_run=dry_run)
-
-
-def _apply_suppliers(
-    db: Session,
-    parsed: list[_ParsedSupplier],
-    dry_run: bool,
-) -> EntityImportCounts:
-    existing = {row.supplier_id: row for row in db.query(Supplier).all()}
-    plan = []
-    for item in parsed:
-        insert_vals = {
-            "supplier_name": item.supplier_name,
-            "sku_id": "",
-            "unit_cost": 0.0,
-            "lead_time_days": 1,
-        }
-        plan.append(
-            (
-                item.supplier_id,
-                {"supplier_id": item.supplier_id},
-                lambda sid=item.supplier_id, v=insert_vals: Supplier(supplier_id=sid, **v),
-                {"supplier_name": item.supplier_name},
             )
         )
     return _upsert_mapped_records(db, existing, plan, dry_run=dry_run)
@@ -764,7 +731,6 @@ def _apply_lead_times(
         plan.append(
             (
                 key,
-                {"supplier_id": item.supplier_id, "sku_id": item.sku_id},
                 lambda sid=item.supplier_id, sku=item.sku_id, v=vals: SupplierLeadTime(
                     supplier_id=sid, sku_id=sku, **v
                 ),
@@ -783,22 +749,24 @@ def import_staging_dataset(
     """Validate and upsert canonical staging records in a single transaction."""
     parsed_products = _parse_products(dataset.products)
     parsed_warehouses = _parse_warehouses(dataset.warehouses)
-    parsed_suppliers = _parse_suppliers(dataset.suppliers)
     parsed_lead_times = _parse_supplier_lead_times(dataset.supplier_lead_times)
 
-    existing_supplier_ids = {
-        row[0] for row in db.query(Supplier.supplier_id).all()
-    }
-    existing_product_ids = {row[0] for row in db.query(Product.sku_id).all()}
-    valid_supplier_ids = existing_supplier_ids | {
-        s.supplier_id for s in parsed_suppliers
-    }
-    valid_sku_ids = existing_product_ids | {p.sku_id for p in parsed_products}
+    valid_supplier_ids = {row[0] for row in db.query(Supplier.supplier_id).all()}
+    existing_products = {row.sku_id: row for row in db.query(Product).all()}
+    valid_sku_ids = set(existing_products) | {p.sku_id for p in parsed_products}
+
+    for idx, item in enumerate(parsed_products, start=1):
+        supplier_id = item.values.get("supplier_id")
+        if supplier_id is not None and supplier_id not in valid_supplier_ids:
+            raise ClientImportValidationError(
+                f"products[row {idx}]: unknown supplier_id '{supplier_id}' (not in suppliers)"
+            )
 
     try:
-        product_counts = _apply_products(db, parsed_products, dry_run=dry_run)
+        product_counts = _apply_products(
+            db, parsed_products, existing_products, dry_run=dry_run
+        )
         warehouse_counts = _apply_warehouses(db, parsed_warehouses, dry_run=dry_run)
-        supplier_counts = _apply_suppliers(db, parsed_suppliers, dry_run=dry_run)
         if not dry_run:
             db.flush()
         lead_time_counts = _apply_lead_times(
@@ -819,7 +787,6 @@ def import_staging_dataset(
         products=product_counts,
         warehouses=warehouse_counts,
         supplier_lead_times=lead_time_counts,
-        suppliers=supplier_counts,
     )
     logger.info(
         "Client data import (%s): products=+%d/~%d/=%d, warehouses=+%d/~%d/=%d, lead_times=+%d/~%d/=%d",
@@ -870,13 +837,11 @@ def load_staging_dataset_from_dir(staging_dir: Path | str) -> StagingDataset:
     prod_path = _resolve_csv_file(resolved, "products", required=True)
     wh_path = _resolve_csv_file(resolved, "warehouses", required=True)
     lt_path = _resolve_csv_file(resolved, "supplier_lead_times", required=True)
-    sup_path = _resolve_csv_file(resolved, "suppliers", required=False)
 
     return StagingDataset(
         products=_read_csv_records(prod_path, "products") if prod_path else [],
         warehouses=_read_csv_records(wh_path, "warehouses") if wh_path else [],
         supplier_lead_times=_read_csv_records(lt_path, "supplier_lead_times") if lt_path else [],
-        suppliers=_read_csv_records(sup_path, "suppliers") if sup_path else [],
     )
 
 
@@ -903,7 +868,6 @@ def load_staging_dataset_from_db(db: Session) -> StagingDataset:
         supplier_lead_times=_load_table_rows(
             db, STAGING_TABLES["supplier_lead_times"], required=True
         ),
-        suppliers=_load_table_rows(db, STAGING_TABLES["suppliers"], required=False),
     )
 
 

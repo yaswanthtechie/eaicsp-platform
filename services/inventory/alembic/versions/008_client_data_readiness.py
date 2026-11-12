@@ -62,13 +62,13 @@ def upgrade() -> None:
             "supplier_lead_times",
             sa.Column(
                 "supplier_id",
-                sa.String(32),
+                sa.String(16),
                 sa.ForeignKey("suppliers.supplier_id", ondelete="CASCADE"),
                 nullable=False,
             ),
             sa.Column(
                 "sku_id",
-                sa.String(32),
+                sa.String(16),
                 sa.ForeignKey("products.sku_id", ondelete="CASCADE"),
                 nullable=False,
             ),

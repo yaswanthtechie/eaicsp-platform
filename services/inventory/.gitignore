@@ -237,9 +237,9 @@ mlruns/
 config/
 
 # Client-data landing directories (R15-B8)
-client_data/
-client-data/
-staging_data/
-data/
+/client_data/
+/client-data/
+/staging_data/
+/data/
 
 

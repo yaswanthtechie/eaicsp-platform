@@ -6,6 +6,8 @@ import argparse
 import sys
 from typing import Sequence
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from app.services.client_import_service import (
     ClientImportError,
     run_client_data_import,
@@ -56,6 +58,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         except ClientImportError as exc:
             print(f"Client data import failed: {exc}", file=sys.stderr)
+            return 1
+        except SQLAlchemyError as exc:
+            print(
+                "Client data import failed: database error "
+                f"({type(exc).__name__}). No changes were written.",
+                file=sys.stderr,
+            )
             return 1
 
         print(summary.format_summary())

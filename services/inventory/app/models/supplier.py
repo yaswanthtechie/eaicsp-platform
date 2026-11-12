@@ -52,14 +52,14 @@ class SupplierLeadTime(Base):
     __tablename__ = "supplier_lead_times"
 
     supplier_id = Column(
-        String(32),
+        String(16),
         ForeignKey("suppliers.supplier_id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
 
     sku_id = Column(
-        String(32),
+        String(16),
         ForeignKey("products.sku_id", ondelete="CASCADE"),
         nullable=False,
         index=True,
