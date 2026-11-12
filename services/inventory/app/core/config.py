@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     # Outbox: after this many failed publishes an event becomes DEAD
     OUTBOX_MAX_RETRIES: int = 10
 
+    # Optional local folder with canonical client staging CSVs (R15-B8).
+    CLIENT_STAGING_DIR: str | None = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",

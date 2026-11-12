@@ -34,6 +34,17 @@ class Warehouse(Base):
         nullable=False,
     )
 
+    country = Column(
+        String(64),
+        nullable=False,
+        default="India",
+    )
+
+    pincode = Column(
+        String(16),
+        nullable=True,
+    )
+
     lat = Column(
         Float,
         nullable=True,
