@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 from pathlib import Path
 
@@ -23,7 +23,6 @@ os.environ["AIRFLOW__DATABASE__SQL_ALCHEMY_CONN"] = (
     + str(AIRFLOW_DB.resolve()).replace("\\", "/").lstrip("/")
 )
 
-from airflow.configuration import conf
 from airflow.models import DagBag
 from airflow.utils.db import initdb
 
@@ -33,7 +32,7 @@ initdb()
 
 
 def test_sales_runs_before_inventory():
-    dag_folder = conf.get("core", "dags_folder")
+    dag_folder = Path(__file__).resolve().parents[1] / "dags"
 
     dag_bag = DagBag(
         dag_folder=str(dag_folder),

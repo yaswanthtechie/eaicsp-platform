@@ -1,4 +1,4 @@
-Sales ETL Pipeline
+﻿Sales ETL Pipeline
 
 Overview
 
@@ -45,53 +45,53 @@ Project Structure
 
 data-platform/
 
-│
+â”‚
 
-├── dags/
+â”œâ”€â”€ dags/
 
-│   └── sales_etl_dag.py
+â”‚ Â  â””â”€â”€ sales_etl_dag.py
 
-│
+â”‚
 
-├── etl/
+â”œâ”€â”€ etl/
 
-│   └── src/
+â”‚ Â  â””â”€â”€ src/
 
-│       ├── extract.py
+â”‚ Â  Â  Â  â”œâ”€â”€ extract.py
 
-│       ├── transform.py
+â”‚ Â  Â  Â  â”œâ”€â”€ transform.py
 
-│       ├── quality_gate.py
+â”‚ Â  Â  Â  â”œâ”€â”€ quality_gate.py
 
-│       ├── load.py
+â”‚ Â  Â  Â  â”œâ”€â”€ load.py
 
-│       ├── pipeline.py
+â”‚ Â  Â  Â  â”œâ”€â”€ pipeline.py
 
-│       ├── main.py
+â”‚ Â  Â  Â  â”œâ”€â”€ main.py
 
-│       ├── alerts.py
+â”‚ Â  Â  Â  â”œâ”€â”€ alerts.py
 
-│       ├── alerts_api.py
+â”‚ Â  Â  Â  â”œâ”€â”€ alerts_api.py
 
-│       ├── lineage_api.py
+â”‚ Â  Â  Â  â”œâ”€â”€ lineage_api.py
 
-│       ├── alert_service.py
+â”‚ Â  Â  Â  â”œâ”€â”€ alert_service.py
 
-│       ├── data_contract.py
+â”‚ Â  Â  Â  â”œâ”€â”€ data_contract.py
 
-│       ├── pandera_schema.py
+â”‚ Â  Â  Â  â”œâ”€â”€ pandera_schema.py
 
-│       └── schema_drift.py
+â”‚ Â  Â  Â  â””â”€â”€ schema_drift.py
 
-│
+â”‚
 
-├── sql/
+â”œâ”€â”€ sql/
 
-│   └── schema.sql
+â”‚ Â  â””â”€â”€ schema.sql
 
-│
+â”‚
 
-└── docker-compose.yml
+â””â”€â”€ docker-compose.yml
 
 
 ETL Pipeline Flow
@@ -99,41 +99,41 @@ ETL Pipeline Flow
 
 CSV Files
 
-     │
+Â  Â  Â â”‚
 
-     ▼
+Â  Â  Â â–¼
 
- Extract
+Â Extract
 
-     │
+Â  Â  Â â”‚
 
-     ▼
+Â  Â  Â â–¼
 
- Quality Gate
+Â Quality Gate
 
-     │
+Â  Â  Â â”‚
 
-     ▼
+Â  Â  Â â–¼
 
- Transform
+Â Transform
 
-     │
+Â  Â  Â â”‚
 
-     ▼
+Â  Â  Â â–¼
 
- Load
+Â Load
 
-     │
+Â  Â  Â â”‚
 
-     ▼
+Â  Â  Â â–¼
 
- Update Watermark
+Â Update Watermark
 
-     │
+Â  Â  Â â”‚
 
-     ▼
+Â  Â  Â â–¼
 
- Log Pipeline Run
+Â Log Pipeline Run
 
 
 Database Tables
@@ -271,7 +271,7 @@ commands
 
 
 
-SELECT * FROM sales_fact LIMIT 5;  This is the main fact table. It stores the cleaned and validated sales records after the ETL pipeline finishes.
+SELECT * FROM sales_fact LIMIT 5; Â This is the main fact table. It stores the cleaned and validated sales records after the ETL pipeline finishes.
 
 SELECT * FROM etl_run_log ORDER BY run_id DESC LIMIT 5;
 
@@ -453,29 +453,29 @@ What's not done / not fully polished
 
 The generic engine's quality-gate thresholds (null rate, negative rate,
 
-  row count bounds) are per-source config values, not auto-tuned - they're
+Â  row count bounds) are per-source config values, not auto-tuned - they're
 
-  set to match R3's sales defaults for sales, and reasonable-guess
+Â  set to match R3's sales defaults for sales, and reasonable-guess
 
-  defaults for inventory. Worth revisiting once there's real inventory
+Â  defaults for inventory. Worth revisiting once there's real inventory
 
-  data to calibrate against.
+Â  data to calibrate against.
 
 bulk_upsert()'s history-copy step (_bulk_copy_sales_history) is
 
-  sales-specific - it isn't a generic "any table can have history" feature.
+Â  sales-specific - it isn't a generic "any table can have history" feature.
 
-  Fine for now since inventory doesn't need CDC history per the spec, but
+Â  Fine for now since inventory doesn't need CDC history per the spec, but
 
-  if a future source does, that function needs generalizing.
+Â  if a future source does, that function needs generalizing.
 
 No integration with Tharun's validation library or Sandeep's profiling
 
-  library this round - deliberately deferred per the round instructions.
+Â  library this round - deliberately deferred per the round instructions.
 
 Per-round instructions, this stays fully local/mocked - no shared
 
-  Postgres/Redis/Kafka assumed to exist yet.
+Â  Postgres/Redis/Kafka assumed to exist yet.
 
 Round 5: harder edges (conflict resolution, SLA, point-in-time, reconciliation, performance ceiling)
 
@@ -1162,7 +1162,7 @@ Source CSVs
 
 The Kafka outbox is deliberately after the data work. A Kafka outage therefore cannot roll back a successful load. Pending events are retried by `etl_event_outbox_retry` every five minutes.
 
-## R12-13 M1 — dbt
+## R12-13 M1 - dbt
 
 Run from the Airflow scheduler/worker container:
 
@@ -1173,7 +1173,7 @@ docker compose exec airflow-scheduler sh -c '"$DBT_BIN" build --project-dir /opt
 
 Models are split into `dbt/models/staging` and `dbt/models/marts`. Tests include `not_null`, `unique`, `relationships`, and a custom non-negative sales test.
 
-## R12-13 M2 — ClickHouse
+## R12-13 M2 - ClickHouse
 
 ClickHouse runs locally in Compose. The sink reads tested dbt marts from PostgreSQL and reuses the existing watermark subsystem with sink-specific watermark names such as `clickhouse_mart_daily_sales_by_warehouse`.
 
@@ -1195,7 +1195,7 @@ docker compose exec airflow-scheduler python scripts/benchmark_postgres_clickhou
 
 The script compares the same date-range aggregation on PostgreSQL and ClickHouse, checks that the result sets match, prints both measured wall-clock timings, and writes `docs/r12_13_clickhouse_benchmark.json`. Do not claim a speed-up without the measured output.
 
-## R12-13 M3 — Kafka events
+## R12-13 M3 - Kafka events
 
 The standard envelope is:
 
@@ -1419,3 +1419,36 @@ read `purchase_orders`, `po_lines`, `goods_receipt_lines` and
 shipments, so those three views remain empty until the Flow B event consumer
 is implemented in the follow-up issue. Their tests use fixture rows based on
 the event examples in `contracts/events/examples/`.
+## R15 Nightly Forecast Batch - Prerequisites and Redis Cache
+
+### Seed sales data prerequisite
+
+Before running the nightly forecast batch, generate the seed sales CSV from the data-platform directory:
+
+```bash
+python -m seed.generate --out out/
+```
+
+This generates data-platform/out/sales_daily.csv. Ensure SEED_SALES_PATH points to the mounted sales_daily.csv file.
+
+### Redis forecast cache
+
+Redis key format:
+
+```text
+forecast_cache:{date}:{sku}:{wh}
+```
+
+Example:
+
+```text
+forecast_cache:2026-11-12:SKU-000001:WH-HYD-01
+```
+
+The Redis value is a JSON object containing run_id, batch_date, sku_id, warehouse_id, model_version, granularity, horizon, interval_level, generated_at, and forecast.
+
+The forecast array contains date, predicted, lower_bound, and upper_bound for each forecast date.
+
+Redis entries expire according to FORECAST_CACHE_TTL_SECONDS.
+
+If an individual SKU/warehouse forecast fails, the batch continues with remaining valid pairs and publishes a PARTIAL completion event with a failure summary.

@@ -1,4 +1,3 @@
-﻿
 """Nightly production forecast batch: ClickHouse + Redis + Kafka."""
 
 from __future__ import annotations
@@ -7,12 +6,13 @@ import csv
 import json
 import os
 import time
-import uuid
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+
+from forecast_batch_helpers import build_event, build_rows, validate_pair, write_batch
 
 
 def run_forecast_batch(**context):
@@ -22,7 +22,9 @@ def run_forecast_batch(**context):
     from src.production_model import ProductionForecastModel
 
     started = time.monotonic()
-    logical_date = context["logical_date"].in_timezone("UTC")
+
+    # Use the end of the Airflow data interval as the batch date.
+    logical_date = context["data_interval_end"].in_timezone("UTC")
     batch_date = logical_date.date()
     batch_date_text = batch_date.isoformat()
     run_id = f"BATCH-{batch_date:%Y%m%d}-01"
@@ -32,6 +34,8 @@ def run_forecast_batch(**context):
         raise FileNotFoundError(f"Seed sales file not found: {seed_path}")
 
     pairs = set()
+    invalid_pairs = []
+
     with seed_path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         required = {"sku_id", "warehouse_id"}
@@ -42,22 +46,27 @@ def run_forecast_batch(**context):
             )
 
         for row in reader:
-            sku = row["sku_id"].strip()
-            warehouse = row["warehouse_id"].strip()
+            sku = (row.get("sku_id") or "").strip()
+            warehouse = (row.get("warehouse_id") or "").strip()
 
-            if not sku or not warehouse:
-                raise ValueError(
-                    "Seed CSV contains an empty SKU or warehouse ID."
+            try:
+                validate_pair(sku, warehouse)
+                pairs.add((sku, warehouse))
+            except ValueError as exc:
+                invalid_pairs.append(
+                    (sku or "<empty>", warehouse or "<empty>", str(exc))
                 )
 
-            pairs.add((sku, warehouse))
-
-    if not pairs:
-        raise ValueError("No canonical SKU/warehouse pairs found in seed data.")
+    if not pairs and not invalid_pairs:
+        raise ValueError("Seed CSV contains no SKU/warehouse rows.")
 
     horizon = int(os.getenv("FORECAST_HORIZON_DAYS", "30"))
     if not 1 <= horizon <= 90:
         raise ValueError("FORECAST_HORIZON_DAYS must be between 1 and 90.")
+
+    interval_level = float(os.getenv("FORECAST_INTERVAL_LEVEL", "0.8"))
+    if not 0 < interval_level < 1:
+        raise ValueError("FORECAST_INTERVAL_LEVEL must be between 0 and 1.")
 
     model = ProductionForecastModel().load()
     model_version = (
@@ -90,16 +99,73 @@ def run_forecast_batch(**context):
     )
 
     try:
-        # Idempotency: remove previous rows for this batch date
-        # and wait until the ClickHouse mutation is completed.
-        ch.command(
-            """
-            ALTER TABLE demand_forecast_history
-            DELETE WHERE batch_date = {batch_date:Date}
-            SETTINGS mutations_sync = 1
-            """,
-            parameters={"batch_date": batch_date},
+        # Process each pair independently. A failed pair must not stop the batch.
+        successful_pairs = set()
+        failed_pairs = list(invalid_pairs)
+        rows = []
+        cache_entries = []
+
+        ttl = int(os.getenv("FORECAST_CACHE_TTL_SECONDS", "86400"))
+
+        for sku, warehouse in sorted(pairs):
+            try:
+                forecast = model.predict(sku, warehouse, horizon)
+
+                # Validate this pair's forecast before adding any output.
+                pair_rows = build_rows(
+                    batch_date=batch_date,
+                    forecasts_by_pair=[(sku, warehouse, forecast)],
+                    model_version=model_version,
+                    generated_at=generated_at,
+                    version=version,
+                    horizon=horizon,
+                    interval_level=interval_level,
+                )
+
+                rows.extend(pair_rows)
+                successful_pairs.add((sku, warehouse))
+
+                cache_key = (
+                    f"forecast_cache:{batch_date_text}:{sku}:{warehouse}"
+                )
+
+                cache_value = {
+                    "run_id": run_id,
+                    "batch_date": batch_date_text,
+                    "sku_id": sku,
+                    "warehouse_id": warehouse,
+                    "model_version": model_version,
+                    "granularity": "daily",
+                    "horizon": horizon,
+                    "interval_level": interval_level,
+                    "generated_at": generated_at.isoformat(),
+                    "forecast": forecast,
+                }
+
+                cache_entries.append((cache_key, cache_value))
+
+            except Exception as exc:
+                failed_pairs.append((sku, warehouse, str(exc)))
+                print(
+                    f"Forecast failed for {sku}/{warehouse}: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+
+        if not successful_pairs:
+            print("No SKU/warehouse pairs produced a valid forecast.")
+
+        status = "PARTIAL" if failed_pairs else "SUCCESS"
+        message = (
+            f"Forecasted {len(successful_pairs)} of {len(pairs)} pairs; "
+            f"{len(failed_pairs)} failed."
         )
+
+        if failed_pairs:
+            failed_summary = "; ".join(
+                f"{sku}/{warehouse}: {reason}"
+                for sku, warehouse, reason in failed_pairs
+            )
+            message = f"{message} Failures: {failed_summary}"[:300]
 
         columns = [
             "batch_date",
@@ -115,124 +181,29 @@ def run_forecast_batch(**context):
             "version",
         ]
 
-        rows = []
-        ttl = int(os.getenv("FORECAST_CACHE_TTL_SECONDS", "86400"))
-
-        for sku, warehouse in sorted(pairs):
-            forecast = model.predict(sku, warehouse, horizon)
-
-            if len(forecast) != horizon:
-                raise ValueError(
-                    f"{sku}/{warehouse}: expected {horizon} forecast points, "
-                    f"received {len(forecast)}"
-                )
-
-            pair_rows = []
-
-            for point in forecast:
-                forecast_date = datetime.fromisoformat(
-                    str(point["date"]).replace("Z", "+00:00")
-                ).date()
-
-                predicted = float(point["predicted"])
-                lower = float(point["lower_bound"])
-                upper = float(point["upper_bound"])
-
-                if not all(
-                    map(
-                        lambda x: x >= 0 and x < float("inf"),
-                        (predicted, lower, upper),
-                    )
-                ):
-                    raise ValueError(
-                        f"Invalid forecast values for {sku}/{warehouse}"
-                    )
-
-                if lower > predicted or predicted > upper:
-                    raise ValueError(
-                        f"Invalid forecast interval for {sku}/{warehouse}"
-                    )
-
-                pair_rows.append(
-                    (
-                        batch_date,
-                        forecast_date,
-                        sku,
-                        warehouse,
-                        predicted,
-                        lower,
-                        upper,
-                        0.8,
-                        model_version,
-                        generated_at,
-                        version,
-                    )
-                )
-
-            rows.extend(pair_rows)
-
-            # Redis uses deterministic keys, so reruns overwrite old values.
-            cache_key = (
-                f"forecast_cache:{batch_date_text}:{sku}:{warehouse}"
-            )
-
-            cache_value = {
-                "run_id": run_id,
-                "batch_date": batch_date_text,
-                "sku_id": sku,
-                "warehouse_id": warehouse,
-                "model_version": model_version,
-                "granularity": "daily",
-                "horizon": horizon,
-                "interval_level": 0.8,
-                "generated_at": generated_at.isoformat(),
-                "forecast": forecast,
-            }
-
-            cache.set(cache_key, json.dumps(cache_value), ex=ttl)
-
-            if len(rows) >= 5000:
-                ch.insert(
-                    "demand_forecast_history",
-                    rows,
-                    column_names=columns,
-                )
-                rows.clear()
-
-        if rows:
-            ch.insert(
-                "demand_forecast_history",
-                rows,
-                column_names=columns,
-            )
+        # ReplacingMergeTree(version) handles reruns.
+        # Consumers should use SELECT ... FINAL for deduplicated results.
+        write_batch(
+            ch=ch,
+            cache=cache,
+            rows=rows,
+            cache_entries=cache_entries,
+            columns=columns,
+            ttl=ttl,
+        )
 
         completed_at = datetime.now(timezone.utc)
 
-        event = {
-            # Deterministic event ID: same batch always gets the same ID.
-            "event_id": str(uuid.uuid5(uuid.NAMESPACE_URL, run_id)),
-            "event_type": "forecast.batch.completed",
-            "event_version": 1,
-            "occurred_at": completed_at.isoformat(),
-            "producer": "demand-forecast-service",
-            "payload": {
-                "run_id": run_id,
-                "model_version": model_version,
-                "granularity": "daily",
-                "sku_count": len({sku for sku, _ in pairs}),
-                "warehouse_count": len(
-                    {warehouse for _, warehouse in pairs}
-                ),
-                "horizon": horizon,
-                "completed_at": completed_at.isoformat(),
-                "status": "SUCCESS",
-                "duration_seconds": round(
-                    time.monotonic() - started, 3
-                ),
-                "destination_mart": "clickhouse.demand_forecast_history",
-                "message": f"Forecasted {len(pairs)} SKU/warehouse pairs.",
-            },
-        }
+        event = build_event(
+            run_id=run_id,
+            model_version=model_version,
+            pairs=successful_pairs,
+            horizon=horizon,
+            completed_at=completed_at,
+            duration_seconds=round(time.monotonic() - started, 3),
+            status=status,
+            message=message,
+        )
 
         producer.send(
             "forecast.batch.completed",
@@ -244,7 +215,8 @@ def run_forecast_batch(**context):
 
         print(
             f"Batch {run_id} completed: {len(pairs)} pairs, "
-            f"{horizon} daily periods, model {model_version}"
+            f"{horizon} daily periods, {len(rows)} rows, "
+            f"model {model_version}"
         )
 
     finally:

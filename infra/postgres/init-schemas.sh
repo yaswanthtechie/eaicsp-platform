@@ -1,5 +1,5 @@
-#!/bin/sh
-set -eu
+#!/usr/bin/env bash
+set -euo pipefail
 
 : "${INVENTORY_DB_PASSWORD:?INVENTORY_DB_PASSWORD is required}"
 : "${SUPPLIER_PORTAL_DB_PASSWORD:?SUPPLIER_PORTAL_DB_PASSWORD is required}"

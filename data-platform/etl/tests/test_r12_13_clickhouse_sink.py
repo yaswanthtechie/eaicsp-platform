@@ -141,8 +141,7 @@ def test_inventory_table_is_not_partitioned_so_replacing_can_dedupe_across_month
     assert "PARTITION BY toYYYYMM(sale_date)" in sales
 
 
-def test_dashboard_views_are_created_in_the_analytics_database_and_use_final(monkeypatch):
-    monkeypatch.setenv("CLICKHOUSE_DATABASE", "analytics")
+def test_dashboard_views_are_created_in_the_analytics_database_and_use_final():
     client = FakeClient()
     cs.ensure_schema(client)
     views = [c for c in client.commands if c.startswith("CREATE VIEW")]

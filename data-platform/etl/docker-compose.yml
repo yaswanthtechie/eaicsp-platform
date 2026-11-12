@@ -1,4 +1,4 @@
-# Licensed to the Apache Software Foundation (ASF) under one
+﻿# Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
 # regarding copyright ownership.  The ASF licenses this file
@@ -53,8 +53,8 @@ x-airflow-common:
   environment:
     &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: CeleryExecutor
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://admin:${DB_PASSWORD}@postgres/salesdb
-    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://admin:${DB_PASSWORD}@postgres/salesdb
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${DB_PASSWORD}@postgres/airflow
+    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:${DB_PASSWORD}@postgres/airflow
     AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
     AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:?set it in .env}
     AIRFLOW__API__SECRET_KEY: ${AIRFLOW__API__SECRET_KEY:?set it in .env}
@@ -80,8 +80,8 @@ x-airflow-common:
     KAFKA_BOOTSTRAP_SERVERS: infra-kafka:19092
     MLFLOW_TRACKING_URI: http://infra-mlflow:5000
     MLFLOW_S3_ENDPOINT_URL: http://minio:9000
-    AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
-    AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+    AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in .env}
+    AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
     MLFLOW_MODEL_NAME: demand_forecast
     FORECAST_REDIS_URL: redis://infra-redis:6379/0
     # /opt/airflow/etl (the mounted etl/ project dir) must be importable as
@@ -109,7 +109,7 @@ x-airflow-common:
     - ../../contracts:/opt/contracts:ro
     - .:/opt/airflow/etl
     - ../../ml-services/demand-forecast/prophet:/opt/airflow/prophet:ro
-    - ../../ml-services/demand-forecast/prophet/models/registry:/opt/airflow/prophet/models/registry:rw
+    - ../../ml-services/demand-forecast/prophet/models/registry:/opt/airflow/prophet/models/registry:ro
     - ../../data-platform/out:/opt/airflow/seed-data:ro
   networks:
     - default
