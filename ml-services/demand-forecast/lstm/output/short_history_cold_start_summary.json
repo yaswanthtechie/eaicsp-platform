@@ -1,0 +1,50 @@
+{
+  "experiment": "Demand-Forecast-Cold-Start",
+  "evaluation": "cold-start SKUs excluded from training and validation",
+  "train_cutoff": "2026-02-22",
+  "validation_cutoff": "2026-06-12",
+  "lookback": 45,
+  "horizon": 7,
+  "train_windows": 3036,
+  "validation_windows": 936,
+  "cold_test_windows": 360,
+  "known_skus": [
+    "SKU001",
+    "SKU002",
+    "SKU003",
+    "SKU004",
+    "SKU005",
+    "SKU006",
+    "SKU007",
+    "SKU008",
+    "SKU009"
+  ],
+  "cold_skus": [
+    "SKU010",
+    "SKU011",
+    "SKU012",
+    "SKU013",
+    "SKU014",
+    "SKU015"
+  ],
+  "metrics": {
+    "global_lstm_no_embeddings": {
+      "mae": 7.354849007016137,
+      "rmse": 9.625318267593068,
+      "mape": 17.443140500916925,
+      "training_seconds": 86.54699370000162
+    },
+    "global_lstm_with_embeddings": {
+      "mae": 9.793579573858352,
+      "rmse": 12.291633683442784,
+      "mape": 25.420172474129316,
+      "training_seconds": 34.67903429999933
+    },
+    "last_value_baseline": {
+      "mae": 10.199999993944925,
+      "rmse": 13.430006598085257,
+      "mape": 23.10702591848907,
+      "training_seconds": 0.0
+    }
+  }
+}

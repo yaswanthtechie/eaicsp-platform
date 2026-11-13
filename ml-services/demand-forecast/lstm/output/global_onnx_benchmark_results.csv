@@ -1,0 +1,9 @@
+batch_size,runtime,runs,p50_latency_ms,p95_latency_ms,mean_latency_ms,throughput_samples_per_second
+1,pytorch_cpu,200,1.7664,3.8782,2.0338,491.7
+1,onnxruntime_cpu,200,0.5877,1.0773,0.6435,1553.96
+8,pytorch_cpu,200,3.9978,7.5045,4.6724,1712.18
+8,onnxruntime_cpu,200,2.3661,7.3332,3.6054,2218.91
+32,pytorch_cpu,200,10.1245,18.682,11.6772,2740.39
+32,onnxruntime_cpu,200,8.0315,13.9858,8.9685,3568.05
+64,pytorch_cpu,200,17.5132,32.6197,20.0207,3196.69
+64,onnxruntime_cpu,200,14.1707,22.2335,15.4853,4132.94
