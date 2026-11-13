@@ -1,0 +1,6 @@
+part,precision,recall,f1,events,found,low,medium,high,scored_days,flagged_days,flagged_per_1000_days
+overall,1.0,0.7625,0.8652482269503545,,,,,,,,
+recall_spike,,0.7714285714285715,,105.0,81.0,,,,,,
+recall_drop,,0.7555555555555555,,135.0,102.0,,,,,,
+flagged_by_severity,,,,,,107.0,45.0,31.0,,,
+clean_series_false_alarms,,,,,,,,,13480.0,0.0,0.0
