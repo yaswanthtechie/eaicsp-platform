@@ -24,6 +24,14 @@ H2_CALIBRATION_MODEL_PATH = (
     MODELS_DIR / "eta_seed_routes_interval.joblib"
 )
 
+# R15-H4 client-data ETA model: separate from H2
+H4_MODEL_PATH = MODELS_DIR / "eta_client_pipeline_h4.joblib"
+H4_METADATA_PATH = MODELS_DIR / "eta_client_metadata_h4.json"
+
+H4_REJECTED_METADATA_PATH = (
+    MODELS_DIR / "eta_client_metadata_h4_rejected.json"
+)
+
 # Committed seed samples (data-platform/seed/samples)
 SEED_SAMPLES_DIR = (
     PROJECT_ROOT.parents[1] / "data-platform" / "seed" / "samples"
