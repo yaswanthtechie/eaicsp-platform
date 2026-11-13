@@ -1,4 +1,4 @@
-# Licensed to the Apache Software Foundation (ASF) under one
+﻿# Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
 # regarding copyright ownership.  The ASF licenses this file
@@ -53,7 +53,7 @@ x-airflow-common:
   environment:
     &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: CeleryExecutor
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${DB_PASSWORD}@postgres/airflow 
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${DB_PASSWORD}@postgres/airflow
     AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:${DB_PASSWORD}@postgres/airflow
     AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
     AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:?set it in .env}
@@ -72,17 +72,24 @@ x-airflow-common:
     DB_NAME: salesdb
     DB_USER: admin
     DB_PASSWORD: ${DB_PASSWORD}
-    CLICKHOUSE_HOST: clickhouse
+    CLICKHOUSE_HOST: infra-clickhouse
     CLICKHOUSE_PORT: "8123"
     CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-analytics}
     CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
     CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD must be set}
-    KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+    KAFKA_BOOTSTRAP_SERVERS: infra-kafka:19092
+    MLFLOW_TRACKING_URI: http://infra-mlflow:5000
+    MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+    AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in .env}
+    AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
+    MLFLOW_MODEL_NAME: demand_forecast
+    FORECAST_REDIS_URL: redis://infra-redis:6379/0
     # /opt/airflow/etl (the mounted etl/ project dir) must be importable as
     # the "etl" package so "from etl.src.alerts import ..." in the DAG resolves.
     # /opt/airflow/etl/src is also needed directly, since the pipeline
     # modules themselves use flat imports (e.g. "from database import get_engine").
-    PYTHONPATH: /opt/airflow:/opt/airflow/etl/src
+    PYTHONPATH: /opt/airflow:/opt/airflow/etl:/opt/airflow/etl/etl/src:/opt/airflow/prophet
+    SEED_SALES_PATH: /opt/airflow/seed-data/sales_daily.csv
     # WARNING: Use _PIP_ADDITIONAL_REQUIREMENTS option ONLY for a quick checks
     # for other purpose (development, test and especially production usage) build/extend Airflow image.
     _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}
@@ -90,20 +97,23 @@ x-airflow-common:
     # If you want to use it, outcomment it and replace airflow.cfg with the name of your config file
     # AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
   volumes:
-    - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
-    - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
-    - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
-    - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
-    - ${AIRFLOW_PROJ_DIR:-.}/etl:/opt/airflow/etl
-    - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data
-    # Pipeline environment configurations
-    - ${AIRFLOW_PROJ_DIR:-.}/pipeline_config.yaml:/opt/airflow/pipeline_config.yaml
-    - ${AIRFLOW_PROJ_DIR:-.}/pipeline_config.staging.yaml:/opt/airflow/pipeline_config.staging.yaml
-    - ${AIRFLOW_PROJ_DIR:-.}/pipeline_config.prod.yaml:/opt/airflow/pipeline_config.prod.yaml
-    - ${AIRFLOW_PROJ_DIR:-.}/scripts:/opt/airflow/scripts
-    - ${AIRFLOW_PROJ_DIR:-.}/spark:/opt/airflow/spark
-    # R12-13: dbt project used by the transformation task.
-    - ${AIRFLOW_PROJ_DIR:-.}/dbt:/opt/airflow/dbt
+    - ./dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
+    - ./plugins:/opt/airflow/plugins
+    - ./dbt:/opt/airflow/dbt
+
+
+    - ./pipeline_config.yaml:/opt/airflow/pipeline_config.yaml:ro
+    - ./pipeline_config.staging.yaml:/opt/airflow/pipeline_config.staging.yaml:ro
+    - ./pipeline_config.prod.yaml:/opt/airflow/pipeline_config.prod.yaml:ro
+    - ../../contracts:/opt/contracts:ro
+    - .:/opt/airflow/etl
+    - ../../ml-services/demand-forecast/prophet:/opt/airflow/prophet:ro
+    - ../../ml-services/demand-forecast/prophet/models/registry:/opt/airflow/prophet/models/registry:ro
+    - ../../data-platform/out:/opt/airflow/seed-data:ro
+  networks:
+    - default
+    - infra_shared
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     &airflow-common-depends-on
@@ -124,15 +134,13 @@ services:
 
   postgres:
     image: postgres:13
-    ports:
-    - "5432:5432"
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: salesdb
     volumes:
-      - postgres-db-volume:/var/lib/postgresql/data
-      - ./postgres-init:/docker-entrypoint-initdb.d
+    - postgres-db-volume:/var/lib/postgresql/data
+    - ./postgres-init:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "admin", "-d", "salesdb"]
       interval: 10s
@@ -144,7 +152,7 @@ services:
     # https://redis.io/blog/redis-adopts-dual-source-available-licensing/
     image: redis:7.2-bookworm
     expose:
-      - 6379
+    - 6379
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -155,16 +163,16 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server:24.8
     ports:
-      - "8123:8123"
-      - "9000:9000"
+    - "8123:8123"
+    - "9000:9000"
     environment:
       CLICKHOUSE_DB: ${CLICKHOUSE_DATABASE:-analytics}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD must be set}
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
     volumes:
-      - clickhouse-data:/var/lib/clickhouse
-      - clickhouse-logs:/var/log/clickhouse-server
+    - clickhouse-data:/var/lib/clickhouse
+    - clickhouse-logs:/var/log/clickhouse-server
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
       interval: 10s
@@ -175,7 +183,7 @@ services:
   kafka:
     image: apache/kafka:3.9.0
     ports:
-      - "9094:9094"
+    - "9094:9094"
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
@@ -192,14 +200,14 @@ services:
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
     volumes:
-      - kafka-data:/var/lib/kafka/data
+    - kafka-data:/var/lib/kafka/data
     restart: always
 
   airflow-webserver:
     <<: *airflow-common
     command: webserver
     ports:
-      - "8080:8080"
+    - "8080:8080"
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
       interval: 30s
@@ -266,8 +274,8 @@ services:
     entrypoint: /bin/bash
     # yamllint disable rule:line-length
     command:
-      - -c
-      - |
+    - -c
+    - |
         if [[ -z "${AIRFLOW_UID}" ]]; then
           echo
           echo -e "\033[1;33mWARNING!!!: AIRFLOW_UID not set!\e[0m"
@@ -323,19 +331,19 @@ services:
       _PIP_ADDITIONAL_REQUIREMENTS: ''
     user: "0:0"
     volumes:
-      - ${AIRFLOW_PROJ_DIR:-.}:/sources
+    - ${AIRFLOW_PROJ_DIR:-.}:/sources
   airflow-cli:
     <<: *airflow-common
     profiles:
-      - debug
+    - debug
     environment:
       <<: *airflow-common-env
       CONNECTION_CHECK_MAX_COUNT: "0"
     # Workaround for entrypoint issue. See: https://github.com/apache/airflow/issues/16252
     command:
-      - bash
-      - -c
-      - airflow
+    - bash
+    - -c
+    - airflow
   # You can enable flower by adding "--profile flower" option e.g. docker-compose --profile flower up
   # or by explicitly targeted on the command line e.g. docker-compose up flower.
   # See: https://docs.docker.com/compose/profiles/
@@ -343,9 +351,9 @@ services:
     <<: *airflow-common
     command: celery flower
     profiles:
-      - flower
+    - flower
     ports:
-      - "5555:5555"
+    - "5555:5555"
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:5555/"]
       interval: 30s
@@ -362,3 +370,8 @@ volumes:
   clickhouse-data:
   clickhouse-logs:
   kafka-data:
+networks:
+  default: {}
+  infra_shared:
+    external: true
+    name: infra_shared
