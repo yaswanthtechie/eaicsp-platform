@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from pathlib import Path
+from pathlib import PureWindowsPath
 
 from fastapi import UploadFile
 from minio import Minio
@@ -81,6 +81,27 @@ class DocumentStorageService:
     # ============================================================
 
     @staticmethod
+    def _safe_path_component(value: str, field_name: str) -> str:
+        """Extract a safe filename component from either path format."""
+        if (
+            not value
+            or not value.strip()
+            or value.endswith(("/", "\\"))
+        ):
+            raise ValueError(
+                f"{field_name} must contain a valid filename."
+            )
+
+        safe_name = PureWindowsPath(value).name
+
+        if safe_name in {"", ".", ".."} or "\x00" in safe_name:
+            raise ValueError(
+                f"{field_name} must contain a valid filename."
+            )
+
+        return safe_name
+
+    @staticmethod
     def build_onboarding_object_key(
         supplier_id: str,
         document_id: str,
@@ -95,7 +116,9 @@ class DocumentStorageService:
             <document_id>_pan_card.pdf
         """
 
-        safe_file_name = Path(file_name).name
+        safe_file_name = DocumentStorageService._safe_path_component(
+            file_name, "file_name"
+        )
 
         return (
             f"suppliers/{supplier_id}/"
@@ -119,7 +142,9 @@ class DocumentStorageService:
         object filename. One invoice has one canonical PDF object.
         """
 
-        safe_invoice_number = Path(invoice_number).name
+        safe_invoice_number = DocumentStorageService._safe_path_component(
+            invoice_number, "invoice_number"
+        )
 
         return (
             f"suppliers/{supplier_id}/"
@@ -150,7 +175,7 @@ class DocumentStorageService:
         object_key = self.build_onboarding_object_key(
             supplier_id=supplier_id,
             document_id=document_id,
-            file_name=file.filename or "document",
+            file_name=file.filename or "",
         )
 
         try:
