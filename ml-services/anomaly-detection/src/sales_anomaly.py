@@ -19,7 +19,7 @@ expected value (see classify), because under over-dispersed sales a fall to
 zero is only a few scale units and z cannot separate it from spike noise.
 
 Only strictly earlier days are used: a day's score never depends on that
-day's future. Thresholds are design values; Z_SPIKE is calibrated on the
+day's future. Thresholds live in src/config.py; Z_SPIKE is calibrated on the
 clean seed (see src/calibrate_sales_anomaly.py).
 
 Run (from ml-services/anomaly-detection):
@@ -34,29 +34,23 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from .config import (
+    DISPERSION_K,
+    DROP_HIGH,
+    DROP_LOW,
+    DROP_MEDIUM,
+    DROP_MIN_EXPECTED,
+    LOOKBACK_WEEKS,
+    MAD_TO_SIGMA,
+    MIN_SERIES_DAYS,
+    MIN_WEEKS,
+    SPIKE_HIGH,
+    SPIKE_MEDIUM,
+    Z_SPIKE,
+)
+
 
 log = logging.getLogger(__name__)
-
-LOOKBACK_WEEKS = 8
-MIN_WEEKS = 4
-MIN_SERIES_DAYS = 56
-
-# Daily sales are over-dispersed (variance = mu + mu^2 / k). k = 8 matches
-# data-platform/seed/demand.py:45 (gamma shape 8).
-DISPERSION_K = 8.0
-
-# Spike threshold calibrated on the clean seed (no planted anomalies) to a
-# false-alarm budget of 2 per 1000 scored days. See README.
-Z_SPIKE = 4.9
-SPIKE_MEDIUM = 7.0
-SPIKE_HIGH = 10.0
-
-# A drop is a share of the expected value; z cannot see drops under
-# over-dispersion (a fall to 0 is only about sqrt(k) = 2.8 scale units).
-DROP_MIN_EXPECTED = 15.0
-DROP_LOW = 0.20
-DROP_MEDIUM = 0.10
-DROP_HIGH = 0.05
 
 COLUMN_ALIASES = {
     "date": ("sale_date", "date"),
@@ -76,6 +70,8 @@ OUTPUT_COLUMNS = [
     "is_anomaly",
     "severity",
     "direction",
+    "run_start",
+    "reason",
 ]
 
 
@@ -98,16 +94,18 @@ def normalize_columns(df):
     out = pd.DataFrame(
         {
             "date": pd.to_datetime(df[picked["date"]], errors="coerce"),
-            "product": df[picked["product"]].astype(str),
-            "warehouse": df[picked["warehouse"]].astype(str),
+            "product": df[picked["product"]].astype("string").str.strip(),
+            "warehouse": df[picked["warehouse"]].astype("string").str.strip(),
             "quantity": pd.to_numeric(df[picked["quantity"]], errors="coerce"),
         }
     )
 
     blank_key = (
-        df[picked["product"]].isna().to_numpy()
-        | df[picked["warehouse"]].isna().to_numpy()
-    )
+        out["product"].isna()
+        | out["product"].eq("")
+        | out["warehouse"].isna()
+        | out["warehouse"].eq("")
+    ).fillna(True)
     bad = out["date"].isna() | out["quantity"].isna() | blank_key | (out["quantity"] < 0)
 
     if bad.any():
@@ -122,15 +120,16 @@ def normalize_columns(df):
     return out
 
 
-def classify(quantity, expected, z):
+def classify(quantity, expected, z, z_spike=None):
     """Return (direction, severity) arrays; empty strings where not an anomaly."""
 
     quantity = np.asarray(quantity, dtype=float)
     expected = np.asarray(expected, dtype=float)
     z = np.asarray(z, dtype=float)
     scored = np.isfinite(z)
+    z_spike = Z_SPIKE if z_spike is None else z_spike
 
-    spike = scored & (z >= Z_SPIKE)
+    spike = scored & (z >= z_spike)
     drop = (
         scored
         & ~spike
@@ -153,6 +152,28 @@ def classify(quantity, expected, z):
     )
 
     return direction, severity
+
+
+def explain(quantity, expected, z, direction):
+    """Return a short reason per day; empty string where not an anomaly."""
+
+    reasons = []
+
+    for q, e, score, d in zip(quantity, expected, z, direction):
+        if d == "spike":
+            reasons.append(
+                f"sold {q:.0f} vs expected {e:.0f} "
+                f"(z {score:.1f}, same weekday median of the last 8 weeks)"
+            )
+        elif d == "drop":
+            reasons.append(
+                f"sold {q:.0f} vs expected {e:.0f} "
+                f"({100 * q / e:.0f}% of the same weekday median of the last 8 weeks)"
+            )
+        else:
+            reasons.append("")
+
+    return np.array(reasons, dtype=object)
 
 
 def score_series(values):
@@ -185,7 +206,7 @@ def score_series(values):
     # The mean keeps the scale honest when the median is 0 (slow sellers).
     rate = np.maximum(np.maximum(expected, mean), 1.0)
     noise = np.sqrt(rate + rate**2 / DISPERSION_K)
-    scale = np.maximum.reduce([1.4826 * mad, noise, np.ones(n)])
+    scale = np.maximum.reduce([MAD_TO_SIGMA * mad, noise, np.ones(n)])
 
     z = (v - expected) / scale
     z[count < MIN_WEEKS] = np.nan
@@ -193,45 +214,60 @@ def score_series(values):
     return expected, scale, z
 
 
-def detect(df, fill_missing_as_zero=True):
+def detect(df, fill_missing_as_zero=True, z_spike=None):
     """
     Score every product/warehouse series.
 
     Returns (scores, skipped). scores has one row per scored day (see
     OUTPUT_COLUMNS). skipped lists (product, warehouse, days) for series
-    shorter than MIN_SERIES_DAYS; each gets a log line and no flags.
+    with fewer than MIN_SERIES_DAYS days of data; each gets a log line and
+    no flags. z_spike overrides Z_SPIKE for this call only.
+
+    run_start marks the first day of each run of same-direction anomalies, so
+    one incident (a SKU that stops selling, a 3-day promotion) is one event.
     """
 
     data = normalize_columns(df)
-    end = data["date"].max()
+
+    # Extend each series to its own warehouse's last date, not the file's.
+    # A warehouse whose feed is a day behind must not raise false drops.
+    warehouse_end = data.groupby("warehouse")["date"].max()
+
     frames = []
     skipped = []
 
     for (product, warehouse), group in data.groupby(
         ["product", "warehouse"], sort=True
     ):
+        days_of_data = group["date"].nunique()
+
+        if days_of_data < MIN_SERIES_DAYS:
+            log.warning(
+                "Skipping %s / %s: %d days of data, need at least %d (8 weeks).",
+                product,
+                warehouse,
+                days_of_data,
+                MIN_SERIES_DAYS,
+            )
+            skipped.append((product, warehouse, days_of_data))
+            continue
+
         daily = group.groupby("date")["quantity"].sum()
         daily = daily.reindex(
-            pd.date_range(daily.index.min(), end, freq="D")
+            pd.date_range(daily.index.min(), warehouse_end[warehouse], freq="D")
         )
 
         if fill_missing_as_zero:
             daily = daily.fillna(0.0)
 
-        if len(daily) < MIN_SERIES_DAYS:
-            log.warning(
-                "Skipping %s / %s: %d days of data, need at least %d (8 weeks).",
-                product,
-                warehouse,
-                len(daily),
-                MIN_SERIES_DAYS,
-            )
-            skipped.append((product, warehouse, len(daily)))
-            continue
-
         quantity = daily.to_numpy()
         expected, scale, z = score_series(quantity)
-        direction, severity = classify(quantity, expected, z)
+        direction, severity = classify(quantity, expected, z, z_spike)
+
+        is_anomaly = direction != ""
+        previous = np.concatenate([[""], direction[:-1]])
+        run_start = is_anomaly & (direction != previous)
+        reason = explain(quantity, expected, z, direction)
 
         frames.append(
             pd.DataFrame(
@@ -243,9 +279,11 @@ def detect(df, fill_missing_as_zero=True):
                     "expected": expected,
                     "scale": scale,
                     "score": z,
-                    "is_anomaly": direction != "",
+                    "is_anomaly": is_anomaly,
                     "severity": severity,
                     "direction": direction,
+                    "run_start": run_start,
+                    "reason": reason,
                 }
             )
         )
@@ -253,6 +291,7 @@ def detect(df, fill_missing_as_zero=True):
     if not frames:
         empty = pd.DataFrame(columns=OUTPUT_COLUMNS)
         empty["is_anomaly"] = empty["is_anomaly"].astype(bool)
+        empty["run_start"] = empty["run_start"].astype(bool)
         return empty, skipped
 
     return pd.concat(frames, ignore_index=True)[OUTPUT_COLUMNS], skipped
@@ -268,8 +307,10 @@ def main(argv=None):
 
     logging.basicConfig(level=logging.INFO)
 
+    # Read as text so product codes keep their leading zeros.
     scores, skipped = detect(
-        pd.read_csv(args.input), fill_missing_as_zero=not args.no_fill_zero
+        pd.read_csv(args.input, dtype=str),
+        fill_missing_as_zero=not args.no_fill_zero,
     )
 
     anomalies = scores[scores["is_anomaly"].astype(bool)]
@@ -280,7 +321,8 @@ def main(argv=None):
     print(
         f"series skipped (under {MIN_SERIES_DAYS} days): {len(skipped)}  "
         f"days scored: {int(scores['score'].notna().sum())}  "
-        f"anomalies: {len(anomalies)}"
+        f"anomalies: {len(anomalies)}  "
+        f"incidents (run starts): {int(anomalies['run_start'].sum())}"
     )
     if len(anomalies):
         print(anomalies.groupby(["direction", "severity"]).size().to_string())

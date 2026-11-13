@@ -2304,20 +2304,22 @@ Use local dev values for the token and password; never commit `.env`. Run `down 
 
 # Round 15 - Sales anomaly detection (#326)
 
-Flags unusual spikes and drops in daily sales, per product and warehouse. Run: `python -m src.sales_anomaly --input <sales.csv> --output output/sales_anomalies.csv`. Input columns: `sale_date` or `date`, `product_code` or `sku_id`, `warehouse` or `warehouse_id`, `quantity_sold` (extra columns such as `unit_price` are ignored). Rows for the same day are summed; a day missing from a series counts as 0 sales (`--no-fill-zero` leaves it unscored). Every series is scored up to the last date in the whole file, so a product that stops selling gets trailing zero days and is flagged as a drop. Rows with an invalid date or quantity, a blank product or warehouse, or a negative quantity (returns) are dropped with a warning. The seed file lists every day for every series (2,190,000 rows = 3,000 series x 730 days), so the zero-fill rule does not change seed results.
+Flags unusual spikes and drops in daily sales, per product and warehouse. Run: `python -m src.sales_anomaly --input <sales.csv> --output output/sales_anomalies.csv`. Input columns: `sale_date` or `date`, `product_code` or `sku_id`, `warehouse` or `warehouse_id`, `quantity_sold` (extra columns such as `unit_price` are ignored). The file is read as text, so product codes keep their leading zeros. Rows for the same day are summed; a day missing from a series counts as 0 sales (`--no-fill-zero` leaves it unscored). Every series is scored up to the last date of its own warehouse, so a product that stops selling while the rest of its warehouse keeps reporting gets trailing zero days and is flagged as a drop, and a warehouse whose feed is a day behind does not raise false drops. Rows with an invalid date or quantity, a blank product or warehouse, or a negative quantity (returns) are dropped with a warning. The seed file lists every day for every series (2,190,000 rows = 3,000 series x 730 days), so the zero-fill rule does not change seed results.
 
 **Method and why.** Seasonal-naive baseline plus a robust z-score. The expected value for a day is the median of the same weekday over the previous 8 weeks, so weekly seasonality is handled without a fitted model. Daily sales are over-dispersed (variance = mu + mu^2 / k, with k = 8 as in the seed, `data-platform/seed/demand.py:45`), so the scale is `max(1.4826 x MAD, sqrt(rate + rate^2 / 8), 1)`, where `rate = max(expected, mean of the 8 lagged values, 1)`. MAD is robust to earlier anomalies, the dispersion term reflects real day-to-day noise, and the mean keeps the scale honest for slow sellers whose median is 0. It needs no training, works per series, and every flag can be explained with two numbers (expected value and score). An Isolation Forest was not used because per-series seasonality and the "no future data" rule are simpler to guarantee with this method.
 
 **No future data.** A day's score uses only values from strictly earlier days (`t-7 ... t-56`). A test changes all later values and checks that earlier scores do not move.
 
-**Skips.** A series with under 56 days (8 weeks) is skipped with a log line (`Skipping <product> / <warehouse>: N days of data, need at least 56`) and never flagged. The first 28 days of a series are not scored (fewer than 4 same-weekday values of history).
+**Skips.** A series with fewer than 56 days of data (8 weeks, counting days that have sales rows, not the date span) is skipped with a log line (`Skipping <product> / <warehouse>: N days of data, need at least 56`) and never flagged. The first 28 days of a series are not scored (fewer than 4 same-weekday values of history).
 
-**Anomaly and severity.** Spikes and drops use separate rules, both in one tested function (`classify`). Under over-dispersed sales a fall to 0 is only about sqrt(8) = 2.8 scale units, so no z threshold can catch drops without flooding spikes; drops are therefore judged by share of the expected value.
+**Anomaly and severity.** Spikes and drops use separate rules, both in one tested function (`classify`). Under over-dispersed sales a fall to 0 is only about sqrt(8) = 2.8 scale units, so no z threshold can catch drops without flooding spikes; drops are therefore judged by share of the expected value. All thresholds are in `src/config.py`.
 
 | Direction | Rule | Low | Medium | High |
 |---|---|---|---|---|
 | Spike | z score | >= 4.9 | >= 7 | >= 10 |
 | Drop (only when expected >= 15) | share of expected | <= 20% | <= 10% | <= 5% |
+
+**One incident, one event.** The rule has no memory, so a product that stops selling is flagged every day for about 5 weeks, and a 3-day promotion gives 3 rows. `run_start` is true on the first day of each run of same-direction anomalies; downstream jobs (#327) should publish only `run_start` rows. Each flagged row also has a `reason`, for example `sold 0 vs expected 50 (0% of the same weekday median of the last 8 weeks)`.
 
 **Calibration.** `Z_SPIKE = 4.9` is set so that spike and drop false alarms together stay at 2 per 1000 scored days on the clean seed (no planted anomalies, so there are no labels to overfit to). To regenerate it when client data arrives:
 
@@ -2326,7 +2328,7 @@ python -m seed.generate
 python -m src.calibrate_sales_anomaly <seed out>/sales_daily.csv
 ```
 
-On the current seed this prints `drop false alarms per 1000: 0.49` and `Z_SPIKE = 4.9`. The eval data uses different seeds.
+On the current seed this prints `drop false alarms per 1000: 0.49` and `Z_SPIKE = 4.9`. If drop false alarms alone exceed the budget, the script stops with a message to review `DROP_LOW` and `DROP_MIN_EXPECTED`. It does not change `Z_SPIKE` for the running process; `detect` takes a `z_spike` argument for this. The eval data uses different seeds.
 
 **Evaluation** (`python -m src.sales_anomaly_eval`, synthetic data only: 40 series x 365 days with weekday pattern, trend, gamma day-level noise (shape 8) and Poisson noise, 25% slow sellers (0.5 to 3 units a day); 6 injected spikes (x2.5 to x4) or drops (x0 to x0.3) per series, at least 14 days apart; precision and recall from `eval_framework.precision_recall`, day level, scored days only). The realistic run is the default; the Poisson run (`dispersion=None, slow_share=0.0`) is the old generator, kept for comparison.
 
@@ -2340,6 +2342,8 @@ On the current seed this prints `drop false alarms per 1000: 0.49` and `Z_SPIKE 
 
 Recall goes down, and that is the honest number: under real noise a x2.5 one-day spike on a 50-unit item is often inside normal variation.
 
+These numbers come from synthetic data with the same noise model the detector assumes (gamma shape 8) and one-day events only. Not covered: multi-day promotions under about x3, sustained level drops (the baseline adapts within a few weeks), slow-seller spikes under 6 units, and client data whose noise differs from the seed. Rerun the calibration script on the first clean month of client data.
+
 Realistic run in detail: precision 0.8086, recall 0.5458, F1 0.6517; spikes found 71 of 118, drops found 60 of 122; flagged by severity low 92, medium 39, high 31; clean series 24 flagged days of 13,480 scored. Poisson run: precision 1.00, recall 0.7625, F1 0.8652; spikes found 81 of 105, drops found 102 of 135; no false alarms on 13,480 clean days.
 
 **Runtime.** Full seed after the fixes, on my machine:
@@ -2352,6 +2356,7 @@ Realistic run in detail: precision 0.8086, recall 0.5458, F1 0.6517; spikes foun
 | Days scored | 2,106,000 |
 | Flags | 4,236 |
 | Flags per 1000 days | 2.01 |
+| | Incidents (run starts) | 4,228 |
 | Spikes (low / medium / high) | 2,957 / 247 / 5 (3,209 total) |
 | Drops (low / medium / high) | 911 / 90 / 26 (1,027 total) |
 
@@ -2479,7 +2484,7 @@ The validated continuous-lifecycle results are:
 ## Test suite
 
 ```text
-721 passed
+731 passed
 3 warnings
 0 failures
 ```

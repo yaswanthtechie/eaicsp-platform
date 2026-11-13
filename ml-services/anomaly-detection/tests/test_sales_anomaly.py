@@ -111,14 +111,90 @@ def test_classify_rule(quantity, expected, z, direction, severity):
 
 def test_series_that_stops_selling_is_flagged_as_a_drop():
 
-    selling = frame(flat(120), warehouse="WH-BLR-01")
-    stopped = frame(flat(100), warehouse="WH-DEL-01")  # no rows after day 100
+    selling = frame(flat(120), product="SKU-000001")
+    stopped = frame(flat(100), product="SKU-000002")  # no rows after day 100
 
     scores, _ = detect(pd.concat([selling, stopped]))
-    hit = scores[(scores["warehouse"] == "WH-DEL-01") & scores["is_anomaly"]]
+    hit = scores[(scores["product"] == "SKU-000002") & scores["is_anomaly"]]
 
     assert len(hit) > 0
     assert set(hit["direction"]) == {"drop"}
+    assert hit["run_start"].sum() == 1
+
+
+def test_lagging_warehouse_feed_is_not_flagged():
+
+    current = frame(flat(120), warehouse="WH-BLR-01")
+    lagging = frame(flat(119), warehouse="WH-DEL-01")  # last day not exported yet
+
+    scores, _ = detect(pd.concat([current, lagging]))
+    lagging_scores = scores[scores["warehouse"] == "WH-DEL-01"]
+
+    assert not lagging_scores["is_anomaly"].any()
+
+
+@pytest.mark.parametrize("blank", [None, "", "   "])
+def test_blank_keys_and_negative_quantities_are_dropped(blank, caplog):
+
+    good = frame(flat())
+    bad = frame([5.0, -3.0], product="SKU-000002")
+    bad.loc[0, "warehouse"] = blank
+
+    with caplog.at_level(logging.WARNING):
+        scores, _ = detect(pd.concat([good, bad]))
+
+    assert set(scores["product"]) == {"SKU-000001"}
+    assert "Dropping 2 rows" in caplog.text
+
+
+def test_numeric_codes_keep_their_text_when_read_as_strings(tmp_path):
+
+    data = frame(flat())
+    data["sku_id"] = "000123"
+    path = tmp_path / "sales.csv"
+    data.to_csv(path, index=False)
+
+    scores, _ = detect(pd.read_csv(path, dtype=str))
+
+    assert set(scores["product"]) == {"000123"}
+
+
+def test_multi_day_spike_is_flagged_on_every_day():
+
+    values = flat()
+    values[100:103] = 200.0  # 3-day promotion at x4
+
+    scores, _ = detect(frame(values))
+    hit = scores[scores["is_anomaly"]]
+
+    assert len(hit) == 3
+    assert set(hit["direction"]) == {"spike"}
+    assert hit["run_start"].sum() == 1
+
+
+def test_anomaly_rows_have_a_reason():
+
+    values = flat()
+    values[100] = 0.0
+
+    scores, _ = detect(frame(values))
+    hit = scores[scores["is_anomaly"]].iloc[0]
+
+    assert hit["reason"].startswith("sold 0 vs expected 50")
+    assert (scores.loc[~scores["is_anomaly"], "reason"] == "").all()
+
+
+def test_sparse_series_is_skipped_by_days_of_data():
+
+    values = np.zeros(120)
+    values[[0, 60, 119]] = 5.0
+    sparse = frame(values)
+    sparse = sparse[sparse["quantity_sold"] > 0]  # client file lists sale days only
+
+    scores, skipped = detect(sparse)
+
+    assert skipped == [("SKU-000001", "WH-BLR-01", 3)]
+    assert scores.empty
 
 
 def test_scores_use_no_future_data():
