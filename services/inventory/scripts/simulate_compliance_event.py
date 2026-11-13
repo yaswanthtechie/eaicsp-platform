@@ -114,7 +114,7 @@ def main():
             reason=args.reason,
             country=args.country,
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - CLI entrypoint logs any simulation error cleanly before exit(1)
         logger.error("Simulation failed: %s", exc)
         sys.exit(1)
 

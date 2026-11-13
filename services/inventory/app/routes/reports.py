@@ -51,4 +51,4 @@ async def inventory_value_report(
         raise HTTPException(
             status_code=400,
             detail=str(exc),
-        )
+        ) from exc

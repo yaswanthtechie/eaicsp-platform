@@ -155,16 +155,12 @@ def test_already_approved_po_cannot_be_approved_again(
     db_session.add(po)
     db_session.commit()
 
-    try:
+    with pytest.raises(ValueError, match="is not awaiting approval"):
         approve_purchase_order(
             db=db_session,
             po_id="PO-2026-900002",
             approved_by="7",
         )
-        assert False, "Expected ValueError for already approved PO"
-
-    except ValueError as exc:
-        assert "is not awaiting approval" in str(exc)
 
 
 def test_pending_po_cannot_be_received(db_session):
@@ -183,16 +179,12 @@ def test_pending_po_cannot_be_received(db_session):
     db_session.add(po)
     db_session.commit()
 
-    try:
+    with pytest.raises(ValueError, match="must be approved by a procurement manager"):
         receive_purchase_order(
             db=db_session,
             po_id="PO-2026-900003",
             received_by="1",
         )
-        assert False, "Expected ValueError for pending approval PO"
-
-    except ValueError as exc:
-        assert "must be approved by a procurement manager" in str(exc)
 
 
 def test_approve_po_publishes_inventory_po_approved_event(client, db_session):

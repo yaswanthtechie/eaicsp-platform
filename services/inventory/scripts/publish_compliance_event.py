@@ -118,7 +118,7 @@ def main():
             topic=args.topic,
             bootstrap_servers=args.bootstrap_servers,
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - CLI entrypoint logs any publish error cleanly before exit(1)
         logger.error("Failed to publish event: %s", exc)
         sys.exit(1)
 

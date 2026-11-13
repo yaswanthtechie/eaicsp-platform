@@ -10,12 +10,15 @@ if not os.getenv("INTEGRATION_TEST"):
 else:
     load_dotenv()
 
+from contextlib import suppress
 from datetime import date, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 
 from app.core.auth import verify_token
 from app.core.config import settings
@@ -38,8 +41,6 @@ def fake_redis(request, monkeypatch):
     monkeypatch.setattr(cache, "_down_until", None)
     yield fake
 
-
-from sqlalchemy.pool import NullPool
 
 TEST_DATABASE_URL = (
     os.getenv("TEST_DATABASE_URL")
@@ -74,10 +75,8 @@ def override_get_db():
     try:
         yield db
     finally:
-        try:
+        with suppress(SQLAlchemyError):
             db.rollback()
-        except Exception:
-            pass
         db.close()
 
 
@@ -117,10 +116,8 @@ def db_session():
     try:
         yield db
     finally:
-        try:
+        with suppress(SQLAlchemyError):
             db.rollback()
-        except Exception:
-            pass
         db.close()
 
 

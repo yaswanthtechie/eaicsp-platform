@@ -1,8 +1,22 @@
+import json
+import re
+from pathlib import Path
 from typing import Literal, Optional
 from unittest.mock import patch
 
+import jsonschema
+import pydantic
 import pytest
+import yaml
+from jsonschema import Draft202012Validator
 from pydantic import BaseModel, Field
+
+from app.schemas.events import (
+    ComplianceSupplierStatusChangedEvent,
+    DeadLetterEnvelope,
+    InventoryGoodsReceivedEvent,
+    InventoryPOApprovedEvent,
+)
 
 # ============================================================================
 # CONTRACT DEFINITIONS
@@ -129,7 +143,7 @@ def test_compliance_internal_check_invalid_decision_fails_contract():
     """
     Contract test: invalid decision values must be rejected by Pydantic validation.
     """
-    with pytest.raises(Exception):
+    with pytest.raises(pydantic.ValidationError):
         ComplianceCheckContractResponse(
             cleared=True,
             decision="APPROVED",
@@ -141,28 +155,11 @@ def test_compliance_internal_check_invalid_decision_fails_contract():
 # 3. Geethika's Compliance Event Contract: compliance.supplier.status_changed
 # ============================================================================
 
-import json
-import re
-from pathlib import Path
-
-import jsonschema
-import pydantic
-import yaml
-from jsonschema import Draft202012Validator
-
 
 def _validate(schema, data):
     Draft202012Validator(
         schema, format_checker=Draft202012Validator.FORMAT_CHECKER
     ).validate(data)
-
-
-from app.schemas.events import (
-    ComplianceSupplierStatusChangedEvent,
-    DeadLetterEnvelope,
-    InventoryGoodsReceivedEvent,
-    InventoryPOApprovedEvent,
-)
 
 
 def test_compliance_status_changed_event_contract_shape():

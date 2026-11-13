@@ -124,7 +124,7 @@ def create_inventory_route(
         raise HTTPException(
             status_code=400,
             detail=str(exc),
-        )
+        ) from exc
 
 
 # =========================================================
@@ -236,7 +236,7 @@ def reorder_plan(
         raise HTTPException(
             status_code=400,
             detail=f"Invalid inventory data: {exc}",
-        )
+        ) from exc
 
 
 # =========================================================
@@ -260,7 +260,7 @@ def low_stock_route(
         raise HTTPException(
             status_code=400,
             detail=str(exc),
-        )
+        ) from exc
 
 
 # =========================================================
@@ -308,7 +308,7 @@ def bulk_upload_route(
         raise HTTPException(
             status_code=400,
             detail=str(exc),
-        )
+        ) from exc
 
 
 # =========================================================
@@ -351,7 +351,7 @@ def bulk_update_route(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
-        )
+        ) from exc
 
 
 # =========================================================
@@ -385,7 +385,7 @@ async def what_if_route(
         raise HTTPException(
             status_code=400,
             detail=str(exc),
-        )
+        ) from exc
 
 
 # =========================================================
@@ -418,7 +418,7 @@ def simulate_inventory(
         raise HTTPException(
             status_code=400,
             detail=str(exc),
-        )
+        ) from exc
 
 
 # =========================================================
@@ -604,7 +604,7 @@ def reorder_check_route(
         raise HTTPException(
             status_code=400,
             detail=str(exc),
-        )
+        ) from exc
 
 
 # =========================================================
@@ -647,7 +647,7 @@ def simulate_route(
         raise HTTPException(
             status_code=400,
             detail=str(exc),
-        )
+        ) from exc
 
 
 # =========================================================
@@ -692,7 +692,7 @@ def update_inventory_route(
         raise HTTPException(
             status_code=400,
             detail=str(exc),
-        )
+        ) from exc
 
 
 # =========================================================
@@ -732,7 +732,7 @@ def multi_echelon_fulfill_route(
         raise HTTPException(
             status_code=400,
             detail=str(exc),
-        )
+        ) from exc
 
 
 # =========================================================
@@ -783,7 +783,7 @@ def get_inventory_route(
         raise HTTPException(
             status_code=400,
             detail=str(exc),
-        )
+        ) from exc
 
 
 # =========================================================

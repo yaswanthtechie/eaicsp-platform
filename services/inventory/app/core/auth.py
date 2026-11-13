@@ -41,17 +41,17 @@ async def verify_token(
                 },
             )
 
-    except httpx.TimeoutException:
+    except httpx.TimeoutException as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service timed out",
-        )
+        ) from exc
 
-    except httpx.RequestError:
+    except httpx.RequestError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service is unavailable",
-        )
+        ) from exc
 
     if response.status_code == 401:
         raise HTTPException(
@@ -68,11 +68,11 @@ async def verify_token(
     try:
         data = response.json()
 
-    except ValueError:
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service returned invalid JSON",
-        )
+        ) from exc
 
     if not data.get("valid"):
         raise HTTPException(

@@ -1,6 +1,8 @@
+import time
 from unittest.mock import patch
 
 import pytest
+import redis
 
 from app.core.config import settings
 from app.models.inventory import Inventory
@@ -14,6 +16,7 @@ from app.services.cache_service import (
     set_cached_inventory,
 )
 from tests.conftest import seed_sales_history
+from tests.fakes import FakeRedis
 
 
 @pytest.fixture(autouse=True)
@@ -502,14 +505,12 @@ def test_real_redis_connectivity_and_operations():
     Test cache operations against a real Redis instance to verify
     real tool connectivity, TTL, and pattern deletion without fakes.
     """
-    import redis
-
     from app.services.cache_service import InventoryCache
 
     try:
         r = redis.Redis.from_url(settings.REDIS_URL, socket_timeout=1.0)
         r.ping()
-    except Exception:
+    except redis.RedisError:
         pytest.skip(f"Live Redis not accessible at {settings.REDIS_URL}")
 
     real_cache = InventoryCache(redis_url=settings.REDIS_URL)
@@ -524,13 +525,6 @@ def test_real_redis_connectivity_and_operations():
 
     real_cache.delete(test_key)
     assert real_cache.get(test_key) is None
-
-
-import time
-
-import redis
-
-from tests.fakes import FakeRedis
 
 
 class FlakyRedis(FakeRedis):

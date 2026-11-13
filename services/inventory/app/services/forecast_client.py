@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
 import httpx
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -177,7 +178,7 @@ class ForecastClient:
 
             try:
                 return ForecastServingResponse.model_validate(response.json())
-            except Exception as exc:
+            except (ValueError, ValidationError) as exc:
                 logger.error(
                     "Forecast for SKU %s does not match contracts/openapi/forecast.yaml: %s",
                     sku_id,

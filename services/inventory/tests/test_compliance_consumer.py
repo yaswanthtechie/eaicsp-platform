@@ -548,7 +548,7 @@ def test_consumer_keeps_running_through_bad_message(db_session):
     Consumer processes bad message (routes to DLQ) and keeps running,
     successfully processing the subsequent valid message.
     """
-    po = seed_po(db_session, "PO-SURVIVE", "SUP-SURVIVE", status="draft")
+    seed_po(db_session, "PO-SURVIVE", "SUP-SURVIVE", status="draft")
 
     msg_bad = FakeKafkaMessage(b"corrupted-poison-pill-message", offset=101)
     msg_good = FakeKafkaMessage(

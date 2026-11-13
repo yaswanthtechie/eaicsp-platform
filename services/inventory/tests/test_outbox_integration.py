@@ -467,8 +467,8 @@ def test_real_producer_raises_when_broker_unreachable_and_event_is_kept(db_sessi
         try:
             publisher._producer.purge()
             publisher._producer.flush(0.1)
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 - best-effort cleanup on test teardown
+            _ = exc
 
     assert (published, failed) == (0, 1)
 

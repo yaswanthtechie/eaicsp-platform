@@ -34,14 +34,14 @@ if str(SERVICE_DIR) not in sys.path:
     sys.path.insert(0, str(SERVICE_DIR))
 REPO_ROOT = SERVICE_DIR.parent.parent
 
-from app.database import SessionLocal
-from app.models.inventory import Inventory
-from app.models.inventory_cost_layer import InventoryCostLayer
-from app.models.product import Product
-from app.models.sales_history import SalesHistory
-from app.models.supplier import Supplier
-from app.models.warehouse import Warehouse
-from app.services.demand_service import calculate_rolling_average_demand
+from app.database import SessionLocal  # noqa: E402 - sys.path updated above for direct CLI execution
+from app.models.inventory import Inventory  # noqa: E402
+from app.models.inventory_cost_layer import InventoryCostLayer  # noqa: E402
+from app.models.product import Product  # noqa: E402
+from app.models.sales_history import SalesHistory  # noqa: E402
+from app.models.supplier import Supplier  # noqa: E402
+from app.models.warehouse import Warehouse  # noqa: E402
+from app.services.demand_service import calculate_rolling_average_demand  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"

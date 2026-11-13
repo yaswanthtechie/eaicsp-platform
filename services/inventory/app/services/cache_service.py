@@ -1,5 +1,6 @@
 import json
 import logging
+import threading
 import time
 from typing import Any, Optional
 
@@ -151,9 +152,6 @@ class InventoryCache:
 cache = InventoryCache()
 
 
-import threading
-
-
 def make_item_key(sku_id: str, warehouse_id: str) -> str:
     return f"inventory:item:{sku_id}:{warehouse_id}"
 
@@ -177,7 +175,7 @@ def get_all_inventory_generation() -> int:
     try:
         raw = cache.get(ALL_ITEMS_GEN_KEY)
         return int(raw) if raw is not None else 0
-    except Exception:
+    except Exception:  # noqa: BLE001 - cache reads must fail open and fall back to generation 0
         return 0
 
 
@@ -186,7 +184,7 @@ def get_cached_inventory(sku_id: str, warehouse_id: str) -> Optional[dict]:
     try:
         key = make_item_key(sku_id, warehouse_id)
         return cache.get(key)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - cache reads must fail open on any backend error
         logger.debug("Failed to get cached inventory: %s", exc)
         return None
 
@@ -227,7 +225,7 @@ def set_cached_inventory(
 
         cache.set(key, data, ttl=ttl)
         return True
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - cache writes must fail open without breaking callers
         logger.debug("Failed to set cached inventory: %s", exc)
         return False
 
@@ -236,7 +234,7 @@ def get_cached_all_inventory() -> Optional[list[dict]]:
     """Retrieve cached list of all inventory items."""
     try:
         return cache.get(ALL_ITEMS_KEY)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - cache reads must fail open on any backend error
         logger.debug("Failed to get cached all inventory: %s", exc)
         return None
 
@@ -264,7 +262,7 @@ def set_cached_all_inventory(
 
         cache.set(ALL_ITEMS_KEY, data, ttl=ttl)
         return True
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - cache writes must fail open without breaking callers
         logger.debug("Failed to set cached all inventory: %s", exc)
         return False
 
@@ -320,12 +318,12 @@ def invalidate_inventory_cache(
                 try:
                     cache.delete(item_key)
                     cache.delete(ALL_ITEMS_KEY)
-                except Exception:
-                    pass
+                except Exception as exc:  # noqa: BLE001 - background double-delete is best-effort cleanup
+                    logger.debug("Delayed cache delete failed: %s", exc)
 
             threading.Thread(target=_delayed_delete, daemon=True).start()
         else:
             cache.delete_pattern("inventory:*")
             logger.debug("Invalidated all inventory cache keys")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - cache invalidation must not break DB callers
         logger.debug("Failed to invalidate cache: %s", exc)

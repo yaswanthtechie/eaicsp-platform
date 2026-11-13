@@ -210,8 +210,17 @@ def test_failed_load_changes_nothing(seed_dir, db_session):
     run_loader(seed_dir_path=str(seed_dir), wipe=True, db=db_session)
     with open(seed_dir / "skus.csv", "a", encoding="utf-8", newline="") as f:
         csv.writer(f).writerow(
-            ["SKU001", "Legacy", "Hardware", "", "1", "1", "A", "SUP-00045"]
-        )  # noncanonical-ok
+            [
+                "SKU001",  # noncanonical-ok
+                "Legacy",
+                "Hardware",
+                "",
+                "1",
+                "1",
+                "A",
+                "SUP-00045",
+            ]
+        )
 
     with pytest.raises(ValueError, match="Invalid non-canonical sku_id"):
         run_loader(seed_dir_path=str(seed_dir), wipe=True, db=db_session)
@@ -225,8 +234,15 @@ def test_seed_loader_rejects_non_canonical_warehouse_id(tmp_path, db_session):
         tmp_path / "warehouses.csv",
         ["warehouse_id", "name", "city", "state", "capacity_units", "demand_weight"],
         [
-            ["WH001", "Old Format DC", "City", "State", "100000", "1.0"]
-        ],  # noncanonical-ok
+            [
+                "WH001",  # noncanonical-ok
+                "Old Format DC",
+                "City",
+                "State",
+                "100000",
+                "1.0",
+            ]
+        ],
     )
     with pytest.raises(ValueError, match="Invalid non-canonical warehouse_id"):
         load_warehouses(db=db_session, seed_dir=tmp_path)
@@ -247,7 +263,7 @@ def test_seed_loader_rejects_non_canonical_sku_id(tmp_path, db_session):
         ],
         [
             [
-                "SKU001",
+                "SKU001",  # noncanonical-ok
                 "Legacy Item",
                 "Electronics",
                 "1 pc",
@@ -256,7 +272,7 @@ def test_seed_loader_rejects_non_canonical_sku_id(tmp_path, db_session):
                 "A",
                 "SUP-00001",
             ]
-        ],  # noncanonical-ok
+        ],
     )
     with pytest.raises(ValueError, match="Invalid non-canonical sku_id"):
         load_products(db=db_session, seed_dir=tmp_path)

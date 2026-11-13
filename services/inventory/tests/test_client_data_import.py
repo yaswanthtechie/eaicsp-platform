@@ -627,8 +627,8 @@ def test_dry_run_performs_zero_db_writes_and_computes_accurate_counts(db_session
         ),
         (
             lambda ds: ds.warehouses.append(
-                _valid_warehouse("WH001")
-            ),  # noncanonical-ok
+                _valid_warehouse("WH001")  # noncanonical-ok
+            ),
             "non-canonical warehouse_id",
         ),
         (

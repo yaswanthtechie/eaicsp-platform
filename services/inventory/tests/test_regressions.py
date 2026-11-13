@@ -29,19 +29,19 @@ from tests.conftest import seed_sales_history
 
 
 def _inventory(**overrides):
-    data = dict(
-        sku_id="SKU-REG",
-        warehouse_id="WH-A",
-        product_name="Regression Widget",
-        category="Widgets",
-        quantity_on_hand=0,
-        avg_daily_demand=1.0,
-        lead_time_days=1,
-        safety_stock=0,
-        warehouse_type="local",
-        parent_warehouse_id=None,
-        version=1,
-    )
+    data = {
+        "sku_id": "SKU-REG",
+        "warehouse_id": "WH-A",
+        "product_name": "Regression Widget",
+        "category": "Widgets",
+        "quantity_on_hand": 0,
+        "avg_daily_demand": 1.0,
+        "lead_time_days": 1,
+        "safety_stock": 0,
+        "warehouse_type": "local",
+        "parent_warehouse_id": None,
+        "version": 1,
+    }
 
     data.update(overrides)
 

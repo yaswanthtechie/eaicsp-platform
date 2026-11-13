@@ -84,7 +84,7 @@ def check_and_record_low_stock(
                     ),
                 },
             )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - best-effort low-stock event must never fail physical stock movement
         logger.warning("Could not calculate reorder point for low stock event: %s", exc)
 
 
@@ -836,8 +836,8 @@ def bulk_upload_csv(
         try:
             content = content.decode("utf-8")
 
-        except UnicodeDecodeError:
-            raise ValueError("File must be a UTF-8 encoded CSV")
+        except UnicodeDecodeError as exc:
+            raise ValueError("File must be a UTF-8 encoded CSV") from exc
 
     reader = csv.DictReader(io.StringIO(content))
 
@@ -870,7 +870,7 @@ def bulk_upload_csv(
 
             field = first["loc"][0] if first["loc"] else "row"
 
-            raise ValueError(f"Row {row_number}: {field} - {first['msg']}")
+            raise ValueError(f"Row {row_number}: {field} - {first['msg']}") from exc
 
         # -----------------------------------------------------
         # Prevent CSV self-parent records.

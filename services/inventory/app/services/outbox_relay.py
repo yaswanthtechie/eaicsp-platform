@@ -87,7 +87,7 @@ class OutboxRelay:
                     event.event_type,
                 )
 
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - outbox relay must classify and record any publish failure without crashing the batch
                 failed_count += 1
                 error_msg = str(exc)
                 broker_err = is_broker_error(exc)
@@ -163,7 +163,7 @@ def run_relay_worker(
                     pub,
                     fail,
                 )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - background worker loop must survive cycle failures without exiting
             logger.error("Outbox relay error: %s", exc)
         finally:
             db.close()

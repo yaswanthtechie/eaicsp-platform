@@ -623,7 +623,7 @@ class ComplianceConsumerWorker:
                 self.handle_kafka_message(db, msg)
                 self._attempts.pop(key, None)
                 processed_count += 1
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - worker catches any processing error to count retries or route poison pills to DLQ
                 attempt = self._attempts.get(key, 0) + 1
                 self._attempts[key] = attempt
                 if attempt >= self.max_retries:
@@ -651,7 +651,7 @@ class ComplianceConsumerWorker:
                         self.commit_offset(msg)
                         self._attempts.pop(key, None)
                         processed_count += 1
-                    except Exception as dlq_err:
+                    except Exception as dlq_err:  # noqa: BLE001 - fallback rewind when DLQ routing fails for any reason
                         logger.critical(
                             "Could not route failed message to DLQ after max retries: %s",
                             dlq_err,
