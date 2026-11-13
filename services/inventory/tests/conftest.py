@@ -75,9 +75,11 @@ def override_get_db():
     try:
         yield db
     finally:
-        with suppress(SQLAlchemyError):
-            db.rollback()
-        db.close()
+        try:
+            with suppress(SQLAlchemyError):
+                db.rollback()
+        finally:
+            db.close()
 
 
 @pytest.fixture(autouse=True)
@@ -116,9 +118,11 @@ def db_session():
     try:
         yield db
     finally:
-        with suppress(SQLAlchemyError):
-            db.rollback()
-        db.close()
+        try:
+            with suppress(SQLAlchemyError):
+                db.rollback()
+        finally:
+            db.close()
 
 
 # ============================================================

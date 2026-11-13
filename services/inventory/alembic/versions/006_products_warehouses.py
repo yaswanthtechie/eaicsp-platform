@@ -7,7 +7,6 @@ Revises: 005_po_hold_source
 from typing import Sequence, Union
 
 import sqlalchemy as sa
-
 from alembic import op
 
 revision: str = "006_products_warehouses"

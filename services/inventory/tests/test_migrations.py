@@ -49,10 +49,10 @@ def test_alembic_upgrade_head_creates_matching_schema_and_allows_po_insert(tmp_p
     """
     from datetime import UTC, datetime
 
+    from alembic import command
     from alembic.config import Config
     from sqlalchemy.orm import Session
 
-    from alembic import command
     from app.models.purchase_order import PurchaseOrder
 
     db_file = tmp_path / "test_fresh_upgrade.db"
@@ -141,9 +141,8 @@ def test_alembic_upgrade_downgrade_roundtrip(tmp_path):
     """Verify full upgrade -> downgrade -> upgrade migration cycle on a clean SQLite DB."""
     from pathlib import Path
 
-    from alembic.config import Config
-
     from alembic import command
+    from alembic.config import Config
 
     service_dir = Path(__file__).resolve().parents[1]
     db_file = tmp_path / "test_roundtrip.db"

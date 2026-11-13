@@ -1,8 +1,8 @@
 import pytest
+from alembic import command
 from alembic.config import Config
 from sqlalchemy import inspect, text
 
-from alembic import command
 from tests.conftest import test_engine
 
 

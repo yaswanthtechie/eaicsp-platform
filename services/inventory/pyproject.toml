@@ -21,5 +21,8 @@ select = [
 "app/routes/*.py" = ["B008"]
 "app/core/auth.py" = ["B008"]
 
+[tool.ruff.lint.isort]
+known-third-party = ["alembic"]
+
 [tool.mypy]
 python_version = "3.12"

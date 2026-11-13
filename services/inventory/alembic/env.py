@@ -2,13 +2,13 @@ import os
 import sys
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config, pool
-
 from alembic import context
+from sqlalchemy import engine_from_config, pool
 
 # Ensure services/inventory is on the Python path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import app.models  # noqa: F401 - side-effect import, registers all models on Base.metadata for autogenerate
 from app.core.config import settings
 from app.database import Base
 

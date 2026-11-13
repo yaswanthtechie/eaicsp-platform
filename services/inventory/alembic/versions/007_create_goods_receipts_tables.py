@@ -7,7 +7,6 @@ Revises: 006_products_warehouses
 from typing import Sequence, Union
 
 import sqlalchemy as sa
-
 from alembic import op
 
 revision: str = "007_create_goods_receipts_tables"

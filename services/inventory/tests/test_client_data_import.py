@@ -940,10 +940,9 @@ def test_missing_staging_dir_fails_clearly(db_session):
 
 
 def test_alembic_008_adds_and_downgrades_client_data_readiness_schema(tmp_path: Path):
+    from alembic import command
     from alembic.config import Config
     from sqlalchemy import create_engine, inspect
-
-    from alembic import command
 
     db_file = tmp_path / "m008.db"
     db_url = f"sqlite:///{db_file}"
