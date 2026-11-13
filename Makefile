@@ -73,3 +73,8 @@ e2e-alerts:
 # Needs `make up`. Writes contracts/contract-monitor-report.md.
 contract-monitor:
 	cd contracts && "$(PYTHON)" live_monitor.py --out contract-monitor-report.md
+.PHONY: load-client-data
+
+load-client-data:
+    @if [ -z "$(DIR)" ]; then echo "Usage: make load-client-data DIR=<folder>"; exit 1; fi
+    cd data-platform/etl && python -m client_ingest.load_client_data --dir "$(DIR)"
