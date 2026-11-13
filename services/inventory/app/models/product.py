@@ -1,10 +1,11 @@
-from datetime import datetime, UTC
+from datetime import UTC, datetime
+
 from sqlalchemy import (
     Boolean,
     Column,
-    String,
-    Float,
     DateTime,
+    Float,
+    String,
 )
 
 from app.database import Base
@@ -71,4 +72,3 @@ class Product(Base):
         nullable=False,
         default=lambda: datetime.now(UTC),
     )
-

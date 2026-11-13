@@ -5,7 +5,6 @@ from sqlalchemy.orm import Session
 from app.models.inventory import Inventory
 from app.models.inventory_cost_layer import InventoryCostLayer
 
-
 # ==========================================================
 # CONSUME COST LAYERS
 # ==========================================================
@@ -27,6 +26,7 @@ from app.models.inventory_cost_layer import InventoryCostLayer
 # 8 units @ $10
 # ==========================================================
 
+
 def consume_cost_layers(
     db: Session,
     sku_id: str,
@@ -44,9 +44,7 @@ def consume_cost_layers(
             InventoryCostLayer.warehouse_id == warehouse_id,
             InventoryCostLayer.quantity_remaining > 0,
         )
-        .order_by(
-            InventoryCostLayer.received_at.asc()
-        )
+        .order_by(InventoryCostLayer.received_at.asc())
         .with_for_update()
         .all()
     )
@@ -56,7 +54,6 @@ def consume_cost_layers(
     consumed = []
 
     for layer in layers:
-
         if remaining <= 0:
             break
 
@@ -90,6 +87,7 @@ def consume_cost_layers(
 # - bulk inventory quantity increases and a known cost exists
 # ==========================================================
 
+
 def add_cost_layer(
     db: Session,
     sku_id: str,
@@ -111,10 +109,7 @@ def add_cost_layer(
             quantity_received=quantity,
             quantity_remaining=quantity,
             unit_cost=unit_cost,
-            received_at=(
-                received_at
-                or datetime.now(UTC)
-            ),
+            received_at=(received_at or datetime.now(UTC)),
         )
     )
 
@@ -128,6 +123,7 @@ def add_cost_layer(
 # application needs a cost for the newly added quantity.
 # ==========================================================
 
+
 def latest_unit_cost(
     db: Session,
     sku_id: str,
@@ -140,9 +136,7 @@ def latest_unit_cost(
             InventoryCostLayer.sku_id == sku_id,
             InventoryCostLayer.warehouse_id == warehouse_id,
         )
-        .order_by(
-            InventoryCostLayer.received_at.desc()
-        )
+        .order_by(InventoryCostLayer.received_at.desc())
         .first()
     )
 
@@ -155,6 +149,7 @@ def latest_unit_cost(
 # ==========================================================
 # FIFO VALUATION
 # ==========================================================
+
 
 def calculate_fifo_value(
     db: Session,
@@ -172,9 +167,7 @@ def calculate_fifo_value(
     )
 
     if inventory is None:
-        raise ValueError(
-            "Inventory record not found"
-        )
+        raise ValueError("Inventory record not found")
 
     quantity_needed = inventory.quantity_on_hand
 
@@ -188,16 +181,13 @@ def calculate_fifo_value(
             InventoryCostLayer.warehouse_id == warehouse_id,
             InventoryCostLayer.quantity_remaining > 0,
         )
-        .order_by(
-            InventoryCostLayer.received_at.asc()
-        )
+        .order_by(InventoryCostLayer.received_at.asc())
         .all()
     )
 
     total_value = 0.0
 
     for layer in layers:
-
         if quantity_needed <= 0:
             break
 
@@ -206,10 +196,7 @@ def calculate_fifo_value(
             layer.quantity_remaining,
         )
 
-        total_value += (
-            quantity_from_layer
-            * layer.unit_cost
-        )
+        total_value += quantity_from_layer * layer.unit_cost
 
         quantity_needed -= quantity_from_layer
 
@@ -222,6 +209,7 @@ def calculate_fifo_value(
 # ==========================================================
 # WEIGHTED AVERAGE VALUATION
 # ==========================================================
+
 
 def calculate_weighted_average_value(
     db: Session,
@@ -239,9 +227,7 @@ def calculate_weighted_average_value(
     )
 
     if inventory is None:
-        raise ValueError(
-            "Inventory record not found"
-        )
+        raise ValueError("Inventory record not found")
 
     current_quantity = inventory.quantity_on_hand
 
@@ -262,27 +248,16 @@ def calculate_weighted_average_value(
     total_cost = 0.0
 
     for layer in layers:
+        total_quantity += layer.quantity_remaining
 
-        total_quantity += (
-            layer.quantity_remaining
-        )
-
-        total_cost += (
-            layer.quantity_remaining
-            * layer.unit_cost
-        )
+        total_cost += layer.quantity_remaining * layer.unit_cost
 
     if total_quantity == 0:
         return 0.0
 
-    weighted_average_cost = (
-        total_cost / total_quantity
-    )
+    weighted_average_cost = total_cost / total_quantity
 
-    inventory_value = (
-        current_quantity
-        * weighted_average_cost
-    )
+    inventory_value = current_quantity * weighted_average_cost
 
     return round(
         inventory_value,

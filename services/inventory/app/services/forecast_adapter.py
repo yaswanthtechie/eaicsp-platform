@@ -60,9 +60,7 @@ def daily_demand_from_forecast(
 
     days_in_month = monthrange(on_date.year, on_date.month)[1]
 
-    z = NormalDist().inv_cdf(
-        0.5 + contract.interval_level / 2
-    )
+    z = NormalDist().inv_cdf(0.5 + contract.interval_level / 2)
 
     monthly_sigma = (point.upper - point.lower) / (2 * z)
 
@@ -99,27 +97,18 @@ def resolve_daily_demand(
     if contract is None:
         return from_history("No forecast available")
 
-    if (
-        contract.sku_id != sku_id
-        or contract.warehouse_id != warehouse_id
-    ):
-        return from_history(
-            "Forecast is for a different SKU or warehouse"
-        )
+    if contract.sku_id != sku_id or contract.warehouse_id != warehouse_id:
+        return from_history("Forecast is for a different SKU or warehouse")
 
     age = now - contract.generated_at
 
     if age > timedelta(days=settings.FORECAST_MAX_AGE_DAYS):
-        return from_history(
-            f"Forecast is stale ({age.days} days old)"
-        )
+        return from_history(f"Forecast is stale ({age.days} days old)")
 
     daily = daily_demand_from_forecast(contract, on_date)
 
     if daily is None:
-        return from_history(
-            "Forecast does not cover this date"
-        )
+        return from_history("Forecast does not cover this date")
 
     return {
         **daily,

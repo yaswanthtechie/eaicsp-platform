@@ -1,16 +1,15 @@
 from sqlalchemy import (
     Column,
-    String,
-    Integer,
     Float,
+    Integer,
     PrimaryKeyConstraint,
+    String,
 )
 
 from app.database import Base
 
 
 class Inventory(Base):
-
     __tablename__ = "inventory"
 
     sku_id = Column(
@@ -28,9 +27,9 @@ class Inventory(Base):
         nullable=False,
     )
     category = Column(
-    String,
-    nullable=False,
-    default="Uncategorized",
+        String,
+        nullable=False,
+        default="Uncategorized",
     )
 
     quantity_on_hand = Column(

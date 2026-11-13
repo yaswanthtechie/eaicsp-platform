@@ -1,22 +1,22 @@
-import json
+import time
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import patch, MagicMock
+import redis
 
 from app.core.config import settings
-from app.services.cache_service import (
-    cache,
-    get_cached_inventory,
-    set_cached_inventory,
-    get_cached_all_inventory,
-    set_cached_all_inventory,
-    invalidate_inventory_cache,
-    make_item_key,
-    ALL_ITEMS_KEY,
-)
 from app.models.inventory import Inventory
 from app.models.purchase_order import PurchaseOrder
-from app.models.supplier import Supplier
+from app.services.cache_service import (
+    cache,
+    get_cached_all_inventory,
+    get_cached_inventory,
+    invalidate_inventory_cache,
+    set_cached_all_inventory,
+    set_cached_inventory,
+)
 from tests.conftest import seed_sales_history
+from tests.fakes import FakeRedis
 
 
 @pytest.fixture(autouse=True)
@@ -30,6 +30,7 @@ def clean_cache(fake_redis):
 # ============================================================================
 # 1. UNIT & DOMAIN CACHE TESTS
 # ============================================================================
+
 
 def test_cache_set_and_get():
     """Verify basic set, get, and TTL functionality."""
@@ -60,6 +61,7 @@ def test_cache_invalidation_specific_and_all():
 # ============================================================================
 # 2. HTTP HOT READ & CACHE POPULATION TESTS
 # ============================================================================
+
 
 def test_get_inventory_populates_cache(client, db_session):
     """
@@ -105,6 +107,7 @@ def test_get_inventory_populates_cache(client, db_session):
 # ============================================================================
 # 3. CACHE INVALIDATION ON MUTATIONS
 # ============================================================================
+
 
 def test_update_inventory_invalidates_cache(client, db_session):
     """
@@ -273,6 +276,7 @@ def test_get_all_inventory_cache_and_invalidation(client, db_session):
 # 4. RESILIENCE / GRACEFUL DEGRADATION TESTS
 # ============================================================================
 
+
 def test_cache_graceful_degradation_on_redis_error(client, db_session):
     """
     Milestone 3 Requirement:
@@ -295,7 +299,9 @@ def test_cache_graceful_degradation_on_redis_error(client, db_session):
     db_session.commit()
 
     # Simulate Redis throwing an exception on get() and set()
-    with patch.object(cache, "get", side_effect=Exception("Redis connection timed out")):
+    with patch.object(
+        cache, "get", side_effect=Exception("Redis connection timed out")
+    ):
         resp = client.get("/api/v1/inventory/SKU-RESILIENT/WH-BLR-01")
         # Request MUST succeed from DB!
         assert resp.status_code == 200
@@ -307,7 +313,6 @@ def test_receive_purchase_order_invalidates_cache(client, db_session):
     Verify that receiving an approved purchase order invalidates the inventory cache,
     ensuring subsequent reads immediately reflect the newly received stock.
     """
-    from app.services.purchase_order_service import receive_purchase_order
 
     seed_sales_history("SKU-PO-REC", "WH-REC", daily_quantity=2)
 
@@ -406,7 +411,9 @@ def test_read_latency_benchmark_with_and_without_cache(client, db_session):
     avg_cache_ms = (sum(cache_durations) / iterations) * 1000
     speedup = avg_db_ms / max(avg_cache_ms, 0.001)
 
-    print(f"\n[LATENCY REPORT] Uncached DB Avg: {avg_db_ms:.2f} ms | Cached Redis Avg: {avg_cache_ms:.2f} ms | Speedup: {speedup:.1f}x")
+    print(
+        f"\n[LATENCY REPORT] Uncached DB Avg: {avg_db_ms:.2f} ms | Cached Redis Avg: {avg_cache_ms:.2f} ms | Speedup: {speedup:.1f}x"
+    )
     assert resp.status_code == 200
 
 
@@ -416,9 +423,10 @@ def test_fulfill_shortage_invalidates_cache_for_both_warehouses(client, db_sessi
     fulfill_shortage must invalidate the cache for both source and destination
     warehouses so cached quantities never go stale.
     """
-    from app.services.multi_echelon_service import fulfill_shortage
+    from datetime import UTC, datetime
+
     from app.models.inventory_cost_layer import InventoryCostLayer
-    from datetime import datetime, UTC
+    from app.services.multi_echelon_service import fulfill_shortage
 
     sku = "SKU-SHORTAGE-CACHE"
     wh_parent = "WH-CACHE-PARENT"
@@ -476,14 +484,18 @@ def test_fulfill_shortage_invalidates_cache_for_both_warehouses(client, db_sessi
     assert result["transferred_quantity"] == 15
 
     # 3. VERIFY: Cache is invalidated for BOTH parent and local warehouses!
-    assert get_cached_inventory(sku, wh_parent) is None, "Parent cache must be invalidated after stock transfer"
-    assert get_cached_inventory(sku, wh_local) is None, "Local cache must be invalidated after stock transfer"
+    assert get_cached_inventory(sku, wh_parent) is None, (
+        "Parent cache must be invalidated after stock transfer"
+    )
+    assert get_cached_inventory(sku, wh_local) is None, (
+        "Local cache must be invalidated after stock transfer"
+    )
 
     # 4. Fresh reads return updated stock levels
     resp_parent = client.get(f"/api/v1/inventory/{sku}/{wh_parent}")
     resp_local = client.get(f"/api/v1/inventory/{sku}/{wh_local}")
     assert resp_parent.json()["quantity_on_hand"] == 35  # 50 - 15
-    assert resp_local.json()["quantity_on_hand"] == 20   # 5 + 15
+    assert resp_local.json()["quantity_on_hand"] == 20  # 5 + 15
 
 
 @pytest.mark.integration
@@ -494,12 +506,11 @@ def test_real_redis_connectivity_and_operations():
     real tool connectivity, TTL, and pattern deletion without fakes.
     """
     from app.services.cache_service import InventoryCache
-    import redis
 
     try:
         r = redis.Redis.from_url(settings.REDIS_URL, socket_timeout=1.0)
         r.ping()
-    except Exception:
+    except redis.RedisError:
         pytest.skip(f"Live Redis not accessible at {settings.REDIS_URL}")
 
     real_cache = InventoryCache(redis_url=settings.REDIS_URL)
@@ -514,13 +525,6 @@ def test_real_redis_connectivity_and_operations():
 
     real_cache.delete(test_key)
     assert real_cache.get(test_key) is None
-
-
-import time
-
-import redis
-
-from tests.fakes import FakeRedis
 
 
 class FlakyRedis(FakeRedis):
@@ -574,6 +578,7 @@ def test_redis_outage_does_not_retry_on_every_request(monkeypatch):
 
 # ---- reads that overlap a sale / a bulk upload (Fixes A and A3) -------------
 
+
 def _get_with_concurrent_write(client, monkeypatch, sku, concurrent_write):
     """GET the item; another request commits `concurrent_write` mid-read."""
     import app.routes.inventory as routes
@@ -595,7 +600,9 @@ def _get_with_concurrent_write(client, monkeypatch, sku, concurrent_write):
     assert resp.status_code == 200
 
 
-def test_read_overlapping_a_sale_never_caches_the_old_quantity(client, db_session, monkeypatch):
+def test_read_overlapping_a_sale_never_caches_the_old_quantity(
+    client, db_session, monkeypatch
+):
     seed_sales_history("SKU-SALE-RACE", "WH-BLR-01", daily_quantity=5)
     client.post(
         "/api/v1/inventory/",
@@ -613,26 +620,35 @@ def test_read_overlapping_a_sale_never_caches_the_old_quantity(client, db_sessio
     def concurrent_sale():
         resp = client.post(
             "/api/v1/inventory/decrement",
-            params={"sku_id": "SKU-SALE-RACE", "warehouse_id": "WH-BLR-01", "quantity": 40},
+            params={
+                "sku_id": "SKU-SALE-RACE",
+                "warehouse_id": "WH-BLR-01",
+                "quantity": 40,
+            },
         )
         assert resp.status_code == 200
 
     _get_with_concurrent_write(client, monkeypatch, "SKU-SALE-RACE", concurrent_sale)
 
     # The very next read, with no waiting for the delayed delete.
-    assert client.get("/api/v1/inventory/SKU-SALE-RACE/WH-BLR-01").json()["quantity_on_hand"] == 10
+    assert (
+        client.get("/api/v1/inventory/SKU-SALE-RACE/WH-BLR-01").json()[
+            "quantity_on_hand"
+        ]
+        == 10
+    )
 
 
 def test_bulk_invalidation_keeps_the_list_generation_counter():
     from app.services.cache_service import (
         get_all_inventory_generation,
+        get_cached_all_inventory,
         invalidate_inventory_cache,
         set_cached_all_inventory,
-        get_cached_all_inventory,
     )
 
-    before = get_all_inventory_generation()          # a list read starts here
-    invalidate_inventory_cache()                     # bulk upload commits
+    before = get_all_inventory_generation()  # a list read starts here
+    invalidate_inventory_cache()  # bulk upload commits
 
     assert get_all_inventory_generation() == before + 1
     assert set_cached_all_inventory([{"sku_id": "OLD"}], generation=before) is False

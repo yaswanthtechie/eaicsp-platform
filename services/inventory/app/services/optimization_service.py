@@ -68,7 +68,9 @@ def generate_recommendations(
             forecast_down = True
 
         lead_time = item.lead_time_days if item.lead_time_days is not None else 7
-        safety = item.safety_stock if item.safety_stock and item.safety_stock >= 0 else 0
+        safety = (
+            item.safety_stock if item.safety_stock and item.safety_stock >= 0 else 0
+        )
 
         reorder_point = int(demand_res.daily_demand * lead_time + safety)
 

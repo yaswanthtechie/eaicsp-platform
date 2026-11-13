@@ -1,17 +1,16 @@
 from sqlalchemy import (
     Column,
-    String,
-    Integer,
     Date,
-    PrimaryKeyConstraint,
     Index,
+    Integer,
+    PrimaryKeyConstraint,
+    String,
 )
 
 from app.database import Base
 
 
 class SalesHistory(Base):
-
     __tablename__ = "sales_history"
 
     sku_id = Column(
@@ -35,13 +34,11 @@ class SalesHistory(Base):
     )
 
     __table_args__ = (
-
         PrimaryKeyConstraint(
             "sku_id",
             "warehouse_id",
             "sale_date",
         ),
-
         Index(
             "ix_sales_history_sale_date",
             "sale_date",

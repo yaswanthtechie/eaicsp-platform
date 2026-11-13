@@ -9,10 +9,7 @@ class PurchaseOrderRequest(BaseModel):
 
 
 class PurchaseOrderResponse(BaseModel):
-
-    model_config = ConfigDict(
-        from_attributes=True
-    )
+    model_config = ConfigDict(from_attributes=True)
 
     po_id: str
     sku_id: str

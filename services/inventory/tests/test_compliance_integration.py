@@ -14,7 +14,6 @@ from app.services.compliance_client import (
 )
 from tests.conftest import seed_sales_history
 
-
 SKU = "SKU-COMP"
 WAREHOUSE = "WH-COMP"
 
@@ -22,6 +21,7 @@ WAREHOUSE = "WH-COMP"
 # ============================================================
 # HELPERS
 # ============================================================
+
 
 def use_compliance_response(monkeypatch, handler):
     """
@@ -101,11 +101,7 @@ def inventory_body(quantity):
 
 
 def po_count(db_session):
-    return (
-        db_session.query(PurchaseOrder)
-        .filter(PurchaseOrder.sku_id == SKU)
-        .count()
-    )
+    return db_session.query(PurchaseOrder).filter(PurchaseOrder.sku_id == SKU).count()
 
 
 def stock_in_db(db_session):
@@ -124,6 +120,7 @@ def stock_in_db(db_session):
 # ============================================================
 # CLIENT: response handling
 # ============================================================
+
 
 @pytest.mark.parametrize("decision", ["CLEAR", "BLOCK", "REVIEW"])
 def test_client_returns_valid_decisions(monkeypatch, decision):
@@ -204,6 +201,7 @@ def test_client_unusable_responses_are_errors(monkeypatch, response):
 # AUTOMATIC PO PATH: stock movement must never fail
 # ============================================================
 
+
 def test_decrement_succeeds_and_warns_when_compliance_down(
     client,
     db_session,
@@ -230,10 +228,7 @@ def test_decrement_succeeds_and_warns_when_compliance_down(
     assert response.json()["quantity_on_hand"] == 40
     assert stock_in_db(db_session) == 40
     assert po_count(db_session) == 0
-    assert any(
-        "Compliance check failed" in message
-        for message in caplog.messages
-    )
+    assert any("Compliance check failed" in message for message in caplog.messages)
 
 
 def test_create_below_rop_succeeds_when_compliance_down(
@@ -278,9 +273,7 @@ def test_blocked_supplier_skips_po_with_visible_warning(
     assert po_count(db_session) == 0
 
     warnings = [
-        message
-        for message in caplog.messages
-        if "Automatic PO not created" in message
+        message for message in caplog.messages if "Automatic PO not created" in message
     ]
     assert warnings, "a skipped reorder must leave a trace"
     assert decision in warnings[0]
@@ -317,21 +310,18 @@ def test_po_is_created_on_next_movement_once_compliance_recovers(
 # MANUAL DRAFT ENDPOINT: caller gets the real reason
 # ============================================================
 
+
 @pytest.mark.parametrize(
     "setup, expected_status",
     [
         (lambda mp: compliance_returns(mp, "BLOCK"), 409),
         (lambda mp: compliance_returns(mp, "REVIEW"), 409),
         (
-            lambda mp: compliance_raises(
-                mp, ComplianceServiceUnavailableError("down")
-            ),
+            lambda mp: compliance_raises(mp, ComplianceServiceUnavailableError("down")),
             503,
         ),
         (
-            lambda mp: compliance_raises(
-                mp, ComplianceServiceError("bad response")
-            ),
+            lambda mp: compliance_raises(mp, ComplianceServiceError("bad response")),
             502,
         ),
     ],

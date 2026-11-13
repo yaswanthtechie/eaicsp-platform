@@ -96,8 +96,7 @@ def _daily_demand_std_all(
         mean = sum(values) / len(values)
 
         result[key] = sqrt(
-            sum((value - mean) ** 2 for value in values)
-            / (len(values) - 1)
+            sum((value - mean) ** 2 for value in values) / (len(values) - 1)
         )
 
     return result
@@ -125,9 +124,7 @@ def _aggregate_downstream(
         visited = set()
 
     if warehouse_key in visited:
-        raise ValueError(
-            "Warehouse hierarchy contains a cycle"
-        )
+        raise ValueError("Warehouse hierarchy contains a cycle")
 
     current_visited = set(visited)
     current_visited.add(warehouse_key)
@@ -179,9 +176,7 @@ def _get_depth(
         )
 
         if key in visited:
-            raise ValueError(
-                "Warehouse hierarchy contains a cycle"
-            )
+            raise ValueError("Warehouse hierarchy contains a cycle")
 
         visited.add(key)
 
@@ -223,9 +218,7 @@ def optimize_network_safety_stock(
     """
 
     if days <= 0:
-        raise ValueError(
-            "Demand window must be greater than zero"
-        )
+        raise ValueError("Demand window must be greater than zero")
 
     inventory_map, children = _build_inventory_tree(db)
 
@@ -237,12 +230,9 @@ def optimize_network_safety_stock(
             "warehouses": [],
         }
 
-    demand = (
-        demand_service
-        .calculate_rolling_average_demand_all(
-            db=db,
-            days=days,
-        )
+    demand = demand_service.calculate_rolling_average_demand_all(
+        db=db,
+        days=days,
     )
 
     demand_std = _daily_demand_std_all(
@@ -260,13 +250,11 @@ def optimize_network_safety_stock(
             0.0,
         )
 
-        downstream_demand, downstream_variance = (
-            _aggregate_downstream(
-                warehouse_key=key,
-                children=children,
-                demand_by_location=demand,
-                std_by_location=demand_std,
-            )
+        downstream_demand, downstream_variance = _aggregate_downstream(
+            warehouse_key=key,
+            children=children,
+            demand_by_location=demand,
+            std_by_location=demand_std,
         )
 
         downstream_std = sqrt(downstream_variance)
@@ -286,31 +274,21 @@ def optimize_network_safety_stock(
             0,
         )
 
-        statistical_safety_stock = ceil(
-            z
-            * downstream_std
-            * sqrt(lead_time)
-        )
+        statistical_safety_stock = ceil(z * downstream_std * sqrt(lead_time))
 
         optimized_safety_stock = max(
             baseline_safety_stock,
             statistical_safety_stock,
         )
 
-        lead_time_demand = ceil(
-            downstream_demand
-            * lead_time
-        )
+        lead_time_demand = ceil(downstream_demand * lead_time)
 
         current_stock = max(
             inventory.quantity_on_hand,
             0,
         )
 
-        target_stock = (
-            optimized_safety_stock
-            + lead_time_demand
-        )
+        target_stock = optimized_safety_stock + lead_time_demand
 
         surplus = max(
             current_stock - target_stock,
@@ -327,9 +305,7 @@ def optimize_network_safety_stock(
                 "sku_id": inventory.sku_id,
                 "warehouse_id": inventory.warehouse_id,
                 "warehouse_type": inventory.warehouse_type,
-                "parent_warehouse_id": (
-                    inventory.parent_warehouse_id
-                ),
+                "parent_warehouse_id": (inventory.parent_warehouse_id),
                 "hierarchy_depth": depth,
                 "own_daily_demand": round(
                     own_demand,
@@ -344,15 +320,9 @@ def optimize_network_safety_stock(
                     2,
                 ),
                 "lead_time_demand": lead_time_demand,
-                "current_safety_stock": (
-                    baseline_safety_stock
-                ),
-                "statistical_safety_stock": (
-                    statistical_safety_stock
-                ),
-                "optimized_safety_stock": (
-                    optimized_safety_stock
-                ),
+                "current_safety_stock": (baseline_safety_stock),
+                "statistical_safety_stock": (statistical_safety_stock),
+                "optimized_safety_stock": (optimized_safety_stock),
                 "current_quantity": current_stock,
                 "target_quantity": target_stock,
                 "surplus_quantity": surplus,
@@ -360,16 +330,11 @@ def optimize_network_safety_stock(
             }
         )
 
-    total_safety_stock = sum(
-        item["optimized_safety_stock"]
-        for item in results
-    )
+    total_safety_stock = sum(item["optimized_safety_stock"] for item in results)
 
     return {
         "demand_window_days": days,
         "service_level_z": z,
-        "total_network_safety_stock": (
-            total_safety_stock
-        ),
+        "total_network_safety_stock": (total_safety_stock),
         "warehouses": results,
     }

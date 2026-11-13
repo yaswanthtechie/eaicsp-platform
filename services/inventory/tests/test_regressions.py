@@ -29,19 +29,19 @@ from tests.conftest import seed_sales_history
 
 
 def _inventory(**overrides):
-    data = dict(
-        sku_id="SKU-REG",
-        warehouse_id="WH-A",
-        product_name="Regression Widget",
-        category="Widgets",
-        quantity_on_hand=0,
-        avg_daily_demand=1.0,
-        lead_time_days=1,
-        safety_stock=0,
-        warehouse_type="local",
-        parent_warehouse_id=None,
-        version=1,
-    )
+    data = {
+        "sku_id": "SKU-REG",
+        "warehouse_id": "WH-A",
+        "product_name": "Regression Widget",
+        "category": "Widgets",
+        "quantity_on_hand": 0,
+        "avg_daily_demand": 1.0,
+        "lead_time_days": 1,
+        "safety_stock": 0,
+        "warehouse_type": "local",
+        "parent_warehouse_id": None,
+        "version": 1,
+    }
 
     data.update(overrides)
 
@@ -86,8 +86,7 @@ def test_endpoints_reject_missing_token(
     )
 
     assert response.status_code == 401, (
-        f"{method.upper()} {path} "
-        f"answered {response.status_code} without a token"
+        f"{method.upper()} {path} answered {response.status_code} without a token"
     )
 
 
@@ -183,11 +182,7 @@ def test_fifo_value_after_stock_leaves(db_session):
     )
 
     item = (
-        db_session.query(Inventory)
-        .filter(
-            Inventory.warehouse_id == "WH-VAL"
-        )
-        .first()
+        db_session.query(Inventory).filter(Inventory.warehouse_id == "WH-VAL").first()
     )
 
     item.quantity_on_hand = 10
@@ -277,6 +272,7 @@ def test_transfer_moves_cost_layers_to_destination(
 # history must still be able to move stock.
 # =========================================================
 
+
 def test_decrement_works_for_inventory_created_via_api(client):
     """Create then decrement, using only the public API."""
 
@@ -314,6 +310,7 @@ def test_decrement_works_for_inventory_created_via_api(client):
 # Opening stock with unit_cost gets a valuation cost layer.
 # =========================================================
 
+
 def test_opening_unit_cost_gives_new_inventory_a_cost_basis(
     client,
 ):
@@ -339,9 +336,7 @@ def test_opening_unit_cost_gives_new_inventory_a_cost_basis(
 
     assert created.status_code == 201, created.text
 
-    report = client.get(
-        "/api/v1/inventory/reports/inventory-value"
-    )
+    report = client.get("/api/v1/inventory/reports/inventory-value")
 
     assert report.status_code == 200, report.text
     assert report.json()["total_inventory_value"] == 500.0
@@ -357,9 +352,7 @@ def test_opening_unit_cost_gives_new_inventory_a_cost_basis(
 
     assert response.status_code == 200, response.text
 
-    report = client.get(
-        "/api/v1/inventory/reports/inventory-value"
-    )
+    report = client.get("/api/v1/inventory/reports/inventory-value")
 
     assert report.status_code == 200, report.text
 
@@ -371,6 +364,7 @@ def test_opening_unit_cost_gives_new_inventory_a_cost_basis(
 # REVIEW FIX 1
 # Uncosted stock must still move physically.
 # =========================================================
+
 
 def test_uncosted_stock_moves_but_is_not_valued(client):
     """
@@ -407,9 +401,7 @@ def test_uncosted_stock_moves_but_is_not_valued(client):
     assert response.status_code == 200, response.text
     assert response.json()["quantity_on_hand"] == 12
 
-    report = client.get(
-        "/api/v1/inventory/reports/inventory-value"
-    )
+    report = client.get("/api/v1/inventory/reports/inventory-value")
 
     assert report.status_code == 200, report.text
     assert report.json()["total_inventory_value"] == 0.0
@@ -419,6 +411,7 @@ def test_uncosted_stock_moves_but_is_not_valued(client):
 # REVIEW FIX 2
 # Decrementing below ROP must trigger draft PO generation.
 # =========================================================
+
 
 def test_decrement_below_reorder_point_generates_draft_po(
     client,
@@ -471,12 +464,7 @@ def test_decrement_below_reorder_point_generates_draft_po(
     assert created.status_code == 201, created.text
 
     assert (
-        db_session.query(PurchaseOrder)
-        .filter(
-            PurchaseOrder.sku_id == sku
-        )
-        .count()
-        == 0
+        db_session.query(PurchaseOrder).filter(PurchaseOrder.sku_id == sku).count() == 0
     )
 
     response = client.post(
@@ -492,14 +480,9 @@ def test_decrement_below_reorder_point_generates_draft_po(
     assert response.json()["quantity_on_hand"] == 5
 
     purchase_orders = (
-        db_session.query(PurchaseOrder)
-        .filter(
-            PurchaseOrder.sku_id == sku
-        )
-        .all()
+        db_session.query(PurchaseOrder).filter(PurchaseOrder.sku_id == sku).all()
     )
 
     assert len(purchase_orders) == 1, (
-        "Decrementing below the reorder point should "
-        "auto-generate a draft PO"
+        "Decrementing below the reorder point should auto-generate a draft PO"
     )

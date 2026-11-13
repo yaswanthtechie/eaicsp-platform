@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+
 from sqlalchemy import Column, DateTime, String
 
 from app.database import Base
@@ -9,6 +10,7 @@ class ProcessedEvent(Base):
     Stores processed event IDs for exactly-once idempotency semantics.
     Delivering the same event_id twice must not alter state the second time.
     """
+
     __tablename__ = "processed_events"
 
     event_id = Column(
@@ -48,6 +50,7 @@ class SupplierComplianceState(Base):
     Used to detect and safely ignore out-of-order events (e.g. if 'cleared' arrives
     before an older 'blocked', we use occurred_at to prevent regressing to blocked).
     """
+
     __tablename__ = "supplier_compliance_states"
 
     supplier_id = Column(
@@ -76,4 +79,3 @@ class SupplierComplianceState(Base):
         nullable=False,
         default=lambda: datetime.now(UTC),
     )
-

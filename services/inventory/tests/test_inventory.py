@@ -9,18 +9,17 @@ from app.models.inventory import Inventory
 from app.models.inventory_cost_layer import InventoryCostLayer
 from app.models.sales_history import SalesHistory
 from app.services.abc_service import classify_skus
-
-from tests.test_auth_integration import auth_header
 from tests.conftest import (
     TestingSessionLocal,
     seed_sales_history,
     test_engine,
 )
-
+from tests.test_auth_integration import auth_header
 
 # =========================================================
 # TEST PAYLOAD
 # =========================================================
+
 
 def create_payload(
     sku="SKU-000100",
@@ -40,6 +39,7 @@ def create_payload(
 # =========================================================
 # TEST COST LAYER HELPERS
 # =========================================================
+
 
 def seed_cost_layer(
     sku_id,
@@ -113,6 +113,7 @@ def seed_cost_layers(
 # CREATE
 # =========================================================
 
+
 def test_create_inventory(client):
 
     seed_sales_history(
@@ -140,6 +141,7 @@ def test_create_inventory(client):
 # MANUAL DEMAND MUST BE REJECTED
 # =========================================================
 
+
 def test_manual_avg_daily_demand_rejected(client):
 
     payload = create_payload(
@@ -162,6 +164,7 @@ def test_manual_avg_daily_demand_rejected(client):
 # GET SINGLE INVENTORY
 # =========================================================
 
+
 def test_get_inventory(client):
 
     seed_sales_history(
@@ -177,9 +180,7 @@ def test_get_inventory(client):
 
     assert response.status_code == 201
 
-    response = client.get(
-        "/api/v1/inventory/SKU-000100/WH-BLR-01"
-    )
+    response = client.get("/api/v1/inventory/SKU-000100/WH-BLR-01")
 
     assert response.status_code == 200
 
@@ -193,6 +194,7 @@ def test_get_inventory(client):
 # =========================================================
 # DYNAMIC REORDER POINT
 # =========================================================
+
 
 def test_dynamic_reorder_point(client):
 
@@ -227,6 +229,7 @@ def test_dynamic_reorder_point(client):
 # REORDER REQUIRED
 # =========================================================
 
+
 def test_reorder_required(client):
 
     seed_sales_history(
@@ -245,9 +248,7 @@ def test_reorder_required(client):
 
     assert response.status_code == 201
 
-    response = client.get(
-        "/api/v1/inventory/LOW1/WH-BLR-01/reorder-check"
-    )
+    response = client.get("/api/v1/inventory/LOW1/WH-BLR-01/reorder-check")
 
     assert response.status_code == 200
 
@@ -261,6 +262,7 @@ def test_reorder_required(client):
 # =========================================================
 # EXACT REORDER THRESHOLD
 # =========================================================
+
 
 def test_reorder_exactly_at_threshold(client):
 
@@ -303,8 +305,7 @@ def test_reorder_exactly_at_threshold(client):
     )
 
     response = client.put(
-        "/api/v1/inventory/"
-        "SKU-THRESHOLD/WH-BLR-01",
+        "/api/v1/inventory/SKU-THRESHOLD/WH-BLR-01",
         json={
             "quantity_on_hand": reorder_point,
             "version": 1,
@@ -313,10 +314,7 @@ def test_reorder_exactly_at_threshold(client):
 
     assert response.status_code == 200
 
-    check = client.get(
-        "/api/v1/inventory/"
-        "SKU-THRESHOLD/WH-BLR-01/reorder-check"
-    )
+    check = client.get("/api/v1/inventory/SKU-THRESHOLD/WH-BLR-01/reorder-check")
 
     assert check.status_code == 200
 
@@ -327,17 +325,14 @@ def test_reorder_exactly_at_threshold(client):
     assert data["needs_reorder"] is False
     assert data["suggested_order_qty"] == 0
 
-    plan_response = client.get(
-        "/api/v1/inventory/reorder-plan"
-    )
+    plan_response = client.get("/api/v1/inventory/reorder-plan")
 
     assert plan_response.status_code == 200
 
     matching = [
         item
         for item in plan_response.json()
-        if item["sku_id"] == "SKU-THRESHOLD"
-        and item["warehouse_id"] == "WH-BLR-01"
+        if item["sku_id"] == "SKU-THRESHOLD" and item["warehouse_id"] == "WH-BLR-01"
     ]
 
     assert matching == []
@@ -346,6 +341,7 @@ def test_reorder_exactly_at_threshold(client):
 # =========================================================
 # ONE UNIT BELOW REORDER THRESHOLD
 # =========================================================
+
 
 def test_reorder_one_unit_below_threshold(client):
 
@@ -392,8 +388,7 @@ def test_reorder_one_unit_below_threshold(client):
     )
 
     response = client.put(
-        "/api/v1/inventory/"
-        "SKU-BELOW/WH-BLR-01",
+        "/api/v1/inventory/SKU-BELOW/WH-BLR-01",
         json={
             "quantity_on_hand": quantity_below,
             "version": 1,
@@ -402,10 +397,7 @@ def test_reorder_one_unit_below_threshold(client):
 
     assert response.status_code == 200
 
-    check = client.get(
-        "/api/v1/inventory/"
-        "SKU-BELOW/WH-BLR-01/reorder-check"
-    )
+    check = client.get("/api/v1/inventory/SKU-BELOW/WH-BLR-01/reorder-check")
 
     assert check.status_code == 200
 
@@ -416,17 +408,14 @@ def test_reorder_one_unit_below_threshold(client):
     assert data["needs_reorder"] is True
     assert data["suggested_order_qty"] == 1
 
-    plan_response = client.get(
-        "/api/v1/inventory/reorder-plan"
-    )
+    plan_response = client.get("/api/v1/inventory/reorder-plan")
 
     assert plan_response.status_code == 200
 
     matching = [
         item
         for item in plan_response.json()
-        if item["sku_id"] == "SKU-BELOW"
-        and item["warehouse_id"] == "WH-BLR-01"
+        if item["sku_id"] == "SKU-BELOW" and item["warehouse_id"] == "WH-BLR-01"
     ]
 
     assert len(matching) == 1
@@ -435,6 +424,7 @@ def test_reorder_one_unit_below_threshold(client):
 # =========================================================
 # MULTI WAREHOUSE
 # =========================================================
+
 
 def test_same_sku_multiple_warehouses(client):
 
@@ -476,6 +466,7 @@ def test_same_sku_multiple_warehouses(client):
 # REORDER PLAN
 # =========================================================
 
+
 def test_reorder_plan(client):
 
     seed_sales_history(
@@ -494,9 +485,7 @@ def test_reorder_plan(client):
 
     assert response.status_code == 201
 
-    response = client.get(
-        "/api/v1/inventory/reorder-plan"
-    )
+    response = client.get("/api/v1/inventory/reorder-plan")
 
     assert response.status_code == 200
 
@@ -504,11 +493,7 @@ def test_reorder_plan(client):
 
     assert len(data) > 0
 
-    item = next(
-        item
-        for item in data
-        if item["sku_id"] == "PLAN1"
-    )
+    item = next(item for item in data if item["sku_id"] == "PLAN1")
 
     assert "urgency_score" in item
     assert "rolling_avg_demand" in item
@@ -519,6 +504,7 @@ def test_reorder_plan(client):
 # =========================================================
 # LOW STOCK
 # =========================================================
+
 
 def test_low_stock(client):
 
@@ -538,9 +524,7 @@ def test_low_stock(client):
 
     assert response.status_code == 201
 
-    response = client.get(
-        "/api/v1/inventory/low-stock"
-    )
+    response = client.get("/api/v1/inventory/low-stock")
 
     assert response.status_code == 200
     assert isinstance(response.json(), list)
@@ -549,6 +533,7 @@ def test_low_stock(client):
 # =========================================================
 # SINGLE SKU SIMULATION
 # =========================================================
+
 
 def test_simulate(client):
 
@@ -566,8 +551,7 @@ def test_simulate(client):
     assert response.status_code == 201
 
     response = client.post(
-        "/api/v1/inventory/"
-        "SIM1/WH-BLR-01/simulate",
+        "/api/v1/inventory/SIM1/WH-BLR-01/simulate",
         json={
             "demand_spike_percent": 50,
         },
@@ -586,6 +570,7 @@ def test_simulate(client):
 # =========================================================
 # WHAT-IF +30%
 # =========================================================
+
 
 def test_what_if(client_ceo):
 
@@ -627,6 +612,7 @@ def test_what_if(client_ceo):
 # DELETE
 # =========================================================
 
+
 def test_delete_inventory(client):
 
     seed_sales_history(
@@ -642,15 +628,11 @@ def test_delete_inventory(client):
 
     assert response.status_code == 201
 
-    response = client.delete(
-        "/api/v1/inventory/DEL1/WH-BLR-01"
-    )
+    response = client.delete("/api/v1/inventory/DEL1/WH-BLR-01")
 
     assert response.status_code == 200
 
-    response = client.get(
-        "/api/v1/inventory/DEL1/WH-BLR-01"
-    )
+    response = client.get("/api/v1/inventory/DEL1/WH-BLR-01")
 
     assert response.status_code == 404
 
@@ -658,6 +640,7 @@ def test_delete_inventory(client):
 # =========================================================
 # BULK UPDATE ROLLBACK
 # =========================================================
+
 
 def test_bulk_update_failure(client_warehouse_manager):
 
@@ -705,9 +688,7 @@ def test_bulk_update_failure(client_warehouse_manager):
 
     assert response.status_code == 409
 
-    response = client_warehouse_manager.get(
-        "/api/v1/inventory/BULK1/WH-BLR-01"
-    )
+    response = client_warehouse_manager.get("/api/v1/inventory/BULK1/WH-BLR-01")
 
     assert response.status_code == 200
 
@@ -720,12 +701,12 @@ def test_bulk_update_failure(client_warehouse_manager):
 # 1000 ITEM BULK UPDATE
 # =========================================================
 
+
 def test_bulk_update_1000_items(client_warehouse_manager):
 
     db = TestingSessionLocal()
 
     try:
-
         inventory_records = [
             Inventory(
                 sku_id=f"LOAD{i}",
@@ -739,9 +720,7 @@ def test_bulk_update_1000_items(client_warehouse_manager):
             for i in range(1000)
         ]
 
-        db.bulk_save_objects(
-            inventory_records
-        )
+        db.bulk_save_objects(inventory_records)
 
         db.commit()
 
@@ -787,15 +766,13 @@ def test_bulk_update_1000_items(client_warehouse_manager):
 
     assert len(data) == 1000
 
-    print(
-        f"\n1000-item bulk update: "
-        f"{elapsed:.4f} seconds"
-    )
+    print(f"\n1000-item bulk update: {elapsed:.4f} seconds")
 
 
 # =========================================================
 # NEGATIVE DEMAND MUST NOT CREATE INVENTORY
 # =========================================================
+
 
 def test_negative_demand_is_rejected(client):
 
@@ -829,10 +806,7 @@ def test_negative_demand_is_rejected(client):
     assert response.status_code == 400
     assert "Negative demand" in response.json()["detail"]
 
-    follow_up = client.get(
-        "/api/v1/inventory/"
-        "NEG-DEMAND-001/WH-BLR-01"
-    )
+    follow_up = client.get("/api/v1/inventory/NEG-DEMAND-001/WH-BLR-01")
 
     assert follow_up.status_code == 404
 
@@ -841,10 +815,10 @@ def test_negative_demand_is_rejected(client):
 # ABC 20% BOUNDARY
 # =========================================================
 
+
 def test_abc_exactly_at_20th_percentile(db_session):
 
     for rank in range(1, 11):
-
         db_session.add(
             SalesHistory(
                 sku_id=f"ABC-RANK-{rank:02d}",
@@ -858,40 +832,23 @@ def test_abc_exactly_at_20th_percentile(db_session):
 
     result = classify_skus(db_session)
 
-    assert (
-        result[("ABC-RANK-01", "WH-BLR-01")]["abc_tier"]
-        == "A"
-    )
+    assert result[("ABC-RANK-01", "WH-BLR-01")]["abc_tier"] == "A"
 
-    assert (
-        result[("ABC-RANK-02", "WH-BLR-01")]["rank_percentile"]
-        == 20.0
-    )
+    assert result[("ABC-RANK-02", "WH-BLR-01")]["rank_percentile"] == 20.0
 
-    assert (
-        result[("ABC-RANK-02", "WH-BLR-01")]["abc_tier"]
-        == "A"
-    )
+    assert result[("ABC-RANK-02", "WH-BLR-01")]["abc_tier"] == "A"
 
-    assert (
-        result[("ABC-RANK-03", "WH-BLR-01")]["rank_percentile"]
-        == 30.0
-    )
+    assert result[("ABC-RANK-03", "WH-BLR-01")]["rank_percentile"] == 30.0
 
-    assert (
-        result[("ABC-RANK-03", "WH-BLR-01")]["abc_tier"]
-        == "B"
-    )
+    assert result[("ABC-RANK-03", "WH-BLR-01")]["abc_tier"] == "B"
 
-    assert (
-        result[("ABC-RANK-10", "WH-BLR-01")]["abc_tier"]
-        == "C"
-    )
+    assert result[("ABC-RANK-10", "WH-BLR-01")]["abc_tier"] == "C"
 
 
 # =========================================================
 # TRANSFER SUGGESTION
 # =========================================================
+
 
 def test_transfer_suggestion(client):
 
@@ -929,48 +886,31 @@ def test_transfer_suggestion(client):
 
     assert response.status_code == 201
 
-    response = client.get(
-        "/api/v1/inventory/reorder-plan"
-    )
+    response = client.get("/api/v1/inventory/reorder-plan")
 
     assert response.status_code == 200
 
     data = response.json()
 
-    destination = next(
-        item
-        for item in data
-        if item["warehouse_id"] == "DEST"
-    )
+    destination = next(item for item in data if item["warehouse_id"] == "DEST")
 
     transfer = destination["transfer_suggestion"]
 
     assert transfer is not None
 
-    assert (
-        transfer["source_warehouse"]
-        == "SOURCE"
-    )
+    assert transfer["source_warehouse"] == "SOURCE"
 
-    assert (
-        transfer["destination_warehouse"]
-        == "DEST"
-    )
+    assert transfer["destination_warehouse"] == "DEST"
 
-    assert (
-        transfer["recommendation"]
-        == "TRANSFER"
-    )
+    assert transfer["recommendation"] == "TRANSFER"
 
-    assert (
-        transfer["transfer_quantity"]
-        > 0
-    )
+    assert transfer["transfer_quantity"] > 0
 
 
 # =========================================================
 # UPDATE
 # =========================================================
+
 
 def test_update_inventory(client):
 
@@ -1021,6 +961,7 @@ def test_update_inventory(client):
 # MANUAL DEMAND UPDATE MUST FAIL
 # =========================================================
 
+
 def test_manual_demand_update_rejected(client):
 
     seed_sales_history(
@@ -1054,6 +995,7 @@ def test_manual_demand_update_rejected(client):
 # SIMULATION +30%
 # =========================================================
 
+
 def test_simulate_30_percent_growth(client):
 
     seed_sales_history(
@@ -1073,10 +1015,7 @@ def test_simulate_30_percent_growth(client):
 
     assert response.status_code == 201
 
-    response = client.get(
-        "/api/v1/inventory/simulate"
-        "?growth_percent=30"
-    )
+    response = client.get("/api/v1/inventory/simulate?growth_percent=30")
 
     assert response.status_code == 200
 
@@ -1084,20 +1023,11 @@ def test_simulate_30_percent_growth(client):
 
     assert data["growth_percent"] == 30
 
-    assert (
-        data["total_inventory_items"]
-        == 1
-    )
+    assert data["total_inventory_items"] == 1
 
-    assert (
-        data["total_simulated_daily_demand"]
-        >= data["total_current_daily_demand"]
-    )
+    assert data["total_simulated_daily_demand"] >= data["total_current_daily_demand"]
 
-    assert (
-        data["additional_daily_demand"]
-        >= 0
-    )
+    assert data["additional_daily_demand"] >= 0
 
     assert len(data["items"]) == 1
 
@@ -1105,6 +1035,7 @@ def test_simulate_30_percent_growth(client):
 # =========================================================
 # SIMULATION MUST NOT MODIFY INVENTORY
 # =========================================================
+
 
 def test_simulation_does_not_modify_inventory(
     client,
@@ -1127,24 +1058,17 @@ def test_simulation_does_not_modify_inventory(
 
     assert response.status_code == 201
 
-    response = client.get(
-        "/api/v1/inventory/"
-    )
+    response = client.get("/api/v1/inventory/")
 
     assert response.status_code == 200
 
     before_data = response.json()
 
-    response = client.get(
-        "/api/v1/inventory/simulate"
-        "?growth_percent=30"
-    )
+    response = client.get("/api/v1/inventory/simulate?growth_percent=30")
 
     assert response.status_code == 200
 
-    response = client.get(
-        "/api/v1/inventory/"
-    )
+    response = client.get("/api/v1/inventory/")
 
     assert response.status_code == 200
 
@@ -1157,24 +1081,20 @@ def test_simulation_does_not_modify_inventory(
 # NEGATIVE SIMULATION GROWTH
 # =========================================================
 
+
 def test_simulate_negative_growth(client):
 
-    response = client.get(
-        "/api/v1/inventory/simulate"
-        "?growth_percent=-30"
-    )
+    response = client.get("/api/v1/inventory/simulate?growth_percent=-30")
 
     assert response.status_code == 400
 
-    assert (
-        response.json()["detail"]
-        == "Growth percentage cannot be negative"
-    )
+    assert response.json()["detail"] == "Growth percentage cannot be negative"
 
 
 # =========================================================
 # ZERO SIMULATION GROWTH
 # =========================================================
+
 
 def test_simulate_zero_growth(client):
 
@@ -1195,10 +1115,7 @@ def test_simulate_zero_growth(client):
 
     assert response.status_code == 201
 
-    response = client.get(
-        "/api/v1/inventory/simulate"
-        "?growth_percent=0"
-    )
+    response = client.get("/api/v1/inventory/simulate?growth_percent=0")
 
     assert response.status_code == 200
 
@@ -1206,62 +1123,44 @@ def test_simulate_zero_growth(client):
 
     assert data["growth_percent"] == 0
 
-    assert (
-        data["total_current_daily_demand"]
-        == data["total_simulated_daily_demand"]
-    )
+    assert data["total_current_daily_demand"] == data["total_simulated_daily_demand"]
 
 
 # =========================================================
 # EMPTY INVENTORY SIMULATION
 # =========================================================
 
+
 def test_simulate_empty_inventory(client):
 
-    response = client.get(
-        "/api/v1/inventory/simulate"
-        "?growth_percent=30"
-    )
+    response = client.get("/api/v1/inventory/simulate?growth_percent=30")
 
     assert response.status_code == 200
 
     data = response.json()
 
-    assert (
-        data["total_inventory_items"]
-        == 0
-    )
+    assert data["total_inventory_items"] == 0
 
     assert data["items"] == []
 
-    assert (
-        data["total_current_daily_demand"]
-        == 0
-    )
+    assert data["total_current_daily_demand"] == 0
 
-    assert (
-        data["total_simulated_daily_demand"]
-        == 0
-    )
+    assert data["total_simulated_daily_demand"] == 0
 
-    assert (
-        data["additional_daily_demand"]
-        == 0
-    )
+    assert data["additional_daily_demand"] == 0
 
 
 # =========================================================
 # CONCURRENT DECREMENT
 # =========================================================
 
+
 def test_concurrent_decrement_does_not_lose_updates(
     client,
 ):
 
     if test_engine.dialect.name != "postgresql":
-        pytest.skip(
-            "Row locking requires PostgreSQL"
-        )
+        pytest.skip("Row locking requires PostgreSQL")
 
     seed_sales_history(
         "CONC1",
@@ -1296,23 +1195,13 @@ def test_concurrent_decrement_does_not_lose_updates(
     def decrement():
 
         response = client.post(
-            "/api/v1/inventory/decrement"
-            "?sku_id=CONC1"
-            "&warehouse_id=WH-BLR-01"
-            "&quantity=1"
+            "/api/v1/inventory/decrement?sku_id=CONC1&warehouse_id=WH-BLR-01&quantity=1"
         )
 
         with lock:
-            responses.append(
-                response.status_code
-            )
+            responses.append(response.status_code)
 
-    threads = [
-        threading.Thread(
-            target=decrement
-        )
-        for _ in range(10)
-    ]
+    threads = [threading.Thread(target=decrement) for _ in range(10)]
 
     for thread in threads:
         thread.start()
@@ -1322,10 +1211,7 @@ def test_concurrent_decrement_does_not_lose_updates(
 
     assert sorted(responses) == [200] * 10
 
-    final = client.get(
-        "/api/v1/inventory/"
-        "CONC1/WH-BLR-01"
-    )
+    final = client.get("/api/v1/inventory/CONC1/WH-BLR-01")
 
     assert final.status_code == 200
 
@@ -1338,12 +1224,10 @@ def test_concurrent_decrement_does_not_lose_updates(
 # CSV MISSING COLUMNS
 # =========================================================
 
+
 def test_csv_rejects_missing_columns(client):
 
-    csv_content = (
-        "sku_id,product_name,warehouse_id\n"
-        "CSV-001,Laptop,WH-BLR-01\n"
-    )
+    csv_content = "sku_id,product_name,warehouse_id\nCSV-001,Laptop,WH-BLR-01\n"
 
     response = client.post(
         "/api/v1/inventory/bulk-upload",
@@ -1362,6 +1246,7 @@ def test_csv_rejects_missing_columns(client):
 # =========================================================
 # CSV NEGATIVE QUANTITY
 # =========================================================
+
 
 def test_csv_rejects_negative_quantity(client):
 
@@ -1388,6 +1273,7 @@ def test_csv_rejects_negative_quantity(client):
 # =========================================================
 # AUTH TEST HELPERS
 # =========================================================
+
 
 class _FakeResponse:
     def __init__(self, status_code, payload=None):
@@ -1433,14 +1319,13 @@ def fake_platform(monkeypatch):
 # INVALID TOKEN
 # =========================================================
 
+
 def test_invalid_token_returns_401(
     client_raw,
     fake_platform,
 ):
 
-    fake_platform(
-        status_code=401
-    )
+    fake_platform(status_code=401)
 
     response = client_raw.post(
         "/api/v1/inventory/what-if",
@@ -1456,6 +1341,7 @@ def test_invalid_token_returns_401(
 # =========================================================
 # WRONG ROLE
 # =========================================================
+
 
 def test_wrong_role_returns_403(
     client_raw,
@@ -1484,6 +1370,7 @@ def test_wrong_role_returns_403(
 # =========================================================
 # CORRECT ROLE
 # =========================================================
+
 
 def test_correct_role_succeeds(
     client_raw,
@@ -1516,14 +1403,13 @@ def test_correct_role_succeeds(
 # AUTH TIMEOUT
 # =========================================================
 
+
 def test_timeout_returns_503(
     client_raw,
     fake_platform,
 ):
 
-    fake_platform(
-        exc=httpx.TimeoutException("slow")
-    )
+    fake_platform(exc=httpx.TimeoutException("slow"))
 
     response = client_raw.post(
         "/api/v1/inventory/what-if",
@@ -1540,6 +1426,7 @@ def test_timeout_returns_503(
 # =========================================================
 # M4 VERSION INCREMENT
 # =========================================================
+
 
 def test_update_inventory_increments_version(client):
 
@@ -1569,8 +1456,7 @@ def test_update_inventory_increments_version(client):
     )
 
     update_response = client.put(
-        "/api/v1/inventory/"
-        "M4-VERSION-001/WH-BLR-01",
+        "/api/v1/inventory/M4-VERSION-001/WH-BLR-01",
         json={
             "quantity_on_hand": 90,
             "version": 1,
@@ -1588,6 +1474,7 @@ def test_update_inventory_increments_version(client):
 # =========================================================
 # M4 STALE VERSION
 # =========================================================
+
 
 def test_update_inventory_stale_version_returns_409(client):
 
@@ -1617,8 +1504,7 @@ def test_update_inventory_stale_version_returns_409(client):
     )
 
     first_update = client.put(
-        "/api/v1/inventory/"
-        "M4-STALE-001/WH-BLR-01",
+        "/api/v1/inventory/M4-STALE-001/WH-BLR-01",
         json={
             "quantity_on_hand": 90,
             "version": 1,
@@ -1629,8 +1515,7 @@ def test_update_inventory_stale_version_returns_409(client):
     assert first_update.json()["version"] == 2
 
     stale_update = client.put(
-        "/api/v1/inventory/"
-        "M4-STALE-001/WH-BLR-01",
+        "/api/v1/inventory/M4-STALE-001/WH-BLR-01",
         json={
             "quantity_on_hand": 80,
             "version": 1,
@@ -1649,6 +1534,7 @@ def test_update_inventory_stale_version_returns_409(client):
 # =========================================================
 # M4 STALE UPDATE MUST NOT CHANGE VERSION
 # =========================================================
+
 
 def test_stale_update_does_not_increment_version(client):
 
@@ -1674,8 +1560,7 @@ def test_stale_update_does_not_increment_version(client):
     )
 
     first_update = client.put(
-        "/api/v1/inventory/"
-        "M4-NO-INCREMENT-001/WH-BLR-01",
+        "/api/v1/inventory/M4-NO-INCREMENT-001/WH-BLR-01",
         json={
             "quantity_on_hand": 90,
             "version": 1,
@@ -1686,8 +1571,7 @@ def test_stale_update_does_not_increment_version(client):
     assert first_update.json()["version"] == 2
 
     stale_update = client.put(
-        "/api/v1/inventory/"
-        "M4-NO-INCREMENT-001/WH-BLR-01",
+        "/api/v1/inventory/M4-NO-INCREMENT-001/WH-BLR-01",
         json={
             "quantity_on_hand": 80,
             "version": 1,
@@ -1696,10 +1580,7 @@ def test_stale_update_does_not_increment_version(client):
 
     assert stale_update.status_code == 409
 
-    current = client.get(
-        "/api/v1/inventory/"
-        "M4-NO-INCREMENT-001/WH-BLR-01"
-    )
+    current = client.get("/api/v1/inventory/M4-NO-INCREMENT-001/WH-BLR-01")
 
     assert current.status_code == 200
 

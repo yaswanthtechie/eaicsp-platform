@@ -1,7 +1,6 @@
 from sqlalchemy.orm import Session
 
 from app.models.inventory import Inventory
-
 from app.services.valuation_service import (
     calculate_fifo_value,
     calculate_weighted_average_value,
@@ -12,19 +11,14 @@ def generate_inventory_value_report(
     db: Session,
     valuation_method: str = "fifo",
 ):
-    inventories = (
-        db.query(Inventory)
-        .all()
-    )
+    inventories = db.query(Inventory).all()
 
     # Store the total value for each
     # warehouse + category combination.
     grouped_report = {}
 
     for inventory in inventories:
-
         if valuation_method == "fifo":
-
             value = calculate_fifo_value(
                 db=db,
                 sku_id=inventory.sku_id,
@@ -32,7 +26,6 @@ def generate_inventory_value_report(
             )
 
         elif valuation_method == "weighted_average":
-
             value = calculate_weighted_average_value(
                 db=db,
                 sku_id=inventory.sku_id,
@@ -40,10 +33,7 @@ def generate_inventory_value_report(
             )
 
         else:
-
-            raise ValueError(
-                "Unsupported valuation method"
-            )
+            raise ValueError("Unsupported valuation method")
 
         category = inventory.category or "Uncategorized"
 
@@ -61,7 +51,6 @@ def generate_inventory_value_report(
     report = []
 
     for (warehouse_id, category), inventory_value in grouped_report.items():
-
         # Don't return zero-value rows.
         if inventory_value == 0:
             continue
@@ -77,9 +66,7 @@ def generate_inventory_value_report(
             }
         )
 
-    total_inventory_value = sum(
-        grouped_report.values()
-    )
+    total_inventory_value = sum(grouped_report.values())
 
     return {
         "valuation_method": valuation_method,

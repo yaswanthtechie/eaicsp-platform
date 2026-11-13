@@ -1,7 +1,8 @@
-from datetime import UTC, datetime, timedelta
 import json
 import threading
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
+
 import pytest
 from sqlalchemy.exc import OperationalError
 
@@ -24,13 +25,15 @@ def supplier_name_for(supplier_id: str) -> str:
 
 def seed_supplier(db_session, supplier_id: str, name: str | None = None) -> None:
     if db_session.get(Supplier, supplier_id) is None:
-        db_session.add(Supplier(
-            supplier_id=supplier_id,
-            supplier_name=name or supplier_name_for(supplier_id),
-            sku_id=f"SKU-{supplier_id}",
-            unit_cost=10.0,
-            lead_time_days=3,
-        ))
+        db_session.add(
+            Supplier(
+                supplier_id=supplier_id,
+                supplier_name=name or supplier_name_for(supplier_id),
+                sku_id=f"SKU-{supplier_id}",
+                unit_cost=10.0,
+                lead_time_days=3,
+            )
+        )
         db_session.commit()
 
 
@@ -110,6 +113,7 @@ def _run_until_drained(worker, consumer):
 # ============================================================================
 # 1. STATUS CLASSIFICATION & BASIC PO ACTIONS (HOLD & RELEASE)
 # ============================================================================
+
 
 def test_classify_compliance_status():
     assert classify_compliance_status("BLOCK") == "BLOCKED"
@@ -199,8 +203,22 @@ def test_po_released_to_draft_when_supplier_cleared(db_session):
     """
     When supplier cleared again: held POs with hold_source='compliance' are released back to draft.
     """
-    po1 = seed_po(db_session, "PO-2026-000013", "SUP-00013", status="on_hold", hold_reason="Previous sanction", hold_source="compliance")
-    po2 = seed_po(db_session, "PO-2026-000014", "SUP-00013", status="on_hold", hold_reason="Previous sanction", hold_source="compliance")
+    po1 = seed_po(
+        db_session,
+        "PO-2026-000013",
+        "SUP-00013",
+        status="on_hold",
+        hold_reason="Previous sanction",
+        hold_source="compliance",
+    )
+    po2 = seed_po(
+        db_session,
+        "PO-2026-000014",
+        "SUP-00013",
+        status="on_hold",
+        hold_reason="Previous sanction",
+        hold_source="compliance",
+    )
 
     event = make_event(
         event_id="EVT-CLR-1",
@@ -229,6 +247,7 @@ def test_po_released_to_draft_when_supplier_cleared(db_session):
 # 2. IDEMPOTENCY: DUPLICATE EVENTS DO NOT CHANGE STATE
 # ============================================================================
 
+
 def test_duplicate_event_is_idempotent_and_stores_event_id(db_session):
     """
     Idempotent: the same event delivered twice must not change anything the second time.
@@ -252,7 +271,11 @@ def test_duplicate_event_is_idempotent_and_stores_event_id(db_session):
     assert po.hold_reason == "First delivery"
 
     # Verify event_id is recorded in processed_events table
-    saved_event = db_session.query(ProcessedEvent).filter(ProcessedEvent.event_id == "EVT-IDEMP-99").first()
+    saved_event = (
+        db_session.query(ProcessedEvent)
+        .filter(ProcessedEvent.event_id == "EVT-IDEMP-99")
+        .first()
+    )
     assert saved_event is not None
     assert saved_event.status == "PROCESSED"
 
@@ -275,33 +298,45 @@ def test_duplicate_event_is_idempotent_and_stores_event_id(db_session):
 # 3. COMMIT OFFSET ONLY AFTER DB WRITE SUCCEEDS & CRASH-BEFORE-COMMIT SAFETY
 # ============================================================================
 
+
 def test_crash_before_commit_is_safe_on_restart(db_session):
     po = seed_po(db_session, "PO-CRASH", "SUP-CRASH", status="draft")
-    msg = FakeKafkaMessage(json.dumps(make_event(event_id="EVT-CRASH-1", supplier_id="SUP-CRASH")))
+    msg = FakeKafkaMessage(
+        json.dumps(make_event(event_id="EVT-CRASH-1", supplier_id="SUP-CRASH"))
+    )
     consumer = FakeKafkaConsumer([msg])
-    worker = ComplianceConsumerWorker(consumer=consumer, dlq_publisher=InMemoryKafkaPublisher(),
-                                      db_session_factory=lambda: db_session)
+    worker = ComplianceConsumerWorker(
+        consumer=consumer,
+        dlq_publisher=InMemoryKafkaPublisher(),
+        db_session_factory=lambda: db_session,
+    )
 
     # The process dies between the DB commit and the Kafka commit.
-    consumer.commit = MagicMock(side_effect=RuntimeError("process killed before offset commit"))
+    consumer.commit = MagicMock(
+        side_effect=RuntimeError("process killed before offset commit")
+    )
     with pytest.raises(RuntimeError, match="killed"):
         worker.handle_kafka_message(db=db_session, msg=msg)
     db_session.refresh(po)
-    assert po.status == "on_hold"                       # the DB write happened
-    del consumer.commit                                 # "restart": real commit behaviour again
+    assert po.status == "on_hold"  # the DB write happened
+    del consumer.commit  # "restart": real commit behaviour again
 
     # Kafka redelivers the uncommitted message; idempotency makes it a no-op.
     result = worker.handle_kafka_message(db=db_session, msg=msg)
     assert result.status == "DUPLICATE"
     assert consumer.committed_messages == [msg]
-    assert db_session.query(ProcessedEvent).filter_by(event_id="EVT-CRASH-1").count() == 1
+    assert (
+        db_session.query(ProcessedEvent).filter_by(event_id="EVT-CRASH-1").count() == 1
+    )
 
 
 def test_offset_not_committed_if_database_write_fails(db_session):
     """
     If the database write fails or raises an error, offset must NEVER be committed.
     """
-    event = make_event(event_id="EVT-FAIL-1", supplier_id="SUP-FAIL", new_status="BLOCK")
+    event = make_event(
+        event_id="EVT-FAIL-1", supplier_id="SUP-FAIL", new_status="BLOCK"
+    )
     msg = FakeKafkaMessage(json.dumps(event))
     consumer = FakeKafkaConsumer([msg])
     dlq_pub = InMemoryKafkaPublisher()
@@ -329,12 +364,20 @@ def test_offset_not_committed_if_database_write_fails(db_session):
 # 4. OUT-OF-ORDER EVENTS: CLEARED ARRIVES BEFORE OLDER BLOCKED
 # ============================================================================
 
+
 def test_out_of_order_events_cleared_before_older_blocked_does_not_block(db_session):
     """
     Out-of-order events: if "cleared" arrives before an older "blocked",
     don't end up blocked. Use occurred_at to decide.
     """
-    po = seed_po(db_session, "PO-2026-000018", "SUP-00018", status="on_hold", hold_reason="Under investigation", hold_source="compliance")
+    po = seed_po(
+        db_session,
+        "PO-2026-000018",
+        "SUP-00018",
+        status="on_hold",
+        hold_reason="Under investigation",
+        hold_source="compliance",
+    )
 
     t_earlier = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
     t_later = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
@@ -356,7 +399,11 @@ def test_out_of_order_events_cleared_before_older_blocked_does_not_block(db_sess
     assert po.hold_reason is None
 
     # Supplier compliance state recorded at t_later
-    state = db_session.query(SupplierComplianceState).filter_by(supplier_id="SUP-00018").first()
+    state = (
+        db_session.query(SupplierComplianceState)
+        .filter_by(supplier_id="SUP-00018")
+        .first()
+    )
     assert state is not None
     assert state.last_status == "CLEAR"
 
@@ -386,12 +433,15 @@ def test_out_of_order_events_cleared_before_older_blocked_does_not_block(db_sess
 # 5. BAD MESSAGES ROUTED TO DLQ & CONSUMER KEEPS RUNNING
 # ============================================================================
 
+
 def test_bad_messages_unparseable_json_goes_to_dlq_with_reason(db_session):
     """
     Bad messages: unparseable JSON goes to a dead-letter topic with reason.
     Offset is committed so consumer moves forward.
     """
-    bad_msg = FakeKafkaMessage(b"{invalid-json-payload-corrupted", partition=1, offset=42)
+    bad_msg = FakeKafkaMessage(
+        b"{invalid-json-payload-corrupted", partition=1, offset=42
+    )
     consumer = FakeKafkaConsumer([bad_msg])
     dlq_pub = InMemoryKafkaPublisher()
 
@@ -472,9 +522,7 @@ def test_bad_messages_missing_required_fields_goes_to_dlq(db_session):
         "event_type": "compliance.supplier.status_changed",
         "event_version": 1,
         "occurred_at": datetime.now(UTC).isoformat(),
-        "payload": {
-            "new_status": "BLOCK"
-        }
+        "payload": {"new_status": "BLOCK"},
     }
     msg = FakeKafkaMessage(json.dumps(event))
     consumer = FakeKafkaConsumer([msg])
@@ -500,16 +548,18 @@ def test_consumer_keeps_running_through_bad_message(db_session):
     Consumer processes bad message (routes to DLQ) and keeps running,
     successfully processing the subsequent valid message.
     """
-    po = seed_po(db_session, "PO-SURVIVE", "SUP-SURVIVE", status="draft")
+    seed_po(db_session, "PO-SURVIVE", "SUP-SURVIVE", status="draft")
 
     msg_bad = FakeKafkaMessage(b"corrupted-poison-pill-message", offset=101)
     msg_good = FakeKafkaMessage(
-        json.dumps(make_event(
-            event_id="EVT-GOOD-102",
-            supplier_id="SUP-SURVIVE",
-            new_status="BLOCK",
-            reason="Confirmed Block",
-        )),
+        json.dumps(
+            make_event(
+                event_id="EVT-GOOD-102",
+                supplier_id="SUP-SURVIVE",
+                new_status="BLOCK",
+                reason="Confirmed Block",
+            )
+        ),
         offset=102,
     )
 
@@ -532,9 +582,12 @@ def test_consumer_keeps_running_through_bad_message(db_session):
 
     # 2. Good message was processed and committed
     from tests.conftest import TestingSessionLocal
+
     verify_session = TestingSessionLocal()
     try:
-        po_updated = verify_session.query(PurchaseOrder).filter_by(po_id="PO-SURVIVE").first()
+        po_updated = (
+            verify_session.query(PurchaseOrder).filter_by(po_id="PO-SURVIVE").first()
+        )
         assert po_updated is not None
         assert po_updated.status == "on_hold"
         assert po_updated.hold_reason == "Confirmed Block"
@@ -550,18 +603,32 @@ def test_consumer_keeps_running_through_bad_message(db_session):
 # 6. BUSINESS LOGIC & ENDPOINTS FOR HELD PURCHASE ORDERS
 # ============================================================================
 
+
 def test_cannot_approve_or_receive_po_when_on_hold(db_session):
     """
     Business rule: When a PO is on hold, it cannot be approved or received.
     """
-    from app.services.purchase_order_service import approve_purchase_order, receive_purchase_order
+    from app.services.purchase_order_service import (
+        approve_purchase_order,
+        receive_purchase_order,
+    )
 
-    po = seed_po(db_session, "PO-HOLD-LOCK", "SUP-HOLD", status="on_hold", hold_reason="Compliance investigation")
+    po = seed_po(
+        db_session,
+        "PO-HOLD-LOCK",
+        "SUP-HOLD",
+        status="on_hold",
+        hold_reason="Compliance investigation",
+    )
 
-    with pytest.raises(ValueError, match="Cannot approve purchase order: PO is on hold"):
+    with pytest.raises(
+        ValueError, match="Cannot approve purchase order: PO is on hold"
+    ):
         approve_purchase_order(db=db_session, po_id=po.po_id, approved_by="7")
 
-    with pytest.raises(ValueError, match="Cannot receive purchase order: PO is on hold"):
+    with pytest.raises(
+        ValueError, match="Cannot receive purchase order: PO is on hold"
+    ):
         receive_purchase_order(db=db_session, po_id=po.po_id, received_by="1")
 
 
@@ -570,7 +637,13 @@ def test_get_and_list_purchase_order_endpoints(client, db_session):
     API test: GET /api/v1/inventory/purchase-orders and GET /{po_id} return
     PO details including hold_reason when on hold.
     """
-    seed_po(db_session, "PO-2026-000021", "SUP-00021", status="on_hold", hold_reason="Sanctions review")
+    seed_po(
+        db_session,
+        "PO-2026-000021",
+        "SUP-00021",
+        status="on_hold",
+        hold_reason="Sanctions review",
+    )
     seed_po(db_session, "PO-2026-000022", "SUP-00021", status="draft")
 
     # 1. Get by ID
@@ -593,15 +666,25 @@ def test_get_and_list_purchase_order_endpoints(client, db_session):
 # 7. NEW TESTS REQUESTED BY TL (ITEM 6)
 # ============================================================================
 
+
 def test_real_producer_event_holds_pos(db_session):
     seed_supplier(db_session, "SUP-00001", name="supplier sup001 ")
     seed_po(db_session, "PO-REAL", "SUP-00001")
-    event = {   # copied from build_supplier_status_changed_event() in services/compliance
-        "event_id": "real-1", "event_type": "compliance.supplier.status_changed", "event_version": 1,
-        "occurred_at": datetime.now(UTC).isoformat(), "producer": "compliance-service",
-        "payload": {"supplier_name": "supplier sup001 ", "country": "India", "old_status": "CLEAR",
-                    "new_status": "BLOCK", "matched_list": ["OFAC"],
-                    "reason": "Strong compliance match found", "screening_run_id": "run-123"},
+    event = {  # copied from build_supplier_status_changed_event() in services/compliance
+        "event_id": "real-1",
+        "event_type": "compliance.supplier.status_changed",
+        "event_version": 1,
+        "occurred_at": datetime.now(UTC).isoformat(),
+        "producer": "compliance-service",
+        "payload": {
+            "supplier_name": "supplier sup001 ",
+            "country": "India",
+            "old_status": "CLEAR",
+            "new_status": "BLOCK",
+            "matched_list": ["OFAC"],
+            "reason": "Strong compliance match found",
+            "screening_run_id": "run-123",
+        },
     }
     result = process_compliance_event(db_session, event)
     assert result.status == "PROCESSED"
@@ -610,14 +693,22 @@ def test_real_producer_event_holds_pos(db_session):
 
 def test_transient_db_error_is_retried_not_skipped(db_session, monkeypatch):
     import app.services.compliance_consumer as cc
+
     monkeypatch.setattr(cc.time, "sleep", lambda s: None)
     seed_po(db_session, "PO-2026-000019", "SUP-00019")
     seed_po(db_session, "PO-2026-000020", "SUP-00020")
-    m1 = FakeKafkaMessage(json.dumps(make_event(event_id="E1", supplier_id="SUP-00019")), offset=1)
-    m2 = FakeKafkaMessage(json.dumps(make_event(event_id="E2", supplier_id="SUP-00020")), offset=2)
+    m1 = FakeKafkaMessage(
+        json.dumps(make_event(event_id="E1", supplier_id="SUP-00019")), offset=1
+    )
+    m2 = FakeKafkaMessage(
+        json.dumps(make_event(event_id="E2", supplier_id="SUP-00020")), offset=2
+    )
     consumer = FakeKafkaConsumer([m1, m2])
-    worker = ComplianceConsumerWorker(consumer=consumer, dlq_publisher=InMemoryKafkaPublisher(),
-                                      db_session_factory=lambda: db_session)
+    worker = ComplianceConsumerWorker(
+        consumer=consumer,
+        dlq_publisher=InMemoryKafkaPublisher(),
+        db_session_factory=lambda: db_session,
+    )
 
     real = cc.process_compliance_event
     failed = []
@@ -625,7 +716,9 @@ def test_transient_db_error_is_retried_not_skipped(db_session, monkeypatch):
     def flaky(db, event_data):
         if event_data["event_id"] == "E1" and not failed:
             failed.append(True)
-            raise OperationalError("UPDATE purchase_orders", {}, Exception("deadlock detected"))
+            raise OperationalError(
+                "UPDATE purchase_orders", {}, Exception("deadlock detected")
+            )
         return real(db=db, event_data=event_data)
 
     monkeypatch.setattr(cc, "process_compliance_event", flaky)
@@ -635,15 +728,19 @@ def test_transient_db_error_is_retried_not_skipped(db_session, monkeypatch):
     assert consumer.seeks == [(0, 1)]
     assert [m.offset() for m in consumer.committed_messages] == [1, 2]
     db_session.expire_all()
-    assert db_session.get(PurchaseOrder, "PO-2026-000019").status == "on_hold"   # E1 was NOT lost
+    assert (
+        db_session.get(PurchaseOrder, "PO-2026-000019").status == "on_hold"
+    )  # E1 was NOT lost
 
 
 def test_dlq_down_does_not_commit_and_retries(db_session, monkeypatch):
     import app.services.compliance_consumer as cc
+
     monkeypatch.setattr(cc.time, "sleep", lambda s: None)
 
     class FlakyDLQ(InMemoryKafkaPublisher):
         calls = 0
+
         def publish(self, topic, key, value):
             self.calls += 1
             if self.calls == 1:
@@ -653,14 +750,15 @@ def test_dlq_down_does_not_commit_and_retries(db_session, monkeypatch):
     bad = FakeKafkaMessage(b"garbage", offset=5)
     consumer = FakeKafkaConsumer([bad])
     dlq = FlakyDLQ()
-    worker = ComplianceConsumerWorker(consumer=consumer, dlq_publisher=dlq,
-                                      db_session_factory=lambda: db_session)
+    worker = ComplianceConsumerWorker(
+        consumer=consumer, dlq_publisher=dlq, db_session_factory=lambda: db_session
+    )
 
-    with pytest.raises(DeadLetterPublishError):          # first attempt: nothing committed
+    with pytest.raises(DeadLetterPublishError):  # first attempt: nothing committed
         worker.handle_kafka_message(db_session, bad)
     assert consumer.committed_messages == []
 
-    _run_until_drained(worker, consumer)                  # retry succeeds
+    _run_until_drained(worker, consumer)  # retry succeeds
     assert len(dlq.published_messages) == 1
     assert consumer.committed_messages == [bad]
 
@@ -668,7 +766,9 @@ def test_dlq_down_does_not_commit_and_retries(db_session, monkeypatch):
 def test_future_occurred_at_is_rejected(db_session):
     future = (datetime.now(UTC) + timedelta(days=365)).isoformat()
     with pytest.raises(InvalidMessageError, match="future"):
-        process_compliance_event(db_session, make_event(event_id="E-FUT", occurred_at=future))
+        process_compliance_event(
+            db_session, make_event(event_id="E-FUT", occurred_at=future)
+        )
 
 
 def test_ambiguous_supplier_name_goes_to_dlq(db_session):
@@ -687,8 +787,10 @@ def test_unknown_supplier_is_recorded_and_not_retried(db_session):
 
 
 def test_simulate_endpoint_is_gone(client):
-    response = client.post("/api/v1/inventory/purchase-orders/compliance-events/simulate",
-                           json={"supplier_id": "SUP-00001", "new_status": "CLEAR"})
+    response = client.post(
+        "/api/v1/inventory/purchase-orders/compliance-events/simulate",
+        json={"supplier_id": "SUP-00001", "new_status": "CLEAR"},
+    )
     assert response.status_code in (404, 405)
 
 
@@ -720,12 +822,15 @@ def test_block_does_not_overwrite_other_source_hold(db_session):
     assert po.hold_source == "finance"
 
 
-def test_repeated_transient_failure_routes_to_dlq_after_max_retries(db_session, monkeypatch):
+def test_repeated_transient_failure_routes_to_dlq_after_max_retries(
+    db_session, monkeypatch
+):
     """
     Optional follow up: Cap retries so a message that always fails ends up
     in the DLQ rather than stalling the partition indefinitely.
     """
     import app.services.compliance_consumer as cc
+
     monkeypatch.setattr(cc.time, "sleep", lambda s: None)
 
     msg = FakeKafkaMessage(
@@ -753,5 +858,6 @@ def test_repeated_transient_failure_routes_to_dlq_after_max_retries(db_session, 
     assert len(dlq_pub.published_messages) == 1
     assert "Exceeded max retries (3)" in dlq_pub.published_messages[0]["value"]
     assert consumer.committed_messages == [msg]
-    assert len(consumer.seeks) == 2  # Attempt 1 and 2 sought back; attempt 3 routed to DLQ
-
+    assert (
+        len(consumer.seeks) == 2
+    )  # Attempt 1 and 2 sought back; attempt 3 routed to DLQ
