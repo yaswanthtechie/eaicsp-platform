@@ -1,4 +1,4 @@
-﻿CREATE TABLE IF NOT EXISTS client_id_mapping (
+CREATE TABLE IF NOT EXISTS client_id_mapping (
     entity_type VARCHAR(50) NOT NULL,
     client_code VARCHAR(150) NOT NULL,
     canonical_id VARCHAR(100) NOT NULL,
