@@ -4,7 +4,7 @@ import json
 import joblib
 import pandas as pd
 import pytest
-
+from client_train import _metric_safe
 from client_train import train_client_eta
 
 
@@ -302,3 +302,8 @@ def test_model_is_not_saved_when_it_loses_to_baseline(
     assert result["metadata"]["model_saved"] is False
     assert result["model_path"] is None
     assert result["metadata_path"] == rejected_path
+
+def test_metric_safe_replaces_characters_mlflow_rejects():
+    assert _metric_safe("Blue Dart & Co") == "Blue Dart _ Co"
+    assert _metric_safe("DHL (Express)") == "DHL _Express_"
+    assert _metric_safe("Gati-KWE") == "Gati-KWE"

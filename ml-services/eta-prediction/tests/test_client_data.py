@@ -138,3 +138,41 @@ def test_both_optional_columns_missing():
     assert "volume_m3" in result.columns
     assert result["weight_kg"].isna().all()
     assert result["volume_m3"].isna().all()
+
+def test_duplicate_keeps_latest_dispatch_date_even_if_earlier_line():
+    shipments = make_shipments()
+
+    # The first CSV row has the latest dispatch date.
+    shipments.loc[0, "shipment_id"] = "SHP001"
+    shipments.loc[0, "dispatch_date"] = "2026-01-20"
+    shipments.loc[0, "carrier_name"] = "Latest Carrier"
+
+    # The second CSV row has an earlier dispatch date.
+    shipments.loc[1, "shipment_id"] = "SHP001"
+    shipments.loc[1, "dispatch_date"] = "2026-01-10"
+    shipments.loc[1, "carrier_name"] = "Older Carrier"
+
+    result = adapt_client_shipments(shipments)
+
+    assert len(result) == 1
+    assert result.loc[0, "shipment_id"] == "SHP001"
+    assert result.loc[0, "dispatch_date"] == pd.Timestamp("2026-01-20")
+    assert result.loc[0, "carrier_name"] == "Latest Carrier"
+    assert result.attrs["duplicate_shipment_count"] == 1
+
+def test_duplicate_keeps_valid_date_over_invalid_date():
+    shipments = make_shipments()
+
+    shipments.loc[0, "shipment_id"] = "SHP001"
+    shipments.loc[0, "dispatch_date"] = "invalid-date"
+    shipments.loc[0, "carrier_name"] = "Invalid Date Carrier"
+
+    shipments.loc[1, "shipment_id"] = "SHP001"
+    shipments.loc[1, "dispatch_date"] = "2026-01-10"
+    shipments.loc[1, "carrier_name"] = "Valid Date Carrier"
+
+    result = adapt_client_shipments(shipments)
+
+    assert len(result) == 1
+    assert result.loc[0, "carrier_name"] == "Valid Date Carrier"
+    assert result.loc[0, "dispatch_date"] == pd.Timestamp("2026-01-10")

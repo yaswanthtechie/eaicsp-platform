@@ -2,7 +2,7 @@
 """Integration test for the R15 client shipment data pipeline."""
 
 import pandas as pd
-
+from src.paths import SEED_SAMPLES_DIR
 from src.client_data import load_client_shipments
 from src.client_features import (
     FEATURE_COLUMNS,
@@ -11,6 +11,13 @@ from src.client_features import (
 )
 from src.client_routes import add_client_route_distances
 
+CLIENT_SAMPLES = (
+    SEED_SAMPLES_DIR.parents[1]
+    / "etl"
+    / "client_ingest"
+    / "samples"
+    / "client_format"
+)
 
 def test_client_shipment_pipeline_end_to_end(tmp_path):
     """Test CSV loading, route enrichment and feature preparation."""
@@ -109,3 +116,29 @@ def test_client_shipment_pipeline_end_to_end(tmp_path):
     assert feature_diagnostics["total_shipments"] == 2
     assert feature_diagnostics["prepared_shipments"] == 2
     assert feature_diagnostics["excluded_target_rows"] == 0
+
+def test_pipeline_on_committed_client_sample_files():
+    """Test the pipeline using the committed #322 client sample files."""
+
+    shipments = load_client_shipments(
+        CLIENT_SAMPLES / "shipment_history.csv"
+    )
+
+    suppliers = pd.read_csv(SEED_SAMPLES_DIR / "suppliers.csv")
+    warehouses = pd.read_csv(SEED_SAMPLES_DIR / "warehouses.csv")
+
+    warehouse_master = pd.read_csv(
+        CLIENT_SAMPLES / "warehouse_master.csv"
+    )
+
+    enriched, route_diagnostics = add_client_route_distances(
+        shipments,
+        suppliers,
+        warehouses,
+        warehouse_master,
+    )
+
+    _, _, _, feature_diagnostics = prepare_client_features(enriched)
+
+    assert route_diagnostics["unknown_location_count"] == 0
+    assert feature_diagnostics["prepared_shipments"] == 340

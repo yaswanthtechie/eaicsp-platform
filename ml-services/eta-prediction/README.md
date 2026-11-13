@@ -192,7 +192,7 @@ The workflow sorts shipments by dispatch date and uses earlier shipments for tra
 The model is evaluated against the client's own planned-delivery-date baseline. Both MAE values are calculated on the same eligible test shipments. Per-carrier MAE is also reported.
 
 
-**Current synthetic-data evaluation:**
+### Current Synthetic-Data Evaluation
 
 | Metric | Result |
 |---|---:|

@@ -52,14 +52,14 @@ def prepare_client_features(shipments: pd.DataFrame):
         "actual_delivery_date",
     ]
 
-    # Strictly accept YYYY-MM-DD dates.
-    # Invalid dates become NaT and are handled by diagnostics.
+    # Parse dates only when they are not already datetime columns.
     for column in date_columns:
-        data[column] = pd.to_datetime(
-            data[column],
-            format="%Y-%m-%d",
-            errors="coerce",
-        )
+        if not pd.api.types.is_datetime64_any_dtype(data[column]):
+            data[column] = pd.to_datetime(
+                data[column],
+                format="%Y-%m-%d",
+                errors="coerce",
+            )
 
     delivery_days = (
         data["actual_delivery_date"] - data["dispatch_date"]

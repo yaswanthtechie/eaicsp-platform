@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import re
 from datetime import datetime, timezone
 
 import joblib
@@ -32,12 +33,18 @@ from src.paths import (
 )
 
 
+def _metric_safe(name: str) -> str:
+    """Make a carrier name safe to use inside an MLflow metric name."""
+    return re.sub(r"[^\w\-. /:]", "_", str(name))
+
+
 def train_client_eta(
     shipment_file,
     suppliers: pd.DataFrame,
     warehouses: pd.DataFrame,
     warehouse_master: pd.DataFrame,
     test_size: float = TEST_SIZE,
+    data_label: str = "synthetic",
 ):
     """
     Train and evaluate the R15-H4 client ETA model.
@@ -54,6 +61,9 @@ def train_client_eta(
         Client warehouse codes and their actual city names.
     test_size : float
         Fraction of data reserved for chronological testing.
+    data_label : str
+        Label identifying the training data source, such as
+        'synthetic' or 'client_real'.
 
     Returns
     -------
@@ -127,6 +137,7 @@ def train_client_eta(
         training_metadata = {
             "model_name": "R15-H4-client-eta",
             "trained_at_utc": datetime.now(timezone.utc).isoformat(),
+            "data_label": data_label,
             "feature_columns": all_feature_columns,
             "target": "delivery_days",
             "test_size": test_size,
@@ -172,7 +183,9 @@ def train_client_eta(
         # Log training context.
         mlflow.set_tags(
             {
-                "training_data": "client_shipment_history_synthetic",
+                "training_data": (
+                    f"client_shipment_history_{data_label}"
+                ),
                 "baseline": "planned_delivery_date",
                 "model_beats_baseline": str(
                     evaluation["model_beats_baseline"]
@@ -200,7 +213,7 @@ def train_client_eta(
             "model_per_carrier_mae"
         ].items():
             mlflow.log_metric(
-                f"model_mae_days/{carrier}",
+                f"model_mae_days/{_metric_safe(carrier)}",
                 mae,
             )
 
@@ -209,14 +222,8 @@ def train_client_eta(
             "baseline_per_carrier_mae"
         ].items():
             mlflow.log_metric(
-                f"baseline_mae_days/{carrier}",
+                f"baseline_mae_days/{_metric_safe(carrier)}",
                 mae,
-            )
-
-            # Log complete evaluation metadata to MLflow.
-            mlflow.log_dict(
-                training_metadata,
-                "eta_client_metadata_h4.json",
             )
 
         # Log model artifact only when it beats the baseline.
@@ -227,7 +234,6 @@ def train_client_eta(
                 serialization_format=(
                     mlflow.sklearn.SERIALIZATION_FORMAT_CLOUDPICKLE
                 ),
-                # Keep carrier names as strings for the pipeline encoder.
                 input_example=X_train.head(1),
             )
 
@@ -247,6 +253,12 @@ def train_client_eta(
 
         with metadata_path.open("w", encoding="utf-8") as file:
             json.dump(training_metadata, file, indent=4)
+
+        # Log the final metadata, including model_saved, once.
+        mlflow.log_dict(
+            training_metadata,
+            metadata_path.name,
+        )
 
         return {
             "model": model,
@@ -273,13 +285,22 @@ def main():
     parser.add_argument(
         "--shipments",
         required=True,
-        help="Path to the synthetic client shipment-history CSV.",
+        help="Path to the client shipment-history CSV.",
     )
 
     parser.add_argument(
         "--warehouse-master",
         required=True,
-        help="Path to the synthetic client warehouse master CSV.",
+        help="Path to the client warehouse master CSV.",
+    )
+
+    parser.add_argument(
+        "--data-label",
+        default="synthetic",
+        help=(
+            "Label for the training data in MLflow, "
+            "e.g. synthetic or client_real."
+        ),
     )
 
     args = parser.parse_args()
@@ -304,6 +325,7 @@ def main():
         suppliers=suppliers,
         warehouses=warehouses,
         warehouse_master=warehouse_master,
+        data_label=args.data_label,
     )
 
     print("\nR15-H4 Training Results")

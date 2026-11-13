@@ -254,11 +254,14 @@ def test_conflicting_coordinates_across_seed_files_are_rejected(
 def test_tiny_coordinate_differences_are_accepted_after_rounding(
     shipments, suppliers, warehouses, warehouse_master
 ):
-    # These coordinates differ slightly from Mumbai's supplier
-    # coordinates but become identical after rounding to 4 decimals.
+    # These coordinates differ by less than the 1e-3 degree tolerance.
     warehouses.loc[2, "city"] = "Mumbai"
-    warehouses.loc[2, "lat"] = 19.07604
+    warehouses.loc[2, "lat"] = 12.97144999
     warehouses.loc[2, "lng"] = 72.87774
+
+    suppliers.loc[
+        suppliers["city"] == "Mumbai", "lat"
+    ] = 12.97155
 
     result, diagnostics = add_client_route_distances(
         shipments, suppliers, warehouses, warehouse_master

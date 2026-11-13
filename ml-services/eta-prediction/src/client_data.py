@@ -41,7 +41,7 @@ def adapt_client_shipments(
 
     Optional weight and volume columns are added when absent.
     Duplicate shipment IDs are counted, logged, and resolved
-    by keeping the last occurrence.
+    by keeping the latest dated occurrence.
     """
 
     if not isinstance(shipments, pd.DataFrame):
@@ -79,19 +79,6 @@ def adapt_client_shipments(
     if shipments["shipment_id"].eq("").any():
         raise ValueError("shipment_id contains empty values.")
 
-    # Count duplicates and keep the last occurrence.
-    duplicate_mask = shipments["shipment_id"].duplicated(keep="last")
-    duplicate_count = int(duplicate_mask.sum())
-
-    if duplicate_count:
-        logger.warning(
-            "Dropping %d duplicate shipment_id rows (kept last).",
-            duplicate_count,
-        )
-        shipments = shipments.loc[~duplicate_mask].copy()
-
-    shipments.attrs["duplicate_shipment_count"] = duplicate_count
-
     # Normalize text fields without changing their meaning.
     text_columns = [
         "po_number",
@@ -115,6 +102,27 @@ def adapt_client_shipments(
             format="%Y-%m-%d",
             errors="coerce",
         )
+
+    # Sort by shipment dates before resolving duplicate shipment IDs.
+    # NaT values come first, allowing valid dated records to win.
+    shipments = shipments.sort_values(
+        ["dispatch_date", "actual_delivery_date"],
+        kind="stable",
+        na_position="first",
+    )
+
+    # Keep the latest dated record for each shipment ID.
+    duplicate_mask = shipments["shipment_id"].duplicated(keep="last")
+    duplicate_count = int(duplicate_mask.sum())
+
+    if duplicate_count:
+        logger.warning(
+            "Dropping %d duplicate shipment_id rows (kept latest).",
+            duplicate_count,
+        )
+        shipments = shipments.loc[~duplicate_mask].copy()
+
+    shipments.attrs["duplicate_shipment_count"] = duplicate_count
 
     return shipments.reset_index(drop=True)
 

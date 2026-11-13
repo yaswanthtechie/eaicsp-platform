@@ -59,18 +59,14 @@ def _build_city_coordinates(suppliers, warehouses):
 
     cities = cities.loc[valid].copy()
 
-    # Normalize coordinate precision before checking for conflicts.
-    cities["lat"] = cities["lat"].round(4)
-    cities["lng"] = cities["lng"].round(4)
-
-    coordinate_counts = (
-        cities.groupby("_city_key")[["lat", "lng"]]
-        .nunique()
+    # Check coordinate differences using a tolerance instead of rounding.
+    coordinate_spread = cities.groupby("_city_key")[["lat", "lng"]].agg(
+        lambda values: values.max() - values.min()
     )
 
-    conflicting = coordinate_counts[
-        (coordinate_counts["lat"] > 1)
-        | (coordinate_counts["lng"] > 1)
+    conflicting = coordinate_spread[
+        (coordinate_spread["lat"] > 1e-3)
+        | (coordinate_spread["lng"] > 1e-3)
     ]
 
     if not conflicting.empty:
@@ -189,14 +185,6 @@ def add_client_route_distances(
         | ~origin_keys.isin(city_coordinates.index)
     )
 
-    unknown_warehouses = (
-        warehouse_keys.isna()
-        | warehouse_keys.eq("")
-        | destination_keys.isna()
-        | destination_keys.eq("")
-        | ~destination_keys.isin(city_coordinates.index)
-    )
-
     unknown_warehouse_codes_mask = (
         warehouse_keys.isna()
         | warehouse_keys.eq("")
@@ -208,8 +196,12 @@ def add_client_route_distances(
         & ~destination_keys.isin(city_coordinates.index)
     ).fillna(False)
 
-    # Keep the combined location check unchanged.
-    known_locations = ~(unknown_origins | unknown_warehouses)
+    unknown_destinations = (
+        unknown_warehouse_codes_mask
+        | unknown_destination_cities_mask
+    )
+
+    known_locations = ~(unknown_origins | unknown_destinations)
 
     # 7. Calculate distances without dropping unknown-location rows.
     result[DISTANCE_COLUMN] = np.nan
@@ -238,7 +230,7 @@ def add_client_route_distances(
             unknown_destination_cities_mask.sum()
         ),
         "unknown_location_count": int(
-            (unknown_origins | unknown_warehouses).sum()
+            (unknown_origins | unknown_destinations).sum()
         ),
         "missing_distance_count": int(
             result[DISTANCE_COLUMN].isna().sum()
