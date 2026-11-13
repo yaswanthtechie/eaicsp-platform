@@ -97,6 +97,27 @@ Each service owner writes their own loader. It must:
 
 The seed generator writes its output to `data-platform/out/`.
 
+### Seed loader database configuration
+
+Each service seed loader receives its database connection through the `DATABASE_URL` environment variable.
+
+Use the `<NAME>_DATABASE_URL` convention for service-specific configuration: take the service folder name under `services/`, convert it to uppercase, replace hyphens (`-`) with underscores (`_`), and append `_DATABASE_URL`. For example, `services/supplier-portal/` uses `SUPPLIER_PORTAL_DATABASE_URL`.
+
+Currently, the Inventory service is the only service with a seed loader. Configure its connection in the repository-root `.env` file:
+
+```dotenv
+INVENTORY_DB_PASSWORD=your_inventory_password
+POSTGRES_DB=shared_platform
+INVENTORY_DATABASE_URL=postgresql+psycopg2://inventory_user:${INVENTORY_DB_PASSWORD}@localhost:5432/${POSTGRES_DB}
+```
+
+The shared runner reads the root `.env` file and maps `INVENTORY_DATABASE_URL` to `DATABASE_URL` when running the Inventory loader.
+
+The loader connects as `inventory_user` and writes only to the Inventory schema. Never use the PostgreSQL superuser for service seed loading.
+
+If a required service database URL is missing or empty, the runner stops and reports the missing configuration instead of displaying an unhelpful settings-validation traceback.
+
+
 ## Running Make on Windows
 
 Make is not included in PowerShell by default. Install Make using one of these options:
@@ -116,11 +137,12 @@ Alternatively, run the equivalent Docker Compose commands directly from PowerShe
 ## Running the whole platform
 
 1. Copy `.env.example` to `.env` if needed, then set unique local secrets and database passwords. Do not commit `.env`.
-2. From the repository root, run `make up`. This starts the shared stores, initializes MinIO buckets, builds the application images, and waits for configured health checks.
-3. Run `make seed` to generate shared seed data and run the available seed loaders.
-4. Run `make logs` to follow container logs, or `make ps` to inspect service status.
-5. Run `make reset` to recreate containers while preserving named volumes and stored data.
-6. Run `make down` to stop the stack. `make up-low-memory` starts the reduced infrastructure only.
+2. Ensure `INVENTORY_DATABASE_URL` is configured in the root `.env` file for the Inventory seed loader.
+3. From the repository root, run `make up`. This starts the shared stores, initializes MinIO buckets, builds the application images, and waits for configured health checks.
+4. Run `make seed` to generate shared seed data and run the available seed loaders.
+5. Run `make logs` to follow container logs, or `make ps` to inspect service status.
+6. Run `make reset` to recreate containers while preserving named volumes and stored data.
+7. Run `make down` to stop the stack. `make up-low-memory` starts the reduced infrastructure only.
 
 Application ports: Gateway 8000, Inventory 8001, Logistics 8002, Compliance 8003, Supplier Portal 8004, Platform 8005.
 
