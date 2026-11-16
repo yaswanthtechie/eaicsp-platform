@@ -13,7 +13,7 @@ from referencing import Registry, Resource
 DAGS_DIR = Path(__file__).resolve().parents[1] / "dags"
 sys.path.insert(0, str(DAGS_DIR))
 
-from forecast_batch_helpers import build_event, build_rows, write_batch
+from forecast_batch_helpers import build_event, build_rows, forecast_pairs, write_batch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -186,18 +186,22 @@ def test_same_batch_rerun_is_idempotent_for_clickhouse_and_redis():
             cache_entries=cache_entries,
             columns=columns,
             ttl=86400,
+            batch_date_text="2026-11-12",
         )
 
     final_rows = ch.final_rows(date(2026, 11, 12))
 
     assert len(final_rows) == len(pairs) * 30
     assert len(ch.inserted_rows) == len(pairs) * 30 * 2
-    assert len(cache.values) == len(pairs)
+    assert len(cache.values) == len(pairs) + 1
+    assert cache.values["forecast_cache:latest_batch_date"] == "2026-11-12"
     assert cache.pipeline_executions == 2
-    assert set(cache.values) == {
+    expected_keys = {
         f"forecast_cache:2026-11-12:{sku}:{warehouse}"
         for sku, warehouse in pairs
     }
+    expected_keys.add("forecast_cache:latest_batch_date")
+    assert set(cache.values) == expected_keys
 
 
 def test_invalid_forecast_values_raise_value_error():
@@ -281,3 +285,56 @@ def test_partial_event_matches_contract():
 
     assert event["payload"]["status"] == "PARTIAL"
     assert event["payload"]["message"] == "One SKU/warehouse pair failed."
+
+
+
+class _FailingModel:
+    def predict(self, sku, warehouse, horizon):
+        raise ValueError("model output invalid")
+
+
+class _MixedModel:
+    def predict(self, sku, warehouse, horizon):
+        if sku == "SKU-000002":
+            raise ValueError("model output invalid")
+        return sample_forecast(count=horizon)
+
+
+def test_zero_successful_pairs_raises():
+    with pytest.raises(RuntimeError, match="No SKU/warehouse pairs"):
+        forecast_pairs(
+            model=_FailingModel(),
+            pairs={("SKU-000001", "WH-HYD-01")},
+            horizon=30,
+            batch_date=date(2026, 11, 12),
+            model_version="demand_forecast/1",
+            generated_at=datetime(2026, 11, 12, 1, tzinfo=timezone.utc),
+            version=datetime(2026, 11, 12, 1, tzinfo=timezone.utc),
+            interval_level=0.8,
+            run_id="BATCH-20261112-01",
+        )
+
+
+def test_partial_success_returns_valid_pairs_and_failures():
+    rows, cache_entries, successful, failed = forecast_pairs(
+        model=_MixedModel(),
+        pairs={
+            ("SKU-000001", "WH-HYD-01"),
+            ("SKU-000002", "WH-BOM-01"),
+        },
+        horizon=30,
+        batch_date=date(2026, 11, 12),
+        model_version="demand_forecast/1",
+        generated_at=datetime(2026, 11, 12, 1, tzinfo=timezone.utc),
+        version=datetime(2026, 11, 12, 1, tzinfo=timezone.utc),
+        interval_level=0.8,
+        run_id="BATCH-20261112-01",
+    )
+
+    assert len(successful) == 1
+    assert len(failed) == 1
+    assert len(rows) == 30
+    assert len(cache_entries) == 1
+
+
+

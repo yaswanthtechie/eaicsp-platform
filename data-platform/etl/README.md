@@ -1162,7 +1162,7 @@ Source CSVs
 
 The Kafka outbox is deliberately after the data work. A Kafka outage therefore cannot roll back a successful load. Pending events are retried by `etl_event_outbox_retry` every five minutes.
 
-## R12-13 M1 - dbt
+## R12-13 M1 â€” dbt
 
 Run from the Airflow scheduler/worker container:
 
@@ -1173,7 +1173,7 @@ docker compose exec airflow-scheduler sh -c '"$DBT_BIN" build --project-dir /opt
 
 Models are split into `dbt/models/staging` and `dbt/models/marts`. Tests include `not_null`, `unique`, `relationships`, and a custom non-negative sales test.
 
-## R12-13 M2 - ClickHouse
+## R12-13 M2 â€” ClickHouse
 
 ClickHouse runs locally in Compose. The sink reads tested dbt marts from PostgreSQL and reuses the existing watermark subsystem with sink-specific watermark names such as `clickhouse_mart_daily_sales_by_warehouse`.
 
@@ -1195,7 +1195,7 @@ docker compose exec airflow-scheduler python scripts/benchmark_postgres_clickhou
 
 The script compares the same date-range aggregation on PostgreSQL and ClickHouse, checks that the result sets match, prints both measured wall-clock timings, and writes `docs/r12_13_clickhouse_benchmark.json`. Do not claim a speed-up without the measured output.
 
-## R12-13 M3 - Kafka events
+## R12-13 M3 â€” Kafka events
 
 The standard envelope is:
 
@@ -1392,6 +1392,12 @@ Parity: PASS (rows, quantity sum and price sum identical). Input: ~10.05M genera
 
 - After the review fixes, the DAG was triggered again for 2024-02: dag_run id 8 succeeded, all 263,613 rows carry run_id 8 (the Airflow run id), and the quantity sum (13,173,901) was unchanged, so the re-run was idempotent.
 
+
+### R15 Nightly Forecast Batch - Redis Cache
+
+- **Cache TTL:** `FORECAST_CACHE_TTL_SECONDS` controls Redis forecast-cache expiry. Default is `172800` seconds (48 hours). Override this environment variable when a different retention period is required.
+- **Latest batch pointer:** Redis key `forecast_cache:latest_batch_date` stores the latest batch date in `YYYY-MM-DD` format. It uses the same TTL as forecast cache entries.
+- **Rerun behavior:** On a rerun, pairs that fail keep the previous run's rows for that `batch_date`; check `model_version` and `generated_at`.
 ## V4 Dashboard KPI Views
 
 The four dashboard KPIs are implemented as ClickHouse views under
@@ -1419,36 +1425,6 @@ read `purchase_orders`, `po_lines`, `goods_receipt_lines` and
 shipments, so those three views remain empty until the Flow B event consumer
 is implemented in the follow-up issue. Their tests use fixture rows based on
 the event examples in `contracts/events/examples/`.
-## R15 Nightly Forecast Batch - Prerequisites and Redis Cache
 
-### Seed sales data prerequisite
 
-Before running the nightly forecast batch, generate the seed sales CSV from the data-platform directory:
 
-```bash
-python -m seed.generate --out out/
-```
-
-This generates data-platform/out/sales_daily.csv. Ensure SEED_SALES_PATH points to the mounted sales_daily.csv file.
-
-### Redis forecast cache
-
-Redis key format:
-
-```text
-forecast_cache:{date}:{sku}:{wh}
-```
-
-Example:
-
-```text
-forecast_cache:2026-11-12:SKU-000001:WH-HYD-01
-```
-
-The Redis value is a JSON object containing run_id, batch_date, sku_id, warehouse_id, model_version, granularity, horizon, interval_level, generated_at, and forecast.
-
-The forecast array contains date, predicted, lower_bound, and upper_bound for each forecast date.
-
-Redis entries expire according to FORECAST_CACHE_TTL_SECONDS.
-
-If an individual SKU/warehouse forecast fails, the batch continues with remaining valid pairs and publishes a PARTIAL completion event with a failure summary.

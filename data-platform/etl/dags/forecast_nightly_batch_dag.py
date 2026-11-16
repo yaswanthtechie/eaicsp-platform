@@ -1,4 +1,4 @@
-"""Nightly production forecast batch: ClickHouse + Redis + Kafka."""
+﻿"""Nightly production forecast batch: ClickHouse + Redis + Kafka."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from pathlib import Path
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
-from forecast_batch_helpers import build_event, build_rows, validate_pair, write_batch
+from forecast_batch_helpers import build_event, forecast_pairs, validate_pair, write_batch
 
 
 def run_forecast_batch(**context):
@@ -34,7 +34,7 @@ def run_forecast_batch(**context):
         raise FileNotFoundError(f"Seed sales file not found: {seed_path}")
 
     pairs = set()
-    invalid_pairs = []
+    invalid_pairs = {}
 
     with seed_path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
@@ -53,9 +53,12 @@ def run_forecast_batch(**context):
                 validate_pair(sku, warehouse)
                 pairs.add((sku, warehouse))
             except ValueError as exc:
-                invalid_pairs.append(
-                    (sku or "<empty>", warehouse or "<empty>", str(exc))
-                )
+                invalid_pairs[(sku or "<empty>", warehouse or "<empty>")] = str(exc)
+
+    invalid_pairs = [
+        (sku, warehouse, reason)
+        for (sku, warehouse), reason in sorted(invalid_pairs.items())
+    ]
 
     if not pairs and not invalid_pairs:
         raise ValueError("Seed CSV contains no SKU/warehouse rows.")
@@ -99,60 +102,22 @@ def run_forecast_batch(**context):
     )
 
     try:
-        # Process each pair independently. A failed pair must not stop the batch.
-        successful_pairs = set()
-        failed_pairs = list(invalid_pairs)
-        rows = []
-        cache_entries = []
+        # Forecast each pair using the tested pure helper.
+        rows, cache_entries, successful_pairs, failed_forecasts = forecast_pairs(
+            model=model,
+            pairs=pairs,
+            horizon=horizon,
+            batch_date=batch_date,
+            model_version=model_version,
+            generated_at=generated_at,
+            version=version,
+            interval_level=interval_level,
+            run_id=run_id,
+        )
 
-        ttl = int(os.getenv("FORECAST_CACHE_TTL_SECONDS", "86400"))
+        failed_pairs = list(invalid_pairs) + failed_forecasts
 
-        for sku, warehouse in sorted(pairs):
-            try:
-                forecast = model.predict(sku, warehouse, horizon)
-
-                # Validate this pair's forecast before adding any output.
-                pair_rows = build_rows(
-                    batch_date=batch_date,
-                    forecasts_by_pair=[(sku, warehouse, forecast)],
-                    model_version=model_version,
-                    generated_at=generated_at,
-                    version=version,
-                    horizon=horizon,
-                    interval_level=interval_level,
-                )
-
-                rows.extend(pair_rows)
-                successful_pairs.add((sku, warehouse))
-
-                cache_key = (
-                    f"forecast_cache:{batch_date_text}:{sku}:{warehouse}"
-                )
-
-                cache_value = {
-                    "run_id": run_id,
-                    "batch_date": batch_date_text,
-                    "sku_id": sku,
-                    "warehouse_id": warehouse,
-                    "model_version": model_version,
-                    "granularity": "daily",
-                    "horizon": horizon,
-                    "interval_level": interval_level,
-                    "generated_at": generated_at.isoformat(),
-                    "forecast": forecast,
-                }
-
-                cache_entries.append((cache_key, cache_value))
-
-            except Exception as exc:
-                failed_pairs.append((sku, warehouse, str(exc)))
-                print(
-                    f"Forecast failed for {sku}/{warehouse}: "
-                    f"{type(exc).__name__}: {exc}"
-                )
-
-        if not successful_pairs:
-            print("No SKU/warehouse pairs produced a valid forecast.")
+        ttl = int(os.getenv("FORECAST_CACHE_TTL_SECONDS", "172800"))
 
         status = "PARTIAL" if failed_pairs else "SUCCESS"
         message = (
@@ -166,7 +131,6 @@ def run_forecast_batch(**context):
                 for sku, warehouse, reason in failed_pairs
             )
             message = f"{message} Failures: {failed_summary}"[:300]
-
         columns = [
             "batch_date",
             "forecast_date",
@@ -190,6 +154,7 @@ def run_forecast_batch(**context):
             cache_entries=cache_entries,
             columns=columns,
             ttl=ttl,
+            batch_date_text=batch_date_text,
         )
 
         completed_at = datetime.now(timezone.utc)
@@ -246,3 +211,7 @@ with DAG(
         task_id="generate_and_publish_forecasts",
         python_callable=run_forecast_batch,
     )
+
+
+
+

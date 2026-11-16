@@ -49,6 +49,12 @@ def build_rows(
                 str(point["date"]).replace("Z", "+00:00")
             ).date()
 
+            if forecast_date < batch_date:
+                raise ValueError(
+                    f"{sku}/{warehouse}: forecast_date {forecast_date} "
+                    f"is before batch_date {batch_date}"
+                )
+
             predicted = float(point["predicted"])
             lower = float(point["lower_bound"])
             upper = float(point["upper_bound"])
@@ -132,7 +138,7 @@ def build_event(
     }
 
 
-def write_batch(ch, cache, rows, cache_entries, columns, ttl):
+def write_batch(ch, cache, rows, cache_entries, columns, ttl, batch_date_text):
     """Write ClickHouse rows and Redis cache entries using a pipeline."""
     for offset in range(0, len(rows), 5000):
         ch.insert(
@@ -145,4 +151,76 @@ def write_batch(ch, cache, rows, cache_entries, columns, ttl):
         pipeline = cache.pipeline()
         for cache_key, cache_value in cache_entries:
             pipeline.set(cache_key, json.dumps(cache_value), ex=ttl)
+        pipeline.set("forecast_cache:latest_batch_date", batch_date_text, ex=ttl)
         pipeline.execute()
+
+def forecast_pairs(
+    model,
+    pairs,
+    horizon,
+    batch_date,
+    model_version,
+    generated_at,
+    version,
+    interval_level,
+    run_id,
+):
+    """Forecast every pair; raise when no pair produces a valid forecast."""
+    if isinstance(batch_date, str):
+        batch_date = date.fromisoformat(batch_date)
+
+    rows = []
+    cache_entries = []
+    successful = set()
+    failed = []
+
+    batch_date_text = batch_date.isoformat()
+
+    for sku, warehouse in sorted(pairs):
+        try:
+            forecast = model.predict(sku, warehouse, horizon)
+
+            pair_rows = build_rows(
+                batch_date=batch_date,
+                forecasts_by_pair=[(sku, warehouse, forecast)],
+                model_version=model_version,
+                generated_at=generated_at,
+                version=version,
+                horizon=horizon,
+                interval_level=interval_level,
+            )
+        except Exception as exc:
+            failed.append(
+                (sku, warehouse, f"{type(exc).__name__}: {exc}")
+            )
+            continue
+
+        rows.extend(pair_rows)
+        successful.add((sku, warehouse))
+
+        cache_entries.append(
+            (
+                f"forecast_cache:{batch_date_text}:{sku}:{warehouse}",
+                {
+                    "run_id": run_id,
+                    "batch_date": batch_date_text,
+                    "sku_id": sku,
+                    "warehouse_id": warehouse,
+                    "model_version": model_version,
+                    "granularity": "daily",
+                    "horizon": horizon,
+                    "interval_level": interval_level,
+                    "generated_at": generated_at.isoformat(),
+                    "forecast": forecast,
+                },
+            )
+        )
+
+    if not successful:
+        raise RuntimeError(
+            "No SKU/warehouse pairs produced a valid forecast."
+        )
+
+    return rows, cache_entries, successful, failed
+
+

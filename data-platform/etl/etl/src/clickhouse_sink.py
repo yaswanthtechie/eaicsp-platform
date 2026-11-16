@@ -82,7 +82,7 @@ def _database() -> str:
 
 
 def _target(mart: str) -> str:
-    return f"ch_{mart}"
+    return f"ch_{mart}".strip()
 
 
 def _client():
@@ -183,3 +183,4 @@ def sync_marts(client=None, engine=None) -> dict:
     finally:
         if owns_client:
             client.close()
+
