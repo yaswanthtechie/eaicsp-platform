@@ -2,7 +2,7 @@ import { Server } from "mock-socket";
 import type { AnalyticsEventEnvelope, InventoryItem, InventoryUpdate } from "../types/forecast";
 
 
-const analyticsEvents: Omit<AnalyticsEventEnvelope, "event_id" | "occurred_at">[] = [
+export const analyticsEvents: Omit<AnalyticsEventEnvelope, "event_id" | "occurred_at">[] = [
   {
     event_type: "inventory.stock.low",
     event_version: "1.0",

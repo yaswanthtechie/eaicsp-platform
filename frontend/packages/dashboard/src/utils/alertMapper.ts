@@ -157,6 +157,12 @@ export function mapAnalyticsEventToAlert(
     message: mapping.message,
     timestamp: event.occurred_at,
     title: mapping.title,
+    eventType: event.event_type,
+    producer: event.producer,
+    eventVersion: event.event_version,
+    traceId: event.trace_id,
+    payload: event.payload,
+    
     ...(event.event_type === "eta.shipment.predicted"
       ? {
         shipmentId: getString(payload, "shipment_id"),

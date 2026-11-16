@@ -167,7 +167,9 @@ describe("AlertsPanel", () => {
 
     render(<AlertsPanel {...defaultProps} alerts={alerts} />);
 
-    const articles = screen.getAllByRole("article");
+    const articles = screen.getAllByRole("button", {
+      name: /Low Stock Item Alert/,
+    });
 
     expect(articles[0]).toHaveTextContent("Critical");
     expect(articles[1]).toHaveTextContent("Warning");
@@ -186,8 +188,13 @@ describe("AlertsPanel", () => {
       screen.getByRole("button", { name: "warning" }).click();
     });
 
-    expect(screen.getAllByRole("article")).toHaveLength(1);
-    expect(screen.getByRole("article")).toHaveTextContent("Warning");  });
+    const alertItems = screen.getAllByRole("button", {
+      name: /press enter to view details/i,
+    });
+
+    expect(alertItems).toHaveLength(1);
+    expect(alertItems[0]).toHaveTextContent("Warning");
+  });
 
   it("removes an alert after 5.5 seconds", () => {
     const onRemove = vi.fn();
@@ -235,8 +242,8 @@ describe("AlertsPanel", () => {
   it("has accessible individual alert", () => {
     render(<AlertsPanel {...defaultProps} />);
 
-    const alertItem = screen.getByRole("article", {
-      name: "Low Stock Item Alert: Product ABC is running low.",
+    const alertItem = screen.getByRole("button", {
+      name: /Low Stock Item Alert: Product ABC is running low/,
     });
 
     expect(alertItem).toBeInTheDocument();
@@ -272,8 +279,8 @@ describe("AlertsPanel", () => {
   it("has accessible individual alert", () => {
     render(<AlertsPanel {...defaultProps} />);
 
-    const alertItem = screen.getByRole("article", {
-      name: "Low Stock Item Alert: Product ABC is running low.",
+    const alertItem = screen.getByRole("button", {
+      name: /Low Stock Item Alert: Product ABC is running low/,
     });
 
     expect(alertItem).toBeInTheDocument();

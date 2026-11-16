@@ -38,6 +38,14 @@ export interface AlertMessage {
   shipmentId?: string;
   predictedAt?: string;
   supplierId?: string;
+
+  // C6: Original WebSocket event details
+  eventType?: string;
+  producer?: string;
+  eventVersion?: string | number;
+  traceId?: string | null;
+  payload?: Record<string, unknown>;
+
 }
 
 export interface InventoryUpdate {
