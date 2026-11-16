@@ -1,4 +1,4 @@
-﻿"""Pure helpers for nightly forecast batch. No Airflow or Docker dependency."""
+"""Pure helpers for nightly forecast batch. No Airflow or Docker dependency."""
 
 import json
 import math
@@ -151,7 +151,11 @@ def write_batch(ch, cache, rows, cache_entries, columns, ttl, batch_date_text):
         pipeline = cache.pipeline()
         for cache_key, cache_value in cache_entries:
             pipeline.set(cache_key, json.dumps(cache_value), ex=ttl)
-        pipeline.set("forecast_cache:latest_batch_date", batch_date_text, ex=ttl)
+        current_latest = cache.get("forecast_cache:latest_batch_date")
+        if current_latest is None or batch_date_text >= current_latest:
+            pipeline.set(
+                "forecast_cache:latest_batch_date", batch_date_text, ex=ttl
+            )
         pipeline.execute()
 
 def forecast_pairs(
@@ -222,5 +226,3 @@ def forecast_pairs(
         )
 
     return rows, cache_entries, successful, failed
-
-

@@ -1,4 +1,4 @@
-﻿Sales ETL Pipeline
+Sales ETL Pipeline
 
 Overview
 
@@ -45,53 +45,53 @@ Project Structure
 
 data-platform/
 
-â”‚
+│
 
-â”œâ”€â”€ dags/
+├── dags/
 
-â”‚ Â  â””â”€â”€ sales_etl_dag.py
+│   └── sales_etl_dag.py
 
-â”‚
+│
 
-â”œâ”€â”€ etl/
+├── etl/
 
-â”‚ Â  â””â”€â”€ src/
+│   └── src/
 
-â”‚ Â  Â  Â  â”œâ”€â”€ extract.py
+│       ├── extract.py
 
-â”‚ Â  Â  Â  â”œâ”€â”€ transform.py
+│       ├── transform.py
 
-â”‚ Â  Â  Â  â”œâ”€â”€ quality_gate.py
+│       ├── quality_gate.py
 
-â”‚ Â  Â  Â  â”œâ”€â”€ load.py
+│       ├── load.py
 
-â”‚ Â  Â  Â  â”œâ”€â”€ pipeline.py
+│       ├── pipeline.py
 
-â”‚ Â  Â  Â  â”œâ”€â”€ main.py
+│       ├── main.py
 
-â”‚ Â  Â  Â  â”œâ”€â”€ alerts.py
+│       ├── alerts.py
 
-â”‚ Â  Â  Â  â”œâ”€â”€ alerts_api.py
+│       ├── alerts_api.py
 
-â”‚ Â  Â  Â  â”œâ”€â”€ lineage_api.py
+│       ├── lineage_api.py
 
-â”‚ Â  Â  Â  â”œâ”€â”€ alert_service.py
+│       ├── alert_service.py
 
-â”‚ Â  Â  Â  â”œâ”€â”€ data_contract.py
+│       ├── data_contract.py
 
-â”‚ Â  Â  Â  â”œâ”€â”€ pandera_schema.py
+│       ├── pandera_schema.py
 
-â”‚ Â  Â  Â  â””â”€â”€ schema_drift.py
+│       └── schema_drift.py
 
-â”‚
+│
 
-â”œâ”€â”€ sql/
+├── sql/
 
-â”‚ Â  â””â”€â”€ schema.sql
+│   └── schema.sql
 
-â”‚
+│
 
-â””â”€â”€ docker-compose.yml
+└── docker-compose.yml
 
 
 ETL Pipeline Flow
@@ -99,41 +99,41 @@ ETL Pipeline Flow
 
 CSV Files
 
-Â  Â  Â â”‚
+     │
 
-Â  Â  Â â–¼
+     ▼
 
-Â Extract
+ Extract
 
-Â  Â  Â â”‚
+     │
 
-Â  Â  Â â–¼
+     ▼
 
-Â Quality Gate
+ Quality Gate
 
-Â  Â  Â â”‚
+     │
 
-Â  Â  Â â–¼
+     ▼
 
-Â Transform
+ Transform
 
-Â  Â  Â â”‚
+     │
 
-Â  Â  Â â–¼
+     ▼
 
-Â Load
+ Load
 
-Â  Â  Â â”‚
+     │
 
-Â  Â  Â â–¼
+     ▼
 
-Â Update Watermark
+ Update Watermark
 
-Â  Â  Â â”‚
+     │
 
-Â  Â  Â â–¼
+     ▼
 
-Â Log Pipeline Run
+ Log Pipeline Run
 
 
 Database Tables
@@ -271,7 +271,7 @@ commands
 
 
 
-SELECT * FROM sales_fact LIMIT 5; Â This is the main fact table. It stores the cleaned and validated sales records after the ETL pipeline finishes.
+SELECT * FROM sales_fact LIMIT 5;  This is the main fact table. It stores the cleaned and validated sales records after the ETL pipeline finishes.
 
 SELECT * FROM etl_run_log ORDER BY run_id DESC LIMIT 5;
 
@@ -453,29 +453,29 @@ What's not done / not fully polished
 
 The generic engine's quality-gate thresholds (null rate, negative rate,
 
-Â  row count bounds) are per-source config values, not auto-tuned - they're
+  row count bounds) are per-source config values, not auto-tuned - they're
 
-Â  set to match R3's sales defaults for sales, and reasonable-guess
+  set to match R3's sales defaults for sales, and reasonable-guess
 
-Â  defaults for inventory. Worth revisiting once there's real inventory
+  defaults for inventory. Worth revisiting once there's real inventory
 
-Â  data to calibrate against.
+  data to calibrate against.
 
 bulk_upsert()'s history-copy step (_bulk_copy_sales_history) is
 
-Â  sales-specific - it isn't a generic "any table can have history" feature.
+  sales-specific - it isn't a generic "any table can have history" feature.
 
-Â  Fine for now since inventory doesn't need CDC history per the spec, but
+  Fine for now since inventory doesn't need CDC history per the spec, but
 
-Â  if a future source does, that function needs generalizing.
+  if a future source does, that function needs generalizing.
 
 No integration with Tharun's validation library or Sandeep's profiling
 
-Â  library this round - deliberately deferred per the round instructions.
+  library this round - deliberately deferred per the round instructions.
 
 Per-round instructions, this stays fully local/mocked - no shared
 
-Â  Postgres/Redis/Kafka assumed to exist yet.
+  Postgres/Redis/Kafka assumed to exist yet.
 
 Round 5: harder edges (conflict resolution, SLA, point-in-time, reconciliation, performance ceiling)
 
@@ -1162,7 +1162,7 @@ Source CSVs
 
 The Kafka outbox is deliberately after the data work. A Kafka outage therefore cannot roll back a successful load. Pending events are retried by `etl_event_outbox_retry` every five minutes.
 
-## R12-13 M1 â€” dbt
+## R12-13 M1 — dbt
 
 Run from the Airflow scheduler/worker container:
 
@@ -1173,7 +1173,7 @@ docker compose exec airflow-scheduler sh -c '"$DBT_BIN" build --project-dir /opt
 
 Models are split into `dbt/models/staging` and `dbt/models/marts`. Tests include `not_null`, `unique`, `relationships`, and a custom non-negative sales test.
 
-## R12-13 M2 â€” ClickHouse
+## R12-13 M2 — ClickHouse
 
 ClickHouse runs locally in Compose. The sink reads tested dbt marts from PostgreSQL and reuses the existing watermark subsystem with sink-specific watermark names such as `clickhouse_mart_daily_sales_by_warehouse`.
 
@@ -1195,7 +1195,7 @@ docker compose exec airflow-scheduler python scripts/benchmark_postgres_clickhou
 
 The script compares the same date-range aggregation on PostgreSQL and ClickHouse, checks that the result sets match, prints both measured wall-clock timings, and writes `docs/r12_13_clickhouse_benchmark.json`. Do not claim a speed-up without the measured output.
 
-## R12-13 M3 â€” Kafka events
+## R12-13 M3 — Kafka events
 
 The standard envelope is:
 
@@ -1391,13 +1391,38 @@ Parity: PASS (rows, quantity sum and price sum identical). Input: ~10.05M genera
 - **Windows note:** if several Python versions are installed, set `PYSPARK_PYTHON` and `PYSPARK_DRIVER_PYTHON` to the interpreter running pytest, otherwise Spark workers may start with a different Python and fail with `Connection reset`.
 
 - After the review fixes, the DAG was triggered again for 2024-02: dag_run id 8 succeeded, all 263,613 rows carry run_id 8 (the Airflow run id), and the quantity sum (13,173,901) was unchanged, so the re-run was idempotent.
+## R15 Nightly Forecast Batch
 
+DAG `forecast_nightly_batch` runs daily at 01:00 UTC (`max_active_runs=1`, 2 retries). It loads the Production model `demand_forecast` from MLflow, forecasts 30 days for every SKU/warehouse pair in the seed sales file, writes ClickHouse `demand_forecast_history`, caches each pair in Redis, and publishes `forecast.batch.completed` (contract `contracts/events/forecast.batch.completed.v1.json`).
 
-### R15 Nightly Forecast Batch - Redis Cache
+**Before the first run**, generate the seed sales file from `data-platform/`:
 
-- **Cache TTL:** `FORECAST_CACHE_TTL_SECONDS` controls Redis forecast-cache expiry. Default is `172800` seconds (48 hours). Override this environment variable when a different retention period is required.
-- **Latest batch pointer:** Redis key `forecast_cache:latest_batch_date` stores the latest batch date in `YYYY-MM-DD` format. It uses the same TTL as forecast cache entries.
-- **Rerun behavior:** On a rerun, pairs that fail keep the previous run's rows for that `batch_date`; check `model_version` and `generated_at`.
+```bash
+python -m seed.generate --out out/
+```
+
+**Run standalone** (ETL stack only, no MLflow, so the batch itself cannot load a model):
+
+```bash
+docker compose up -d
+```
+
+**Run on the shared stack** (after `make up` in `infra/`):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.shared.yml up -d
+```
+
+**Redis cache (owned by this batch, see the integration blueprint):**
+
+- Key: `forecast_cache:{batch_date}:{sku_id}:{warehouse_id}`, for example `forecast_cache:2026-11-16:SKU-000123:WH-BLR-01`.
+- Value: JSON with `run_id`, `batch_date`, `sku_id`, `warehouse_id`, `model_version`, `granularity`, `horizon`, `interval_level`, `generated_at` and `forecast` (a list of `date`, `predicted`, `lower_bound`, `upper_bound`).
+- Latest batch pointer: `forecast_cache:latest_batch_date` holds the newest batch date as `YYYY-MM-DD`.
+- TTL: `FORECAST_CACHE_TTL_SECONDS`, default `172800` (48 hours), for both the entries and the pointer.
+
+**Reruns:** each run gets a new UUID v4 `event_id`. ClickHouse rows are replaced through `ReplacingMergeTree(version)`, so read with `FINAL`. Pairs that fail on a rerun keep the previous run's rows for that `batch_date`; check `model_version` and `generated_at`.
+
+**Tests:** `pytest tests/test_forecast_nightly_batch.py -q` runs without Docker.
 ## V4 Dashboard KPI Views
 
 The four dashboard KPIs are implemented as ClickHouse views under
@@ -1425,6 +1450,3 @@ read `purchase_orders`, `po_lines`, `goods_receipt_lines` and
 shipments, so those three views remain empty until the Flow B event consumer
 is implemented in the follow-up issue. Their tests use fixture rows based on
 the event examples in `contracts/events/examples/`.
-
-
-

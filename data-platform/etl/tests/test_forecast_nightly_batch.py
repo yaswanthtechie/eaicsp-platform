@@ -1,6 +1,7 @@
-﻿"""Docker-free tests for the nightly forecast batch helpers."""
+"""Docker-free tests for the nightly forecast batch helpers."""
 
 import json
+import os
 import sys
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -133,6 +134,9 @@ class FakeRedis:
     def __init__(self):
         self.values = {}
         self.pipeline_executions = 0
+
+    def get(self, key):
+        return self.values.get(key)
 
     def pipeline(self):
         return FakeRedisPipeline(self)
@@ -336,5 +340,74 @@ def test_partial_success_returns_valid_pairs_and_failures():
     assert len(rows) == 30
     assert len(cache_entries) == 1
 
+def test_latest_pointer_does_not_move_backwards():
+    cache = FakeRedis()
+    cache.values["forecast_cache:latest_batch_date"] = "2026-11-16"
+    entry = (
+        "forecast_cache:2026-11-10:SKU-000001:WH-HYD-01",
+        {"run_id": "x"},
+    )
 
+    write_batch(
+        ch=FakeClickHouse(),
+        cache=cache,
+        rows=[],
+        cache_entries=[entry],
+        columns=[],
+        ttl=60,
+        batch_date_text="2026-11-10",
+    )
+
+    assert cache.values["forecast_cache:latest_batch_date"] == "2026-11-16"
+    assert entry[0] in cache.values
+
+@pytest.mark.integration
+def test_rerun_is_idempotent_in_real_clickhouse():
+    clickhouse_connect = pytest.importorskip("clickhouse_connect")
+    if not os.getenv("CLICKHOUSE_PASSWORD"):
+        pytest.skip("CLICKHOUSE_PASSWORD not set")
+
+    client = clickhouse_connect.get_client(
+        host=os.getenv("CLICKHOUSE_HOST", "localhost"),
+        port=int(os.getenv("CLICKHOUSE_PORT", "8123")),
+        username=os.getenv("CLICKHOUSE_USER", "default"),
+        password=os.environ["CLICKHOUSE_PASSWORD"],
+        database=os.getenv("CLICKHOUSE_DATABASE", "analytics"),
+    )
+    pairs = {("SKU-999991", "WH-HYD-01"), ("SKU-999992", "WH-BOM-01")}
+    test_skus = sorted(sku for sku, _ in pairs)
+    columns = [
+        "batch_date", "forecast_date", "sku_id", "warehouse_id",
+        "predicted", "lower_bound", "upper_bound", "interval_level",
+        "model_version", "generated_at", "version",
+    ]
+    first_version = datetime(2026, 11, 12, 1, 0, tzinfo=timezone.utc)
+
+    try:
+        for version in (first_version, first_version + timedelta(minutes=5)):
+            rows = sample_rows(pairs, version=version)
+            write_batch(
+                ch=client,
+                cache=FakeRedis(),
+                rows=rows,
+                cache_entries=[],
+                columns=columns,
+                ttl=60,
+                batch_date_text=rows[0][0].isoformat(),
+            )
+
+        count = client.query(
+            "SELECT count() FROM demand_forecast_history FINAL "
+            "WHERE batch_date = {d:Date} AND sku_id IN {skus:Array(String)}",
+            parameters={"d": rows[0][0], "skus": test_skus},
+        ).result_rows[0][0]
+
+        assert count == len(pairs) * 30
+    finally:
+        client.command(
+            "ALTER TABLE demand_forecast_history DELETE "
+            "WHERE sku_id IN {skus:Array(String)}",
+            parameters={"skus": test_skus},
+        )
+        client.close()
 

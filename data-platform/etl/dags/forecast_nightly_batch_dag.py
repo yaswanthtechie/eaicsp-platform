@@ -1,4 +1,4 @@
-﻿"""Nightly production forecast batch: ClickHouse + Redis + Kafka."""
+"""Nightly production forecast batch: ClickHouse + Redis + Kafka."""
 
 from __future__ import annotations
 
@@ -211,7 +211,3 @@ with DAG(
         task_id="generate_and_publish_forecasts",
         python_callable=run_forecast_batch,
     )
-
-
-
-

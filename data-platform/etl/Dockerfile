@@ -16,15 +16,15 @@ RUN python -m venv /home/airflow/dbt_venv \
 ENV DBT_BIN=/home/airflow/dbt_venv/bin/dbt
 
 # kafka-python 2.0.x does not import on Python 3.12 (the image's Python); 3.x renamed configs.
-# These coexist with Airflow's constraints (checked with pip install --dry-run).
-RUN python -c "import urllib.request; u='https://raw.githubusercontent.com/apache/airflow/constraints-2.10.5/constraints-3.12.txt'; s=urllib.request.urlopen(u).read().decode(); assert 'cryptography==42.0.8' in s; open('/tmp/airflow-constraints.txt','w').write(s.replace('cryptography==42.0.8','cryptography==43.0.3'))" \
- && pip install --no-cache-dir \
+# cryptography is pinned to 43.0.3 for compatibility with the required package set.
+# Keep Airflow's constraints local so image builds do not depend on GitHub availability.
+COPY constraints-airflow-2.10.5-py3.12.txt /tmp/airflow-constraints.txt
+RUN pip install --no-cache-dir \
     --constraint /tmp/airflow-constraints.txt \
     "clickhouse-connect==0.8.18" \
     "kafka-python>=2.2.0,<3" \
-    "pyspark==3.5.4" \
+    "pyspark==3.5.3" \
     "mlflow==3.4.0" \
     "redis==5.2.1" \
     "prophet==1.4.0" \
     "holidays==0.101"
-
