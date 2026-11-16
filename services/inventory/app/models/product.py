@@ -1,9 +1,11 @@
-from datetime import datetime, UTC
+from datetime import UTC, datetime
+
 from sqlalchemy import (
+    Boolean,
     Column,
-    String,
-    Float,
     DateTime,
+    Float,
+    String,
 )
 
 from app.database import Base
@@ -33,6 +35,17 @@ class Product(Base):
         nullable=True,
     )
 
+    unit_of_measure = Column(
+        String(32),
+        nullable=True,
+    )
+
+    is_active = Column(
+        Boolean,
+        nullable=False,
+        default=True,
+    )
+
     unit_price = Column(
         Float,
         nullable=False,
@@ -59,4 +72,3 @@ class Product(Base):
         nullable=False,
         default=lambda: datetime.now(UTC),
     )
-

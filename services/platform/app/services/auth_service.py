@@ -11,6 +11,7 @@ from app.core import config as app_config
 from app.core.event_publisher import publish_event
 from app.core.password_validator import validate_password
 from app.core.security import (
+    build_access_claims,
     create_access_token,
     create_refresh_token,
     hash_password,
@@ -522,13 +523,7 @@ def login_user(
             audit_details = "Password authentication successful; MFA required"
 
         else:
-            access_token = create_access_token(
-                {
-                    "sub": user.email,
-                    "role": user.role.name,
-                    "user_id": user.id,
-                }
-            )
+            access_token = create_access_token(build_access_claims(user))
 
             refresh_token = create_refresh_token(
                 {
@@ -754,9 +749,7 @@ def complete_mfa_login(
             detail="Invalid or expired MFA code",
         )
 
-    access_token = create_access_token(
-        {"sub": user.email, "user_id": user.id, "role": user.role.name}
-    )
+    access_token = create_access_token(build_access_claims(user))
     refresh_token = create_refresh_token({"sub": user.email, "user_id": user.id})
 
     save_refresh_token(

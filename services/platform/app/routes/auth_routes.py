@@ -10,7 +10,12 @@ from app.core.config import TRUST_PROXY
 from app.core.dependencies import get_current_user, oauth2_scheme
 from app.core.permissions import ROLE_PERMISSIONS
 from app.core.revocation_store import is_token_revoked, revoke_token
-from app.core.security import create_access_token, create_refresh_token, decode_token
+from app.core.security import (
+    build_access_claims,
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+)
 from app.core.service_auth import verify_service_api_key
 from app.core.token_cache import token_cache
 from app.database import get_db
@@ -145,9 +150,7 @@ def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user"
         )
-    new_access_token = create_access_token(
-        {"sub": user.email, "user_id": user.id, "role": user.role.name}
-    )
+    new_access_token = create_access_token(build_access_claims(user))
 
     new_refresh_token = create_refresh_token(
         {
@@ -380,8 +383,15 @@ def verify_access_token(
     cached_response = token_cache.get(token)
 
     if cached_response is not None:
-        logger.info("Token verification cache HIT")
-        return cached_response
+        if "user_uuid" not in cached_response:
+            logger.info(
+                "Token verification cache HIT has legacy format (missing user_uuid); evicting and treating as MISS"
+            )
+            token_cache.delete(token)
+            cached_response = None
+        else:
+            logger.info("Token verification cache HIT")
+            return cached_response
 
     logger.info("Token verification cache MISS")
 
@@ -467,6 +477,7 @@ def verify_access_token(
     response_data = {
         "valid": True,
         "user_id": user.id,
+        "user_uuid": str(user.user_uuid),
         "email": user.email,
         "full_name": user.full_name,
         "role": role,

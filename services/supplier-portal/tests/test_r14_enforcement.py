@@ -1,7 +1,13 @@
 
 from fastapi.routing import APIRoute
 
-from app.core.auth import enforce_not_suspended
+from app.core.auth import (
+    enforce_not_suspended,
+    enforce_not_suspended_with_resolved_identity,
+    enforce_not_suspended_with_supplier_id_required,
+    require_supplier_view_access,
+    require_supplier_write_access,
+)
 from app.main import app
 from app.schemas.events import SupplierStatusChangedEvent
 from app.services.supplier_compliance_service import supplier_compliance_service
@@ -9,6 +15,13 @@ from app.services.supplier_onboarding_service import suppliers
 
 from tests.test_kafka_consumer import make_event
 
+SUSPENSION_ENFORCEMENT_DEPENDENCIES = {
+    enforce_not_suspended,
+    enforce_not_suspended_with_resolved_identity,
+    enforce_not_suspended_with_supplier_id_required,
+    require_supplier_view_access,
+    require_supplier_write_access,
+}
 
 def _suspend(
     supplier_id="SUP-00001",
@@ -91,8 +104,8 @@ def test_every_supplier_facing_route_blocks_suspended_suppliers():
         for route in app.routes
         if isinstance(route, APIRoute)
         and route.path not in PUBLIC_PATHS
-        and enforce_not_suspended not in set(
-            _dependency_calls(route.dependant)
+        and not SUSPENSION_ENFORCEMENT_DEPENDENCIES.intersection(
+            set(_dependency_calls(route.dependant))
         )
     )
 

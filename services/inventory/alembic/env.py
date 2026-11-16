@@ -2,17 +2,15 @@ import os
 import sys
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
-
 from alembic import context
+from sqlalchemy import engine_from_config, pool
 
 # Ensure services/inventory is on the Python path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import app.models  # noqa: F401 - side-effect import, registers all models on Base.metadata for autogenerate
 from app.core.config import settings
 from app.database import Base
-import app.models  # Registers all models with Base.metadata
 
 config = context.config
 
@@ -27,7 +25,6 @@ def get_url():
     if url:
         return url
     return settings.DATABASE_URL
-
 
 
 def run_migrations_offline() -> None:

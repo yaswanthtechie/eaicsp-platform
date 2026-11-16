@@ -1031,6 +1031,7 @@ Example response:
 {
   "valid": true,
   "user_id": 1,
+  "user_uuid": "00000000-0000-4000-8000-000000000001",
   "email": "user@company.com",
   "full_name": "Example User",
   "role": "warehouse_manager",
@@ -2503,6 +2504,7 @@ Expected response:
 {
   "valid": true,
   "user_id": 1,
+  "user_uuid": "00000000-0000-4000-8000-000000000001",
   "email": "user@company.com",
   "full_name": "Example User",
   "role": "warehouse_manager",
@@ -3499,13 +3501,12 @@ supplier
 
 ## /verify Contract
 
-The `/api/v1/auth/verify` response contract remains unchanged.
-
-The response continues to provide:
+The `/api/v1/auth/verify` response contract provides:
 
 ```text
 valid
 user_id
+user_uuid
 email
 full_name
 role
@@ -3514,7 +3515,7 @@ is_active
 permissions
 ```
 
-The contract is protected by a dedicated test so future RBAC changes cannot silently rename or remove fields used by consuming services.
+The contract is protected by dedicated tests so changes cannot silently rename or remove fields used by consuming services.
 
 ## Test Files
 
@@ -4084,3 +4085,128 @@ make seed
 4. **Headers Only:** Never pass service API keys in URL query strings, request bodies, or path parameters where they could be logged by HTTP proxies.
 5. **No Token Confusion:** Never use a user's JWT access token as a service API key, or pass service API keys to user-facing endpoints (`/api/v1/auth/verify`). User authentication and service-to-service authentication are strictly separated.
 6. **Hash-Only Storage:** Platform Service database stores only SHA-256 hashes. Plaintext keys are never stored in the database.
+
+---
+
+# Stable UUID User Identifier (Round 15 – Issue #259 / R15-RH5)
+
+## 1. Overview and Purpose
+
+In addition to the internal integer primary key (`users.id`), the Platform Service provides a globally unique, stable UUID v4 identifier (`users.user_uuid`).
+
+Other microservices throughout the platform require a standard RFC 4122 UUID user identifier in domain events and inter-service contracts:
+- Specifically, the **Inventory Service** requires a UUID for the `approved_by` field in `inventory.po.approved.v1` events (Issue #244).
+- The EAICSP architecture blueprint (`docs/architecture/integration-blueprint.md`, Section 2) specifies that user IDs are UUIDs owned and issued by the Platform Service.
+
+## 2. Integer `user_id` vs. UUID `user_uuid`
+
+Platform maintains full backward compatibility by keeping both identifiers:
+
+| Identifier | Type | Source | Purpose |
+|---|---|---|---|
+| `user_id` | `int` | `users.id` (Primary Key) | Internal Platform DB primary key, local foreign keys (`audit_logs.user_id`, `sessions.user_id`, `role_change_history.user_id`), backward-compatible integer ID across existing endpoints. |
+| `user_uuid` | `UUID` (string in JSON/JWT) | `users.user_uuid` (Indexed, Unique) | Cross-service public identity, domain event payloads (`approved_by`), JWT access token claim `user_uuid`, and `/api/v1/auth/verify` response field. |
+
+*Note:* `users.id` remains the database primary key and internal foreign keys remain completely intact and unchanged.
+
+## 3. Database Migration for Existing Databases
+
+Platform ships a standalone, idempotent migration script that safely upgrades existing databases (PostgreSQL and SQLite) without requiring external migration tooling:
+
+```bash
+python scripts/migrate_add_user_uuid.py
+```
+
+### Migration Mechanics
+1. **Column Addition:** Checks whether `user_uuid` exists on the `users` table. If missing:
+   - On PostgreSQL: Executes `ALTER TABLE users ADD COLUMN user_uuid UUID;`
+   - On SQLite: Executes `ALTER TABLE users ADD COLUMN user_uuid CHAR(32);` (providing TEXT affinity matching SQLAlchemy's `Uuid(as_uuid=True)`).
+2. **Backfill:** Queries all existing user records where `user_uuid IS NULL`:
+   - Known demo accounts are backfilled with their deterministic UUID constants.
+   - Any other user records are backfilled with a newly generated RFC 4122 `uuid.uuid4()`.
+3. **Unique Index:** Creates unique index `CREATE UNIQUE INDEX IF NOT EXISTS ix_users_user_uuid ON users (user_uuid);`.
+4. **Constraint Enforcement:** In PostgreSQL, enforces `ALTER TABLE users ALTER COLUMN user_uuid SET NOT NULL;`.
+5. **Idempotency:** Safe to run repeatedly; subsequent executions detect that the column and index exist with 0 users to backfill and exit cleanly.
+
+## 4. JWT Access Token Claims
+
+Every access token issued by Platform contains the `user_uuid` claim alongside preserved existing claims:
+
+```json
+{
+  "sub": "warehousemanager@company.com",
+  "user_id": 2,
+  "user_uuid": "00000000-0000-4000-8000-000000000002",
+  "role": "warehouse_manager",
+  "type": "access",
+  "exp": 1793880000
+}
+```
+
+The claim is automatically populated across all token generation flows:
+- Password authentication (`POST /api/v1/auth/login`)
+- MFA OTP verification (`POST /api/v1/auth/mfa/verify`)
+- Token refresh (`POST /api/v1/auth/refresh`)
+- Federated enterprise SSO (`POST /api/v1/auth/sso/login`)
+
+## 5. Token Verification Endpoint (`POST /api/v1/auth/verify`)
+
+The `/verify` endpoint exposes `user_uuid` alongside `user_id`:
+
+```http
+POST /api/v1/auth/verify
+Authorization: Bearer <access_token>
+```
+
+**Response (`200 OK`):**
+```json
+{
+  "valid": true,
+  "user_id": 2,
+  "user_uuid": "00000000-0000-4000-8000-000000000002",
+  "email": "warehousemanager@company.com",
+  "full_name": "Warehouse Manager",
+  "role": "warehouse_manager",
+  "supplier_id": null,
+  "is_active": true,
+  "permissions": [
+    "inventory:read",
+    "inventory:write"
+  ]
+}
+```
+
+Both live verification responses and cached verification results in Redis serialize `user_uuid` cleanly.
+
+## 6. Deterministic Demo User UUIDs
+
+All 11 seeded demo accounts have fixed, deterministic UUID v4 identifiers to support consistent, repeatable testing and end-to-end integration flows across all services:
+
+| Demo Account Email | Role | Deterministic `user_uuid` |
+|---|---|---|
+| `ceo@company.com` | `ceo` | `00000000-0000-4000-8000-000000000001` |
+| `warehousemanager@company.com` | `warehouse_manager` | `00000000-0000-4000-8000-000000000002` |
+| `vpoperations@company.com` | `vp_operations` | `00000000-0000-4000-8000-000000000003` |
+| `procurementmanager@company.com` | `procurement_manager` | `00000000-0000-4000-8000-000000000004` |
+| `logisticsmanager@company.com` | `logistics_manager` | `00000000-0000-4000-8000-000000000005` |
+| `complianceofficer@company.com` | `compliance_officer` | `00000000-0000-4000-8000-000000000006` |
+| `supplier@company.com` | `supplier` | `00000000-0000-4000-8000-000000000007` |
+| `analyst@company.com` | `analyst` | `00000000-0000-4000-8000-000000000008` |
+| `supplier19@company.com` | `supplier` | `00000000-0000-4000-8000-000000000019` |
+| `supplier21@company.com` | `supplier` | `00000000-0000-4000-8000-000000000021` |
+| `supplier22@company.com` | `supplier` | `00000000-0000-4000-8000-000000000022` |
+
+Repeated runs of `seed_database()` preserve these UUIDs and do not overwrite or modify them.
+
+## 7. Contract Specifications and Downstream Action
+
+- **Platform Contract:** Defined in `contracts/openapi/verify_contract.json` and validated by `tests/test_user_uuid.py`.
+- **Consumer Service Action Required:**
+  - Consuming services can now access `user_uuid` from either decoded JWT claims or `/api/v1/auth/verify`.
+  - **Inventory Service:** Update local test contract `PlatformVerifyContractResponse` in `services/inventory/tests/test_contracts.py` to add `user_uuid: UUID` (or `user_uuid: str`). Inventory PO approval handlers (PR #244) can bind `approved_by = payload["user_uuid"]`.
+
+## 8. Automatic Migration & Deployment Safety
+
+- **Automatic Startup Migration:** The migration script `scripts/migrate_add_user_uuid.py` is included in the Platform Docker container and executed automatically via `init_db()` and FastAPI `lifespan` before accepting traffic. If migration fails, application startup halts immediately.
+- **SQLite Safety:** NOT NULL enforcement uses safe table recreation executed under SQLAlchemy's `AUTOCOMMIT` isolation level with foreign key integrity checks.
+- **PostgreSQL Concurrency & Deployment Ordering:** The PostgreSQL migration acquires a `SHARE ROW EXCLUSIVE` lock on `users` inside a single transaction to prevent concurrent modifications while backfilling and applying `NOT NULL`. The table schema is re-inspected within the lock to guard against stale schema states. **Important Deployment Ordering:** This migration does not support zero-downtime mixed-version writes. Because `user_uuid` uses a Python-side application default rather than a database server default, older instances omitting `user_uuid` will fail with a NOT NULL constraint violation once `NOT NULL` is enforced. Old application instances must stop writing (or be fully drained/replaced) before enforcing `NOT NULL`, or write traffic must be paused during the migration window.

@@ -1,5 +1,4 @@
 import logging
-import secrets
 import uuid
 
 import httpx
@@ -27,34 +26,114 @@ logger = logging.getLogger(__name__)
 # ==========================================================
 # SERVICE-TO-SERVICE AUTH (/internal-check)
 # ==========================================================
-def verify_internal_caller(request: Request) -> str:
-    caller = (
-        request.headers.get("X-Caller-Service") or ""
-    ).strip()
+async def verify_internal_caller(request: Request) -> str:
+    """
+    Authenticate an internal service using the Platform service API key.
+    Returns the authenticated caller service name.
+    """
 
-    key = request.headers.get("X-Service-Key") or ""
-    expected = config.INTERNAL_SERVICE_KEYS.get(caller)
+    api_key = request.headers.get("X-API-Key", "").strip()
 
-    if (
-        not caller
-        or expected is None
-        # Compare bytes: compare_digest raises TypeError on non-ASCII str.
-        or not secrets.compare_digest(
-            key.encode("utf-8"),
-            expected.encode("utf-8"),
-        )
-    ):
+    if not api_key or not api_key.isascii():
         logger.warning(
-            "Rejected internal compliance call: caller=%s key_present=%s",
-            caller or "<missing>",
-            bool(key),
+            "Rejected internal compliance call: API key missing or malformed"
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Unknown calling service or invalid service key",
+            detail="Missing or invalid service API key",
         )
 
-    return caller
+    verify_url = (
+        f"{PLATFORM_AUTH_URL.rstrip('/')}"
+        "/api/v1/auth/service-verify"
+    )
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=config.PLATFORM_VERIFY_TIMEOUT_SECONDS
+        ) as client:
+            response = await client.post(
+                verify_url,
+                headers={"X-API-Key": api_key},
+            )
+
+    except httpx.TimeoutException:
+        logger.warning(
+            "Platform service authentication timed out"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Platform service authentication timed out",
+        )
+
+    except httpx.RequestError:
+        logger.exception(
+            "Platform service authentication unavailable"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Platform service authentication unavailable",
+        )
+
+    if response.status_code == status.HTTP_401_UNAUTHORIZED:
+        logger.warning(
+            "Rejected internal compliance call: invalid or revoked API key"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or revoked service API key",
+        )
+
+    if response.status_code != status.HTTP_200_OK:
+        logger.error(
+            "Platform service authentication failed: status=%s",
+            response.status_code,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Platform service authentication failed",
+        )
+
+    try:
+        data = response.json()
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Invalid response from Platform authentication",
+        )
+
+    if not isinstance(data, dict) or data.get("authenticated") is not True:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Service authentication failed",
+        )
+
+    caller_service = data.get("service")
+
+    if not isinstance(caller_service, str) or not caller_service.strip():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Invalid service identity from Platform",
+        )
+
+    caller_service = caller_service.strip()
+
+    if caller_service not in config.INTERNAL_CHECK_ALLOWED_CALLERS:
+        logger.warning(
+            "Rejected internal compliance call: service not allowed: %s",
+            caller_service,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Service is not allowed to call this endpoint",
+        )
+
+    logger.info(
+        "Authenticated internal compliance caller: %s",
+        caller_service,
+    )
+
+    return caller_service
 
 
 async def verify_token(

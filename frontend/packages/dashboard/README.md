@@ -236,16 +236,18 @@ The dashboard uses the reusable `useWebSocket` hook to receive real-time alerts.
 
 The dashboard supports the following six event types:
 
-| Event type                   | Purpose                            | Dashboard severity                                     |
-| ---------------------------- | ---------------------------------- | ------------------------------------------------------ |
-| `inventory.stock.low`        | Reports low or depleted inventory  | Critical when quantity is zero; otherwise warning      |
-| `iot.anomaly.detected`       | Reports detected IoT anomalies     | Low: info; medium: warning; high or critical: critical |
-| `supplierrisk.score.changed` | Reports supplier risk-tier changes | High: critical; medium: warning; low: info             |
-| `eta.shipment.predicted`     | Reports predicted shipment delays  | High risk: warning; otherwise info                     |
-| `forecast.batch.completed`   | Reports forecast batch completion  | Partial: warning; otherwise success                    |
-| `data.pipeline.completed`    | Reports data pipeline completion   | Success                                                |
+| Event type | Purpose | Gateway-provided severity |
+|---|---|---|
+| `inventory.stock.low` | Reports low or depleted inventory | Critical when stock is depleted; otherwise Warning |
+| `iot.anomaly.detected` | Reports detected IoT anomalies | Low: Info; Medium: Warning; High/Critical: Critical |
+| `supplierrisk.score.changed` | Reports supplier risk-tier changes | Warning when risk increases; otherwise Info |
+| `eta.shipment.predicted` | Reports predicted shipment delays | Info |
+| `forecast.batch.completed` | Reports forecast batch completion | Partial: Warning; Success: Info |
+| `data.pipeline.completed` | Reports data pipeline completion | Info |
 
-Severity is derived from each event's payload using the alert-mapping utility in `src/utils/alertMapper.ts`. The Alerts Panel uses the shared dashboard design tokens to display severity consistently.
+Severity is calculated by the API Gateway and provided as a top-level `severity` field in the WebSocket event envelope.The dashboard reads `message.severity` through `src/utils/alertMapper.ts` and does not calculate severity from the event type or payload.
+
+The Alerts Panel displays Critical, Warning, and Info badges with icons and shared design tokens. Critical alerts appear first. Users can filter alerts by All, Critical, Warning, or Info. Missing or unknown severity defaults to Info.
 
 ### WebSocket Contract and Mock Events
 
@@ -267,7 +269,17 @@ The WebSocket mock server is started only in development mode. The mock implemen
 
 ### Live Alerts Test Coverage
 
-The alert-related tests cover event-to-alert mapping, severity selection, panel rendering, WebSocket connection states, incoming events, reconnection behavior, exponential backoff, and failure after the retry limit.
+The alert-related tests cover:
+
+- Event-to-alert mapping using top-level gateway severity.
+- Critical, Warning, and Info severity mapping.
+- Missing and unknown severity fallback to Info.
+- Severity badge labels, icons, and token-based styling.
+- Critical-first alert ordering.
+- Severity filtering.
+- WebSocket connection states and incoming events.
+- Duplicate-event handling and reconnection behavior.
+- Exponential backoff and failure after the retry limit.
 
 Relevant test files include:
 
@@ -702,6 +714,7 @@ All component test files are organized inside the `src/test` folder.
 Tests were added for:
 
 * `AlertsPanel`
+* `AlertMapper`
 * `AnalyticsKpiPanel`
 * `App.role`
 * `ForecastChart`
@@ -1218,11 +1231,11 @@ npm run test:e2e
 
 Test verification completed successfully.
 
-* Vitest: 24 test files, 203/203 tests passed
+* Vitest: 24 test files, 216/216 tests passed
 * Playwright Dashboard E2E: 4/4 tests passed
 * Authentication E2E: 14/14 passed with valid credentials.
 * Live Alerts WebSocket: 1/1 test  passed.
-* Total: 222 tests passed across the three reported test groups.
+* Total: 235 tests passed across the three reported test groups.
 
 The authentication tests are run separately using
 npm run test:e2e:auth.
@@ -1512,3 +1525,17 @@ The live mode verifies the real gateway integration, while mock mode allows loca
 - Stops automatic retries and exposes Retry if token refresh fails.
 - Uses a shared in-flight refresh promise to prevent concurrent refresh requests.
 - Added unit tests for refresh success, failure, retry protection, and concurrent refresh handling.
+
+## R15 [C5] — Live Alert Severity Badges
+
+### Covered
+- Added Critical, Warning, and Info severity badges with icons.
+- Used theme tokens for badge colours.
+- Read severity from the top-level WebSocket message (`message.severity`).
+- Added severity sorting, displaying Critical alerts first.
+- Added filters for All, Critical, Warning, and Info.
+- Defaulted missing or unknown severity to Info.
+- Kept severity classification in the API Gateway; the frontend does not calculate severity.
+- Added tests for severity mapping, fallback behaviour, badge display, sorting, and filtering.
+
+

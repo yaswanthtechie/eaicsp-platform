@@ -42,10 +42,7 @@ def add_sales(db_session, warehouse_id, daily_quantities):
 
 
 def by_warehouse(result):
-    return {
-        item["warehouse_id"]: item
-        for item in result["warehouses"]
-    }
+    return {item["warehouse_id"]: item for item in result["warehouses"]}
 
 
 def test_steady_demand_needs_no_statistical_safety_stock(db_session):

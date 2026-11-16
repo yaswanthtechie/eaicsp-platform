@@ -19,6 +19,20 @@ function getNumber(payload: Payload, key: string): number | undefined {
     : undefined;
 }
 
+function getAlertSeverity(value: unknown): AlertSeverity {
+  if (typeof value !== "string") return "info";
+
+  switch (value.toLowerCase()) {
+    case "critical":
+      return "critical";
+    case "warning":
+      return "warning";
+    case "info":
+      return "info";
+    default:
+      return "info";
+  }
+}
 interface AlertMapping {
   type: AlertType;
   title: string;
@@ -30,6 +44,7 @@ export function mapAnalyticsEventToAlert(
   event: AnalyticsEventEnvelope,
 ): AlertMessage | null {
   const payload = event.payload;
+  const severity = getAlertSeverity(event.severity);
   let mapping: AlertMapping;
 
   switch (event.event_type) {
@@ -43,7 +58,7 @@ export function mapAnalyticsEventToAlert(
       mapping = {
         type: "low-stock",
         title: "Low Stock Alert",
-        severity: quantity === 0 ? "critical" : "warning",
+        severity,
         message:
           getString(payload, "message") ??
           `Stock for ${sku} at ${warehouse} is ${quantity ?? "unknown"} units` +
@@ -55,17 +70,6 @@ export function mapAnalyticsEventToAlert(
     }
 
     case "iot.anomaly.detected": {
-      const severityValue = payload.severity;
-
-      const severity: AlertSeverity =
-        severityValue === "low"
-          ? "info"
-          : severityValue === "medium"
-            ? "warning"
-            : severityValue === "high" || severityValue === "critical"
-              ? "critical"
-              : "warning";
-
       mapping = {
         type: "cold-chain-anomaly",
         title: "Cold-Chain Anomaly",
@@ -80,12 +84,6 @@ export function mapAnalyticsEventToAlert(
 
     case "supplierrisk.score.changed": {
       const newTier = getString(payload, "new_tier");
-      const severity: AlertSeverity =
-        newTier === "high"
-          ? "critical"
-          : newTier === "medium"
-            ? "warning"
-            : "info";
 
       mapping = {
         type: "supplier-risk-change",
@@ -104,7 +102,6 @@ export function mapAnalyticsEventToAlert(
     }
 
     case "eta.shipment.predicted": {
-      const severity: AlertSeverity = "info";
 
       mapping = {
         type: "shipment-eta-update",
@@ -125,7 +122,7 @@ export function mapAnalyticsEventToAlert(
       mapping = {
         type: "forecast-batch-completed",
         title: "Forecast Batch Done",
-        severity: status === "PARTIAL" ? "warning" : "success",
+        severity,
         message:
           getString(payload, "message") ??
           `Forecast batch ${getString(payload, "run_id") ?? ""} completed` +
@@ -140,7 +137,7 @@ export function mapAnalyticsEventToAlert(
       mapping = {
         type: "data-pipeline-completed",
         title: "Data Ingestion Sync",
-        severity: "success",
+        severity,
         message:
           getString(payload, "message") ??
           `Data pipeline run ${String(payload.run_id ?? "unknown")} ` +

@@ -2,7 +2,6 @@ from pydantic import BaseModel
 
 
 class InventoryValueReportItem(BaseModel):
-
     warehouse_id: str
 
     category: str
@@ -11,7 +10,6 @@ class InventoryValueReportItem(BaseModel):
 
 
 class InventoryValueReportResponse(BaseModel):
-
     valuation_method: str
 
     report: list[InventoryValueReportItem]

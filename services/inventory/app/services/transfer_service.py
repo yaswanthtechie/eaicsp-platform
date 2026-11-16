@@ -23,8 +23,7 @@ def find_transfer_suggestion(
     """
 
     destination_shortage = max(
-        destination_reorder_point
-        - destination.quantity_on_hand,
+        destination_reorder_point - destination.quantity_on_hand,
         0,
     )
 
@@ -36,18 +35,15 @@ def find_transfer_suggestion(
     # -----------------------------------------------------
 
     if context is not None:
-        source_warehouses = (
-            context["inventory_by_sku"].get(
-                destination.sku_id,
-                [],
-            )
+        source_warehouses = context["inventory_by_sku"].get(
+            destination.sku_id,
+            [],
         )
     else:
         source_warehouses = (
             db.query(Inventory)
             .filter(
-                Inventory.sku_id
-                == destination.sku_id,
+                Inventory.sku_id == destination.sku_id,
             )
             .all()
         )
@@ -55,8 +51,7 @@ def find_transfer_suggestion(
     source_warehouses = [
         item
         for item in source_warehouses
-        if item.warehouse_id
-        != destination.warehouse_id
+        if item.warehouse_id != destination.warehouse_id
     ]
 
     # -----------------------------------------------------
@@ -66,23 +61,16 @@ def find_transfer_suggestion(
     inventory_by_warehouse = {}
 
     for item in source_warehouses:
-        inventory_by_warehouse[
-            item.warehouse_id
-        ] = item
+        inventory_by_warehouse[item.warehouse_id] = item
 
     parent_chain = []
 
     current = destination
 
-    visited_warehouse_ids = {
-        destination.warehouse_id
-    }
+    visited_warehouse_ids = {destination.warehouse_id}
 
     while current.parent_warehouse_id:
-
-        parent = inventory_by_warehouse.get(
-            current.parent_warehouse_id
-        )
+        parent = inventory_by_warehouse.get(current.parent_warehouse_id)
 
         if parent is None:
             break
@@ -95,9 +83,7 @@ def find_transfer_suggestion(
                 "for this SKU."
             )
 
-        visited_warehouse_ids.add(
-            parent.warehouse_id
-        )
+        visited_warehouse_ids.add(parent.warehouse_id)
 
         parent_chain.append(parent)
 
@@ -120,30 +106,23 @@ def find_transfer_suggestion(
     candidates = []
 
     for source in source_warehouses:
-
         source_calculation = calculate_reorder_point(
             db=db,
             inventory=source,
             context=context,
         )
 
-        source_reorder_point = int(
-            source_calculation["reorder_point"]
-        )
+        source_reorder_point = int(source_calculation["reorder_point"])
 
         source_excess = max(
-            source.quantity_on_hand
-            - source_reorder_point,
+            source.quantity_on_hand - source_reorder_point,
             0,
         )
 
         if source_excess <= 0:
             continue
 
-        if (
-            source.lead_time_days
-            > destination.lead_time_days
-        ):
+        if source.lead_time_days > destination.lead_time_days:
             continue
 
         transfer_quantity = min(
@@ -154,16 +133,10 @@ def find_transfer_suggestion(
         if transfer_quantity <= 0:
             continue
 
-        days_saved = (
-            destination.lead_time_days
-            - source.lead_time_days
-        )
+        days_saved = destination.lead_time_days - source.lead_time_days
 
         if parent_chain:
-            hierarchy_distance = (
-                parent_chain.index(source)
-                + 1
-            )
+            hierarchy_distance = parent_chain.index(source) + 1
         else:
             hierarchy_distance = 999
 
@@ -173,9 +146,7 @@ def find_transfer_suggestion(
                 "source_excess": source_excess,
                 "transfer_quantity": transfer_quantity,
                 "days_saved": days_saved,
-                "hierarchy_distance": (
-                    hierarchy_distance
-                ),
+                "hierarchy_distance": (hierarchy_distance),
             }
         )
 
@@ -210,20 +181,10 @@ def find_transfer_suggestion(
     return {
         "sku_id": destination.sku_id,
         "source_warehouse": source.warehouse_id,
-        "destination_warehouse": (
-            destination.warehouse_id
-        ),
-        "transfer_quantity": (
-            best["transfer_quantity"]
-        ),
-        "source_excess_quantity": (
-            best["source_excess"]
-        ),
-        "destination_shortage_quantity": (
-            destination_shortage
-        ),
+        "destination_warehouse": (destination.warehouse_id),
+        "transfer_quantity": (best["transfer_quantity"]),
+        "source_excess_quantity": (best["source_excess"]),
+        "destination_shortage_quantity": (destination_shortage),
         "recommendation": "TRANSFER",
-        "days_saved_vs_reorder": (
-            best["days_saved"]
-        ),
+        "days_saved_vs_reorder": (best["days_saved"]),
     }

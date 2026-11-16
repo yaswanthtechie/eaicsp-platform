@@ -6,7 +6,11 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core import config as app_config
-from app.core.security import create_access_token, create_refresh_token
+from app.core.security import (
+    build_access_claims,
+    create_access_token,
+    create_refresh_token,
+)
 from app.models.users import User
 from app.services.audit_service import SSO_LOGIN, SSO_REJECTED, create_audit_log
 from app.services.auth_service import save_refresh_token
@@ -117,9 +121,7 @@ def mock_sso_login(
         if locked_until > datetime.now(UTC):
             reject("account is locked")
 
-    access_token = create_access_token(
-        {"sub": user.email, "user_id": user.id, "role": role.name}
-    )
+    access_token = create_access_token(build_access_claims(user, role_name=role.name))
     refresh_token = create_refresh_token({"sub": user.email, "user_id": user.id})
 
     save_refresh_token(

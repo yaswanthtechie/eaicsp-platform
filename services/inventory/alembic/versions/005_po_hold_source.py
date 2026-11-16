@@ -3,11 +3,11 @@
 Revision ID: 005_po_hold_source
 Revises: 004_compliance_consumer_tables
 """
+
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 revision: str = "005_po_hold_source"
 down_revision: Union[str, None] = "004_compliance_consumer_tables"
@@ -20,8 +20,12 @@ def upgrade() -> None:
     inspector = sa.inspect(conn)
     po_columns = [c["name"] for c in inspector.get_columns("purchase_orders")]
     if "hold_source" not in po_columns:
-        op.add_column("purchase_orders", sa.Column("hold_source", sa.String(), nullable=True))
-    op.execute("UPDATE purchase_orders SET hold_source = 'compliance' WHERE status = 'on_hold'")
+        op.add_column(
+            "purchase_orders", sa.Column("hold_source", sa.String(), nullable=True)
+        )
+    op.execute(
+        "UPDATE purchase_orders SET hold_source = 'compliance' WHERE status = 'on_hold'"
+    )
 
 
 def downgrade() -> None:
@@ -30,4 +34,3 @@ def downgrade() -> None:
     po_columns = [c["name"] for c in inspector.get_columns("purchase_orders")]
     if "hold_source" in po_columns:
         op.drop_column("purchase_orders", "hold_source")
-

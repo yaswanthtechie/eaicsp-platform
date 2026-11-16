@@ -1,5 +1,6 @@
-from datetime import UTC, datetime
 import logging
+from datetime import UTC, datetime
+
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
@@ -18,7 +19,9 @@ def generate_goods_receipt_id(db: Session) -> str:
     """Canonical Goods Receipt ID per blueprint Section 2: GR-<year>-<6 digits>, e.g. GR-2026-000077."""
     # Serialise GR numbering until commit (Postgres). SQLite tests run single-threaded.
     if db.get_bind().dialect.name == "postgresql":
-        db.execute(text("SELECT pg_advisory_xact_lock(hashtext('inventory.goods_receipt_id'))"))
+        db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext('inventory.goods_receipt_id'))")
+        )
 
     prefix = f"GR-{datetime.now(UTC).year}-"
     last = (
@@ -233,5 +236,3 @@ def invalidate_receipt_cache(db: Session, receipt: GoodsReceipt) -> None:
                 inventory.warehouse_id,
                 version=inventory.version,
             )
-
-

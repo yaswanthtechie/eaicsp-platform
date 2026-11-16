@@ -1,6 +1,7 @@
-from datetime import UTC, datetime, timedelta
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
 import pytest
 
 from app.models.compliance_event import ProcessedEvent
@@ -22,7 +23,13 @@ EXAMPLE_PATH = (
 
 
 class MockKafkaMessage:
-    def __init__(self, value_dict_or_str, topic="supplierportal.po.acknowledged", partition=0, offset=1):
+    def __init__(
+        self,
+        value_dict_or_str,
+        topic="supplierportal.po.acknowledged",
+        partition=0,
+        offset=1,
+    ):
         if isinstance(value_dict_or_str, dict):
             self._value = json.dumps(value_dict_or_str).encode("utf-8")
         elif isinstance(value_dict_or_str, str):
@@ -103,7 +110,11 @@ def test_process_rashida_example_event(db_session, example_event, seed_po):
     assert result.affected_po == seed_po.po_id
 
     # PO updated in database
-    po = db_session.query(PurchaseOrder).filter(PurchaseOrder.po_id == seed_po.po_id).first()
+    po = (
+        db_session.query(PurchaseOrder)
+        .filter(PurchaseOrder.po_id == seed_po.po_id)
+        .first()
+    )
     assert po.status == "acknowledged"
 
     # Idempotency record created
@@ -173,7 +184,11 @@ def test_consumer_does_not_revert_received_po(db_session, example_event, seed_po
     result = process_po_acknowledged_event(db_session, example_event)
     assert result.status == "PROCESSED"
 
-    po = db_session.query(PurchaseOrder).filter(PurchaseOrder.po_id == seed_po.po_id).first()
+    po = (
+        db_session.query(PurchaseOrder)
+        .filter(PurchaseOrder.po_id == seed_po.po_id)
+        .first()
+    )
     assert po.status == "received"
 
 
@@ -266,5 +281,3 @@ def test_ack_with_non_canonical_po_number_is_rejected(db_session, example_event)
     bad["payload"]["po_number"] = "PO-123"  # noncanonical-ok
     with pytest.raises(InvalidMessageError):
         process_po_acknowledged_event(db_session, bad)
-
-

@@ -1,13 +1,12 @@
-from datetime import UTC, datetime
-import json
 import logging
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.outbox import Outbox
 from app.schemas.events import EventEnvelope
-from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +23,7 @@ def record_event(
     """
     Transactional Outbox Writer:
     Writes an event envelope into the outbox table within the caller's active database transaction.
-    
+
     IMPORTANT: This function does NOT commit the transaction.
     The caller commits so that the business mutation and event are committed atomically.
     If the transaction rolls back, the event is also rolled back and never published.

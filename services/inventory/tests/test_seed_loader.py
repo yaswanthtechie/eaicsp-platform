@@ -3,6 +3,7 @@ Tests for Seed Loader and Canonical Master Data (Round 15: Flow A)
 """
 
 import csv
+
 import pytest
 
 from app.models.inventory import Inventory
@@ -33,10 +34,37 @@ def seed_dir(tmp_path):
     """A tiny, internally consistent seed: 2 suppliers, 3 SKUs (SUP-00045 supplies two)."""
     _write(
         tmp_path / "warehouses.csv",
-        ["warehouse_id", "name", "city", "state", "lat", "lng", "capacity_units", "demand_weight"],
         [
-            ["WH-BLR-01", "Bengaluru DC", "Bengaluru", "Karnataka", "12.97", "77.59", "120000", "1.25"],
-            ["WH-DEL-01", "Delhi DC", "New Delhi", "Delhi", "28.61", "77.20", "90000", "1.0"],
+            "warehouse_id",
+            "name",
+            "city",
+            "state",
+            "lat",
+            "lng",
+            "capacity_units",
+            "demand_weight",
+        ],
+        [
+            [
+                "WH-BLR-01",
+                "Bengaluru DC",
+                "Bengaluru",
+                "Karnataka",
+                "12.97",
+                "77.59",
+                "120000",
+                "1.25",
+            ],
+            [
+                "WH-DEL-01",
+                "Delhi DC",
+                "New Delhi",
+                "Delhi",
+                "28.61",
+                "77.20",
+                "90000",
+                "1.0",
+            ],
         ],
     )
     _write(
@@ -49,11 +77,47 @@ def seed_dir(tmp_path):
     )
     _write(
         tmp_path / "skus.csv",
-        ["sku_id", "name", "category", "pack_size", "unit_price", "unit_cost", "abc_class", "supplier_id"],
         [
-            ["SKU-000001", "Bolt", "Hardware", "Box of 100", "100.0", "60.0", "A", "SUP-00045"],
-            ["SKU-000002", "Nut", "Hardware", "Box of 100", "80.0", "45.0", "B", "SUP-00045"],
-            ["SKU-000003", "Chair", "Furniture", "1 pc", "900.0", "600.0", "C", "SUP-00007"],
+            "sku_id",
+            "name",
+            "category",
+            "pack_size",
+            "unit_price",
+            "unit_cost",
+            "abc_class",
+            "supplier_id",
+        ],
+        [
+            [
+                "SKU-000001",
+                "Bolt",
+                "Hardware",
+                "Box of 100",
+                "100.0",
+                "60.0",
+                "A",
+                "SUP-00045",
+            ],
+            [
+                "SKU-000002",
+                "Nut",
+                "Hardware",
+                "Box of 100",
+                "80.0",
+                "45.0",
+                "B",
+                "SUP-00045",
+            ],
+            [
+                "SKU-000003",
+                "Chair",
+                "Furniture",
+                "1 pc",
+                "900.0",
+                "600.0",
+                "C",
+                "SUP-00007",
+            ],
         ],
     )
     _write(
@@ -95,13 +159,23 @@ def test_seed_loader_populates_canonical_data(seed_dir, db_session):
     for prod in db_session.query(Product):
         assert SKU_RE.match(prod.sku_id)
 
-    bolt = db_session.query(Inventory).filter_by(sku_id="SKU-000001", warehouse_id="WH-BLR-01").one()
+    bolt = (
+        db_session.query(Inventory)
+        .filter_by(sku_id="SKU-000001", warehouse_id="WH-BLR-01")
+        .one()
+    )
     assert bolt.quantity_on_hand == 85
     assert bolt.lead_time_days == 12  # from suppliers.csv, not invented
-    assert bolt.avg_daily_demand == 15.0  # (10 + 20) / 2 observed days up to the snapshot date
+    assert (
+        bolt.avg_daily_demand == 15.0
+    )  # (10 + 20) / 2 observed days up to the snapshot date
     assert bolt.warehouse_type == "central"
 
-    nut = db_session.query(Inventory).filter_by(sku_id="SKU-000002", warehouse_id="WH-DEL-01").one()
+    nut = (
+        db_session.query(Inventory)
+        .filter_by(sku_id="SKU-000002", warehouse_id="WH-DEL-01")
+        .one()
+    )
     assert nut.parent_warehouse_id == "WH-BLR-01"
 
 
@@ -127,13 +201,26 @@ def test_seed_loader_is_idempotent(seed_dir, db_session):
         db_session.query(InventoryCostLayer).count(),
         db_session.query(SalesHistory).count(),
     ) == counts
-    assert counts[1] == 2  # one layer per SKU/warehouse with stock; none for the 0-qty row
+    assert (
+        counts[1] == 2
+    )  # one layer per SKU/warehouse with stock; none for the 0-qty row
 
 
 def test_failed_load_changes_nothing(seed_dir, db_session):
     run_loader(seed_dir_path=str(seed_dir), wipe=True, db=db_session)
     with open(seed_dir / "skus.csv", "a", encoding="utf-8", newline="") as f:
-        csv.writer(f).writerow(["SKU001", "Legacy", "Hardware", "", "1", "1", "A", "SUP-00045"])  # noncanonical-ok
+        csv.writer(f).writerow(
+            [
+                "SKU001",  # noncanonical-ok
+                "Legacy",
+                "Hardware",
+                "",
+                "1",
+                "1",
+                "A",
+                "SUP-00045",
+            ]
+        )
 
     with pytest.raises(ValueError, match="Invalid non-canonical sku_id"):
         run_loader(seed_dir_path=str(seed_dir), wipe=True, db=db_session)
@@ -146,7 +233,16 @@ def test_seed_loader_rejects_non_canonical_warehouse_id(tmp_path, db_session):
     _write(
         tmp_path / "warehouses.csv",
         ["warehouse_id", "name", "city", "state", "capacity_units", "demand_weight"],
-        [["WH001", "Old Format DC", "City", "State", "100000", "1.0"]],  # noncanonical-ok
+        [
+            [
+                "WH001",  # noncanonical-ok
+                "Old Format DC",
+                "City",
+                "State",
+                "100000",
+                "1.0",
+            ]
+        ],
     )
     with pytest.raises(ValueError, match="Invalid non-canonical warehouse_id"):
         load_warehouses(db=db_session, seed_dir=tmp_path)
@@ -155,8 +251,28 @@ def test_seed_loader_rejects_non_canonical_warehouse_id(tmp_path, db_session):
 def test_seed_loader_rejects_non_canonical_sku_id(tmp_path, db_session):
     _write(
         tmp_path / "skus.csv",
-        ["sku_id", "name", "category", "pack_size", "unit_price", "unit_cost", "abc_class", "supplier_id"],
-        [["SKU001", "Legacy Item", "Electronics", "1 pc", "100.0", "50.0", "A", "SUP-00001"]],  # noncanonical-ok
+        [
+            "sku_id",
+            "name",
+            "category",
+            "pack_size",
+            "unit_price",
+            "unit_cost",
+            "abc_class",
+            "supplier_id",
+        ],
+        [
+            [
+                "SKU001",  # noncanonical-ok
+                "Legacy Item",
+                "Electronics",
+                "1 pc",
+                "100.0",
+                "50.0",
+                "A",
+                "SUP-00001",
+            ]
+        ],
     )
     with pytest.raises(ValueError, match="Invalid non-canonical sku_id"):
         load_products(db=db_session, seed_dir=tmp_path)

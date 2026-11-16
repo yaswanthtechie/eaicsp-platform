@@ -57,8 +57,15 @@ def check_supplier_compliance(
         "country": country,
     }
 
+    api_key = settings.SUPPLIER_PORTAL_SERVICE_API_KEY
+
+    if not api_key:
+        raise ComplianceServiceUnavailableError(
+            "Supplier Portal service API key is not configured."
+        )
+
     headers = {
-        "X-Caller-Service": "supplier-portal",
+        "X-API-Key": api_key,
     }
 
     try:

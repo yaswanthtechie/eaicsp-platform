@@ -17,6 +17,17 @@ SUPPLIER_ID = "SUP-00001"
 SUPPLIER_NAME = "ABC Supplies Pvt Ltd"
 COUNTRY = "India"
 
+# ============================================================
+# FIXTURES
+# ============================================================
+
+@pytest.fixture(autouse=True)
+def configure_service_api_key(monkeypatch):
+    monkeypatch.setattr(
+        settings,
+        "SUPPLIER_PORTAL_SERVICE_API_KEY",
+        "test-supplier-portal-api-key",
+    )
 
 def make_response(
     *,
@@ -363,7 +374,7 @@ def test_compliance_client_sends_correct_caller_header(
     client = FakeClient.last_instance
 
     assert client.post_calls[0]["headers"] == {
-        "X-Caller-Service": "supplier-portal",
+        "X-API-Key": "test-supplier-portal-api-key",
     }
 
 

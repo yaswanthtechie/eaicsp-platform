@@ -1,10 +1,11 @@
-from datetime import datetime, UTC
+from datetime import UTC, datetime
+
 from sqlalchemy import (
     Column,
-    String,
+    DateTime,
     Float,
     Integer,
-    DateTime,
+    String,
 )
 
 from app.database import Base
@@ -32,6 +33,17 @@ class Warehouse(Base):
     state = Column(
         String(64),
         nullable=False,
+    )
+
+    country = Column(
+        String(64),
+        nullable=False,
+        default="India",
+    )
+
+    pincode = Column(
+        String(16),
+        nullable=True,
     )
 
     lat = Column(
@@ -71,4 +83,3 @@ class Warehouse(Base):
         nullable=False,
         default=lambda: datetime.now(UTC),
     )
-

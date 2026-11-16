@@ -194,7 +194,18 @@ PLATFORM_AUTH_URL = os.getenv(
     "PLATFORM_AUTH_URL",
     "http://127.0.0.1:8005",
 )
-
+PLATFORM_VERIFY_TIMEOUT_SECONDS = float(
+    os.getenv(
+        "PLATFORM_VERIFY_TIMEOUT_SECONDS",
+        "2.0",
+    )
+)
+# Services allowed to call POST /internal-check.
+# These must match the service names registered in Platform.
+INTERNAL_CHECK_ALLOWED_CALLERS = frozenset({
+    "inventory",
+    "supplier-portal",
+})
 PLATFORM_SERVICE_API_KEY = os.getenv(
     "PLATFORM_SERVICE_API_KEY",
 )
@@ -264,19 +275,6 @@ validate_internal_thresholds(
     INTERNAL_REVIEW_MATCH_SCORE,
     INTERNAL_BLOCK_MATCH_SCORE,
 )
-
-INTERNAL_SERVICE_KEYS = {
-    name.strip(): key.strip()
-    for name, _, key in (
-        item.partition(":")
-        for item in os.getenv(
-            "INTERNAL_SERVICE_KEYS",
-            "",
-        ).split(",")
-        if item.strip()
-    )
-    if name.strip() and key.strip()
-}
 
 OFAC_DOWNLOAD_URL = os.getenv(
     "OFAC_DOWNLOAD_URL",

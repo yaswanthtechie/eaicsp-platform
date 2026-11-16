@@ -41,6 +41,7 @@ TEST_PASSWORD = "TestUser@12345"
 VERIFY_KEYS = {
     "valid",
     "user_id",
+    "user_uuid",
     "email",
     "full_name",
     "role",
@@ -200,6 +201,7 @@ def test_verify_response_contract_is_unchanged(
 
         valid
         user_id
+        user_uuid
         email
         full_name
         role

@@ -31,4 +31,3 @@ def test_no_non_canonical_id_literals():
                         )
 
     assert not offenders, "Non-canonical IDs:\n" + "\n".join(offenders)
-

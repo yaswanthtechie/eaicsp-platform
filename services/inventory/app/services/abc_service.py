@@ -13,9 +13,7 @@ def calculate_sales_volume(
         db.query(
             SalesHistory.sku_id,
             SalesHistory.warehouse_id,
-            func.sum(
-                SalesHistory.quantity_sold
-            ).label("sales_volume"),
+            func.sum(SalesHistory.quantity_sold).label("sales_volume"),
         )
         .group_by(
             SalesHistory.sku_id,
@@ -27,20 +25,15 @@ def calculate_sales_volume(
     volumes = {}
 
     for record in records:
-
         if record.sales_volume < 0:
-            raise ValueError(
-                "Negative demand data is not allowed"
-            )
+            raise ValueError("Negative demand data is not allowed")
 
         key = (
             record.sku_id,
             record.warehouse_id,
         )
 
-        volumes[key] = int(
-            record.sales_volume
-        )
+        volumes[key] = int(record.sales_volume)
 
     return volumes
 
@@ -67,25 +60,15 @@ def classify_skus(
     if total_items == 0:
         return {}
 
-    a_cutoff = math.ceil(
-        total_items * 0.20
-    )
+    a_cutoff = math.ceil(total_items * 0.20)
 
-    b_cutoff = math.ceil(
-        total_items * 0.50
-    )
+    b_cutoff = math.ceil(total_items * 0.50)
 
     classifications = {}
 
-    for index, (key, volume) in enumerate(
-        sorted_items
-    ):
-
+    for index, (key, volume) in enumerate(sorted_items):
         rank_percentile = round(
-            (
-                (index + 1)
-                / total_items
-            ) * 100,
+            ((index + 1) / total_items) * 100,
             2,
         )
 
@@ -113,9 +96,7 @@ def calculate_tier_safety_stock(
 ) -> int:
 
     if base_safety_stock < 0:
-        raise ValueError(
-            "Safety stock cannot be negative"
-        )
+        raise ValueError("Safety stock cannot be negative")
 
     if abc_tier == "A":
         multiplier = 1.5
@@ -126,6 +107,4 @@ def calculate_tier_safety_stock(
     else:
         multiplier = 1.0
 
-    return int(
-        base_safety_stock * multiplier
-    )
+    return int(base_safety_stock * multiplier)

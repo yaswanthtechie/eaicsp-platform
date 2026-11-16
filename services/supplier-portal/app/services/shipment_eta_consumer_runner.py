@@ -18,13 +18,12 @@ class ShipmentETAConsumerRunner:
         self._consumer = None
         self._lock = threading.Lock()
 
-    @property
     def is_alive(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
     def start(self):
         with self._lock:
-            if self.is_alive:
+            if self.is_alive():
                 logger.info("ETA consumer runner is already running.")
                 return
 

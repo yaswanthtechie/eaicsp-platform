@@ -107,7 +107,6 @@ def mock_compliance_officer_auth():
         None,
     )
 
-
 @pytest.fixture
 def fake_platform(monkeypatch):
     def _install(
@@ -132,6 +131,10 @@ def fake_platform(monkeypatch):
             return httpx.Response(
                 status_code,
                 json=payload,
+                request=httpx.Request(
+                    "POST",
+                    url,
+                ),
             )
 
         monkeypatch.setattr(
@@ -141,4 +144,3 @@ def fake_platform(monkeypatch):
         )
 
     return _install
-

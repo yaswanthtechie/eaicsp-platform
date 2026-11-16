@@ -3,8 +3,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    DATABASE_URL: str                      # required: fail loudly if missing
-    TEST_DATABASE_URL: str | None = None   # only the test suite needs this
+    DATABASE_URL: str  # required: fail loudly if missing
+    TEST_DATABASE_URL: str | None = None  # only the test suite needs this
     PLATFORM_AUTH_URL: str = "http://localhost:8005"
     COMPLIANCE_SERVICE_URL: str = "http://localhost:8003"
     # Supplier has no country column yet; every supplier is
@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     OUTBOX_RELAY_INTERVAL_SECONDS: float = 2.0
     # Outbox: after this many failed publishes an event becomes DEAD
     OUTBOX_MAX_RETRIES: int = 10
+
+    # Optional local folder with canonical client staging CSVs (R15-B8).
+    CLIENT_STAGING_DIR: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

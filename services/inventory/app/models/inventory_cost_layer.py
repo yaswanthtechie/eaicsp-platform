@@ -12,7 +12,6 @@ from app.database import Base
 
 
 class InventoryCostLayer(Base):
-
     __tablename__ = "inventory_cost_layers"
 
     id = Column(

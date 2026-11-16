@@ -3,11 +3,11 @@ import os
 import time
 from pathlib import Path
 from typing import Optional
+
 from sqlalchemy.orm import Session
 
 from app.services.kafka_producer import (
     KafkaEventPublisher,
-    KafkaPublishError,
     is_broker_error,
 )
 from app.services.outbox_service import (
@@ -59,7 +59,7 @@ class OutboxRelay:
     ) -> tuple[int, int]:
         """
         Process a batch of pending outbox events.
-        
+
         Returns:
             tuple[int, int]: (published_count, failed_count)
         """
@@ -87,7 +87,7 @@ class OutboxRelay:
                     event.event_type,
                 )
 
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - outbox relay must classify and record any publish failure without crashing the batch
                 failed_count += 1
                 error_msg = str(exc)
                 broker_err = is_broker_error(exc)
@@ -119,8 +119,10 @@ class OutboxRelay:
         return published_count, failed_count
 
 
+# Intentional persistent heartbeat path; configurable via environment
+# and read by the container healthcheck in docker-compose.dev.yml.
 HEARTBEAT_FILE = Path(
-    os.getenv("OUTBOX_RELAY_HEARTBEAT_FILE", "/tmp/outbox-relay.heartbeat")
+    os.getenv("OUTBOX_RELAY_HEARTBEAT_FILE", "/tmp/outbox-relay.heartbeat")  # nosec B108
 )
 
 
@@ -161,7 +163,7 @@ def run_relay_worker(
                     pub,
                     fail,
                 )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - background worker loop must survive cycle failures without exiting
             logger.error("Outbox relay error: %s", exc)
         finally:
             db.close()

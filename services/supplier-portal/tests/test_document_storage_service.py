@@ -597,3 +597,55 @@ def test_object_exists_raises_storage_error_for_unexpected_exception(
                 "DOC001_pan_card.pdf"
             ),
         )
+
+
+def test_build_onboarding_object_key_strips_mixed_separators():
+    object_key = DocumentStorageService.build_onboarding_object_key(
+        supplier_id="SUP-00001",
+        document_id="DOC001",
+        file_name=r"C:\temp/..\pan_card.pdf",
+    )
+
+    assert object_key.endswith("DOC001_pan_card.pdf")
+
+
+@pytest.mark.parametrize("file_name", ["", "..", "folder/"])
+def test_build_onboarding_object_key_rejects_unsafe_filename(file_name):
+    with pytest.raises(ValueError, match="valid filename"):
+        DocumentStorageService.build_onboarding_object_key(
+            supplier_id="SUP-00001",
+            document_id="DOC001",
+            file_name=file_name,
+        )
+
+
+@pytest.mark.parametrize(
+    ("invoice_number", "expected"),
+    [
+        ("../../etc/INV1001", "INV1001"),
+        (r"C:\temp/..\INV1002", "INV1002"),
+    ],
+)
+def test_build_invoice_object_key_strips_directory(
+    invoice_number,
+    expected,
+):
+    object_key = DocumentStorageService.build_invoice_object_key(
+        supplier_id="SUP-00001",
+        invoice_number=invoice_number,
+        file_name="invoice.pdf",
+    )
+
+    assert object_key.endswith(f"invoices/{expected}.pdf")
+
+
+@pytest.mark.parametrize("invoice_number", ["", "..", "folder/"])
+def test_build_invoice_object_key_rejects_unsafe_invoice_number(
+    invoice_number,
+):
+    with pytest.raises(ValueError, match="valid filename"):
+        DocumentStorageService.build_invoice_object_key(
+            supplier_id="SUP-00001",
+            invoice_number=invoice_number,
+            file_name="invoice.pdf",
+        )
