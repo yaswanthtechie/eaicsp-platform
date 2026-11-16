@@ -42,9 +42,10 @@ def inspect_samples():
             reader = csv.DictReader(f)
             assert not (set(rules) - set(reader.fieldnames or [])), key
 
+            seen = set()
             for raw in reader:
-                errors = loader.process_row(
-                    key, raw, rules, known, load=lambda row: None
+                errors = loader.process_unique_row(
+                    seen, key, raw, rules, known, load=lambda row: None
                 )
                 if errors:
                     rejected[key] += 1
@@ -201,21 +202,46 @@ def test_lowercase_client_code_is_rejected():
     }
     assert "product_code: invalid format" in loader.validate(row, rules)
 
-def test_duplicate_record_key_in_same_file_is_rejected(monkeypatch):
-    seen = set()
-    process = MagicMock(return_value=[])
-    monkeypatch.setattr(loader, "process_row", process)
+def test_duplicate_record_key_in_same_file_is_rejected():
+    seen, known, loaded = set(), {"product": set()}, []
 
-    row = {"product_code": "PRD-12345"}
+    def unique(price):
+        raw = {"product_code": "PRD-12345", "unit_price": price}
+        return loader.process_unique_row(
+            seen, "product_master", raw, {}, known, loaded.append
+        )
 
-    first = loader.process_unique_row(
-        seen, "product_master", row, {}, {}, MagicMock()
-    )
-    second = loader.process_unique_row(
-        seen, "product_master",
-        {"product_code": " PRD-12345 "}, {}, {}, MagicMock()
-    )
+    first = unique("1.00")
+    second = unique("2.00")
 
     assert first == []
-    assert second == ["duplicate of an earlier row in this file"]
-    assert process.call_count == 1
+    assert second == ["load error: duplicate of an earlier row in this file"]
+    assert [r["unit_price"] for r in loaded] == ["1.00"]
+
+
+def test_bad_row_with_a_repeated_key_keeps_its_real_reason():
+    _, reasons = inspect_samples()
+    assert "quantity_on_hand: must be non-negative" in reasons
+
+
+def test_second_line_of_a_purchase_order_is_not_a_duplicate():
+    seen, loaded = set(), []
+    known = {"product": {"PRD-10524", "PRD-10525"}, "supplier": {"SUP-2246"}}
+
+    def unique(product, quantity):
+        raw = {
+            "po_number": "PO-55120",
+            "supplier_code": "SUP-2246",
+            "product_code": product,
+            "quantity_ordered": quantity,
+        }
+        return loader.process_unique_row(
+            seen, "purchase_order_history", raw, {}, known, loaded.append
+        )
+
+    assert unique("PRD-10524", "142") == []
+    assert unique("PRD-10525", "60") == []
+    assert unique("PRD-10524", "99") == [
+        "load error: duplicate of an earlier row in this file"
+    ]
+    assert [r["product_code"] for r in loaded] == ["PRD-10524", "PRD-10525"]

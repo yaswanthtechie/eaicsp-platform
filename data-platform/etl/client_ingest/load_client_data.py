@@ -292,23 +292,23 @@ def make_record_key(key, row):
         "inventory_snapshot": ["snapshot_date", "product_code", "warehouse_code"],
         "supplier_lead_times": ["supplier_code", "product_code", "effective_date"],
         "supplier_incidents": ["incident_id"],
-        "purchase_order_history": ["po_number"],
+        "purchase_order_history": ["po_number", "product_code"],
         "shipment_history": ["shipment_id"],
     }[key]
     return "|".join((row.get(field) or "").strip() for field in fields)
 
 
 def process_unique_row(seen_record_keys, key, raw, rules, known, load):
+    """Reject duplicate valid records without hiding validation errors."""
     record_key = make_record_key(key, raw)
-    if record_key in seen_record_keys:
-        return ["duplicate of an earlier row in this file"]
 
-    errors = process_row(key, raw, rules, known, load)
-    if not errors:
+    def load_once(row):
+        if record_key in seen_record_keys:
+            raise ValueError("duplicate of an earlier row in this file")
+        load(row)
         seen_record_keys.add(record_key)
-    return errors
 
-
+    return process_row(key, raw, rules, known, load_once)
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dir", required=True)
