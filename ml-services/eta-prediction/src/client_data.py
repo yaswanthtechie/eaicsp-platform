@@ -139,6 +139,7 @@ def load_client_shipments(
             f"Client shipment file not found: {file_path}"
         )
 
-    raw_shipments = pd.read_csv(file_path)
+    # Read all incoming CSV values as strings to preserve identifiers.
+    raw_shipments = pd.read_csv(file_path, dtype=str)
 
     return adapt_client_shipments(raw_shipments)

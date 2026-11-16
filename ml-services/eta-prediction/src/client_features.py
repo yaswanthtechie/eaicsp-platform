@@ -46,6 +46,15 @@ def prepare_client_features(shipments: pd.DataFrame):
 
     data = shipments.copy()
 
+    # Normalize missing, blank, and whitespace-only carrier names.
+    data["carrier_name"] = (
+        data["carrier_name"]
+        .astype("string")
+        .str.strip()
+        .replace("", pd.NA)
+        .fillna("Unknown")
+    )
+
     date_columns = [
         "dispatch_date",
         "planned_delivery_date",
@@ -118,7 +127,7 @@ def prepare_client_features(shipments: pd.DataFrame):
     X["planned_delivery_days"] = planned_days
 
     # Carrier is a categorical input and will be encoded in the pipeline.
-    X["carrier_name"] = data["carrier_name"].fillna("Unknown")
+    X["carrier_name"] = data["carrier_name"]
 
     X = X[FEATURE_COLUMNS + CATEGORICAL_COLUMNS]
 

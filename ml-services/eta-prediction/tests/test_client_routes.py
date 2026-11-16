@@ -251,17 +251,13 @@ def test_conflicting_coordinates_across_seed_files_are_rejected(
         )
 
 
-def test_tiny_coordinate_differences_are_accepted_after_rounding(
+def test_coordinate_differences_within_tolerance_are_accepted(
     shipments, suppliers, warehouses, warehouse_master
 ):
-    # These coordinates differ by less than the 1e-3 degree tolerance.
+    # Use realistic Mumbai coordinates with differences below 1e-3.
     warehouses.loc[2, "city"] = "Mumbai"
-    warehouses.loc[2, "lat"] = 12.97144999
-    warehouses.loc[2, "lng"] = 72.87774
-
-    suppliers.loc[
-        suppliers["city"] == "Mumbai", "lat"
-    ] = 12.97155
+    warehouses.loc[2, "lat"] = 19.0765
+    warehouses.loc[2, "lng"] = 72.8780
 
     result, diagnostics = add_client_route_distances(
         shipments, suppliers, warehouses, warehouse_master
@@ -274,10 +270,10 @@ def test_tiny_coordinate_differences_are_accepted_after_rounding(
 def test_genuine_coordinate_conflicts_are_still_rejected(
     shipments, suppliers, warehouses, warehouse_master
 ):
-    # This difference remains after rounding to 4 decimal places.
+    # Latitude difference exceeds the 1e-3 degree tolerance.
     warehouses.loc[2, "city"] = "Mumbai"
-    warehouses.loc[2, "lat"] = 19.3002
-    warehouses.loc[2, "lng"] = 73.0581
+    warehouses.loc[2, "lat"] = 19.0800
+    warehouses.loc[2, "lng"] = 72.8777
 
     with pytest.raises(ValueError, match="Conflicting coordinates"):
         add_client_route_distances(

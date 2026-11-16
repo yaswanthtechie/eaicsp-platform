@@ -33,6 +33,20 @@ from src.paths import (
 )
 
 
+def _xgboost_parameters(pipeline) -> dict:
+    """Return XGBoost parameters when the pipeline exposes an XGBoost step."""
+    named_steps = getattr(pipeline, "named_steps", None)
+
+    if named_steps is None:
+        return {}
+
+    for step in named_steps.values():
+        if isinstance(step, xgboost.XGBRegressor):
+            return step.get_params(deep=False)
+
+    return {}
+
+
 def _metric_safe(name: str) -> str:
     """Make a carrier name safe to use inside an MLflow metric name."""
     return re.sub(r"[^\w\-. /:]", "_", str(name))
@@ -46,36 +60,11 @@ def train_client_eta(
     test_size: float = TEST_SIZE,
     data_label: str = "synthetic",
 ):
-    """
-    Train and evaluate the R15-H4 client ETA model.
-
-    Parameters
-    ----------
-    shipment_file : str or Path
-        Path to the client shipment-history CSV.
-    suppliers : pandas.DataFrame
-        Seed supplier city coordinates.
-    warehouses : pandas.DataFrame
-        Seed warehouse city coordinates.
-    warehouse_master : pandas.DataFrame
-        Client warehouse codes and their actual city names.
-    test_size : float
-        Fraction of data reserved for chronological testing.
-    data_label : str
-        Label identifying the training data source, such as
-        'synthetic' or 'client_real'.
-
-    Returns
-    -------
-    dict
-        Trained model, evaluation metrics, diagnostics,
-        metadata and artifact paths.
-    """
+    """Train and evaluate the R15-H4 client ETA model."""
 
     # 1. Load client shipment history.
     shipments = load_client_shipments(shipment_file)
 
-    # Capture duplicate count before further DataFrame processing.
     duplicate_shipment_count = int(
         shipments.attrs.get("duplicate_shipment_count", 0)
     )
@@ -108,7 +97,6 @@ def train_client_eta(
         test_size=test_size,
     )
 
-    # Include both numeric and categorical model inputs.
     all_feature_columns = FEATURE_COLUMNS + CATEGORICAL_COLUMNS
 
     # Configure MLflow and start the H4 training run.
@@ -120,9 +108,13 @@ def train_client_eta(
         model = create_client_pipeline()
         model.fit(X_train, y_train)
 
+        # Extract actual XGBoost parameters when available.
+        xgboost_parameters = _xgboost_parameters(model)
+
         # 6. Predict on the later test period.
         predictions = pd.Series(
             model.predict(X_test),
+            index=X_test.index,
             name="predicted_delivery_days",
         )
 
@@ -139,6 +131,7 @@ def train_client_eta(
             "trained_at_utc": datetime.now(timezone.utc).isoformat(),
             "data_label": data_label,
             "feature_columns": all_feature_columns,
+            "xgboost_parameters": xgboost_parameters,
             "target": "delivery_days",
             "test_size": test_size,
             "duplicate_shipment_count": duplicate_shipment_count,
@@ -165,20 +158,25 @@ def train_client_eta(
             "model_beats_baseline": evaluation["model_beats_baseline"],
         }
 
-        # Log H4 training parameters.
-        mlflow.log_params(
-            {
-                "model": "XGBRegressor",
-                "feature_set": "h4_client_shipments",
-                "features": ",".join(all_feature_columns),
-                "target": "delivery_days",
-                "test_size": test_size,
-                "train_rows": len(X_train),
-                "test_rows": len(X_test),
-                "duplicate_shipment_count": duplicate_shipment_count,
-                "xgboost_version": xgboost.__version__,
-            }
-        )
+        # Log H4 training parameters, including actual XGBoost settings.
+        mlflow_parameters = {
+            "model": "XGBRegressor",
+            "feature_set": "h4_client_shipments",
+            "features": ",".join(all_feature_columns),
+            "target": "delivery_days",
+            "test_size": test_size,
+            "train_rows": len(X_train),
+            "test_rows": len(X_test),
+            "duplicate_shipment_count": duplicate_shipment_count,
+            "xgboost_version": xgboost.__version__,
+        }
+
+        # Log scalar XGBoost parameters individually.
+        for name, value in xgboost_parameters.items():
+            if isinstance(value, (str, int, float, bool)):
+                mlflow_parameters[f"xgb_{name}"] = value
+
+        mlflow.log_params(mlflow_parameters)
 
         # Log training context.
         mlflow.set_tags(
@@ -193,7 +191,7 @@ def train_client_eta(
             }
         )
 
-        # Log overall evaluation metrics.
+        # Log overall evaluation metrics, including excluded test rows.
         mlflow.log_metrics(
             {
                 "baseline_mae_days": evaluation["baseline_mae_days"],
@@ -204,6 +202,12 @@ def train_client_eta(
                 ],
                 "excluded_target_rows": feature_diagnostics[
                     "excluded_target_rows"
+                ],
+                "evaluated_test_shipments": evaluation[
+                    "evaluated_shipments"
+                ],
+                "excluded_test_shipments": evaluation[
+                    "excluded_shipments"
                 ],
             }
         )
@@ -248,13 +252,13 @@ def train_client_eta(
             joblib.dump(model, H4_MODEL_PATH)
             metadata_path = H4_METADATA_PATH
         else:
-            # Keep any earlier accepted model and its metadata untouched.
+            # Keep any earlier accepted model and metadata untouched.
             metadata_path = H4_REJECTED_METADATA_PATH
 
         with metadata_path.open("w", encoding="utf-8") as file:
             json.dump(training_metadata, file, indent=4)
 
-        # Log the final metadata, including model_saved, once.
+        # Log final metadata, including model_saved.
         mlflow.log_dict(
             training_metadata,
             metadata_path.name,
@@ -346,6 +350,17 @@ def main():
     print(
         "Model beats baseline:",
         result["evaluation"]["model_beats_baseline"],
+    )
+
+    # S2: Report how many test rows were evaluated or excluded.
+    print("\nTest Evaluation Row Counts:")
+    print(
+        "Evaluated test shipments:",
+        result["evaluation"]["evaluated_shipments"],
+    )
+    print(
+        "Excluded test shipments:",
+        result["evaluation"]["excluded_shipments"],
     )
 
     print("\nDuplicate shipments removed:")

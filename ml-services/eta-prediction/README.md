@@ -137,7 +137,7 @@ The client shipment-history adapter expects the following columns:
 
 Dates must use the `YYYY-MM-DD` format.
 
-Duplicate `shipment_id` records are removed by keeping the last occurrence. The number of removed duplicate records is recorded in the training metadata.
+Duplicate `shipment_id` records are resolved by keeping the latest dated record (by dispatch date, then actual delivery date; rows with invalid dates lose). The number of removed duplicate records is recorded in the training metadata.
 
 Weight and volume are optional inputs. Missing values are handled by the feature pipeline.
 
@@ -179,6 +179,10 @@ The client ETA model uses the following dispatch-known features:
 - `planned_delivery_days`
 - `carrier_name`
 
+**Dispatch month data requirement:**
+
+The `dispatch_month` feature captures monthly delivery patterns and seasonality. For this feature to represent a complete annual cycle, the client shipment-history dataset should cover at least 12 months of dispatch data. With less than 12 months of data, seasonal patterns may not be fully represented, which can limit the feature's usefulness.
+
 `planned_delivery_days` is calculated from `planned_delivery_date` and `dispatch_date`.
 
 `carrier_name` is handled as a categorical feature using one-hot encoding.
@@ -205,8 +209,8 @@ The model is evaluated against the client's own planned-delivery-date baseline. 
 | Duplicate shipments removed | 0 |
 | Unknown locations | 0 |
 | Planned-date baseline MAE | 1.618 days |
-| Client model MAE | 1.975 days |
-| Model improvement over baseline | -0.357 days |
+| Client model MAE | 1.955 days |
+| Model improvement over baseline | -0.338 days |
 | Model beats baseline | No |
 | Accepted model saved | No |
 
@@ -217,16 +221,16 @@ The model is evaluated against the client's own planned-delivery-date baseline. 
 
 The 12 purged training shipments had actual delivery dates on or after the test cutoff and were excluded to prevent future-label leakage.
 
-The client model currently performs worse than the planned-date baseline by approximately 0.357 days. The model was therefore rejected, and the previously accepted model artifact was not overwritten.
+The client model currently performs worse than the planned-date baseline by approximately 0.338 days. The model was therefore rejected, and the previously accepted model artifact was not overwritten.
 
 **Per-carrier test MAE:**
 
 | Carrier | Planned-date baseline MAE | Model MAE |
 |---|---:|---:|
-| Air Cargo | 0.563 days | 0.651 days |
-| Express Logistics | 1.182 days | 1.363 days |
-| National Freight | 1.846 days | 2.916 days |
-| Regional Transport | 3.000 days | 3.293 days |
+| Air Cargo | 0.563 days | 0.617 days |
+| Express Logistics | 1.182 days | 1.317 days |
+| National Freight | 1.846 days | 2.931 days |
+| Regional Transport | 3.000 days | 3.295 days |
 
 These results are from the current synthetic sample and should not be interpreted as expected performance on real client data.
 
@@ -244,7 +248,7 @@ python client_train.py \
 The training workflow:
 
 1. Loads and validates the client shipment-history data.
-2. Removes duplicate shipment IDs, keeping the last occurrence.
+2. Removes duplicate shipment IDs, keeping the latest dated record.
 3. Calculates route distances using the seed coordinate data.
 4. Prepares dispatch-known model features.
 5. Performs a chronological train/test split.
@@ -280,7 +284,7 @@ The client workflow has dedicated tests covering:
 - End-to-end integration test covering shipment loading, route-distance
   enrichment, and feature preparation
 
-The full ETA prediction test suite currently passes with **294 tests**.
+The full ETA prediction test suite currently passes with **298 tests**.
 
 ### R15-H4 limitations
 
