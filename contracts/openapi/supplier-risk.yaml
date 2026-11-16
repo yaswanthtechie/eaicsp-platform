@@ -39,6 +39,14 @@ paths:
             type: string
             pattern: '^SUP-[0-9]{5}$'
             example: SUP-00045
+        - name: as_of_date
+          in: query
+          required: false
+          description: Optional reference date for scoring evaluation (ISO YYYY-MM-DD). Defaults to current UTC date.
+          schema:
+            type: string
+            format: date
+            example: '2026-10-15'
       responses:
         '200':
           description: Supplier risk score retrieved successfully.
@@ -127,6 +135,67 @@ paths:
                 error_code: RISK_UNAVAILABLE
                 message: The supplier risk score is temporarily unavailable.
 
+  /api/v1/supplier-risk/client-suppliers/{supplier_code}/risk-score:
+    get:
+      operationId: getClientSupplierRiskScore
+      summary: Get supplier risk score by client supplier code
+      description: >-
+        Resolves a client supplier code to its canonical supplier ID using explicit mapping
+        and returns the computed risk score integrating client master data, operational incidents,
+        and adverse news media.
+      security:
+        - apiKey: []
+        - serviceKey: []
+          callerService: []
+        - bearerAuth: []
+      parameters:
+        - name: supplier_code
+          in: path
+          required: true
+          description: Client supplier code (e.g. SUP-2231).
+          schema:
+            type: string
+            example: SUP-2231
+        - name: as_of_date
+          in: query
+          required: false
+          description: Optional reference date for scoring evaluation (ISO YYYY-MM-DD). Defaults to current UTC date.
+          schema:
+            type: string
+            format: date
+            example: '2026-10-15'
+      responses:
+        '200':
+          description: Supplier risk score retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupplierRiskScoreResponse'
+        '401':
+          description: Missing or invalid authentication credentials.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden caller service.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Supplier code was not found or has no canonical mapping.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Risk score is temporarily unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -204,6 +273,17 @@ components:
           format: date-time
           description: UTC timestamp when the returned score was computed.
           example: '2026-10-15T10:30:00Z'
+        top_reasons:
+          type: array
+          description: Top human-readable reasons explaining the risk score grounded in actual input data.
+          items:
+            type: string
+          example:
+            - '4 delay incidents in 12 months'
+            - 'Recent incident occurred 15 days ago'
+            - 'On-time delivery rate is 94.5%'
+        client_risk_features:
+          $ref: '#/components/schemas/ClientRiskFeatures'
 
     RiskFactor:
       type: object
@@ -300,3 +380,58 @@ components:
         message:
           type: string
           description: Human-readable error description.
+
+    ClientRiskFeatures:
+      type: object
+      description: Client-based operational risk features and incident metrics (Issue #350).
+      properties:
+        quality_incidents_12m:
+          type: integer
+          description: Quality incident count in the previous 12 months.
+          example: 2
+        delay_incidents_12m:
+          type: integer
+          description: Delay incident count in the previous 12 months.
+          example: 4
+        dispute_incidents_12m:
+          type: integer
+          description: Dispute incident count in the previous 12 months.
+          example: 1
+        other_incidents_12m:
+          type: integer
+          description: Other incident count in the previous 12 months.
+          example: 0
+        days_since_last_incident:
+          type:
+            - integer
+            - 'null'
+          description: Days elapsed since the last eligible incident; null when no incidents exist.
+          example: 15
+        on_time_delivery_pct:
+          type:
+            - number
+            - 'null'
+          description: On-time delivery percentage from supplier master; null when missing.
+          example: 94.5
+        on_time_delivery_missing:
+          type: boolean
+          description: Flag indicating on-time delivery data was not provided in supplier master.
+          example: false
+        country:
+          type:
+            - string
+            - 'null'
+          description: Supplier operating country from master data.
+          example: India
+        city:
+          type:
+            - string
+            - 'null'
+          description: Supplier operating city from master data.
+          example: Bengaluru
+        category:
+          type:
+            - string
+            - 'null'
+          description: Supplier commodity or product category from master data.
+          example: Electronics
