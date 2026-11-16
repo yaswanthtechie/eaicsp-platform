@@ -44,6 +44,7 @@ from .config import (
     MAD_TO_SIGMA,
     MIN_SERIES_DAYS,
     MIN_WEEKS,
+    RUN_GAP_DAYS,
     SPIKE_HIGH,
     SPIKE_MEDIUM,
     Z_SPIKE,
@@ -109,7 +110,10 @@ def normalize_columns(df):
         | out["warehouse"].isna()
         | out["warehouse"].eq("")
     ).fillna(True)
-    bad = out["date"].isna() | out["quantity"].isna() | blank_key | (out["quantity"] < 0)
+    # np.isfinite also catches NaN and "inf"/"Infinity", which pd.to_numeric
+    # accepts; one inf would make the noise scale infinite for 8 weeks.
+    finite = np.isfinite(out["quantity"].astype(float))
+    bad = out["date"].isna() | ~finite | blank_key | (out["quantity"] < 0)
 
     if bad.any():
         log.warning(
@@ -187,6 +191,30 @@ def explain(quantity, expected, z, direction, weeks):
     return np.array(reasons, dtype=object)
 
 
+def run_starts(direction, max_gap_days=RUN_GAP_DAYS):
+    """
+    True on the first day of each incident.
+
+    A flagged day continues the incident when it has the same direction as
+    the last flagged day and comes at most max_gap_days after it, so a
+    feed-gap day or a weekday under DROP_MIN_EXPECTED does not split one
+    incident into several events. Positions are days: the series is daily.
+    """
+
+    direction = np.asarray(direction)
+    starts = np.zeros(len(direction), dtype=bool)
+    flagged = np.flatnonzero(direction != "")
+
+    if len(flagged):
+        new = np.ones(len(flagged), dtype=bool)
+        new[1:] = (direction[flagged[1:]] != direction[flagged[:-1]]) | (
+            np.diff(flagged) > max_gap_days
+        )
+        starts[flagged] = new
+
+    return starts
+
+
 def _score_series(values):
     """Return (expected, scale, z, weeks) where weeks is the history used per day."""
 
@@ -246,8 +274,9 @@ def detect(df, fill_missing_as_zero=True, z_spike=None):
     A missing day counts as 0 sales only when the warehouse reported other
     products that day; a day the whole warehouse is missing is left unscored.
 
-    run_start marks the first day of each run of same-direction anomalies, so
-    one incident (a SKU that stops selling, a 3-day promotion) is one event.
+    run_start marks the first day of each incident: same-direction anomalies
+    at most RUN_GAP_DAYS apart are one incident (a SKU that stops selling, a
+    3-day promotion), so downstream jobs publish one event per incident.
     """
 
     data = normalize_columns(df)
@@ -296,8 +325,7 @@ def detect(df, fill_missing_as_zero=True, z_spike=None):
         direction, severity = classify(quantity, expected, z, z_spike)
 
         is_anomaly = direction != ""
-        previous = np.concatenate([[""], direction[:-1]])
-        run_start = is_anomaly & (direction != previous)
+        run_start = run_starts(direction)
         reason = explain(quantity, expected, z, direction, weeks)
 
         frames.append(

@@ -20,7 +20,7 @@ DISPERSION_K = 8.0
 
 # Spike threshold calibrated on the clean seed (no planted anomalies) to a
 # false-alarm budget of 2 per 1000 scored days. See README.
-Z_SPIKE = 4.9
+Z_SPIKE = 5.0
 SPIKE_MEDIUM = 7.0
 SPIKE_HIGH = 10.0
 
@@ -34,3 +34,11 @@ DROP_HIGH = 0.05
 # False-alarm budget used by src/calibrate_sales_anomaly.py: false alarms per
 # scored day on a clean file (2 per 1000).
 FALSE_ALARM_BUDGET = 2 / 1000
+
+# A flagged day continues the previous incident when it has the same direction
+# and comes at most this many days after the last flagged day. Covers feed-gap
+# days and weekdays that fall under DROP_MIN_EXPECTED inside one incident.
+RUN_GAP_DAYS = 7
+
+# Calibration needs at least this many days of clean data (three months).
+MIN_CALIBRATION_DAYS = 90

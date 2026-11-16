@@ -9,6 +9,7 @@ from src.sales_anomaly import (
     MIN_SERIES_DAYS,
     classify,
     detect,
+    run_starts,
     score_series,
 )
 
@@ -91,8 +92,8 @@ def test_normal_noise_size_bump_is_not_flagged():
     "quantity,expected,z,direction,severity",
     [
         (50, 50, 0.0, "", ""),
-        (60, 50, 4.8, "", ""),
-        (100, 50, 4.9, "spike", "low"),
+        (60, 50, 4.9, "", ""),
+        (100, 50, 5.0, "spike", "low"),
         (120, 50, 7.0, "spike", "medium"),
         (200, 50, 10.0, "spike", "high"),
         (11, 50, -2.0, "", ""),
@@ -108,12 +109,6 @@ def test_classify_rule(quantity, expected, z, direction, severity):
     d, s = classify([quantity], [expected], [z])
 
     assert (d[0], s[0]) == (direction, severity)
-
-
-def test_classify_rejects_a_z_spike_inside_the_severity_bands():
-
-    with pytest.raises(ValueError, match="SPIKE_MEDIUM"):
-        classify([100], [50], [8.0], z_spike=8.0)
 
 
 def test_series_that_stops_selling_is_flagged_as_a_drop():
@@ -191,15 +186,56 @@ def test_anomaly_rows_have_a_reason():
     assert (scores.loc[~scores["is_anomaly"], "reason"] == "").all()
 
 
-def test_reason_uses_the_weeks_of_history_actually_available():
+def test_infinite_quantity_is_dropped_and_does_not_hide_a_later_spike(caplog):
 
-    values = flat(60)
-    values[35] = 0.0  # only 5 same-weekday values exist before day 35
+    values = flat().astype(object)
+    values[60] = "inf"
+    values[95] = 500.0  # same weekday as day 60, five weeks later
+
+    with caplog.at_level(logging.WARNING):
+        scores, _ = detect(frame(values))
+
+    hit = scores[scores["is_anomaly"]]
+
+    assert "Dropping 1 rows" in caplog.text
+    assert list(hit["date"]) == [pd.Timestamp("2026-01-05") + pd.Timedelta(days=95)]
+    assert hit.iloc[0]["direction"] == "spike"
+
+
+def test_feed_gap_inside_an_incident_is_one_run():
+
+    stopped = flat()
+    stopped[100:] = 0.0
+    data = pd.concat(
+        [frame(stopped), frame(flat(), product="SKU-000002")]
+    )
+    gap = pd.Timestamp("2026-01-05") + pd.Timedelta(days=105)
+    data = data[data["sale_date"] != gap]  # whole warehouse missing that day
+
+    scores, _ = detect(data)
+    hit = scores[(scores["product"] == "SKU-000001") & scores["is_anomaly"]]
+
+    assert len(hit) > 1
+    assert hit["run_start"].sum() == 1
+
+
+def test_weekday_under_drop_minimum_does_not_split_an_incident():
+
+    values = np.tile([16, 16, 16, 14, 16, 16, 16], 18)[:120].astype(float)
+    values[100:] = 0.0  # stops selling; the 14-unit weekday is never a drop
 
     scores, _ = detect(frame(values))
-    hit = scores[scores["is_anomaly"]].iloc[0]
+    hit = scores[scores["is_anomaly"]]
 
-    assert "last 5 weeks" in hit["reason"]
+    assert len(hit) > 1
+    assert hit["run_start"].sum() == 1
+
+
+def test_run_starts_rule():
+
+    direction = np.array(["drop", "", "drop", "", "", "", "", "", "", "", "drop", "spike"])
+
+    assert list(np.flatnonzero(run_starts(direction))) == [0, 10, 11]
 
 
 def test_sparse_series_is_skipped_by_days_of_data():
@@ -368,6 +404,23 @@ def test_dates_that_are_not_iso_are_dropped(caplog):
 
     assert set(scores["product"]) == {"SKU-000001"}
     assert "Dropping 1 rows" in caplog.text
+
+
+def test_classify_rejects_a_z_spike_inside_the_severity_bands():
+
+    with pytest.raises(ValueError, match="SPIKE_MEDIUM"):
+        classify([100], [50], [8.0], z_spike=8.0)
+
+
+def test_reason_uses_the_weeks_of_history_actually_available():
+
+    values = flat(60)
+    values[35] = 0.0  # only 5 same-weekday values exist before day 35
+
+    scores, _ = detect(frame(values))
+    hit = scores[scores["is_anomaly"]].iloc[0]
+
+    assert "last 5 weeks" in hit["reason"]
 
 
 def test_product_code_column_is_accepted():

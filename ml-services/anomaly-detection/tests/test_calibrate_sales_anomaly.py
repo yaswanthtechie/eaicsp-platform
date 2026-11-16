@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import src.calibrate_sales_anomaly as cal
 import src.sales_anomaly as sa
 from src.calibrate_sales_anomaly import calibrate
 from src.sales_anomaly_eval import CLEAN_SEED, make_data
@@ -39,3 +40,21 @@ def test_calibration_fails_clearly_on_a_short_file():
 
     with pytest.raises(ValueError, match="at least three months"):
         calibrate(month)
+
+
+def test_calibration_fails_clearly_on_a_two_month_file():
+
+    clean, _ = make_data(CLEAN_SEED, with_events=False)
+    two_months = clean[clean["sale_date"] < clean["sale_date"].min() + pd.Timedelta(days=60)]
+
+    with pytest.raises(ValueError, match="covers 60 days"):
+        calibrate(two_months)
+
+
+def test_calibration_refuses_a_threshold_inside_the_severity_bands(monkeypatch):
+
+    monkeypatch.setattr(cal, "SPIKE_MEDIUM", 1.0)
+    clean, _ = make_data(CLEAN_SEED, with_events=False)
+
+    with pytest.raises(ValueError, match="not below SPIKE_MEDIUM"):
+        calibrate(clean)
