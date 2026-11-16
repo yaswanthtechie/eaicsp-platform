@@ -1,9 +1,24 @@
 import pytest
 from alembic.config import Config
 from alembic import command
-from sqlalchemy import inspect
-from app.core.config import settings
+from sqlalchemy import inspect, text
 from tests.conftest import test_engine
+
+
+def _alembic_config() -> Config:
+    cfg = Config("alembic.ini")
+    db_url = test_engine.url.render_as_string(hide_password=False).replace("%", "%%")
+    cfg.set_main_option("sqlalchemy.url", db_url)
+    return cfg
+
+
+def _reset_postgres_schema() -> None:
+    """Drop and recreate public schema so Alembic runs on a truly empty Postgres DB."""
+    if not (test_engine.url.database or "").endswith("_test"):
+        raise RuntimeError(f"Refusing to wipe non-test database {test_engine.url.database!r}")
+    test_engine.dispose()
+    with test_engine.begin() as conn:
+        conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
 
 
 @pytest.mark.integration
@@ -16,18 +31,10 @@ def test_alembic_migrations_lifecycle():
     if test_engine.dialect.name != "postgresql":
         pytest.skip("Integration test requires PostgreSQL")
 
-    cfg = Config("alembic.ini")
-    cfg.set_main_option("sqlalchemy.url", settings.TEST_DATABASE_URL)
+    cfg = _alembic_config()
+    _reset_postgres_schema()
 
-    # 1. Downgrade to base
-    command.downgrade(cfg, "base")
-
-    inspector = inspect(test_engine)
-    tables_after_downgrade = inspector.get_table_names()
-    for table in ["inventory", "sales_history", "purchase_orders", "suppliers", "inventory_cost_layers"]:
-        assert table not in tables_after_downgrade, f"Table {table} should be dropped after downgrade"
-
-    # 2. Upgrade to head
+    # 1. Upgrade clean empty DB to head
     command.upgrade(cfg, "head")
 
     inspector = inspect(test_engine)
@@ -36,7 +43,7 @@ def test_alembic_migrations_lifecycle():
     for table in expected_tables:
         assert table in tables_after_upgrade, f"Expected table {table} after migration upgrade"
 
-    # 3. Verify columns and primary key on inventory
+    # Verify columns and primary key on inventory
     columns = {col["name"]: col for col in inspector.get_columns("inventory")}
     assert "sku_id" in columns
     assert "warehouse_id" in columns
@@ -45,6 +52,17 @@ def test_alembic_migrations_lifecycle():
 
     pk = inspector.get_pk_constraint("inventory")
     assert set(pk["constrained_columns"]) == {"sku_id", "warehouse_id"}
+
+    # 2. Downgrade to base
+    command.downgrade(cfg, "base")
+
+    inspector = inspect(test_engine)
+    tables_after_downgrade = inspector.get_table_names()
+    for table in expected_tables:
+        assert table not in tables_after_downgrade, f"Table {table} should be dropped after downgrade"
+
+    # 3. Re-upgrade to head
+    command.upgrade(cfg, "head")
 
 
 @pytest.mark.integration
@@ -62,11 +80,10 @@ def test_alembic_upgrade_head_inserts_po_on_empty_database():
     from datetime import datetime, UTC
     from app.models.purchase_order import PurchaseOrder
 
-    cfg = Config("alembic.ini")
-    cfg.set_main_option("sqlalchemy.url", settings.TEST_DATABASE_URL)
+    cfg = _alembic_config()
 
-    # Clean DB and upgrade to head
-    command.downgrade(cfg, "base")
+    # Reset schema and upgrade clean empty DB to head
+    _reset_postgres_schema()
     command.upgrade(cfg, "head")
 
     inspector = inspect(test_engine)

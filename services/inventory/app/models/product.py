@@ -1,5 +1,6 @@
 from datetime import datetime, UTC
 from sqlalchemy import (
+    Boolean,
     Column,
     String,
     Float,
@@ -31,6 +32,17 @@ class Product(Base):
     pack_size = Column(
         String(64),
         nullable=True,
+    )
+
+    unit_of_measure = Column(
+        String(32),
+        nullable=True,
+    )
+
+    is_active = Column(
+        Boolean,
+        nullable=False,
+        default=True,
     )
 
     unit_price = Column(

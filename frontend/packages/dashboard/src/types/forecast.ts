@@ -51,6 +51,7 @@ export interface AnalyticsEventEnvelope {
   event_version: string | number;
   occurred_at: string;
   producer: string;
+  severity?: string;
   payload: Record<string, unknown>;
   trace_id?: string | null;
 }

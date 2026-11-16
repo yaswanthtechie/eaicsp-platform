@@ -130,6 +130,7 @@ describe("useWebSocket", () => {
       event_version: 1,
       occurred_at: "2026-08-24T10:00:00Z",
       producer: "inventory-service",
+      severity: "warning",
       payload: {
         sku_id: "SKU-000123",
         warehouse_id: "WH-BLR-01",

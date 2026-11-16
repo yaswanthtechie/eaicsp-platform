@@ -1,0 +1,23 @@
+supplier_code,supplier_name,city,state,contact_email,phone,is_active
+SUP-2231,Supplier 1,Hyderabad,Telangana,supplier1@example.test,9000000001,true
+SUP-2232,Supplier 2,Mumbai,Maharashtra,supplier2@example.test,9000000002,true
+SUP-2233,Supplier 3,Pune,Maharashtra,supplier3@example.test,9000000003,true
+SUP-2234,Supplier 4,Bengaluru,Karnataka,supplier4@example.test,9000000004,true
+SUP-2235,Supplier 5,Chennai,Tamil Nadu,supplier5@example.test,9000000005,true
+SUP-2236,Supplier 6,Hyderabad,Telangana,supplier6@example.test,9000000006,true
+SUP-2237,Supplier 7,Mumbai,Maharashtra,supplier7@example.test,9000000007,true
+SUP-2238,Supplier 8,Pune,Maharashtra,supplier8@example.test,9000000008,true
+SUP-2239,Supplier 9,Bengaluru,Karnataka,supplier9@example.test,9000000009,true
+SUP-2240,Supplier 10,Chennai,Tamil Nadu,supplier10@example.test,9000000010,true
+SUP-2241,Supplier 11,Hyderabad,Telangana,supplier11@example.test,9000000011,true
+SUP-2242,Supplier 12,Mumbai,Maharashtra,supplier12@example.test,9000000012,true
+SUP-2243,Supplier 13,Pune,Maharashtra,supplier13@example.test,9000000013,true
+SUP-2244,Supplier 14,Bengaluru,Karnataka,supplier14@example.test,9000000014,true
+SUP-2245,Supplier 15,Chennai,Tamil Nadu,supplier15@example.test,9000000015,true
+SUP-2246,Supplier 16,Hyderabad,Telangana,supplier16@example.test,9000000016,true
+SUP-2247,Supplier 17,Mumbai,Maharashtra,supplier17@example.test,9000000017,true
+SUP-2248,Supplier 18,Pune,Maharashtra,supplier18@example.test,9000000018,true
+SUP-2249,Supplier 19,Bengaluru,Karnataka,supplier19@example.test,9000000019,true
+SUP-2250,Supplier 20,Chennai,Tamil Nadu,supplier20@example.test,9000000020,true
+SUP-9991,,Hyderabad,Telangana,supplier1@example.test,9000000001,true
+SUP-9992,Supplier 2,Mumbai,Maharashtra,bad-email,9000000002,true

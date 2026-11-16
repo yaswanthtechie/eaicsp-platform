@@ -1,6 +1,6 @@
 """Create products and warehouses tables for canonical master data
 
-Revision ID: 006_create_products_and_warehouses_tables
+Revision ID: 006_products_warehouses
 Revises: 005_po_hold_source
 """
 from typing import Sequence, Union
@@ -9,7 +9,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "006_create_products_and_warehouses_tables"
+revision: str = "006_products_warehouses"
 down_revision: Union[str, None] = "005_po_hold_source"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

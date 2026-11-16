@@ -7,6 +7,7 @@ const analyticsEvents: Omit<AnalyticsEventEnvelope, "event_id" | "occurred_at">[
     event_type: "inventory.stock.low",
     event_version: "1.0",
     producer: "inventory-service",
+    severity: "warning",
     trace_id: "4bf92f3577b34da6a3ce929d0e0e4736",
     payload: {
       sku_id: "SKU-000123",
@@ -23,6 +24,7 @@ const analyticsEvents: Omit<AnalyticsEventEnvelope, "event_id" | "occurred_at">[
     event_type: "inventory.stock.low",
     event_version: "1.0",
     producer: "inventory-service",
+    severity: "critical",
     payload: {
       sku_id: "SKU-000007",
       warehouse_id: "WH-BOM-01",
@@ -37,12 +39,12 @@ const analyticsEvents: Omit<AnalyticsEventEnvelope, "event_id" | "occurred_at">[
     event_type: "iot.anomaly.detected",
     event_version: "1.0",
     producer: "anomaly-detection-service",
+    severity: "critical",
     trace_id: null,
     payload: {
       episode_id: "WH-BLR-01-S1|2026-10-15T10:05:00Z",
       sensor_id: "WH-BLR-01-S1",
       warehouse_id: "WH-BLR-01",
-      severity: "high",
       message:
         "Temperature unusually high at WH-BLR-01 (sensor WH-BLR-01-S1): 6 abnormal readings between 10:05 and 10:30 UTC.",
       window_start: "2026-10-15T10:05:00Z",
@@ -82,6 +84,7 @@ const analyticsEvents: Omit<AnalyticsEventEnvelope, "event_id" | "occurred_at">[
     event_type: "supplierrisk.score.changed",
     event_version: 1,
     producer: "supplier-risk-service",
+    severity: "critical",
     payload: {
       supplier: "ABC Suppliers",
       supplier_id: "SUP-00045",
@@ -101,6 +104,7 @@ const analyticsEvents: Omit<AnalyticsEventEnvelope, "event_id" | "occurred_at">[
     event_type: "eta.shipment.predicted",
     event_version: 1,
     producer: "eta-prediction-service",
+    severity: "warning",
     trace_id: "7b0a8811cf55447ea1266850cda91204",
     payload: {
       shipment_id: "SHP-2026-000077",
@@ -123,6 +127,7 @@ const analyticsEvents: Omit<AnalyticsEventEnvelope, "event_id" | "occurred_at">[
     event_type: "forecast.batch.completed",
     event_version: 1,
     producer: "demand-forecast-service",
+    severity: "info",
     trace_id: "2d8f99ab114e410b9918c5e003ba7251",
     payload: {
       run_id: "BATCH-20261015-01",
@@ -144,6 +149,7 @@ const analyticsEvents: Omit<AnalyticsEventEnvelope, "event_id" | "occurred_at">[
     event_type: "data.pipeline.completed",
     event_version: 1,
     producer: "etl",
+    severity: "info",
     trace_id: "993a4bc03e12480bb41209e843c01192",
     payload: {
       run_id: 1042,

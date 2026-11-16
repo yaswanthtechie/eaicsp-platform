@@ -5,6 +5,7 @@ export const colors = {
   text: "#E6EAF2",
   textMuted: "#8B95A8",
   primary: "#3B82F6",
+  info: "#3B82F6",
 
   success: "#10B981", // on-track, delivered
   successAlpha12: "rgba(16, 185, 129, 0.12)",

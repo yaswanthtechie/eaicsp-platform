@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -207,7 +207,7 @@ def test_m1_fulfill_shortage_from_parent_warehouse(
         quantity_received=100,
         quantity_remaining=100,
         unit_cost=50.0,
-        received_at=datetime.utcnow()
+        received_at=datetime.now(UTC)
         - timedelta(days=1),
     )
 
@@ -479,7 +479,7 @@ def add_m3_cost_layer(
         quantity_received=quantity,
         quantity_remaining=quantity,
         unit_cost=unit_cost,
-        received_at=datetime.utcnow(),
+        received_at=datetime.now(UTC),
     )
 
     db_session.add(layer)

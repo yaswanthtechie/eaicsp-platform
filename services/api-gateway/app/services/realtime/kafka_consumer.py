@@ -19,6 +19,7 @@ from app.schemas.realtime_events import CANONICAL_EVENT_TYPES, validate_realtime
 from app.services.realtime.connection_manager import ConnectionManager, connection_manager
 from app.services.realtime.deduplicator import Deduplicator
 from app.services.realtime.dlq import DLQPublishError, DLQService, dlq_service
+from app.services.realtime.severity import build_outgoing_event, resolve_event_severity
 
 logger = logging.getLogger("api_gateway.realtime.kafka_consumer")
 
@@ -115,7 +116,8 @@ class RealtimeKafkaConsumerService:
            - ordinary events -> event_id
            - iot.anomaly.detected -> payload.episode_id
            If duplicate, drop without broadcast and commit offset.
-        5. If valid and not duplicate, broadcast original envelope to connected WebSocket clients.
+        5. If valid and not duplicate, map top-level severity (BFF-decided)
+           and broadcast outgoing envelope to connected WebSocket clients.
         6. Commit offset.
 
         Returns:
@@ -187,14 +189,17 @@ class RealtimeKafkaConsumerService:
                     await commit_callback()
                 return True
 
-        # 4. Broadcast original event envelope as UTF-8 JSON text frame
+        # 4. Resolve top-level severity and broadcast outgoing envelope as UTF-8 JSON text frame
+        severity = resolve_event_severity(data)
+        outgoing_event = build_outgoing_event(data, severity=severity)
         try:
-            json_text = json.dumps(data)
+            json_text = json.dumps(outgoing_event)
             sent_count = await self.connection_manager.broadcast(json_text)
             logger.debug(
-                "Broadcast event '%s' (type=%s) to %d client(s)",
-                data.get("event_id"),
-                data.get("event_type"),
+                "Broadcast event '%s' (type=%s, severity=%s) to %d client(s)",
+                outgoing_event.get("event_id"),
+                outgoing_event.get("event_type"),
+                severity,
                 sent_count,
             )
         except Exception as b_exc:

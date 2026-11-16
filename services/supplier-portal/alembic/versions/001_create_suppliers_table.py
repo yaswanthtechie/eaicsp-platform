@@ -1,4 +1,3 @@
-
 from alembic import op
 import sqlalchemy as sa
 
@@ -12,13 +11,6 @@ depends_on = None
 
 def upgrade() -> None:
     schema = settings.SUPPLIER_DB_SCHEMA
-
-    # Create the PostgreSQL schema before creating its table.
-    op.execute(
-        sa.text(
-            f'CREATE SCHEMA IF NOT EXISTS "{schema}"'
-        )
-    )
 
     op.create_table(
         "suppliers",
