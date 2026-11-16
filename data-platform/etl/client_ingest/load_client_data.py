@@ -97,6 +97,9 @@ def validate(row, rules):
                     errors.append(f"{name}: must be non-negative")
             elif kind == "decimal":
                 number = Decimal(value)
+                if not number.is_finite():
+                    errors.append(f"{name}: invalid decimal value")
+                    continue
                 if number < 0:
                     errors.append(f"{name}: must not be negative")
                 if "0 to 1" in fmt and not 0 <= number <= 1:
@@ -221,16 +224,52 @@ def add_ids(conn, key, row, warehouse_cities):
         "destination_warehouse_code" if key == "shipment_history"
         else "warehouse_code"
     )
-    if row.get(warehouse_field):
-        city = warehouse_cities.get(row[warehouse_field])
-        if not city or city not in IATA:
-            raise ValueError(f"Cannot map warehouse city for {row[warehouse_field]}")
-        row["warehouse_id"] = get_id(
-            conn, "warehouse", row[warehouse_field], "WH",
-            city_code=IATA[city]
-        )
+    code = row.get(warehouse_field)
+    if code:
+        try:
+            row["warehouse_id"] = lookup_id(conn, "warehouse", code)
+        except LookupError:
+            city = warehouse_cities.get(code)
+            if city not in IATA:
+                raise ValueError(f"Cannot map warehouse city for {code}")
+            row["warehouse_id"] = get_id(
+                conn, "warehouse", code, "WH", city_code=IATA[city]
+            )
 
     return row
+
+
+def process_row(key, raw, rules, known, load):
+    """Validate, load and remember one client row."""
+    if None in raw:
+        return [f"row has {len(raw[None])} more fields than the header"]
+
+    row = {k: (v.strip() if v else "") for k, v in raw.items()}
+    errors = validate(row, rules) + reference_errors(key, row, known)
+    if errors:
+        return errors
+
+    try:
+        load(row)
+    except (ValueError, LookupError) as exc:
+        return [f"load error: {exc}"]
+
+    remember(key, row, known)
+    return []
+
+
+def write_reject(engine, run_id, key, path, row_number, raw, reason):
+    with engine.begin() as conn:
+        conn.execute(text("""
+            INSERT INTO client_ingest_rejects
+            (run_id, entity_type, source_file, source_row,
+             raw_record, rejection_reason)
+            VALUES (:run, :entity, :file, :row,
+                    CAST(:raw AS jsonb), :reason)
+        """), {
+            "run": run_id, "entity": key, "file": path.name,
+            "row": row_number, "raw": json.dumps(raw), "reason": reason
+        })
 
 
 def make_record_key(key, row):
@@ -283,7 +322,9 @@ def main():
             newline="", encoding="utf-8-sig"
         ) as f:
             for row in csv.DictReader(f):
-                warehouse_cities[row["warehouse_code"].strip()] = row["city"].strip()
+                code = (row.get("warehouse_code") or "").strip()
+                if code:
+                    warehouse_cities[code] = (row.get("city") or "").strip()
 
     print(f"Run ID: {run_id}")
     totals = Counter()
@@ -324,28 +365,8 @@ def main():
 
             for row_number, raw in enumerate(reader, start=2):
                 counts["read"] += 1
-                row = {k: (v.strip() if v else "") for k, v in raw.items()}
-                errors = validate(row, rules) + reference_errors(key, row, known)
 
-                if errors:
-                    reason = "; ".join(errors)
-                    reasons[reason] += 1
-                    counts["rejected"] += 1
-                    with engine.begin() as conn:
-                        conn.execute(text("""
-                            INSERT INTO client_ingest_rejects
-                            (run_id, entity_type, source_file, source_row,
-                             raw_record, rejection_reason)
-                            VALUES (:run, :entity, :file, :row,
-                                    CAST(:raw AS jsonb), :reason)
-                        """), {
-                            "run": run_id, "entity": key, "file": path.name,
-                            "row": row_number, "raw": json.dumps(raw),
-                            "reason": reason
-                        })
-                    continue
-
-                try:
+                def load(row):
                     with engine.begin() as conn:
                         row = add_ids(conn, key, row, warehouse_cities)
                         conn.execute(text("""
@@ -363,23 +384,17 @@ def main():
                             "file": path.name, "row": row_number,
                             "record": json.dumps(row)
                         })
-                    counts["loaded"] += 1
-                except (ValueError, LookupError) as exc:
-                    reason = f"load error: {exc}"
+
+                errors = process_row(key, raw, rules, known, load)
+                if errors:
+                    reason = "; ".join(errors)[:4000]
                     reasons[reason] += 1
                     counts["rejected"] += 1
-                    with engine.begin() as conn:
-                        conn.execute(text("""
-                            INSERT INTO client_ingest_rejects
-                            (run_id, entity_type, source_file, source_row,
-                             raw_record, rejection_reason)
-                            VALUES (:run, :entity, :file, :row,
-                                    CAST(:raw AS jsonb), :reason)
-                        """), {
-                            "run": run_id, "entity": key, "file": path.name,
-                            "row": row_number, "raw": json.dumps(raw),
-                            "reason": reason[:4000]
-                        })
+                    write_reject(
+                        engine, run_id, key, path, row_number, raw, reason
+                    )
+                else:
+                    counts["loaded"] += 1
 
         with engine.begin() as conn:
             conn.execute(text("""

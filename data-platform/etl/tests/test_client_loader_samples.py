@@ -1,4 +1,4 @@
-﻿import csv
+import csv
 import importlib.util
 from collections import Counter
 from pathlib import Path
@@ -42,16 +42,12 @@ def inspect_samples():
             assert not (set(rules) - set(reader.fieldnames or [])), key
 
             for raw in reader:
-                row = {k: (v.strip() if v else "") for k, v in raw.items()}
-                errors = (
-                    loader.validate(row, rules)
-                    + loader.reference_errors(key, row, known)
+                errors = loader.process_row(
+                    key, raw, rules, known, load=lambda row: None
                 )
                 if errors:
                     rejected[key] += 1
                     reasons.extend(errors)
-                else:
-                    loader.remember(key, row, known)
 
     return rejected, reasons
 
@@ -95,6 +91,8 @@ def test_shipment_preserves_client_id_and_reuses_po_mapping(monkeypatch):
         raise AssertionError(f"Unexpected ID generation: {entity}")
 
     def fake_lookup_id(conn, entity, code):
+        if entity == "warehouse":
+            raise LookupError("not mapped yet")
         assert entity == "purchase_order"
         assert code == "PO-000007"
         return "PO-2025-000007"
@@ -117,3 +115,40 @@ def test_shipment_preserves_client_id_and_reuses_po_mapping(monkeypatch):
     assert result["shipment_id"] == "SHP-2026-000001"
     assert result["po_id"] == "PO-2025-000007"
     assert result["warehouse_id"] == "WH-BLR-01"
+
+
+
+def test_infinite_unit_price_is_rejected_not_a_crash():
+    contract = yaml.safe_load(loader.SPEC.read_text(encoding="utf-8"))
+    rules = contract["files"]["product_master"]["columns"]
+    for value in ("Infinity", "-inf"):
+        row = {
+            "product_code": "PRD-12345",
+            "product_name": "x",
+            "unit_price": value,
+        }
+        errors = loader.validate(row, rules)
+        assert "unit_price: invalid decimal value" in errors
+
+
+def test_row_with_extra_fields_is_rejected_not_a_crash():
+    raw = {
+        "product_code": "PRD-12345",
+        "product_name": "Bolt",
+        None: ["steel"],
+    }
+    errors = loader.process_row(
+        "product_master", raw, {}, {}, load=lambda row: None
+    )
+    assert errors == ["row has 1 more fields than the header"]
+
+
+def test_existing_warehouse_mapping_needs_no_city(monkeypatch):
+    monkeypatch.setattr(
+        loader, "lookup_id",
+        lambda conn, entity, code: "WH-BLR-01"
+    )
+    row = loader.add_ids(
+        None, "sales_history", {"warehouse_code": "BLR-01"}, {}
+    )
+    assert row["warehouse_id"] == "WH-BLR-01"
