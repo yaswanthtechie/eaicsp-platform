@@ -12,16 +12,16 @@ Measures:
 """
 
 import argparse
-import sys
-import time
-from datetime import UTC, datetime
 
 # Ensure inventory service root is on sys.path
 import os
+import sys
+import time
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.core.config import settings
-from app.database import Base, SessionLocal, engine
+from app.database import SessionLocal
 from app.models.inventory import Inventory
 from app.services.cache_service import (
     cache,
@@ -31,7 +31,9 @@ from app.services.cache_service import (
 )
 
 
-def seed_benchmark_item(db, sku_id: str = "SKU-BENCHMARK", warehouse_id: str = "WH-BENCHMARK"):
+def seed_benchmark_item(
+    db, sku_id: str = "SKU-BENCHMARK", warehouse_id: str = "WH-BENCHMARK"
+):
     """Ensure benchmark test inventory item exists."""
     item = (
         db.query(Inventory)
@@ -100,7 +102,9 @@ def run_benchmark(iterations: int = 100):
             t0 = time.perf_counter()
             result = (
                 db.query(Inventory)
-                .filter(Inventory.sku_id == sku_id, Inventory.warehouse_id == warehouse_id)
+                .filter(
+                    Inventory.sku_id == sku_id, Inventory.warehouse_id == warehouse_id
+                )
                 .first()
             )
             t1 = time.perf_counter()
@@ -136,13 +140,25 @@ def run_benchmark(iterations: int = 100):
         print("\n" + "=" * 70)
         print("BENCHMARK RESULTS SUMMARY")
         print("=" * 70)
-        print(f"Metric                 Uncached (DB)        Cached (Redis)       Delta / Speedup")
-        print(f"---------------------  -------------------  -------------------  ---------------")
-        print(f"Average Latency:       {avg_uncached:8.2f} ms         {avg_cached:8.2f} ms         {speedup:6.1f}x faster")
-        print(f"Min Latency:           {min_uncached:8.2f} ms         {min_cached:8.2f} ms")
-        print(f"Max Latency:           {max_uncached:8.2f} ms         {max_cached:8.2f} ms")
+        print(
+            "Metric                 Uncached (DB)        Cached (Redis)       Delta / Speedup"
+        )
+        print(
+            "---------------------  -------------------  -------------------  ---------------"
+        )
+        print(
+            f"Average Latency:       {avg_uncached:8.2f} ms         {avg_cached:8.2f} ms         {speedup:6.1f}x faster"
+        )
+        print(
+            f"Min Latency:           {min_uncached:8.2f} ms         {min_cached:8.2f} ms"
+        )
+        print(
+            f"Max Latency:           {max_uncached:8.2f} ms         {max_cached:8.2f} ms"
+        )
         print("=" * 70)
-        print(f"Conclusion: Redis caching provides approximately a {speedup:.1f}x latency speedup.")
+        print(
+            f"Conclusion: Redis caching provides approximately a {speedup:.1f}x latency speedup."
+        )
         print("=" * 70 + "\n")
 
     finally:
@@ -152,7 +168,9 @@ def run_benchmark(iterations: int = 100):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Benchmark Redis cache latency")
-    parser.add_argument("--iterations", type=int, default=100, help="Number of benchmark iterations")
+    parser.add_argument(
+        "--iterations", type=int, default=100, help="Number of benchmark iterations"
+    )
     args = parser.parse_args()
 
     run_benchmark(iterations=args.iterations)

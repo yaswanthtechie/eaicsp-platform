@@ -1,11 +1,9 @@
-
 import os
 
 import httpx
 import pytest
 
 from app.core.config import settings
-
 
 # =========================================================
 # REAL TOKENS
@@ -17,25 +15,15 @@ from app.core.config import settings
 # Do NOT put real JWT tokens directly in this file.
 # =========================================================
 
-WAREHOUSE_MANAGER_TOKEN = os.getenv(
-    "WAREHOUSE_MANAGER_TOKEN"
-)
+WAREHOUSE_MANAGER_TOKEN = os.getenv("WAREHOUSE_MANAGER_TOKEN")
 
-PROCUREMENT_MANAGER_TOKEN = os.getenv(
-    "PROCUREMENT_MANAGER_TOKEN"
-)
+PROCUREMENT_MANAGER_TOKEN = os.getenv("PROCUREMENT_MANAGER_TOKEN")
 
-CEO_TOKEN = os.getenv(
-    "CEO_TOKEN"
-)
+CEO_TOKEN = os.getenv("CEO_TOKEN")
 
-VP_OPERATIONS_TOKEN = os.getenv(
-    "VP_OPERATIONS_TOKEN"
-)
+VP_OPERATIONS_TOKEN = os.getenv("VP_OPERATIONS_TOKEN")
 
-EXPIRED_TOKEN = os.getenv(
-    "EXPIRED_TOKEN"
-)
+EXPIRED_TOKEN = os.getenv("EXPIRED_TOKEN")
 
 
 # =========================================================
@@ -44,9 +32,7 @@ EXPIRED_TOKEN = os.getenv(
 
 
 def auth_header(token: str):
-    return {
-        "Authorization": f"Bearer {token}"
-    }
+    return {"Authorization": f"Bearer {token}"}
 
 
 # =========================================================
@@ -67,6 +53,7 @@ def test_bulk_update_missing_token(client_raw):
 
     assert response.status_code == 401
 
+
 @pytest.mark.skipif(
     not WAREHOUSE_MANAGER_TOKEN,
     reason="WAREHOUSE_MANAGER_TOKEN not configured",
@@ -76,9 +63,7 @@ def test_bulk_update_warehouse_manager_success(client_raw):
     response = client_raw.post(
         "/api/v1/inventory/bulk-update",
         json=[],
-        headers=auth_header(
-            WAREHOUSE_MANAGER_TOKEN
-        ),
+        headers=auth_header(WAREHOUSE_MANAGER_TOKEN),
     )
 
     assert response.status_code not in [
@@ -96,9 +81,7 @@ def test_bulk_update_procurement_manager_success(client_raw):
     response = client_raw.post(
         "/api/v1/inventory/bulk-update",
         json=[],
-        headers=auth_header(
-            PROCUREMENT_MANAGER_TOKEN
-        ),
+        headers=auth_header(PROCUREMENT_MANAGER_TOKEN),
     )
 
     assert response.status_code not in [
@@ -116,9 +99,7 @@ def test_bulk_update_ceo_wrong_role(client_raw):
     response = client_raw.post(
         "/api/v1/inventory/bulk-update",
         json=[],
-        headers=auth_header(
-            CEO_TOKEN
-        ),
+        headers=auth_header(CEO_TOKEN),
     )
 
     assert response.status_code == 403
@@ -133,9 +114,7 @@ def test_bulk_update_vp_operations_wrong_role(client_raw):
     response = client_raw.post(
         "/api/v1/inventory/bulk-update",
         json=[],
-        headers=auth_header(
-            VP_OPERATIONS_TOKEN
-        ),
+        headers=auth_header(VP_OPERATIONS_TOKEN),
     )
 
     assert response.status_code == 403
@@ -157,11 +136,7 @@ def test_bulk_upload_missing_token(client_raw):
         files={
             "file": (
                 "test.csv",
-                (
-                    b"sku_id,warehouse_id,"
-                    b"quantity_delta\n"
-                    b"TEST1,WH1,10\n"
-                ),
+                (b"sku_id,warehouse_id,quantity_delta\nTEST1,WH1,10\n"),
                 "text/csv",
             )
         },
@@ -181,17 +156,11 @@ def test_bulk_upload_warehouse_manager_success(client_raw):
         files={
             "file": (
                 "test.csv",
-                (
-                    b"sku_id,warehouse_id,"
-                    b"quantity_delta\n"
-                    b"TEST1,WH1,10\n"
-                ),
+                (b"sku_id,warehouse_id,quantity_delta\nTEST1,WH1,10\n"),
                 "text/csv",
             )
         },
-        headers=auth_header(
-            WAREHOUSE_MANAGER_TOKEN
-        ),
+        headers=auth_header(WAREHOUSE_MANAGER_TOKEN),
     )
 
     assert response.status_code not in [
@@ -211,17 +180,11 @@ def test_bulk_upload_procurement_manager_success(client_raw):
         files={
             "file": (
                 "test.csv",
-                (
-                    b"sku_id,warehouse_id,"
-                    b"quantity_delta\n"
-                    b"TEST1,WH1,10\n"
-                ),
+                (b"sku_id,warehouse_id,quantity_delta\nTEST1,WH1,10\n"),
                 "text/csv",
             )
         },
-        headers=auth_header(
-            PROCUREMENT_MANAGER_TOKEN
-        ),
+        headers=auth_header(PROCUREMENT_MANAGER_TOKEN),
     )
 
     assert response.status_code not in [
@@ -241,17 +204,11 @@ def test_bulk_upload_ceo_wrong_role(client_raw):
         files={
             "file": (
                 "test.csv",
-                (
-                    b"sku_id,warehouse_id,"
-                    b"quantity_delta\n"
-                    b"TEST1,WH1,10\n"
-                ),
+                (b"sku_id,warehouse_id,quantity_delta\nTEST1,WH1,10\n"),
                 "text/csv",
             )
         },
-        headers=auth_header(
-            CEO_TOKEN
-        ),
+        headers=auth_header(CEO_TOKEN),
     )
 
     assert response.status_code == 403
@@ -268,17 +225,11 @@ def test_bulk_upload_vp_operations_wrong_role(client_raw):
         files={
             "file": (
                 "test.csv",
-                (
-                    b"sku_id,warehouse_id,"
-                    b"quantity_delta\n"
-                    b"TEST1,WH1,10\n"
-                ),
+                (b"sku_id,warehouse_id,quantity_delta\nTEST1,WH1,10\n"),
                 "text/csv",
             )
         },
-        headers=auth_header(
-            VP_OPERATIONS_TOKEN
-        ),
+        headers=auth_header(VP_OPERATIONS_TOKEN),
     )
 
     assert response.status_code == 403
@@ -297,12 +248,11 @@ def test_what_if_missing_token(client_raw):
 
     response = client_raw.post(
         "/api/v1/inventory/what-if",
-        json={
-            "spike_percent": 30
-        },
+        json={"spike_percent": 30},
     )
 
     assert response.status_code == 401
+
 
 @pytest.mark.skipif(
     not CEO_TOKEN,
@@ -312,12 +262,8 @@ def test_what_if_ceo_success(client_raw):
 
     response = client_raw.post(
         "/api/v1/inventory/what-if",
-        json={
-            "spike_percent": 30
-        },
-        headers=auth_header(
-            CEO_TOKEN
-        ),
+        json={"spike_percent": 30},
+        headers=auth_header(CEO_TOKEN),
     )
 
     assert response.status_code not in [
@@ -334,12 +280,8 @@ def test_what_if_vp_operations_success(client_raw):
 
     response = client_raw.post(
         "/api/v1/inventory/what-if",
-        json={
-            "spike_percent": 30
-        },
-        headers=auth_header(
-            VP_OPERATIONS_TOKEN
-        ),
+        json={"spike_percent": 30},
+        headers=auth_header(VP_OPERATIONS_TOKEN),
     )
 
     assert response.status_code not in [
@@ -356,12 +298,8 @@ def test_what_if_warehouse_manager_wrong_role(client_raw):
 
     response = client_raw.post(
         "/api/v1/inventory/what-if",
-        json={
-            "spike_percent": 30
-        },
-        headers=auth_header(
-            WAREHOUSE_MANAGER_TOKEN
-        ),
+        json={"spike_percent": 30},
+        headers=auth_header(WAREHOUSE_MANAGER_TOKEN),
     )
 
     assert response.status_code == 403
@@ -375,12 +313,8 @@ def test_what_if_procurement_manager_wrong_role(client_raw):
 
     response = client_raw.post(
         "/api/v1/inventory/what-if",
-        json={
-            "spike_percent": 30
-        },
-        headers=auth_header(
-            PROCUREMENT_MANAGER_TOKEN
-        ),
+        json={"spike_percent": 30},
+        headers=auth_header(PROCUREMENT_MANAGER_TOKEN),
     )
 
     assert response.status_code == 403
@@ -399,12 +333,8 @@ def test_what_if_expired_token(client_raw):
 
     response = client_raw.post(
         "/api/v1/inventory/what-if",
-        json={
-            "spike_percent": 30
-        },
-        headers=auth_header(
-            EXPIRED_TOKEN
-        ),
+        json={"spike_percent": 30},
+        headers=auth_header(EXPIRED_TOKEN),
     )
 
     assert response.status_code == 401
@@ -428,12 +358,8 @@ def test_auth_service_unavailable(
 
     response = client_raw.post(
         "/api/v1/inventory/what-if",
-        json={
-            "spike_percent": 30
-        },
-        headers=auth_header(
-            "test-token"
-        ),
+        json={"spike_percent": 30},
+        headers=auth_header("test-token"),
     )
 
     assert response.status_code == 503
@@ -457,9 +383,7 @@ def test_auth_service_timeout(
         *args,
         **kwargs,
     ):
-        raise httpx.TimeoutException(
-            "Authentication service timed out"
-        )
+        raise httpx.TimeoutException("Authentication service timed out")
 
     monkeypatch.setattr(
         httpx.AsyncClient,
@@ -469,12 +393,8 @@ def test_auth_service_timeout(
 
     response = client_raw.post(
         "/api/v1/inventory/what-if",
-        json={
-            "spike_percent": 30
-        },
-        headers=auth_header(
-            "test-token"
-        ),
+        json={"spike_percent": 30},
+        headers=auth_header("test-token"),
     )
 
     assert response.status_code == 503
@@ -493,7 +413,6 @@ def test_auth_service_timeout(
 
 
 class _FakeResponse:
-
     def __init__(
         self,
         status_code,
@@ -548,18 +467,12 @@ def test_invalid_token_returns_401(
     fake_platform,
 ):
 
-    fake_platform(
-        status_code=401
-    )
+    fake_platform(status_code=401)
 
     response = client_raw.post(
         "/api/v1/inventory/what-if",
-        json={
-            "spike_percent": 30
-        },
-        headers=auth_header(
-            "bad-token"
-        ),
+        json={"spike_percent": 30},
+        headers=auth_header("bad-token"),
     )
 
     assert response.status_code == 401
@@ -585,12 +498,8 @@ def test_wrong_role_returns_403(
 
     response = client_raw.post(
         "/api/v1/inventory/what-if",
-        json={
-            "spike_percent": 30
-        },
-        headers=auth_header(
-            "test-token"
-        ),
+        json={"spike_percent": 30},
+        headers=auth_header("test-token"),
     )
 
     assert response.status_code == 403
@@ -616,12 +525,8 @@ def test_correct_role_succeeds(
 
     response = client_raw.post(
         "/api/v1/inventory/what-if",
-        json={
-            "spike_percent": 30
-        },
-        headers=auth_header(
-            "test-token"
-        ),
+        json={"spike_percent": 30},
+        headers=auth_header("test-token"),
     )
 
     assert response.status_code not in [
@@ -640,25 +545,14 @@ def test_timeout_returns_503(
     fake_platform,
 ):
 
-    fake_platform(
-        exc=httpx.TimeoutException(
-            "slow"
-        )
-    )
+    fake_platform(exc=httpx.TimeoutException("slow"))
 
     response = client_raw.post(
         "/api/v1/inventory/what-if",
-        json={
-            "spike_percent": 30
-        },
-        headers=auth_header(
-            "test-token"
-        ),
+        json={"spike_percent": 30},
+        headers=auth_header("test-token"),
     )
 
     assert response.status_code == 503
 
-    assert (
-        "timed out"
-        in response.json()["detail"].lower()
-    )
+    assert "timed out" in response.json()["detail"].lower()

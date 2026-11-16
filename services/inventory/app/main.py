@@ -4,24 +4,23 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+import app.models
 from app.core.config import settings
 from app.database import engine
-import app.models
-
-from app.routes.purchase_orders import (
-    router as purchase_order_router,
-)
-from app.routes.reports import (
-    router as reports_router,
-)
-from app.routes.optimization import (
-    router as optimization_router,
-)
 from app.routes.goods_receipts import (
     router as goods_receipts_router,
 )
 from app.routes.inventory import (
     router as inventory_router,
+)
+from app.routes.optimization import (
+    router as optimization_router,
+)
+from app.routes.purchase_orders import (
+    router as purchase_order_router,
+)
+from app.routes.reports import (
+    router as reports_router,
 )
 from app.services.outbox_relay import run_relay_worker
 
@@ -42,7 +41,9 @@ async def lifespan(app: FastAPI):
         relay_thread = threading.Thread(
             target=run_relay_worker,
             kwargs={
-                "poll_interval": getattr(settings, "OUTBOX_RELAY_INTERVAL_SECONDS", 2.0),
+                "poll_interval": getattr(
+                    settings, "OUTBOX_RELAY_INTERVAL_SECONDS", 2.0
+                ),
                 "stop_event": stop_relay_event,
             },
             daemon=True,
@@ -74,6 +75,7 @@ def custom_openapi():
     if app.openapi_schema:
         return app.openapi_schema
     from fastapi.openapi.utils import get_openapi
+
     schema = get_openapi(
         title=app.title,
         version=app.version,
@@ -86,7 +88,11 @@ def custom_openapi():
         schemas["ValidationError"].get("properties", {}).pop("input", None)
         schemas["ValidationError"].get("properties", {}).pop("ctx", None)
     if "Body_bulk_upload_route_api_v1_inventory_bulk_upload_post" in schemas:
-        file_prop = schemas["Body_bulk_upload_route_api_v1_inventory_bulk_upload_post"].get("properties", {}).get("file", {})
+        file_prop = (
+            schemas["Body_bulk_upload_route_api_v1_inventory_bulk_upload_post"]
+            .get("properties", {})
+            .get("file", {})
+        )
         if "contentMediaType" in file_prop:
             file_prop.pop("contentMediaType", None)
             file_prop["format"] = "binary"

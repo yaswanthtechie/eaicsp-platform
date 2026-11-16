@@ -15,7 +15,6 @@ from app.database import Base
 
 
 class Supplier(Base):
-
     __tablename__ = "suppliers"
 
     supplier_id = Column(

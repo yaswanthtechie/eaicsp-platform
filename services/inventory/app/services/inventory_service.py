@@ -12,26 +12,25 @@ from app.schemas.inventory import (
     InventoryCreate,
     InventoryUpdate,
 )
-from app.services.reorder_service import (
-    build_reorder_context,
-    calculate_reorder_point,
-    calculate_urgency_score,
-)
+from app.services.cache_service import invalidate_inventory_cache
 from app.services.compliance_client import (
     ComplianceBlockedError,
     ComplianceServiceError,
 )
+from app.services.outbox_service import record_event
 from app.services.purchase_order_service import (
     create_draft_po_for_inventory,
+)
+from app.services.reorder_service import (
+    build_reorder_context,
+    calculate_reorder_point,
+    calculate_urgency_score,
 )
 from app.services.valuation_service import (
     add_cost_layer,
     consume_cost_layers,
     latest_unit_cost,
 )
-from app.services.outbox_service import record_event
-from app.services.cache_service import invalidate_inventory_cache
-
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +57,10 @@ def check_and_record_low_stock(
         reorder_point = calculation.get("reorder_point", 0)
 
         dropped_below = (
-            (previous_quantity >= reorder_point and item.quantity_on_hand < reorder_point)
+            (
+                previous_quantity >= reorder_point
+                and item.quantity_on_hand < reorder_point
+            )
             if previous_quantity is not None
             else (item.quantity_on_hand < reorder_point)
         )
@@ -74,11 +76,15 @@ def check_and_record_low_stock(
                     "warehouse_id": item.warehouse_id,
                     "quantity_on_hand": item.quantity_on_hand,
                     "reorder_point": reorder_point,
-                    "safety_stock": calculation.get("adjusted_safety_stock", item.safety_stock),
-                    "avg_daily_demand": calculation.get("rolling_avg_demand", item.avg_daily_demand),
+                    "safety_stock": calculation.get(
+                        "adjusted_safety_stock", item.safety_stock
+                    ),
+                    "avg_daily_demand": calculation.get(
+                        "rolling_avg_demand", item.avg_daily_demand
+                    ),
                 },
             )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - best-effort low-stock event must never fail physical stock movement
         logger.warning("Could not calculate reorder point for low stock event: %s", exc)
 
 
@@ -100,13 +106,14 @@ REQUIRED_CSV_COLUMNS = (
 
 class InventoryOperationError(Exception):
     """Raised for inventory operation errors."""
-    pass
 
+    pass
 
 
 # =========================================================
 # RESPONSE
 # =========================================================
+
 
 def inventory_response(
     inventory: Inventory,
@@ -123,20 +130,12 @@ def inventory_response(
         "warehouse_id": inventory.warehouse_id,
         "category": inventory.category,
         "quantity_on_hand": inventory.quantity_on_hand,
-        "reorder_point": calculation[
-            "reorder_point"
-        ],
-        "avg_daily_demand": calculation[
-            "rolling_avg_demand"
-        ],
+        "reorder_point": calculation["reorder_point"],
+        "avg_daily_demand": calculation["rolling_avg_demand"],
         "lead_time_days": inventory.lead_time_days,
-        "safety_stock": calculation[
-            "adjusted_safety_stock"
-        ],
+        "safety_stock": calculation["adjusted_safety_stock"],
         "warehouse_type": inventory.warehouse_type,
-        "parent_warehouse_id": (
-            inventory.parent_warehouse_id
-        ),
+        "parent_warehouse_id": (inventory.parent_warehouse_id),
         "version": inventory.version,
     }
 
@@ -144,6 +143,7 @@ def inventory_response(
 # =========================================================
 # AUTOMATIC M2 PURCHASE ORDER
 # =========================================================
+
 
 def generate_draft_po_if_required(
     db: Session,
@@ -204,6 +204,7 @@ def generate_draft_po_if_required(
 # CREATE
 # =========================================================
 
+
 def create_inventory(
     db: Session,
     inventory,
@@ -222,9 +223,7 @@ def create_inventory(
     )
 
     if existing:
-        raise ValueError(
-            "Inventory already exists"
-        )
+        raise ValueError("Inventory already exists")
 
     # -----------------------------------------------------
     # MILESTONE 1:
@@ -235,9 +234,7 @@ def create_inventory(
         inventory.parent_warehouse_id
         and inventory.parent_warehouse_id == inventory.warehouse_id
     ):
-        raise ValueError(
-            "parent_warehouse_id cannot be the warehouse itself"
-        )
+        raise ValueError("parent_warehouse_id cannot be the warehouse itself")
 
     item = Inventory(
         sku_id=inventory.sku_id,
@@ -262,7 +259,6 @@ def create_inventory(
         # -------------------------------------------------
 
         if item.quantity_on_hand > 0:
-
             opening_unit_cost = inventory.unit_cost
 
             if opening_unit_cost is None:
@@ -322,18 +318,17 @@ def create_inventory(
 # GET ALL
 # =========================================================
 
+
 def get_all_inventory(
     db: Session,
 ):
-    return (
-        db.query(Inventory)
-        .all()
-    )
+    return db.query(Inventory).all()
 
 
 # =========================================================
 # GET SINGLE
 # =========================================================
+
 
 def get_inventory(
     db: Session,
@@ -353,6 +348,7 @@ def get_inventory(
 # =========================================================
 # UPDATE
 # =========================================================
+
 
 def update_inventory(
     db: Session,
@@ -399,16 +395,10 @@ def update_inventory(
     # Prevent self-parent configuration.
     # -----------------------------------------------------
 
-    if (
-        data.get("parent_warehouse_id")
-        == warehouse_id
-    ):
+    if data.get("parent_warehouse_id") == warehouse_id:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "parent_warehouse_id cannot be "
-                "the warehouse itself"
-            ),
+            detail=("parent_warehouse_id cannot be the warehouse itself"),
         )
 
     old_quantity = item.quantity_on_hand
@@ -424,9 +414,7 @@ def update_inventory(
     else:
         new_quantity = old_quantity
 
-    quantity_delta = (
-        new_quantity - old_quantity
-    )
+    quantity_delta = new_quantity - old_quantity
 
     # -----------------------------------------------------
     # Apply normal field updates.
@@ -446,10 +434,7 @@ def update_inventory(
         # -------------------------------------------------
 
         if quantity_delta < 0:
-
-            quantity_removed = abs(
-                quantity_delta
-            )
+            quantity_removed = abs(quantity_delta)
 
             consumed = consume_cost_layers(
                 db=db,
@@ -458,10 +443,7 @@ def update_inventory(
                 quantity=quantity_removed,
             )
 
-            consumed_quantity = sum(
-                quantity
-                for quantity, _unit_cost in consumed
-            )
+            consumed_quantity = sum(quantity for quantity, _unit_cost in consumed)
 
             if consumed_quantity != quantity_removed:
                 raise HTTPException(
@@ -480,7 +462,6 @@ def update_inventory(
         # -------------------------------------------------
 
         elif quantity_delta > 0:
-
             unit_cost = latest_unit_cost(
                 db=db,
                 sku_id=sku_id,
@@ -546,6 +527,7 @@ def update_inventory(
 # DELETE
 # =========================================================
 
+
 def delete_inventory(
     db: Session,
     sku_id: str,
@@ -580,13 +562,11 @@ def delete_inventory(
 # LOW STOCK
 # =========================================================
 
+
 def get_low_stock_items(
     db: Session,
 ):
-    inventories = (
-        db.query(Inventory)
-        .all()
-    )
+    inventories = db.query(Inventory).all()
 
     if not inventories:
         return []
@@ -598,29 +578,22 @@ def get_low_stock_items(
     result = []
 
     for inventory in inventories:
-
         calculation = calculate_reorder_point(
             db=db,
             inventory=inventory,
             context=context,
         )
 
-        reorder_point = calculation[
-            "reorder_point"
-        ]
+        reorder_point = calculation["reorder_point"]
 
         # At exactly ROP there is no reorder.
         if inventory.quantity_on_hand >= reorder_point:
             continue
 
-        avg_demand = calculation[
-            "rolling_avg_demand"
-        ]
+        avg_demand = calculation["rolling_avg_demand"]
 
         urgency_score = calculate_urgency_score(
-            quantity_on_hand=(
-                inventory.quantity_on_hand
-            ),
+            quantity_on_hand=(inventory.quantity_on_hand),
             reorder_point=reorder_point,
             avg_daily_demand=avg_demand,
         )
@@ -639,9 +612,7 @@ def get_low_stock_items(
                 "sku_id": inventory.sku_id,
                 "product_name": inventory.product_name,
                 "warehouse_id": inventory.warehouse_id,
-                "quantity_on_hand": (
-                    inventory.quantity_on_hand
-                ),
+                "quantity_on_hand": (inventory.quantity_on_hand),
                 "reorder_point": reorder_point,
                 "urgency_days": urgency_days,
             }
@@ -653,6 +624,7 @@ def get_low_stock_items(
 # =========================================================
 # SINGLE SKU SIMULATION
 # =========================================================
+
 
 def simulate_demand_spike(
     db: Session,
@@ -674,41 +646,26 @@ def simulate_demand_spike(
         inventory=inventory,
     )
 
-    current_demand = calculation[
-        "rolling_avg_demand"
-    ]
+    current_demand = calculation["rolling_avg_demand"]
 
-    adjusted_safety_stock = calculation[
-        "adjusted_safety_stock"
-    ]
+    adjusted_safety_stock = calculation["adjusted_safety_stock"]
 
-    new_demand = (
-        current_demand
-        * (1 + demand_spike_percent / 100)
-    )
+    new_demand = current_demand * (1 + demand_spike_percent / 100)
 
     new_reorder_point = int(
-        new_demand
-        * inventory.lead_time_days
-        + adjusted_safety_stock
+        new_demand * inventory.lead_time_days + adjusted_safety_stock
     )
 
-    needs_reorder = (
-        inventory.quantity_on_hand
-        < new_reorder_point
-    )
+    needs_reorder = inventory.quantity_on_hand < new_reorder_point
 
     suggested_order_qty = max(
-        new_reorder_point
-        - inventory.quantity_on_hand,
+        new_reorder_point - inventory.quantity_on_hand,
         0,
     )
 
     return {
         "sku_id": inventory.sku_id,
-        "current_quantity": (
-            inventory.quantity_on_hand
-        ),
+        "current_quantity": (inventory.quantity_on_hand),
         "new_reorder_point": new_reorder_point,
         "needs_reorder": needs_reorder,
         "suggested_order_qty": suggested_order_qty,
@@ -718,6 +675,7 @@ def simulate_demand_spike(
 # =========================================================
 # BULK UPDATE
 # =========================================================
+
 
 def bulk_update_inventory(
     updates: list,
@@ -747,16 +705,12 @@ def bulk_update_inventory(
     )
 
     try:
-
         for update in ordered_updates:
-
             item = (
                 db.query(Inventory)
                 .filter(
-                    Inventory.sku_id
-                    == update.sku_id,
-                    Inventory.warehouse_id
-                    == update.warehouse_id,
+                    Inventory.sku_id == update.sku_id,
+                    Inventory.warehouse_id == update.warehouse_id,
                 )
                 .with_for_update()
                 .first()
@@ -764,18 +718,13 @@ def bulk_update_inventory(
 
             if item is None:
                 raise ValueError(
-                    "Inventory not found for "
-                    f"{update.sku_id}/"
-                    f"{update.warehouse_id}"
+                    f"Inventory not found for {update.sku_id}/{update.warehouse_id}"
                 )
 
             old_quantity = item.quantity_on_hand
             previous_quantities[(item.sku_id, item.warehouse_id)] = old_quantity
 
-            new_quantity = (
-                old_quantity
-                + update.quantity_delta
-            )
+            new_quantity = old_quantity + update.quantity_delta
 
             if new_quantity < 0:
                 raise ValueError(
@@ -791,10 +740,7 @@ def bulk_update_inventory(
             # -------------------------------------------------
 
             if update.quantity_delta < 0:
-
-                quantity_removed = abs(
-                    update.quantity_delta
-                )
+                quantity_removed = abs(update.quantity_delta)
 
                 consumed = consume_cost_layers(
                     db=db,
@@ -803,10 +749,7 @@ def bulk_update_inventory(
                     quantity=quantity_removed,
                 )
 
-                consumed_quantity = sum(
-                    quantity
-                    for quantity, _unit_cost in consumed
-                )
+                consumed_quantity = sum(quantity for quantity, _unit_cost in consumed)
 
                 if consumed_quantity != quantity_removed:
                     raise ValueError(
@@ -817,7 +760,6 @@ def bulk_update_inventory(
                     )
 
             elif update.quantity_delta > 0:
-
                 unit_cost = latest_unit_cost(
                     db=db,
                     sku_id=update.sku_id,
@@ -848,7 +790,9 @@ def bulk_update_inventory(
 
         for item in updated_items:
             db.refresh(item)
-            invalidate_inventory_cache(item.sku_id, item.warehouse_id, version=item.version)
+            invalidate_inventory_cache(
+                item.sku_id, item.warehouse_id, version=item.version
+            )
 
     except Exception:
         db.rollback()
@@ -878,48 +822,35 @@ def bulk_update_inventory(
 # CSV BULK UPLOAD
 # =========================================================
 
+
 def bulk_upload_csv(
     db: Session,
     file: UploadFile,
 ):
-    content = file.file.read(
-        MAX_UPLOAD_BYTES + 1
-    )
+    content = file.file.read(MAX_UPLOAD_BYTES + 1)
 
     if len(content) > MAX_UPLOAD_BYTES:
-        raise ValueError(
-            "File is larger than the 5MB limit"
-        )
+        raise ValueError("File is larger than the 5MB limit")
 
     if isinstance(content, bytes):
-
         try:
             content = content.decode("utf-8")
 
-        except UnicodeDecodeError:
-            raise ValueError(
-                "File must be a UTF-8 encoded CSV"
-            )
+        except UnicodeDecodeError as exc:
+            raise ValueError("File must be a UTF-8 encoded CSV") from exc
 
-    reader = csv.DictReader(
-        io.StringIO(content)
-    )
+    reader = csv.DictReader(io.StringIO(content))
 
     if reader.fieldnames is None:
-        raise ValueError(
-            "CSV file is empty"
-        )
+        raise ValueError("CSV file is empty")
 
     missing_columns = [
-        column
-        for column in REQUIRED_CSV_COLUMNS
-        if column not in reader.fieldnames
+        column for column in REQUIRED_CSV_COLUMNS if column not in reader.fieldnames
     ]
 
     if missing_columns:
         raise ValueError(
-            "CSV is missing required column(s): "
-            + ", ".join(missing_columns)
+            "CSV is missing required column(s): " + ", ".join(missing_columns)
         )
 
     new_items = []
@@ -929,30 +860,17 @@ def bulk_upload_csv(
         reader,
         start=2,
     ):
-
         try:
             parsed = InventoryCreate(
-                **{
-                    column: row[column]
-                    for column in REQUIRED_CSV_COLUMNS
-                }
+                **{column: row[column] for column in REQUIRED_CSV_COLUMNS}
             )
 
         except ValidationError as exc:
-
             first = exc.errors()[0]
 
-            field = (
-                first["loc"][0]
-                if first["loc"]
-                else "row"
-            )
+            field = first["loc"][0] if first["loc"] else "row"
 
-            raise ValueError(
-                f"Row {row_number}: "
-                f"{field} - "
-                f"{first['msg']}"
-            )
+            raise ValueError(f"Row {row_number}: {field} - {first['msg']}") from exc
 
         # -----------------------------------------------------
         # Prevent CSV self-parent records.
@@ -960,13 +878,10 @@ def bulk_upload_csv(
 
         if (
             parsed.parent_warehouse_id
-            and parsed.parent_warehouse_id
-            == parsed.warehouse_id
+            and parsed.parent_warehouse_id == parsed.warehouse_id
         ):
             raise ValueError(
-                f"Row {row_number}: "
-                "parent_warehouse_id cannot be "
-                "the warehouse itself"
+                f"Row {row_number}: parent_warehouse_id cannot be the warehouse itself"
             )
 
         key = (
@@ -998,26 +913,15 @@ def bulk_upload_csv(
                 product_name=parsed.product_name,
                 warehouse_id=parsed.warehouse_id,
                 category=parsed.category,
-                quantity_on_hand=(
-                    parsed.quantity_on_hand
-                ),
-                lead_time_days=(
-                    parsed.lead_time_days
-                ),
-                safety_stock=(
-                    parsed.safety_stock
-                ),
-                warehouse_type=(
-                    parsed.warehouse_type
-                ),
-                parent_warehouse_id=(
-                    parsed.parent_warehouse_id
-                ),
+                quantity_on_hand=(parsed.quantity_on_hand),
+                lead_time_days=(parsed.lead_time_days),
+                safety_stock=(parsed.safety_stock),
+                warehouse_type=(parsed.warehouse_type),
+                parent_warehouse_id=(parsed.parent_warehouse_id),
             )
         )
 
     try:
-
         db.add_all(new_items)
         db.commit()
         invalidate_inventory_cache()
@@ -1051,6 +955,7 @@ def bulk_upload_csv(
 # WHAT-IF SIMULATION
 # =========================================================
 
+
 def what_if_simulation(
     db: Session,
     spike_percent: float,
@@ -1062,10 +967,7 @@ def what_if_simulation(
     intentionally a read-only simulation.
     """
 
-    inventories = (
-        db.query(Inventory)
-        .all()
-    )
+    inventories = db.query(Inventory).all()
 
     if not inventories:
         return {
@@ -1083,70 +985,45 @@ def what_if_simulation(
     result = []
 
     for inventory in inventories:
-
         calculation = calculate_reorder_point(
             db=db,
             inventory=inventory,
             context=context,
         )
 
-        current_demand = calculation[
-            "rolling_avg_demand"
-        ]
+        current_demand = calculation["rolling_avg_demand"]
 
-        adjusted_safety_stock = calculation[
-            "adjusted_safety_stock"
-        ]
+        adjusted_safety_stock = calculation["adjusted_safety_stock"]
 
-        new_demand = (
-            current_demand
-            * (1 + spike_percent / 100)
-        )
+        new_demand = current_demand * (1 + spike_percent / 100)
 
         new_reorder_point = int(
-            new_demand
-            * inventory.lead_time_days
-            + adjusted_safety_stock
+            new_demand * inventory.lead_time_days + adjusted_safety_stock
         )
 
-        needs_reorder = (
-            inventory.quantity_on_hand
-            < new_reorder_point
-        )
+        needs_reorder = inventory.quantity_on_hand < new_reorder_point
 
         suggested_order_qty = max(
-            new_reorder_point
-            - inventory.quantity_on_hand,
+            new_reorder_point - inventory.quantity_on_hand,
             0,
         )
 
         result.append(
             {
                 "sku_id": inventory.sku_id,
-                "current_quantity": (
-                    inventory.quantity_on_hand
-                ),
-                "new_reorder_point": (
-                    new_reorder_point
-                ),
+                "current_quantity": (inventory.quantity_on_hand),
+                "new_reorder_point": (new_reorder_point),
                 "needs_reorder": needs_reorder,
-                "suggested_order_qty": (
-                    suggested_order_qty
-                ),
+                "suggested_order_qty": (suggested_order_qty),
             }
         )
 
     return {
         "spike_percent": spike_percent,
         "total_items": len(result),
-        "affected_items": sum(
-            1
-            for item in result
-            if item["needs_reorder"]
-        ),
+        "affected_items": sum(1 for item in result if item["needs_reorder"]),
         "total_suggested_order_qty": sum(
-            item["suggested_order_qty"]
-            for item in result
+            item["suggested_order_qty"] for item in result
         ),
         "details": result,
     }

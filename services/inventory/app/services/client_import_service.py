@@ -182,9 +182,7 @@ def _require_non_empty_str(
     if not present:
         has_key, _ = _pick_first(row, keys)
         reason = (
-            "empty value for required field"
-            if has_key
-            else "missing required field"
+            "empty value for required field" if has_key else "missing required field"
         )
         raise ClientImportValidationError(
             f"{dataset}[row {row_num}]: {reason} '{field_label}'"
@@ -359,7 +357,12 @@ def _parse_products(rows: Iterable[Mapping[str, Any]]) -> list[_ParsedProduct]:
     for row_num, raw_row in enumerate(rows, start=1):
         row = _validate_row_mapping(raw_row, "products", row_num)
         sku_id = _require_canonical_id(
-            row, ("sku_id", "canonical_product_id"), SKU_ID_RE, "products", row_num, "sku_id"
+            row,
+            ("sku_id", "canonical_product_id"),
+            SKU_ID_RE,
+            "products",
+            row_num,
+            "sku_id",
         )
         if sku_id in seen_ids:
             raise ClientImportValidationError(
@@ -367,7 +370,12 @@ def _parse_products(rows: Iterable[Mapping[str, Any]]) -> list[_ParsedProduct]:
             )
         seen_ids.add(sku_id)
         _track_source_code_uniqueness(
-            seen_codes, row, ("product_code", "client_product_code"), sku_id, "products", row_num
+            seen_codes,
+            row,
+            ("product_code", "client_product_code"),
+            sku_id,
+            "products",
+            row_num,
         )
 
         name = _require_non_empty_str(
@@ -420,7 +428,12 @@ def _parse_products(rows: Iterable[Mapping[str, Any]]) -> list[_ParsedProduct]:
         has_sup, _ = _pick_present(row, ("supplier_id",))
         if has_sup:
             values["supplier_id"] = _require_canonical_id(
-                row, ("supplier_id",), SUPPLIER_ID_RE, "products", row_num, "supplier_id"
+                row,
+                ("supplier_id",),
+                SUPPLIER_ID_RE,
+                "products",
+                row_num,
+                "supplier_id",
             )
 
         parsed_items.append(_ParsedProduct(sku_id=sku_id, values=values))
@@ -487,7 +500,12 @@ def _parse_warehouses(rows: Iterable[Mapping[str, Any]]) -> list[_ParsedWarehous
         values["pincode"] = pincode
 
         warehouse_type = _require_non_empty_str(
-            row, ("warehouse_type",), "warehouses", row_num, "warehouse_type", max_len=32
+            row,
+            ("warehouse_type",),
+            "warehouses",
+            row_num,
+            "warehouse_type",
+            max_len=32,
         ).lower()
         if warehouse_type not in VALID_WAREHOUSE_TYPES:
             raise ClientImportValidationError(
@@ -694,7 +712,9 @@ def _apply_warehouses(
         plan.append(
             (
                 item.warehouse_id,
-                lambda wh=item.warehouse_id, v=insert_vals: Warehouse(warehouse_id=wh, **v),
+                lambda wh=item.warehouse_id, v=insert_vals: Warehouse(
+                    warehouse_id=wh, **v
+                ),
                 dict(item.values),
             )
         )
@@ -721,8 +741,7 @@ def _apply_lead_times(
             )
 
     existing = {
-        (row.supplier_id, row.sku_id): row
-        for row in db.query(SupplierLeadTime).all()
+        (row.supplier_id, row.sku_id): row for row in db.query(SupplierLeadTime).all()
     }
     plan = []
     for item in parsed:
@@ -822,9 +841,7 @@ def _read_csv_records(path: Path, dataset: str) -> list[dict[str, str]]:
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
         if reader.fieldnames is None:
-            raise ClientImportValidationError(
-                f"{dataset}: CSV file has no header row"
-            )
+            raise ClientImportValidationError(f"{dataset}: CSV file has no header row")
         return list(reader)
 
 
@@ -841,11 +858,15 @@ def load_staging_dataset_from_dir(staging_dir: Path | str) -> StagingDataset:
     return StagingDataset(
         products=_read_csv_records(prod_path, "products") if prod_path else [],
         warehouses=_read_csv_records(wh_path, "warehouses") if wh_path else [],
-        supplier_lead_times=_read_csv_records(lt_path, "supplier_lead_times") if lt_path else [],
+        supplier_lead_times=_read_csv_records(lt_path, "supplier_lead_times")
+        if lt_path
+        else [],
     )
 
 
-def _load_table_rows(db: Session, table_name: str, *, required: bool) -> list[dict[str, Any]]:
+def _load_table_rows(
+    db: Session, table_name: str, *, required: bool
+) -> list[dict[str, Any]]:
     conn = db.connection()
     inspector = inspect(conn)
     if not inspector.has_table(table_name):

@@ -28,10 +28,7 @@ def migrate(target_engine=engine) -> bool:
     if not inspector.has_table("purchase_orders"):
         return False
 
-    columns = {
-        column["name"]
-        for column in inspector.get_columns("purchase_orders")
-    }
+    columns = {column["name"] for column in inspector.get_columns("purchase_orders")}
 
     if "approval_status" in columns:
         return False

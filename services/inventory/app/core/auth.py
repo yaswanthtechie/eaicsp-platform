@@ -1,7 +1,6 @@
 import uuid
 
 import httpx
-
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import (
     HTTPAuthorizationCredentials,
@@ -9,7 +8,6 @@ from fastapi.security import (
 )
 
 from app.core.config import settings
-
 
 security = HTTPBearer(auto_error=False)
 
@@ -43,17 +41,17 @@ async def verify_token(
                 },
             )
 
-    except httpx.TimeoutException:
+    except httpx.TimeoutException as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service timed out",
-        )
+        ) from exc
 
-    except httpx.RequestError:
+    except httpx.RequestError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service is unavailable",
-        )
+        ) from exc
 
     if response.status_code == 401:
         raise HTTPException(
@@ -70,11 +68,11 @@ async def verify_token(
     try:
         data = response.json()
 
-    except ValueError:
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service returned invalid JSON",
-        )
+        ) from exc
 
     if not data.get("valid"):
         raise HTTPException(
@@ -100,10 +98,7 @@ def require_roles(*allowed_roles: str):
         if user_role not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    f"Role '{user_role}' is not authorized "
-                    f"for this endpoint"
-                ),
+                detail=(f"Role '{user_role}' is not authorized for this endpoint"),
             )
 
         return user

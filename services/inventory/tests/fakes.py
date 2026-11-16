@@ -12,9 +12,7 @@ class InMemoryKafkaPublisher:
         if self.fail_with is not None:
             raise self.fail_with
 
-        self.published_messages.append(
-            {"topic": topic, "key": key, "value": value}
-        )
+        self.published_messages.append({"topic": topic, "key": key, "value": value})
         return True
 
 
@@ -96,8 +94,11 @@ class FakeKafkaConsumer:
     def seek(self, tp) -> None:
         """Re-queue the message at tp so the next poll() redelivers it (like real Kafka)."""
         self.seeks.append((tp.partition, tp.offset))
-        msg = next(m for m in self._all_messages
-                   if m.partition() == tp.partition and m.offset() == tp.offset)
+        msg = next(
+            m
+            for m in self._all_messages
+            if m.partition() == tp.partition and m.offset() == tp.offset
+        )
         self.messages.insert(0, msg)
 
     def commit(self, message=None, asynchronous=False):

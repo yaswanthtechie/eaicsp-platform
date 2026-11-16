@@ -1,5 +1,4 @@
 import logging
-from pydantic import ValidationError
 
 from fastapi import (
     APIRouter,
@@ -8,6 +7,7 @@ from fastapi import (
     Query,
     status,
 )
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.core.auth import (
@@ -15,18 +15,15 @@ from app.core.auth import (
     require_roles,
 )
 from app.database import get_db
-
 from app.schemas.purchase_order import (
     PurchaseOrderRequest,
     PurchaseOrderResponse,
 )
-
 from app.services.compliance_client import (
     ComplianceBlockedError,
     ComplianceServiceError,
     ComplianceServiceUnavailableError,
 )
-
 from app.services.purchase_order_service import (
     approve_purchase_order,
     create_automatic_draft_po,
@@ -34,7 +31,6 @@ from app.services.purchase_order_service import (
     list_purchase_orders,
     receive_purchase_order,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +48,7 @@ router = APIRouter(
 def create_purchase_order(
     data: PurchaseOrderRequest,
     db: Session = Depends(get_db),
-    auth=Depends(
-        require_permission("inventory:write")
-    ),
+    auth=Depends(require_permission("inventory:write")),
 ):
     try:
         return create_automatic_draft_po(
@@ -102,9 +96,7 @@ def create_purchase_order(
 def approve_purchase_order_endpoint(
     po_id: str,
     db: Session = Depends(get_db),
-    auth=Depends(
-        require_roles("procurement_manager")
-    ),
+    auth=Depends(require_roles("procurement_manager")),
 ):
     user_id = auth.get("user_id") if isinstance(auth, dict) else None
     if user_id is None:
@@ -125,7 +117,9 @@ def approve_purchase_order_endpoint(
         ) from exc
     except ValidationError as exc:
         # Must come before ValueError: ValidationError subclasses it.
-        logger.exception("PO %s does not match the inventory.po.approved contract", po_id)
+        logger.exception(
+            "PO %s does not match the inventory.po.approved contract", po_id
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Purchase order data does not match the event contract",
@@ -186,14 +180,20 @@ def receive_purchase_order_endpoint(
     status_code=status.HTTP_200_OK,
 )
 def list_purchase_orders_endpoint(
-    po_id: str | None = Query(None, description="Filter by purchase order ID (e.g. PO-2026-000123)"),
-    supplier_id: str | None = Query(None, description="Filter by supplier ID (e.g. SUP-00045)"),
-    status_filter: str | None = Query(None, alias="status", description="Filter by status (e.g. draft, on_hold, received)"),
+    po_id: str | None = Query(
+        None, description="Filter by purchase order ID (e.g. PO-2026-000123)"
+    ),
+    supplier_id: str | None = Query(
+        None, description="Filter by supplier ID (e.g. SUP-00045)"
+    ),
+    status_filter: str | None = Query(
+        None,
+        alias="status",
+        description="Filter by status (e.g. draft, on_hold, received)",
+    ),
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
-    auth=Depends(
-        require_permission("inventory:read")
-    ),
+    auth=Depends(require_permission("inventory:read")),
 ):
     return list_purchase_orders(
         db=db,
@@ -212,9 +212,7 @@ def list_purchase_orders_endpoint(
 def get_purchase_order_endpoint(
     po_id: str,
     db: Session = Depends(get_db),
-    auth=Depends(
-        require_permission("inventory:read")
-    ),
+    auth=Depends(require_permission("inventory:read")),
 ):
     try:
         return get_purchase_order(
@@ -228,7 +226,10 @@ def get_purchase_order_endpoint(
         ) from exc
 
 
-@router.api_route("/{rest_of_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"], include_in_schema=False)
+@router.api_route(
+    "/{rest_of_path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    include_in_schema=False,
+)
 def purchase_orders_catch_all(rest_of_path: str):
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-

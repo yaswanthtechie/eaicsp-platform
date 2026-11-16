@@ -1,7 +1,8 @@
 import pytest
-from alembic.config import Config
 from alembic import command
+from alembic.config import Config
 from sqlalchemy import inspect, text
+
 from tests.conftest import test_engine
 
 
@@ -15,7 +16,9 @@ def _alembic_config() -> Config:
 def _reset_postgres_schema() -> None:
     """Drop and recreate public schema so Alembic runs on a truly empty Postgres DB."""
     if not (test_engine.url.database or "").endswith("_test"):
-        raise RuntimeError(f"Refusing to wipe non-test database {test_engine.url.database!r}")
+        raise RuntimeError(
+            f"Refusing to wipe non-test database {test_engine.url.database!r}"
+        )
     test_engine.dispose()
     with test_engine.begin() as conn:
         conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
@@ -39,9 +42,17 @@ def test_alembic_migrations_lifecycle():
 
     inspector = inspect(test_engine)
     tables_after_upgrade = inspector.get_table_names()
-    expected_tables = ["inventory", "sales_history", "purchase_orders", "suppliers", "inventory_cost_layers"]
+    expected_tables = [
+        "inventory",
+        "sales_history",
+        "purchase_orders",
+        "suppliers",
+        "inventory_cost_layers",
+    ]
     for table in expected_tables:
-        assert table in tables_after_upgrade, f"Expected table {table} after migration upgrade"
+        assert table in tables_after_upgrade, (
+            f"Expected table {table} after migration upgrade"
+        )
 
     # Verify columns and primary key on inventory
     columns = {col["name"]: col for col in inspector.get_columns("inventory")}
@@ -59,7 +70,9 @@ def test_alembic_migrations_lifecycle():
     inspector = inspect(test_engine)
     tables_after_downgrade = inspector.get_table_names()
     for table in expected_tables:
-        assert table not in tables_after_downgrade, f"Table {table} should be dropped after downgrade"
+        assert table not in tables_after_downgrade, (
+            f"Table {table} should be dropped after downgrade"
+        )
 
     # 3. Re-upgrade to head
     command.upgrade(cfg, "head")
@@ -76,8 +89,10 @@ def test_alembic_upgrade_head_inserts_po_on_empty_database():
     if test_engine.dialect.name != "postgresql":
         pytest.skip("Integration test requires PostgreSQL")
 
+    from datetime import UTC, datetime
+
     from sqlalchemy.orm import Session
-    from datetime import datetime, UTC
+
     from app.models.purchase_order import PurchaseOrder
 
     cfg = _alembic_config()
@@ -88,7 +103,9 @@ def test_alembic_upgrade_head_inserts_po_on_empty_database():
 
     inspector = inspect(test_engine)
     po_cols = {col["name"]: col for col in inspector.get_columns("purchase_orders")}
-    assert "approval_status" in po_cols, "approval_status must exist in purchase_orders table"
+    assert "approval_status" in po_cols, (
+        "approval_status must exist in purchase_orders table"
+    )
 
     # Insert a PO using the model
     with Session(test_engine) as session:
@@ -110,4 +127,3 @@ def test_alembic_upgrade_head_inserts_po_on_empty_database():
         queried = session.query(PurchaseOrder).filter_by(po_id="PO-2026-000002").first()
         assert queried is not None
         assert queried.approval_status == "pending_vp_approval"
-

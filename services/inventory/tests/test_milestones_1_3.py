@@ -1,14 +1,10 @@
 from datetime import UTC, datetime, timedelta
 
-import pytest
-
 from app.models.inventory import Inventory
 from app.models.inventory_cost_layer import InventoryCostLayer
 from app.models.supplier import Supplier
-
-from tests.conftest import seed_sales_history
 from app.services.purchase_order_service import approve_purchase_order
-
+from tests.conftest import seed_sales_history
 
 # ============================================================
 # MILESTONE 1 — MULTI-ECHELON INVENTORY
@@ -136,9 +132,7 @@ def test_m1_reorder_plan_contains_transfer_suggestion(
         days=30,
     )
 
-    response = client.get(
-        "/api/v1/inventory/reorder-plan"
-    )
+    response = client.get("/api/v1/inventory/reorder-plan")
 
     assert response.status_code == 200
 
@@ -149,19 +143,13 @@ def test_m1_reorder_plan_contains_transfer_suggestion(
     matching_item = None
 
     for item in data:
-        if (
-            item["sku_id"] == sku
-            and item["warehouse_id"] == "WH-LOCAL"
-        ):
+        if item["sku_id"] == sku and item["warehouse_id"] == "WH-LOCAL":
             matching_item = item
             break
 
     assert matching_item is not None
 
-    assert (
-        matching_item["transfer_suggestion"]
-        is not None
-    )
+    assert matching_item["transfer_suggestion"] is not None
 
 
 def test_m1_fulfill_shortage_from_parent_warehouse(
@@ -207,8 +195,7 @@ def test_m1_fulfill_shortage_from_parent_warehouse(
         quantity_received=100,
         quantity_remaining=100,
         unit_cost=50.0,
-        received_at=datetime.now(UTC)
-        - timedelta(days=1),
+        received_at=datetime.now(UTC) - timedelta(days=1),
     )
 
     db_session.add_all(
@@ -389,9 +376,7 @@ def test_m2_automatic_po_contains_expected_cost(
 
     data = response.json()
 
-    expected_cost = (
-        data["quantity"] * data["unit_cost"]
-    )
+    expected_cost = data["quantity"] * data["unit_cost"]
 
     assert data["expected_cost"] == expected_cost
 
@@ -466,8 +451,7 @@ def add_m3_cost_layer(
         db_session.query(Inventory)
         .filter(
             Inventory.sku_id == sku_id,
-            Inventory.warehouse_id
-            == warehouse_id,
+            Inventory.warehouse_id == warehouse_id,
         )
         .first()
     )
@@ -618,15 +602,9 @@ def test_m3_weighted_average_inventory_valuation(
 
     data = response.json()
 
-    assert (
-        data["valuation_method"]
-        == "weighted_average"
-    )
+    assert data["valuation_method"] == "weighted_average"
 
-    assert (
-        data["total_inventory_value"]
-        == 1200.0
-    )
+    assert data["total_inventory_value"] == 1200.0
 
 
 def test_m3_inventory_value_grouped_by_warehouse_and_category(
@@ -704,12 +682,7 @@ def test_m3_inventory_value_grouped_by_warehouse_and_category(
     grouped_item = None
 
     for item in data["report"]:
-        if (
-            item["warehouse_id"]
-            == "WH-DEL-01"
-            and item["category"]
-            == "Electronics"
-        ):
+        if item["warehouse_id"] == "WH-DEL-01" and item["category"] == "Electronics":
             grouped_item = item
             break
 
@@ -754,10 +727,7 @@ def test_m3_zero_inventory_is_excluded_from_report(
     assert data["total_inventory_value"] == 0.0
 
     for item in data["report"]:
-        assert not (
-            item["warehouse_id"]
-            == "WH-HYD-01"
-        )
+        assert not (item["warehouse_id"] == "WH-HYD-01")
 
 
 def test_m3_invalid_valuation_method_returns_422(
@@ -848,9 +818,7 @@ def test_m3_receive_purchase_order_creates_cost_layer(
 
     approve_purchase_order(db=db_session, po_id=po_id, approved_by="7")
 
-    receive_response = client.post(
-        f"/api/v1/inventory/purchase-orders/{po_id}/receive"
-    )
+    receive_response = client.post(f"/api/v1/inventory/purchase-orders/{po_id}/receive")
 
     assert receive_response.status_code == 200
 
@@ -865,25 +833,20 @@ def test_m3_receive_purchase_order_creates_cost_layer(
         db_session.query(Inventory)
         .filter(
             Inventory.sku_id == sku,
-            Inventory.warehouse_id
-            == warehouse,
+            Inventory.warehouse_id == warehouse,
         )
         .first()
     )
 
     assert updated_inventory is not None
 
-    assert (
-        updated_inventory.quantity_on_hand
-        == 10 + po_quantity
-    )
+    assert updated_inventory.quantity_on_hand == 10 + po_quantity
 
     layers = (
         db_session.query(InventoryCostLayer)
         .filter(
             InventoryCostLayer.sku_id == sku,
-            InventoryCostLayer.warehouse_id
-            == warehouse,
+            InventoryCostLayer.warehouse_id == warehouse,
         )
         .all()
     )
@@ -971,9 +934,7 @@ def test_m3_receive_purchase_order_updates_inventory_value(
 
     approve_purchase_order(db=db_session, po_id=po_id, approved_by="7")
 
-    receive_response = client.post(
-        f"/api/v1/inventory/purchase-orders/{po_id}/receive"
-    )
+    receive_response = client.post(f"/api/v1/inventory/purchase-orders/{po_id}/receive")
 
     assert receive_response.status_code == 200
 
@@ -988,15 +949,9 @@ def test_m3_receive_purchase_order_updates_inventory_value(
 
     valuation_data = valuation_response.json()
 
-    expected_value = (
-        10 * 10.0
-        + po_quantity * 20.0
-    )
+    expected_value = 10 * 10.0 + po_quantity * 20.0
 
-    assert (
-        valuation_data["total_inventory_value"]
-        == expected_value
-    )
+    assert valuation_data["total_inventory_value"] == expected_value
 
 
 def test_m3_cannot_receive_purchase_order_twice(
@@ -1060,15 +1015,11 @@ def test_m3_cannot_receive_purchase_order_twice(
 
     approve_purchase_order(db=db_session, po_id=po_id, approved_by="7")
 
-    first_receive = client.post(
-        f"/api/v1/inventory/purchase-orders/{po_id}/receive"
-    )
+    first_receive = client.post(f"/api/v1/inventory/purchase-orders/{po_id}/receive")
 
     assert first_receive.status_code == 200
 
-    second_receive = client.post(
-        f"/api/v1/inventory/purchase-orders/{po_id}/receive"
-    )
+    second_receive = client.post(f"/api/v1/inventory/purchase-orders/{po_id}/receive")
 
     assert second_receive.status_code == 400
 

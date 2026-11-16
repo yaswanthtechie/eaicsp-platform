@@ -1,4 +1,5 @@
 import concurrent.futures
+
 import pytest
 
 from tests.conftest import seed_sales_history, test_engine
@@ -33,8 +34,12 @@ def test_concurrent_updates_optimistic_locking(client_warehouse_manager):
         "safety_stock": 10,
         "warehouse_type": "local",
     }
-    create_res = client_warehouse_manager.post("/api/v1/inventory/", json=create_payload)
-    assert create_res.status_code == 201, f"Failed to create test inventory: {create_res.text}"
+    create_res = client_warehouse_manager.post(
+        "/api/v1/inventory/", json=create_payload
+    )
+    assert create_res.status_code == 201, (
+        f"Failed to create test inventory: {create_res.text}"
+    )
     initial_data = create_res.json()
     assert initial_data["version"] == 1
     assert initial_data["quantity_on_hand"] == 100
@@ -69,7 +74,9 @@ def test_concurrent_updates_optimistic_locking(client_warehouse_manager):
 
     # 4. Verify that exactly one wins and the other gets conflict 409
     status_codes = sorted([r[0] for r in results])
-    assert status_codes == [200, 409], f"Expected exactly one 200 and one 409, got {status_codes}"
+    assert status_codes == [200, 409], (
+        f"Expected exactly one 200 and one 409, got {status_codes}"
+    )
 
     winner = [r for r in results if r[0] == 200][0]
     conflict = [r for r in results if r[0] == 409][0]
@@ -142,8 +149,12 @@ def test_multiple_concurrent_updates_exactly_one_wins(client_warehouse_manager):
     for r in responses:
         status_counts[r.status_code] = status_counts.get(r.status_code, 0) + 1
 
-    assert status_counts.get(200) == 1, f"Expected exactly 1 success, got {status_counts}"
-    assert status_counts.get(409) == 4, f"Expected exactly 4 conflicts, got {status_counts}"
+    assert status_counts.get(200) == 1, (
+        f"Expected exactly 1 success, got {status_counts}"
+    )
+    assert status_counts.get(409) == 4, (
+        f"Expected exactly 4 conflicts, got {status_counts}"
+    )
 
     for r in responses:
         if r.status_code == 409:

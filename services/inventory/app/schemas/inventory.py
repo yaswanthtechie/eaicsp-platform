@@ -1,4 +1,4 @@
-from typing import Optional, Literal
+from typing import Literal, Optional
 
 from pydantic import (
     BaseModel,
@@ -8,26 +8,18 @@ from pydantic import (
 
 
 class InventoryCreate(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid"
-    )
+    model_config = ConfigDict(extra="forbid")
 
     sku_id: str
     product_name: str
     warehouse_id: str
     category: str = "Uncategorized"
 
-    quantity_on_hand: int = Field(
-        ge=0
-    )
+    quantity_on_hand: int = Field(ge=0)
 
-    lead_time_days: int = Field(
-        ge=0
-    )
+    lead_time_days: int = Field(ge=0)
 
-    safety_stock: int = Field(
-        ge=0
-    )
+    safety_stock: int = Field(ge=0)
 
     # M1
     warehouse_type: Literal[
@@ -38,15 +30,13 @@ class InventoryCreate(BaseModel):
 
     parent_warehouse_id: Optional[str] = None
     unit_cost: Optional[float] = Field(
-    default=None,
-    ge=0,
+        default=None,
+        ge=0,
     )
 
 
 class InventoryUpdate(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid"
-    )
+    model_config = ConfigDict(extra="forbid")
 
     product_name: Optional[str] = None
 
@@ -77,7 +67,7 @@ class InventoryUpdate(BaseModel):
     ] = None
 
     parent_warehouse_id: Optional[str] = None
-    version:int
+    version: int
 
 
 class InventoryResponse(BaseModel):
@@ -94,7 +84,7 @@ class InventoryResponse(BaseModel):
     # M1
     warehouse_type: str
     parent_warehouse_id: Optional[str] = None
-    version:int
+    version: int
 
 
 class ReorderCheckResponse(BaseModel):
@@ -115,9 +105,7 @@ class LowStockResponse(BaseModel):
 
 
 class DemandSpikeRequest(BaseModel):
-    demand_spike_percent: float = Field(
-        ge=0
-    )
+    demand_spike_percent: float = Field(ge=0)
 
 
 class SimulationResponse(BaseModel):
@@ -156,15 +144,11 @@ class ReorderPlanEntry(BaseModel):
     abc_tier: str
     adjusted_safety_stock: int
 
-    transfer_suggestion: Optional[
-        TransferSuggestion
-    ] = None
+    transfer_suggestion: Optional[TransferSuggestion] = None
 
 
 class WhatIfRequest(BaseModel):
-    spike_percent: float = Field(
-        ge=0
-    )
+    spike_percent: float = Field(ge=0)
 
 
 class WhatIfItem(BaseModel):

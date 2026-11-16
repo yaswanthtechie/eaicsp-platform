@@ -1,5 +1,6 @@
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import List, Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -16,14 +17,24 @@ class RecommendationLineItem(BaseModel):
     forecast_source: Literal["model", "fallback"] = Field(
         description="'model' if served by Forecast Service; 'fallback' if 28-day moving average"
     )
-    recommended_order_quantity: int = Field(gt=0, description="Computed replenishment order quantity")
+    recommended_order_quantity: int = Field(
+        gt=0, description="Computed replenishment order quantity"
+    )
     estimated_unit_cost: float = Field(ge=0, description="Supplier unit cost")
-    estimated_total_cost: float = Field(ge=0, description="Total expected replenishment cost")
+    estimated_total_cost: float = Field(
+        ge=0, description="Total expected replenishment cost"
+    )
 
 
 class OptimizationRecommendationsResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    generated_at: datetime = Field(description="UTC timestamp of recommendation generation")
-    recommendations: List[RecommendationLineItem] = Field(description="List of recommended purchase orders")
-    total_recommended_spend: float = Field(ge=0, description="Sum of estimated costs across recommendations")
+    generated_at: datetime = Field(
+        description="UTC timestamp of recommendation generation"
+    )
+    recommendations: List[RecommendationLineItem] = Field(
+        description="List of recommended purchase orders"
+    )
+    total_recommended_spend: float = Field(
+        ge=0, description="Sum of estimated costs across recommendations"
+    )

@@ -3,11 +3,11 @@
 Revision ID: 006_products_warehouses
 Revises: 005_po_hold_source
 """
+
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 revision: str = "006_products_warehouses"
 down_revision: Union[str, None] = "005_po_hold_source"
@@ -31,7 +31,12 @@ def upgrade() -> None:
             sa.Column("unit_cost", sa.Float(), nullable=False),
             sa.Column("abc_class", sa.String(8), nullable=True),
             sa.Column("supplier_id", sa.String(16), nullable=True),
-            sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
+            sa.Column(
+                "created_at",
+                sa.DateTime(),
+                nullable=False,
+                server_default=sa.func.now(),
+            ),
         )
         op.create_index("ix_products_supplier_id", "products", ["supplier_id"])
 
@@ -45,10 +50,22 @@ def upgrade() -> None:
             sa.Column("lat", sa.Float(), nullable=True),
             sa.Column("lng", sa.Float(), nullable=True),
             sa.Column("capacity_units", sa.Integer(), nullable=False),
-            sa.Column("demand_weight", sa.Float(), nullable=False, server_default="1.0"),
-            sa.Column("warehouse_type", sa.String(32), nullable=False, server_default="central"),
+            sa.Column(
+                "demand_weight", sa.Float(), nullable=False, server_default="1.0"
+            ),
+            sa.Column(
+                "warehouse_type",
+                sa.String(32),
+                nullable=False,
+                server_default="central",
+            ),
             sa.Column("parent_warehouse_id", sa.String(16), nullable=True),
-            sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
+            sa.Column(
+                "created_at",
+                sa.DateTime(),
+                nullable=False,
+                server_default=sa.func.now(),
+            ),
         )
 
 
