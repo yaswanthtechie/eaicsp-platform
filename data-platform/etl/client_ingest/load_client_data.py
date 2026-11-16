@@ -19,6 +19,15 @@ from database import get_engine
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from seed import catalog
 SEED_COUNTS = {'product': catalog.N_SKUS, 'supplier': catalog.N_SUPPLIERS}
+
+# Keep client warehouse IDs after existing seed warehouse IDs.
+SEED_WAREHOUSE_SITES = {}
+for _warehouse_id in catalog.warehouses()["warehouse_id"]:
+    _, _city, _site = _warehouse_id.split("-")
+    SEED_WAREHOUSE_SITES[_city] = max(
+        SEED_WAREHOUSE_SITES.get(_city, 0),
+        int(_site)
+    )
 SPEC = Path(__file__).with_name("spec.yaml")
 IATA = {
     "Hyderabad": "HYD", "Bengaluru": "BLR", "Mumbai": "BOM",
@@ -122,7 +131,7 @@ def validate(row, rules):
             ("inc-", r"INC-\d{6}"), ("car-", r"CAR-\d{2}")
         ]
         for marker, pattern in patterns:
-            if marker in fmt and not re.fullmatch(pattern, value, re.I):
+            if marker in fmt and not re.fullmatch(pattern, value):
                 errors.append(f"{name}: invalid format")
                 break
 
@@ -169,7 +178,8 @@ def get_id(conn, entity, code, prefix, width=6, year=None, city_code=None):
     if city_code:
         matching = [x for x in ids if x.startswith(f"WH-{city_code}-")]
         nums = [int(x.rsplit("-", 1)[1]) for x in matching]
-        canonical = f"WH-{city_code}-{max(nums, default=0)+1:02d}"
+        next_site = max(nums + [SEED_WAREHOUSE_SITES.get(city_code, 0)]) + 1
+        canonical = f"WH-{city_code}-{next_site:02d}"
     elif year:
         matching = [x for x in ids if x.startswith(f"{prefix}-{year}-")]
         nums = [int(x.rsplit("-", 1)[1]) for x in matching]
@@ -285,7 +295,18 @@ def make_record_key(key, row):
         "purchase_order_history": ["po_number"],
         "shipment_history": ["shipment_id"],
     }[key]
-    return "|".join(str(row.get(field, "")) for field in fields)
+    return "|".join((row.get(field) or "").strip() for field in fields)
+
+
+def process_unique_row(seen_record_keys, key, raw, rules, known, load):
+    record_key = make_record_key(key, raw)
+    if record_key in seen_record_keys:
+        return ["duplicate of an earlier row in this file"]
+
+    errors = process_row(key, raw, rules, known, load)
+    if not errors:
+        seen_record_keys.add(record_key)
+    return errors
 
 
 def main():
@@ -337,6 +358,7 @@ def main():
         rules = spec["files"][key]["columns"]
         counts = Counter()
         reasons = Counter()
+        seen_record_keys = set()
 
         with path.open(newline="", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
@@ -385,7 +407,9 @@ def main():
                             "record": json.dumps(row)
                         })
 
-                errors = process_row(key, raw, rules, known, load)
+                errors = process_unique_row(
+                    seen_record_keys, key, raw, rules, known, load
+                )
                 if errors:
                     reason = "; ".join(errors)[:4000]
                     reasons[reason] += 1

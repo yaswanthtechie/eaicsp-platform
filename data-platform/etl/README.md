@@ -1419,3 +1419,22 @@ read `purchase_orders`, `po_lines`, `goods_receipt_lines` and
 shipments, so those three views remain empty until the Flow B event consumer
 is implemented in the follow-up issue. Their tests use fixture rows based on
 the event examples in `contracts/events/examples/`.
+
+## Client Data Loader Setup
+
+Before loading client data, initialize the client ingestion tables in PostgreSQL.
+
+From the `data-platform/etl` directory, run:
+
+```powershell
+psql -f sql/client_ingest_schema.sql
+```
+
+This creates the tables required for client data ingestion:
+
+- client_id_mapping
+- client_ingest_staging
+- client_ingest_rejects
+- client_ingest_reports
+
+After creating the schema, run the client data loader using the configured client data directory.
