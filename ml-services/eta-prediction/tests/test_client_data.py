@@ -4,7 +4,7 @@ import logging
 import pandas as pd
 import pytest
 
-from src.client_data import adapt_client_shipments
+from src.client_data import adapt_client_shipments, load_client_shipments
 
 
 def make_shipments():
@@ -139,6 +139,7 @@ def test_both_optional_columns_missing():
     assert result["weight_kg"].isna().all()
     assert result["volume_m3"].isna().all()
 
+
 def test_duplicate_keeps_latest_dispatch_date_even_if_earlier_line():
     shipments = make_shipments()
 
@@ -160,6 +161,7 @@ def test_duplicate_keeps_latest_dispatch_date_even_if_earlier_line():
     assert result.loc[0, "carrier_name"] == "Latest Carrier"
     assert result.attrs["duplicate_shipment_count"] == 1
 
+
 def test_duplicate_keeps_valid_date_over_invalid_date():
     shipments = make_shipments()
 
@@ -176,3 +178,16 @@ def test_duplicate_keeps_valid_date_over_invalid_date():
     assert len(result) == 1
     assert result.loc[0, "carrier_name"] == "Valid Date Carrier"
     assert result.loc[0, "dispatch_date"] == pd.Timestamp("2026-01-10")
+
+
+def test_leading_zero_shipment_ids_are_kept_distinct(tmp_path):
+    shipments = make_shipments()
+    shipments.loc[0, "shipment_id"] = "00123"
+    shipments.loc[1, "shipment_id"] = "0123"
+    file_path = tmp_path / "shipment_history.csv"
+    shipments.to_csv(file_path, index=False)
+
+    result = load_client_shipments(file_path)
+
+    assert sorted(result["shipment_id"]) == ["00123", "0123"]
+    assert result.attrs["duplicate_shipment_count"] == 0

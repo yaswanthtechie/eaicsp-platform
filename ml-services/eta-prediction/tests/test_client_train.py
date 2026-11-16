@@ -2,10 +2,17 @@
 import json
 
 import joblib
+import mlflow
 import pandas as pd
 import pytest
-from client_train import _metric_safe
-from client_train import train_client_eta
+
+from client_train import (
+    _metric_safe,
+    _xgboost_parameters,
+    train_client_eta,
+)
+from src.client_pipeline import create_client_pipeline
+from src.config import XGBOOST_PARAMS
 
 
 @pytest.fixture(autouse=True)
@@ -303,7 +310,46 @@ def test_model_is_not_saved_when_it_loses_to_baseline(
     assert result["model_path"] is None
     assert result["metadata_path"] == rejected_path
 
+
 def test_metric_safe_replaces_characters_mlflow_rejects():
     assert _metric_safe("Blue Dart & Co") == "Blue Dart _ Co"
     assert _metric_safe("DHL (Express)") == "DHL _Express_"
     assert _metric_safe("Gati-KWE") == "Gati-KWE"
+    assert _metric_safe("DHL:Blue") == "DHL_Blue"
+    assert _metric_safe("Express/") == "Express_"
+    assert _metric_safe("A//B") == "A__B"
+    assert _metric_safe("..") == "unknown"
+
+
+def test_xgboost_parameters_come_from_the_pipeline():
+    params = _xgboost_parameters(create_client_pipeline())
+
+    assert params["random_state"] == XGBOOST_PARAMS["random_state"]
+    assert params["n_estimators"] == XGBOOST_PARAMS["n_estimators"]
+
+
+def test_xgboost_parameters_empty_without_xgboost_step():
+    assert _xgboost_parameters(FakePipeline()) == {}
+
+
+def test_excluded_test_shipments_metric_is_logged(
+    training_data,
+    artifact_paths,
+):
+    shipment_file, suppliers, warehouses, warehouse_master = training_data
+
+    train_client_eta(
+        shipment_file,
+        suppliers,
+        warehouses,
+        warehouse_master,
+    )
+
+    run = mlflow.search_runs(
+        experiment_names=["ETA Prediction"],
+        order_by=["start_time DESC"],
+        max_results=1,
+    ).iloc[0]
+
+    assert "metrics.excluded_test_shipments" in run.index
+    assert "metrics.evaluated_test_shipments" in run.index

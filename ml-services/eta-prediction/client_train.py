@@ -49,7 +49,8 @@ def _xgboost_parameters(pipeline) -> dict:
 
 def _metric_safe(name: str) -> str:
     """Make a carrier name safe to use inside an MLflow metric name."""
-    return re.sub(r"[^\w\-. /:]", "_", str(name))
+    safe = re.sub(r"[^\w\-. ]", "_", str(name)).strip(" ./")
+    return safe or "unknown"
 
 
 def train_client_eta(
@@ -60,7 +61,31 @@ def train_client_eta(
     test_size: float = TEST_SIZE,
     data_label: str = "synthetic",
 ):
-    """Train and evaluate the R15-H4 client ETA model."""
+    """
+    Train and evaluate the R15-H4 client ETA model.
+
+    Parameters
+    ----------
+    shipment_file : str or Path
+        Path to the client shipment-history CSV.
+    suppliers : pandas.DataFrame
+        Seed supplier city coordinates.
+    warehouses : pandas.DataFrame
+        Seed warehouse city coordinates.
+    warehouse_master : pandas.DataFrame
+        Client warehouse codes and their actual city names.
+    test_size : float
+        Fraction of data reserved for chronological testing.
+    data_label : str
+        Label identifying the training data source, such as
+        'synthetic' or 'client_real'.
+
+    Returns
+    -------
+    dict
+        Trained model, evaluation metrics, diagnostics,
+        metadata and artifact paths.
+    """
 
     # 1. Load client shipment history.
     shipments = load_client_shipments(shipment_file)
@@ -320,7 +345,8 @@ def main():
 
     # Load client warehouse master.
     warehouse_master = pd.read_csv(
-        args.warehouse_master
+        args.warehouse_master,
+        dtype=str,
     )
 
     # Run training.
@@ -352,7 +378,7 @@ def main():
         result["evaluation"]["model_beats_baseline"],
     )
 
-    # S2: Report how many test rows were evaluated or excluded.
+    # Report how many test rows were evaluated or excluded.
     print("\nTest Evaluation Row Counts:")
     print(
         "Evaluated test shipments:",

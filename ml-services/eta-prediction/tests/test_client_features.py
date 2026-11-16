@@ -177,3 +177,13 @@ def test_negative_delivery_duration_is_excluded():
     assert len(metadata) == 2
     assert diagnostics["negative_delivery_days_count"] == 1
     assert diagnostics["excluded_target_rows"] == 1
+
+
+def test_blank_carrier_is_replaced_with_unknown():
+    shipments = sample_shipments()
+    shipments.loc[1, "carrier_name"] = "   "
+
+    X, _, metadata, _ = prepare_client_features(shipments)
+
+    assert X.loc[1, "carrier_name"] == "Unknown"
+    assert metadata.loc[1, "carrier_name"] == "Unknown"
