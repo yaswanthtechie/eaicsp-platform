@@ -7,6 +7,7 @@ WebSocket events forwarded by the API Gateway BFF.
 
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, Literal, Optional
 
 # The three allowed severity levels defined by the contract
@@ -88,8 +89,48 @@ def _resolve_supplier_risk_severity(payload: Dict[str, Any]) -> SeverityLevel:
 def _resolve_eta_severity(payload: Dict[str, Any]) -> SeverityLevel:
     """
     eta.shipment.predicted:
-    Always -> 'info'.
+    Use predicted_delay_days:
+    - predicted_delay_days >= 4 -> 'critical'
+    - 1 <= predicted_delay_days < 4 -> 'warning'
+    - predicted_delay_days <= 0 -> 'info'
+    - missing field / invalid -> 'info'
     """
+    raw_delay = payload.get("predicted_delay_days")
+    if raw_delay is None:
+        return SEVERITY_INFO
+    try:
+        delay = float(raw_delay)
+    except (ValueError, TypeError):
+        return SEVERITY_INFO
+
+    if math.isnan(delay) or math.isinf(delay):
+        return SEVERITY_INFO
+
+    if delay >= 4.0:
+        return SEVERITY_CRITICAL
+    if delay >= 1.0:
+        return SEVERITY_WARNING
+    return SEVERITY_INFO
+
+
+def _resolve_sales_anomaly_severity(payload: Dict[str, Any]) -> SeverityLevel:
+    """
+    anomaly.sales.detected:
+    Map payload.severity:
+    - high -> 'critical'
+    - medium -> 'warning'
+    - low -> 'info'
+    - missing or unrecognized -> 'info' safe fallback
+    """
+    raw_severity = payload.get("severity")
+    if isinstance(raw_severity, str):
+        clean = raw_severity.strip().lower()
+        if clean == "high":
+            return SEVERITY_CRITICAL
+        if clean == "medium":
+            return SEVERITY_WARNING
+        if clean == "low":
+            return SEVERITY_INFO
     return SEVERITY_INFO
 
 
@@ -137,6 +178,8 @@ def resolve_severity(
         return _resolve_supplier_risk_severity(p)
     elif event_type == "eta.shipment.predicted":
         return _resolve_eta_severity(p)
+    elif event_type == "anomaly.sales.detected":
+        return _resolve_sales_anomaly_severity(p)
     elif event_type == "forecast.batch.completed":
         return _resolve_forecast_severity(p)
     elif event_type == "data.pipeline.completed":

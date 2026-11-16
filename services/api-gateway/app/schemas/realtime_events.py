@@ -1,13 +1,14 @@
 """
 Event envelope and payload validation schemas for Realtime WebSocket (R15-M3).
 
-Defines the contract validation for the six canonical dashboard event types:
+Defines the contract validation for the seven canonical dashboard event types:
 1. inventory.stock.low
 2. iot.anomaly.detected
 3. supplierrisk.score.changed
 4. eta.shipment.predicted
 5. forecast.batch.completed
 6. data.pipeline.completed
+7. anomaly.sales.detected
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ CANONICAL_EVENT_TYPES: Set[str] = {
     "eta.shipment.predicted",
     "forecast.batch.completed",
     "data.pipeline.completed",
+    "anomaly.sales.detected",
 }
 
 
@@ -116,6 +118,35 @@ class EtaShipmentPredictedPayload(BaseModel):
     model_version: str
     predicted_at: str
     top_features: Optional[List[Dict[str, Any]]] = None
+    predicted_delay_days: Optional[float] = None
+
+
+class SalesAnomalyDetectedPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    severity: str
+    sku_id: Optional[str] = None
+    product: Optional[str] = None
+    warehouse_id: Optional[str] = None
+    warehouse: Optional[str] = None
+    date: Optional[str] = None
+    quantity: Optional[float] = None
+    expected: Optional[float] = None
+    scale: Optional[float] = None
+    score: Optional[float] = None
+    direction: Optional[str] = None
+    is_anomaly: Optional[bool] = None
+    run_start: Optional[bool] = None
+    reason: Optional[str] = None
+    message: Optional[str] = None
+
+    @field_validator("severity")
+    @classmethod
+    def validate_severity(cls, v: str) -> str:
+        clean = v.strip().lower()
+        if clean not in {"low", "medium", "high"}:
+            raise ValueError(f"Invalid severity '{v}', must be one of low, medium, high")
+        return clean
 
 
 class ForecastBatchCompletedPayload(BaseModel):
@@ -173,6 +204,7 @@ PAYLOAD_VALIDATORS: Dict[str, type[BaseModel]] = {
     "eta.shipment.predicted": EtaShipmentPredictedPayload,
     "forecast.batch.completed": ForecastBatchCompletedPayload,
     "data.pipeline.completed": DataPipelineCompletedPayload,
+    "anomaly.sales.detected": SalesAnomalyDetectedPayload,
 }
 
 

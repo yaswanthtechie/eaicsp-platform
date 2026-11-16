@@ -156,6 +156,29 @@ DATA_PIPELINE_COMPLETED_SAMPLE = {
     },
 }
 
+SALES_ANOMALY_DETECTED_SAMPLE = {
+    "event_id": str(uuid.uuid4()),
+    "event_type": "anomaly.sales.detected",
+    "event_version": 1,
+    "occurred_at": "2026-10-15T11:00:00Z",
+    "producer": "anomaly-detection-service",
+    "trace_id": None,
+    "payload": {
+        "sku_id": "SKU-000123",
+        "warehouse_id": "WH-BLR-01",
+        "date": "2026-10-15",
+        "quantity": 250.0,
+        "expected": 45.0,
+        "scale": 12.0,
+        "score": 17.08,
+        "severity": "high",
+        "direction": "spike",
+        "is_anomaly": True,
+        "run_start": True,
+        "reason": "sold 250 vs expected 45 (spike: z=17.08 >= 4.0)",
+    },
+}
+
 ALL_SAMPLES = [
     INVENTORY_STOCK_LOW_SAMPLE,
     IOT_ANOMALY_DETECTED_SAMPLE,
@@ -163,6 +186,7 @@ ALL_SAMPLES = [
     ETA_SHIPMENT_PREDICTED_SAMPLE,
     FORECAST_BATCH_COMPLETED_SAMPLE,
     DATA_PIPELINE_COMPLETED_SAMPLE,
+    SALES_ANOMALY_DETECTED_SAMPLE,
 ]
 
 
@@ -172,8 +196,8 @@ ALL_SAMPLES = [
 
 
 def test_canonical_event_types_count():
-    """Ensure exactly the six canonical dashboard event types are defined."""
-    assert len(CANONICAL_EVENT_TYPES) == 6
+    """Ensure exactly the seven canonical dashboard event types are defined."""
+    assert len(CANONICAL_EVENT_TYPES) == 7
     expected = {
         "inventory.stock.low",
         "iot.anomaly.detected",
@@ -181,12 +205,13 @@ def test_canonical_event_types_count():
         "eta.shipment.predicted",
         "forecast.batch.completed",
         "data.pipeline.completed",
+        "anomaly.sales.detected",
     }
     assert CANONICAL_EVENT_TYPES == expected
 
 
 @pytest.mark.parametrize("sample", ALL_SAMPLES)
-def test_all_six_canonical_events_validate_successfully(sample):
+def test_all_seven_canonical_events_validate_successfully(sample):
     """Each canonical event example must pass validation."""
     valid, dedup_key, error = validate_realtime_event(sample)
     assert valid is True
@@ -371,3 +396,46 @@ def test_event_version_must_be_integer_one(invalid_version):
     valid_ok, _, error_ok = validate_realtime_event(event)
     assert valid_ok is True
     assert error_ok is None
+
+
+@pytest.mark.parametrize("delay", [4.0, 5, 1.5, 0, -1.0, -3])
+def test_eta_predicted_delay_days_validation(delay):
+    """ETA prediction payload accepts positive, zero, and negative predicted_delay_days."""
+    event = copy.deepcopy(ETA_SHIPMENT_PREDICTED_SAMPLE)
+    event["payload"]["predicted_delay_days"] = delay
+    valid, dedup_key, error = validate_realtime_event(event)
+    assert valid is True
+    assert error is None
+    assert dedup_key == event["event_id"]
+
+
+@pytest.mark.parametrize("sev", ["low", "LOW", "medium", "Medium", "high", "HIGH"])
+def test_sales_anomaly_valid_severity(sev):
+    """Sales anomaly event accepts low, medium, and high severity (case-insensitive)."""
+    event = copy.deepcopy(SALES_ANOMALY_DETECTED_SAMPLE)
+    event["payload"]["severity"] = sev
+    valid, dedup_key, error = validate_realtime_event(event)
+    assert valid is True
+    assert error is None
+    assert dedup_key == event["event_id"]
+
+
+@pytest.mark.parametrize("invalid_sev", ["critical", "extreme", "catastrophic", "", "unknown"])
+def test_sales_anomaly_invalid_severity_fails(invalid_sev):
+    """Sales anomaly event rejects invalid severity values."""
+    event = copy.deepcopy(SALES_ANOMALY_DETECTED_SAMPLE)
+    event["payload"]["severity"] = invalid_sev
+    valid, dedup_key, error = validate_realtime_event(event)
+    assert valid is False
+    assert dedup_key is None
+    assert "Payload validation error for 'anomaly.sales.detected'" in error
+
+
+def test_sales_anomaly_missing_severity_fails():
+    """Sales anomaly event rejects payload missing the required severity field."""
+    event = copy.deepcopy(SALES_ANOMALY_DETECTED_SAMPLE)
+    del event["payload"]["severity"]
+    valid, dedup_key, error = validate_realtime_event(event)
+    assert valid is False
+    assert dedup_key is None
+    assert "Payload validation error for 'anomaly.sales.detected'" in error
