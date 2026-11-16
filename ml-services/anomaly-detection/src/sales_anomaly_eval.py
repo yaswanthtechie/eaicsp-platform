@@ -119,7 +119,12 @@ def make_data(seed, with_events=True, dispersion=DISPERSION, slow_share=SLOW_SHA
     return pd.concat(rows, ignore_index=True), label_frame
 
 
-def evaluate(dispersion=DISPERSION, slow_share=SLOW_SHARE, log_mlflow=False):
+def evaluate(
+    dispersion=DISPERSION,
+    slow_share=SLOW_SHARE,
+    log_mlflow=False,
+    run_name="sales-anomaly-eval",
+):
 
     sales, labels = make_data(
         EVAL_SEED, dispersion=dispersion, slow_share=slow_share
@@ -181,7 +186,7 @@ def evaluate(dispersion=DISPERSION, slow_share=SLOW_SHARE, log_mlflow=False):
         mlflow.set_tracking_uri("sqlite:///mlflow.db")
         mlflow.set_experiment("anomaly-detection-r15-sales")
 
-        with mlflow.start_run(run_name="sales-anomaly-eval"):
+        with mlflow.start_run(run_name=run_name):
             mlflow.log_params(
                 {
                     "eval_seed": EVAL_SEED,
@@ -215,7 +220,12 @@ def main():
         ("realistic", dict(log_mlflow=True), "sales_anomaly_eval.csv"),
         (
             "poisson (dispersion=None, slow_share=0.0)",
-            dict(dispersion=None, slow_share=0.0),
+            dict(
+                dispersion=None,
+                slow_share=0.0,
+                log_mlflow=True,
+                run_name="sales-anomaly-eval-poisson",
+            ),
             "sales_anomaly_eval_poisson.csv",
         ),
     ]

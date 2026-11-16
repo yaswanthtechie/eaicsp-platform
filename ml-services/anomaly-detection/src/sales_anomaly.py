@@ -1,9 +1,9 @@
 """
 Sales anomaly detection: unusual spikes and drops per product and warehouse.
 
-Input: sales history with columns sale_date, product_code (or sku_id),
-warehouse (or warehouse_id), quantity_sold. One daily series per product and
-warehouse (rows for the same day are summed).
+Input: sales history with columns sale_date, sku_id (or product_code),
+warehouse_id (or warehouse_code, warehouse), quantity_sold. One daily series
+per product and warehouse (rows for the same day are summed).
 
 Method: seasonal-naive baseline + robust z-score (see README).
 
@@ -54,8 +54,10 @@ log = logging.getLogger(__name__)
 
 COLUMN_ALIASES = {
     "date": ("sale_date", "date"),
-    "product": ("product_code", "sku_id", "sku"),
-    "warehouse": ("warehouse", "warehouse_id"),
+    # Canonical columns first: staging rows from #323 carry both the client
+    # code and the canonical ID, and #327 must publish the canonical one.
+    "product": ("sku_id", "product_code", "sku"),
+    "warehouse": ("warehouse_id", "warehouse_code", "warehouse"),
     "quantity": ("quantity_sold", "quantity"),
 }
 
@@ -93,7 +95,8 @@ def normalize_columns(df):
 
     out = pd.DataFrame(
         {
-            "date": pd.to_datetime(df[picked["date"]], errors="coerce"),
+            # ISO dates (YYYY-MM-DD, as in the #322 spec); anything else is a bad row.
+            "date": pd.to_datetime(df[picked["date"]], format="ISO8601", errors="coerce"),
             "product": df[picked["product"]].astype("string").str.strip(),
             "warehouse": df[picked["warehouse"]].astype("string").str.strip(),
             "quantity": pd.to_numeric(df[picked["quantity"]], errors="coerce"),
@@ -129,6 +132,13 @@ def classify(quantity, expected, z, z_spike=None):
     scored = np.isfinite(z)
     z_spike = Z_SPIKE if z_spike is None else z_spike
 
+    if np.isfinite(z_spike) and not z_spike < SPIKE_MEDIUM < SPIKE_HIGH:
+        raise ValueError(
+            f"z_spike {z_spike} must be below SPIKE_MEDIUM ({SPIKE_MEDIUM}) and "
+            f"SPIKE_HIGH ({SPIKE_HIGH}); raise those thresholds first, or no "
+            "spike would ever be low."
+        )
+
     spike = scored & (z >= z_spike)
     drop = (
         scored
@@ -154,21 +164,22 @@ def classify(quantity, expected, z, z_spike=None):
     return direction, severity
 
 
-def explain(quantity, expected, z, direction):
+def explain(quantity, expected, z, direction, weeks):
     """Return a short reason per day; empty string where not an anomaly."""
 
     reasons = []
 
-    for q, e, score, d in zip(quantity, expected, z, direction):
+    for q, e, score, d, w in zip(quantity, expected, z, direction, weeks):
+        basis = f"same weekday median of the last {int(w)} weeks"
+
         if d == "spike":
             reasons.append(
-                f"sold {q:.0f} vs expected {e:.0f} "
-                f"(z {score:.1f}, same weekday median of the last 8 weeks)"
+                f"sold {q:.0f} vs expected {e:.0f} (z {score:.1f}, {basis})"
             )
         elif d == "drop":
             reasons.append(
                 f"sold {q:.0f} vs expected {e:.0f} "
-                f"({100 * q / e:.0f}% of the same weekday median of the last 8 weeks)"
+                f"({100 * q / e:.0f}% of the {basis})"
             )
         else:
             reasons.append("")
@@ -176,13 +187,8 @@ def explain(quantity, expected, z, direction):
     return np.array(reasons, dtype=object)
 
 
-def score_series(values):
-    """
-    Return (expected, scale, z) for a daily series (arrays of length n).
-
-    z is NaN for days with fewer than MIN_WEEKS same-weekday values of
-    history. Uses only values strictly before each day.
-    """
+def _score_series(values):
+    """Return (expected, scale, z, weeks) where weeks is the history used per day."""
 
     v = np.asarray(values, dtype=float)
     n = len(v)
@@ -211,6 +217,20 @@ def score_series(values):
     z = (v - expected) / scale
     z[count < MIN_WEEKS] = np.nan
 
+    return expected, scale, z, count
+
+
+def score_series(values):
+    """
+    Return (expected, scale, z) for a daily series (arrays of length n).
+
+    z is NaN for days with fewer than MIN_WEEKS same-weekday values of
+    history, and for days with no value (a feed gap). Uses only values
+    strictly before each day.
+    """
+
+    expected, scale, z, _ = _score_series(values)
+
     return expected, scale, z
 
 
@@ -223,15 +243,22 @@ def detect(df, fill_missing_as_zero=True, z_spike=None):
     with fewer than MIN_SERIES_DAYS days of data; each gets a log line and
     no flags. z_spike overrides Z_SPIKE for this call only.
 
+    A missing day counts as 0 sales only when the warehouse reported other
+    products that day; a day the whole warehouse is missing is left unscored.
+
     run_start marks the first day of each run of same-direction anomalies, so
     one incident (a SKU that stops selling, a 3-day promotion) is one event.
     """
 
     data = normalize_columns(df)
 
-    # Extend each series to its own warehouse's last date, not the file's.
-    # A warehouse whose feed is a day behind must not raise false drops.
-    warehouse_end = data.groupby("warehouse")["date"].max()
+    # Days on which each warehouse sent at least one row. A day the whole
+    # warehouse is missing is a feed gap, not zero sales: it stays unscored.
+    # This also covers a warehouse whose feed is a day behind at the end.
+    warehouse_days = {
+        warehouse: pd.DatetimeIndex(days)
+        for warehouse, days in data.groupby("warehouse")["date"].unique().items()
+    }
 
     frames = []
     skipped = []
@@ -252,22 +279,26 @@ def detect(df, fill_missing_as_zero=True, z_spike=None):
             skipped.append((product, warehouse, days_of_data))
             continue
 
+        reported = warehouse_days[warehouse]
         daily = group.groupby("date")["quantity"].sum()
-        daily = daily.reindex(
-            pd.date_range(daily.index.min(), warehouse_end[warehouse], freq="D")
-        )
+        calendar = pd.date_range(daily.index.min(), reported.max(), freq="D")
+        daily = daily.reindex(calendar)
 
         if fill_missing_as_zero:
-            daily = daily.fillna(0.0)
+            # Zero only where the warehouse reported that day but this product
+            # has no row. Feed-gap days stay NaN, so they are not scored and
+            # do not enter the same-weekday baseline.
+            no_sale = daily.isna().to_numpy() & calendar.isin(reported)
+            daily.iloc[no_sale] = 0.0
 
         quantity = daily.to_numpy()
-        expected, scale, z = score_series(quantity)
+        expected, scale, z, weeks = _score_series(quantity)
         direction, severity = classify(quantity, expected, z, z_spike)
 
         is_anomaly = direction != ""
         previous = np.concatenate([[""], direction[:-1]])
         run_start = is_anomaly & (direction != previous)
-        reason = explain(quantity, expected, z, direction)
+        reason = explain(quantity, expected, z, direction, weeks)
 
         frames.append(
             pd.DataFrame(

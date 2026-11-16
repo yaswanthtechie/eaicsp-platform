@@ -13,17 +13,21 @@ import argparse
 import numpy as np
 import pandas as pd
 
+from src.config import FALSE_ALARM_BUDGET
 from src.sales_anomaly import detect
 
-BUDGET = 2 / 1000  # false alarms per scored day on the clean file
-
-
-def calibrate(df, budget=BUDGET):
+def calibrate(df, budget=FALSE_ALARM_BUDGET):
     """Return (drop_rate, z_spike) for a clean sales frame."""
 
     # Score every day with spikes switched off, so only drops are flagged.
     scores, _ = detect(df, z_spike=np.inf)
     scored = scores[scores["score"].notna()]
+
+    if scored.empty:
+        raise ValueError(
+            "No series has enough history to score (8 weeks of data plus 4 "
+            "weeks of baseline). Calibrate on at least three months of clean data."
+        )
 
     drop_rate = float((scored["direction"] == "drop").mean())
 

@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -109,6 +110,12 @@ def test_classify_rule(quantity, expected, z, direction, severity):
     assert (d[0], s[0]) == (direction, severity)
 
 
+def test_classify_rejects_a_z_spike_inside_the_severity_bands():
+
+    with pytest.raises(ValueError, match="SPIKE_MEDIUM"):
+        classify([100], [50], [8.0], z_spike=8.0)
+
+
 def test_series_that_stops_selling_is_flagged_as_a_drop():
 
     selling = frame(flat(120), product="SKU-000001")
@@ -182,6 +189,17 @@ def test_anomaly_rows_have_a_reason():
 
     assert hit["reason"].startswith("sold 0 vs expected 50")
     assert (scores.loc[~scores["is_anomaly"], "reason"] == "").all()
+
+
+def test_reason_uses_the_weeks_of_history_actually_available():
+
+    values = flat(60)
+    values[35] = 0.0  # only 5 same-weekday values exist before day 35
+
+    scores, _ = detect(frame(values))
+    hit = scores[scores["is_anomaly"]].iloc[0]
+
+    assert "last 5 weeks" in hit["reason"]
 
 
 def test_sparse_series_is_skipped_by_days_of_data():
@@ -274,7 +292,9 @@ def test_rows_for_the_same_day_are_summed():
 
 def test_missing_day_counts_as_zero_by_default():
 
-    df = frame(flat()).drop(index=100)
+    # The warehouse reported day 100 (another product sold), this one did not.
+    other = frame(flat(), product="SKU-000002")
+    df = pd.concat([frame(flat()).drop(index=100), other])
 
     scores, _ = detect(df)
     hit = scores[scores["is_anomaly"]]
@@ -285,6 +305,69 @@ def test_missing_day_counts_as_zero_by_default():
     scores_off, _ = detect(df, fill_missing_as_zero=False)
 
     assert not scores_off["is_anomaly"].any()
+
+
+def test_day_missing_from_whole_warehouse_is_not_flagged():
+
+    gap = pd.Timestamp("2026-01-05") + pd.Timedelta(days=100)
+    data = pd.concat(
+        [frame(flat(), product=f"SKU-{i:06d}") for i in range(1, 21)]
+    )
+    data = data[data["sale_date"] != gap]  # whole warehouse missing that day
+
+    scores, _ = detect(data)
+
+    assert not scores["is_anomaly"].any()
+    assert scores.loc[scores["date"] == gap, "score"].isna().all()
+
+
+def test_canonical_columns_win_over_client_codes():
+
+    data = frame(flat())
+    data = data.rename(columns={"warehouse": "warehouse_id"})
+    data["product_code"] = "PRD-10482"
+    data["warehouse_code"] = "BLR-01"
+
+    scores, _ = detect(data)
+
+    assert set(scores["product"]) == {"SKU-000001"}
+    assert set(scores["warehouse"]) == {"WH-BLR-01"}
+
+
+def test_client_warehouse_code_column_is_accepted():
+
+    data = frame(flat()).rename(columns={"warehouse": "warehouse_code"})
+
+    scores, _ = detect(data)
+
+    assert set(scores["warehouse"]) == {"WH-BLR-01"}
+
+
+def test_reads_the_322_client_sales_file():
+
+    path = (
+        Path(__file__).resolve().parents[3]
+        / "data-platform/etl/client_ingest/samples/client_format/sales_history.csv"
+    )
+
+    scores, skipped = detect(pd.read_csv(path, dtype=str))
+
+    assert scores["score"].notna().sum() > 0
+    assert scores["product"].str.match(r"PRD-\d{5}$").all()
+    assert scores["warehouse"].str.match(r"[A-Z]{3}-\d{2}$").all()
+
+
+def test_dates_that_are_not_iso_are_dropped(caplog):
+
+    good = frame(flat())
+    bad = frame([5.0], product="SKU-000002")
+    bad["sale_date"] = "05/01/2026"
+
+    with caplog.at_level(logging.WARNING):
+        scores, _ = detect(pd.concat([good, bad]))
+
+    assert set(scores["product"]) == {"SKU-000001"}
+    assert "Dropping 1 rows" in caplog.text
 
 
 def test_product_code_column_is_accepted():

@@ -30,3 +30,7 @@ DROP_MIN_EXPECTED = 15.0
 DROP_LOW = 0.20
 DROP_MEDIUM = 0.10
 DROP_HIGH = 0.05
+
+# False-alarm budget used by src/calibrate_sales_anomaly.py: false alarms per
+# scored day on a clean file (2 per 1000).
+FALSE_ALARM_BUDGET = 2 / 1000

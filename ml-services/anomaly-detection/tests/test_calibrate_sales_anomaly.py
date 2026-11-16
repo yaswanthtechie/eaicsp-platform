@@ -30,3 +30,12 @@ def test_calibration_fails_clearly_when_drops_exceed_budget():
 
     with pytest.raises(ValueError, match="over the budget"):
         calibrate(data)
+
+
+def test_calibration_fails_clearly_on_a_short_file():
+
+    clean, _ = make_data(CLEAN_SEED, with_events=False)
+    month = clean[clean["sale_date"] < clean["sale_date"].min() + pd.Timedelta(days=30)]
+
+    with pytest.raises(ValueError, match="at least three months"):
+        calibrate(month)
