@@ -59,17 +59,17 @@ def consume_cost_layers(
 
         take = min(
             remaining,
-            layer.quantity_remaining,
+            int(layer.quantity_remaining),
         )
 
-        layer.quantity_remaining -= take
+        layer.quantity_remaining = int(layer.quantity_remaining) - take
 
         remaining -= take
 
         consumed.append(
             (
                 take,
-                layer.unit_cost,
+                float(layer.unit_cost),
             )
         )
 
@@ -143,7 +143,7 @@ def latest_unit_cost(
     if layer is None:
         return None
 
-    return layer.unit_cost
+    return float(layer.unit_cost)
 
 
 # ==========================================================
@@ -169,7 +169,7 @@ def calculate_fifo_value(
     if inventory is None:
         raise ValueError("Inventory record not found")
 
-    quantity_needed = inventory.quantity_on_hand
+    quantity_needed = int(inventory.quantity_on_hand)
 
     if quantity_needed <= 0:
         return 0.0
@@ -193,10 +193,10 @@ def calculate_fifo_value(
 
         quantity_from_layer = min(
             quantity_needed,
-            layer.quantity_remaining,
+            int(layer.quantity_remaining),
         )
 
-        total_value += quantity_from_layer * layer.unit_cost
+        total_value += quantity_from_layer * float(layer.unit_cost)
 
         quantity_needed -= quantity_from_layer
 
@@ -229,7 +229,7 @@ def calculate_weighted_average_value(
     if inventory is None:
         raise ValueError("Inventory record not found")
 
-    current_quantity = inventory.quantity_on_hand
+    current_quantity = int(inventory.quantity_on_hand)
 
     if current_quantity <= 0:
         return 0.0
@@ -248,9 +248,10 @@ def calculate_weighted_average_value(
     total_cost = 0.0
 
     for layer in layers:
-        total_quantity += layer.quantity_remaining
-
-        total_cost += layer.quantity_remaining * layer.unit_cost
+        rem = int(layer.quantity_remaining)
+        cost = float(layer.unit_cost)
+        total_quantity += rem
+        total_cost += rem * cost
 
     if total_quantity == 0:
         return 0.0

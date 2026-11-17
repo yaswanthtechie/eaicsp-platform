@@ -23,7 +23,7 @@ def find_transfer_suggestion(
     """
 
     destination_shortage = max(
-        destination_reorder_point - destination.quantity_on_hand,
+        destination_reorder_point - int(destination.quantity_on_hand),
         0,
     )
 

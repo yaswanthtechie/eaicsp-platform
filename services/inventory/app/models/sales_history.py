@@ -1,11 +1,13 @@
+from datetime import date
+
 from sqlalchemy import (
-    Column,
     Date,
     Index,
     Integer,
     PrimaryKeyConstraint,
     String,
 )
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 
@@ -13,22 +15,22 @@ from app.database import Base
 class SalesHistory(Base):
     __tablename__ = "sales_history"
 
-    sku_id = Column(
+    sku_id: Mapped[str] = mapped_column(
         String,
         nullable=False,
     )
 
-    warehouse_id = Column(
+    warehouse_id: Mapped[str] = mapped_column(
         String,
         nullable=False,
     )
 
-    sale_date = Column(
+    sale_date: Mapped[date] = mapped_column(
         Date,
         nullable=False,
     )
 
-    quantity_sold = Column(
+    quantity_sold: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
     )

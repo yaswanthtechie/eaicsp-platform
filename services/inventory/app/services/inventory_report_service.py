@@ -18,18 +18,20 @@ def generate_inventory_value_report(
     grouped_report = {}
 
     for inventory in inventories:
+        s_id = str(inventory.sku_id)
+        w_id = str(inventory.warehouse_id)
         if valuation_method == "fifo":
             value = calculate_fifo_value(
                 db=db,
-                sku_id=inventory.sku_id,
-                warehouse_id=inventory.warehouse_id,
+                sku_id=s_id,
+                warehouse_id=w_id,
             )
 
         elif valuation_method == "weighted_average":
             value = calculate_weighted_average_value(
                 db=db,
-                sku_id=inventory.sku_id,
-                warehouse_id=inventory.warehouse_id,
+                sku_id=s_id,
+                warehouse_id=w_id,
             )
 
         else:

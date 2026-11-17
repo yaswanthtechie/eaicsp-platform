@@ -1,7 +1,6 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy import (
-    Column,
     Date,
     DateTime,
     Float,
@@ -10,6 +9,7 @@ from sqlalchemy import (
     PrimaryKeyConstraint,
     String,
 )
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 
@@ -17,29 +17,29 @@ from app.database import Base
 class Supplier(Base):
     __tablename__ = "suppliers"
 
-    supplier_id = Column(
+    supplier_id: Mapped[str] = mapped_column(
         String,
         primary_key=True,
         index=True,
     )
 
-    supplier_name = Column(
+    supplier_name: Mapped[str] = mapped_column(
         String,
         nullable=False,
     )
 
-    sku_id = Column(
+    sku_id: Mapped[str] = mapped_column(
         String,
         nullable=False,
         index=True,
     )
 
-    unit_cost = Column(
+    unit_cost: Mapped[float] = mapped_column(
         Float,
         nullable=False,
     )
 
-    lead_time_days = Column(
+    lead_time_days: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
     )
@@ -50,41 +50,41 @@ class SupplierLeadTime(Base):
 
     __tablename__ = "supplier_lead_times"
 
-    supplier_id = Column(
+    supplier_id: Mapped[str] = mapped_column(
         String(16),
         ForeignKey("suppliers.supplier_id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
 
-    sku_id = Column(
+    sku_id: Mapped[str] = mapped_column(
         String(16),
         ForeignKey("products.sku_id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
 
-    average_lead_time_days = Column(
+    average_lead_time_days: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
     )
 
-    minimum_lead_time_days = Column(
+    minimum_lead_time_days: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
     )
 
-    maximum_lead_time_days = Column(
+    maximum_lead_time_days: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
     )
 
-    effective_date = Column(
+    effective_date: Mapped[date | None] = mapped_column(
         Date,
         nullable=True,
     )
 
-    updated_at = Column(
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
         default=lambda: datetime.now(UTC),

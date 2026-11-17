@@ -1,5 +1,6 @@
 from collections import defaultdict
 from datetime import date, timedelta
+from typing import cast
 
 from sqlalchemy.orm import Session
 
@@ -34,17 +35,18 @@ def calculate_rolling_average_demand(
     total_quantity = 0
 
     for record in records:
-        if record.quantity_sold < 0:
+        qty = int(record.quantity_sold)
+        if qty < 0:
             raise ValueError("Negative demand data is not allowed")
 
-        total_quantity += record.quantity_sold
+        total_quantity += qty
 
     if not records:
         return 0.0
 
     # Use the actual number of observed days
     # instead of always dividing by 30.
-    first_sale_date = min(record.sale_date for record in records)
+    first_sale_date: date = min(cast(date, record.sale_date) for record in records)
 
     observed_days = (end_date - first_sale_date).days + 1
 
@@ -79,22 +81,24 @@ def calculate_rolling_average_demand_all(
         .all()
     )
 
-    totals = defaultdict(int)
-    first_sale_dates = {}
+    totals: dict[tuple[str, str], int] = defaultdict(int)
+    first_sale_dates: dict[tuple[str, str], date] = {}
 
     for record in records:
-        if record.quantity_sold < 0:
+        qty = int(record.quantity_sold)
+        if qty < 0:
             raise ValueError("Negative demand data is not allowed")
 
         key = (
-            record.sku_id,
-            record.warehouse_id,
+            str(record.sku_id),
+            str(record.warehouse_id),
         )
 
-        totals[key] += record.quantity_sold
+        totals[key] += qty
 
-        if key not in first_sale_dates or record.sale_date < first_sale_dates[key]:
-            first_sale_dates[key] = record.sale_date
+        r_date = cast(date, record.sale_date)
+        if key not in first_sale_dates or r_date < first_sale_dates[key]:
+            first_sale_dates[key] = r_date
 
     result = {}
 

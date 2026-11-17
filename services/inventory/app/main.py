@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-import app.models
+import app.models as _models  # noqa: F401
 from app.core.config import settings
 from app.database import engine
 from app.routes.goods_receipts import (
@@ -100,7 +100,7 @@ def custom_openapi():
     return app.openapi_schema
 
 
-app.openapi = custom_openapi
+app.openapi = custom_openapi  # type: ignore[method-assign]
 
 
 @app.get("/health", tags=["Health"])

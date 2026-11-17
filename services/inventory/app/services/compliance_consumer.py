@@ -19,10 +19,10 @@ from app.models.supplier import Supplier
 try:
     from confluent_kafka import Consumer, KafkaError, KafkaException, TopicPartition
 except ImportError:
-    Consumer = None
-    KafkaError = None
-    KafkaException = None
-    TopicPartition = None
+    Consumer = None  # type: ignore[misc,assignment]
+    KafkaError = None  # type: ignore[misc,assignment]
+    KafkaException = None  # type: ignore[misc,assignment]
+    TopicPartition = None  # type: ignore[misc,assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -514,7 +514,9 @@ class ComplianceConsumerWorker:
     def _rewind(self, msg, attempt: int) -> None:
         """Seek back so Kafka redelivers this exact message; back off, capped at 30s."""
         if TopicPartition is not None or hasattr(self.consumer, "seek"):
-            tp_cls = TopicPartition or _SimpleTopicPartition
+            tp_cls = (
+                TopicPartition if TopicPartition is not None else _SimpleTopicPartition
+            )
             self.consumer.seek(tp_cls(msg.topic(), msg.partition(), msg.offset()))
         time.sleep(min(settings.COMPLIANCE_CONSUMER_INTERVAL_SECONDS * attempt, 30.0))
 
@@ -612,7 +614,9 @@ class ComplianceConsumerWorker:
 
             if hasattr(msg, "error") and msg.error():
                 err = msg.error()
-                if not (KafkaError and err.code() == KafkaError._PARTITION_EOF):
+                if not (
+                    KafkaError is not None and err.code() == KafkaError._PARTITION_EOF
+                ):
                     logger.error("Kafka consumer error: %s", err)
                 write_heartbeat()
                 continue

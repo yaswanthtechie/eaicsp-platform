@@ -125,6 +125,7 @@ def _seed_master_data(db) -> None:
 # 1. INVENTORY SNAPSHOT IMPORT TESTS
 # =========================================================================
 
+
 def test_inventory_snapshot_provided_rop_and_safety_stock(db_session):
     """When snapshot provides ROP and safety_stock, they are imported directly."""
     _seed_master_data(db_session)
@@ -156,7 +157,11 @@ def test_inventory_snapshot_provided_rop_and_safety_stock(db_session):
     assert rec.fallback_reason is None
 
     # Check database persistence
-    inv = db_session.query(Inventory).filter_by(sku_id="SKU-000001", warehouse_id="WH-BLR-01").first()
+    inv = (
+        db_session.query(Inventory)
+        .filter_by(sku_id="SKU-000001", warehouse_id="WH-BLR-01")
+        .first()
+    )
     assert inv is not None
     assert inv.quantity_on_hand == 15
     assert inv.reorder_point == 30
@@ -175,7 +180,7 @@ def test_inventory_snapshot_missing_rop_and_safety_stock_fallback(db_session):
                 "warehouse_id": "WH-BOM-01",
                 "quantity_on_hand": "45",
                 "reorder_point": "",  # missing
-                "safety_stock": "",   # missing
+                "safety_stock": "",  # missing
                 "snapshot_date": "2026-11-10",
             }
         ]
@@ -194,7 +199,11 @@ def test_inventory_snapshot_missing_rop_and_safety_stock_fallback(db_session):
     assert rec.reorder_point >= 0
     assert rec.safety_stock >= 0
 
-    inv = db_session.query(Inventory).filter_by(sku_id="SKU-000002", warehouse_id="WH-BOM-01").first()
+    inv = (
+        db_session.query(Inventory)
+        .filter_by(sku_id="SKU-000002", warehouse_id="WH-BOM-01")
+        .first()
+    )
     assert inv is not None
     assert inv.quantity_on_hand == 45
     # A calculated reorder point is not stored, so it keeps recalculating.
@@ -216,7 +225,9 @@ def test_inventory_snapshot_client_codes_without_canonical_ids_are_rejected(db_s
             }
         ]
     )
-    with pytest.raises(ClientImportValidationError, match="missing required field 'sku_id'"):
+    with pytest.raises(
+        ClientImportValidationError, match="missing required field 'sku_id'"
+    ):
         import_staging_dataset(db_session, dataset, dry_run=False)
 
 
@@ -235,7 +246,11 @@ def test_calculated_reorder_point_keeps_recalculating(db_session):
         ]
     )
     import_staging_dataset(db_session, dataset, dry_run=False)
-    inv = db_session.query(Inventory).filter_by(sku_id="SKU-000002", warehouse_id="WH-BOM-01").one()
+    inv = (
+        db_session.query(Inventory)
+        .filter_by(sku_id="SKU-000002", warehouse_id="WH-BOM-01")
+        .one()
+    )
     before = calculate_reorder_point(db_session, inv)["reorder_point"]
     inv.safety_stock += 500
     db_session.commit()
@@ -268,24 +283,37 @@ def test_inventory_snapshot_unknown_sku_or_warehouse_rejected(db_session):
     _seed_master_data(db_session)
     bad_sku = StagingDataset(
         inventory_snapshots=[
-            {"sku_id": "SKU-999999", "warehouse_id": "WH-BLR-01", "quantity_on_hand": "10"}
+            {
+                "sku_id": "SKU-999999",
+                "warehouse_id": "WH-BLR-01",
+                "quantity_on_hand": "10",
+            }
         ]
     )
-    with pytest.raises(ClientImportValidationError, match="unknown sku_id 'SKU-999999'"):
+    with pytest.raises(
+        ClientImportValidationError, match="unknown sku_id 'SKU-999999'"
+    ):
         import_staging_dataset(db_session, bad_sku)
 
     bad_wh = StagingDataset(
         inventory_snapshots=[
-            {"sku_id": "SKU-000001", "warehouse_id": "WH-DEL-01", "quantity_on_hand": "10"}
+            {
+                "sku_id": "SKU-000001",
+                "warehouse_id": "WH-DEL-01",
+                "quantity_on_hand": "10",
+            }
         ]
     )
-    with pytest.raises(ClientImportValidationError, match="unknown warehouse_id 'WH-DEL-01'"):
+    with pytest.raises(
+        ClientImportValidationError, match="unknown warehouse_id 'WH-DEL-01'"
+    ):
         import_staging_dataset(db_session, bad_wh)
 
 
 # =========================================================================
 # 2. PURCHASE ORDER HISTORY IMPORT TESTS
 # =========================================================================
+
 
 def test_purchase_order_history_statuses(db_session):
     """PO history loads Open, Received, and Cancelled POs correctly."""
@@ -369,7 +397,9 @@ def test_purchase_order_invalid_status_rejected(db_session):
             }
         ]
     )
-    with pytest.raises(ClientImportValidationError, match="invalid po_status 'in_progress'"):
+    with pytest.raises(
+        ClientImportValidationError, match="invalid po_status 'in_progress'"
+    ):
         import_staging_dataset(db_session, dataset)
 
 
@@ -392,7 +422,9 @@ def test_purchase_order_received_missing_received_date_rejected(db_session):
             }
         ]
     )
-    with pytest.raises(ClientImportValidationError, match="missing received_date for Received PO"):
+    with pytest.raises(
+        ClientImportValidationError, match="missing received_date for Received PO"
+    ):
         import_staging_dataset(db_session, dataset)
 
 
@@ -433,6 +465,7 @@ def test_purchase_order_duplicate_po_id_rejected(db_session):
 # =========================================================================
 # 3. SUPPLIER ON-TIME DELIVERY % LOGIC TESTS
 # =========================================================================
+
 
 def test_supplier_on_time_delivery_calculation_and_exclusions(db_session):
     """
@@ -553,6 +586,7 @@ def test_supplier_with_no_received_pos_avoids_zero_division(db_session):
 # 4. API ENDPOINT TESTS
 # =========================================================================
 
+
 def test_api_supplier_performance_endpoints(client):
     """Test GET /api/v1/inventory/suppliers/performance endpoints."""
     from tests.conftest import TestingSessionLocal
@@ -592,7 +626,9 @@ def test_api_supplier_performance_endpoints(client):
     assert sup1_item["on_time_delivery_percent"] == 100.0
 
     # 2. Filter by query param ?supplier_id=SUP-00001
-    resp_filter = client.get("/api/v1/inventory/suppliers/performance?supplier_id=SUP-00001")
+    resp_filter = client.get(
+        "/api/v1/inventory/suppliers/performance?supplier_id=SUP-00001"
+    )
     assert resp_filter.status_code == 200
     assert len(resp_filter.json()) == 1
     assert resp_filter.json()[0]["supplier_id"] == "SUP-00001"
@@ -623,6 +659,7 @@ def test_api_supplier_performance_endpoints(client):
 # 5. END-TO-END REORDER RECOMMENDATION WORKFLOW (SECTION 8 - 11 QUESTIONS)
 # =========================================================================
 
+
 def test_end_to_end_client_data_readiness_and_reorder_summary(tmp_path, db_session):
     """
     Demonstrates the complete end-to-end Issue #325 pipeline:
@@ -646,10 +683,17 @@ def test_end_to_end_client_data_readiness_and_reorder_summary(tmp_path, db_sessi
     snapshot_csv = tmp_path / "inventory_snapshot.csv"
     with snapshot_csv.open("w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
-        w.writerow([
-            "snapshot_date", "sku_id", "warehouse_id",
-            "quantity_on_hand", "quantity_reserved", "reorder_point", "safety_stock"
-        ])
+        w.writerow(
+            [
+                "snapshot_date",
+                "sku_id",
+                "warehouse_id",
+                "quantity_on_hand",
+                "quantity_reserved",
+                "reorder_point",
+                "safety_stock",
+            ]
+        )
         # Item 1: SKU-000001 below imported ROP (QOH=5 < ROP=25) -> Needs reorder
         w.writerow(["2026-11-10", "SKU-000001", "WH-BLR-01", "5", "0", "25", "10"])
         # Item 2: SKU-000002 above imported ROP (QOH=100 >= ROP=50) -> No reorder
@@ -660,19 +704,80 @@ def test_end_to_end_client_data_readiness_and_reorder_summary(tmp_path, db_sessi
     po_csv = tmp_path / "purchase_order_history.csv"
     with po_csv.open("w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
-        w.writerow([
-            "po_id", "supplier_id", "sku_id", "warehouse_id",
-            "order_date", "expected_date", "received_date", "quantity_ordered",
-            "unit_cost", "po_status"
-        ])
+        w.writerow(
+            [
+                "po_id",
+                "supplier_id",
+                "sku_id",
+                "warehouse_id",
+                "order_date",
+                "expected_date",
+                "received_date",
+                "quantity_ordered",
+                "unit_cost",
+                "po_status",
+            ]
+        )
         # Received on-time (2026-01-08 <= 2026-01-10)
-        w.writerow(["PO-2026-000001", "SUP-00001", "SKU-000001", "WH-BLR-01", "2026-01-01", "2026-01-10", "2026-01-08", "50", "50.0", "Received"])
+        w.writerow(
+            [
+                "PO-2026-000001",
+                "SUP-00001",
+                "SKU-000001",
+                "WH-BLR-01",
+                "2026-01-01",
+                "2026-01-10",
+                "2026-01-08",
+                "50",
+                "50.0",
+                "Received",
+            ]
+        )
         # Received late (2026-01-25 > 2026-01-20)
-        w.writerow(["PO-2026-000002", "SUP-00001", "SKU-000001", "WH-BLR-01", "2026-01-05", "2026-01-20", "2026-01-25", "50", "50.0", "Received"])
+        w.writerow(
+            [
+                "PO-2026-000002",
+                "SUP-00001",
+                "SKU-000001",
+                "WH-BLR-01",
+                "2026-01-05",
+                "2026-01-20",
+                "2026-01-25",
+                "50",
+                "50.0",
+                "Received",
+            ]
+        )
         # Open (ignored for delivery %)
-        w.writerow(["PO-2026-000003", "SUP-00001", "SKU-000001", "WH-BLR-01", "2026-02-01", "2026-02-15", "", "30", "50.0", "Open"])
+        w.writerow(
+            [
+                "PO-2026-000003",
+                "SUP-00001",
+                "SKU-000001",
+                "WH-BLR-01",
+                "2026-02-01",
+                "2026-02-15",
+                "",
+                "30",
+                "50.0",
+                "Open",
+            ]
+        )
         # Cancelled (ignored for delivery %)
-        w.writerow(["PO-2026-000004", "SUP-00001", "SKU-000001", "WH-BLR-01", "2026-02-05", "2026-02-20", "", "40", "50.0", "Cancelled"])
+        w.writerow(
+            [
+                "PO-2026-000004",
+                "SUP-00001",
+                "SKU-000001",
+                "WH-BLR-01",
+                "2026-02-05",
+                "2026-02-20",
+                "",
+                "40",
+                "50.0",
+                "Cancelled",
+            ]
+        )
 
     # 2. Execute import via run_client_data_import
     summary = run_client_data_import(db=db_session, staging_dir=tmp_path, dry_run=False)
@@ -685,8 +790,13 @@ def test_end_to_end_client_data_readiness_and_reorder_summary(tmp_path, db_sessi
     # Valid batch -> 0 rejected
 
     # Question 4: Which SKUs are below reorder point?
-    below_rop_items = [rec for rec in summary.reorder_recommendations if rec.needs_reorder]
-    assert any(r.sku_id == "SKU-000001" and r.warehouse_id == "WH-BLR-01" for r in below_rop_items)
+    below_rop_items = [
+        rec for rec in summary.reorder_recommendations if rec.needs_reorder
+    ]
+    assert any(
+        r.sku_id == "SKU-000001" and r.warehouse_id == "WH-BLR-01"
+        for r in below_rop_items
+    )
 
     # Item at WH-BLR-01: QOH=5, ROP=25 -> shortage=20
     blr_item = next(r for r in below_rop_items if r.warehouse_id == "WH-BLR-01")
@@ -697,12 +807,16 @@ def test_end_to_end_client_data_readiness_and_reorder_summary(tmp_path, db_sessi
     assert blr_item.expected_cost == 20 * 50.0
 
     # Question 7: Which reorder-point/safety-stock values came from the client?
-    imported_records = [r for r in summary.snapshot_records if r.reorder_point_source == "imported"]
+    imported_records = [
+        r for r in summary.snapshot_records if r.reorder_point_source == "imported"
+    ]
     assert len(imported_records) == 2
     assert {r.warehouse_id for r in imported_records} == {"WH-BLR-01", "WH-BOM-01"}
 
     # Question 8: Which values were calculated as fallback?
-    calc_records = [r for r in summary.snapshot_records if r.reorder_point_source == "calculated"]
+    calc_records = [
+        r for r in summary.snapshot_records if r.reorder_point_source == "calculated"
+    ]
     assert len(calc_records) == 1
     assert calc_records[0].warehouse_id == "WH-BOM-01"
     assert calc_records[0].fallback_reason == "missing from client snapshot"
@@ -710,7 +824,9 @@ def test_end_to_end_client_data_readiness_and_reorder_summary(tmp_path, db_sessi
     # Question 9: What is the supplier on-time delivery percentage?
     # Question 10: Were Open POs ignored for on-time delivery?
     # Question 11: Were Cancelled POs ignored for on-time delivery?
-    sup1_perf = next(sp for sp in summary.supplier_performance if sp.supplier_id == "SUP-00001")
+    sup1_perf = next(
+        sp for sp in summary.supplier_performance if sp.supplier_id == "SUP-00001"
+    )
     assert sup1_perf.received_po_count == 2
     assert sup1_perf.on_time_po_count == 1
     assert sup1_perf.open_po_count == 1
@@ -789,8 +905,13 @@ def test_purchase_order_dates_before_order_date_rejected(db_session, dates, fiel
     """A PO cannot be expected or received before it was ordered."""
     _seed_master_data(db_session)
     row = _po_row(
-        "PO-2026-000102", "SUP-00001", "Received", **{"received_date": "2026-03-05", **dates}
+        "PO-2026-000102",
+        "SUP-00001",
+        "Received",
+        **{"received_date": "2026-03-05", **dates},
     )
     dataset = StagingDataset(purchase_order_history=[row])
-    with pytest.raises(ClientImportValidationError, match=f"{field} .* is before order_date"):
+    with pytest.raises(
+        ClientImportValidationError, match=f"{field} .* is before order_date"
+    ):
         import_staging_dataset(db_session, dataset, dry_run=True)

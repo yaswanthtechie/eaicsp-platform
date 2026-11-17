@@ -827,19 +827,21 @@ def bulk_upload_csv(
     db: Session,
     file: UploadFile,
 ):
-    content = file.file.read(MAX_UPLOAD_BYTES + 1)
+    raw_content = file.file.read(MAX_UPLOAD_BYTES + 1)
 
-    if len(content) > MAX_UPLOAD_BYTES:
+    if len(raw_content) > MAX_UPLOAD_BYTES:
         raise ValueError("File is larger than the 5MB limit")
 
-    if isinstance(content, bytes):
+    if isinstance(raw_content, bytes):
         try:
-            content = content.decode("utf-8")
+            text_content = raw_content.decode("utf-8")
 
         except UnicodeDecodeError as exc:
             raise ValueError("File must be a UTF-8 encoded CSV") from exc
+    else:
+        text_content = str(raw_content)
 
-    reader = csv.DictReader(io.StringIO(content))
+    reader = csv.DictReader(io.StringIO(text_content))
 
     if reader.fieldnames is None:
         raise ValueError("CSV file is empty")
@@ -861,8 +863,8 @@ def bulk_upload_csv(
         start=2,
     ):
         try:
-            parsed = InventoryCreate(
-                **{column: row[column] for column in REQUIRED_CSV_COLUMNS}
+            parsed = InventoryCreate.model_validate(
+                {column: row[column] for column in REQUIRED_CSV_COLUMNS}
             )
 
         except ValidationError as exc:

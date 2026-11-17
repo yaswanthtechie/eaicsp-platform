@@ -117,7 +117,7 @@ class ForecastClient:
         Raises ForecastUnavailable on timeout, connection error or 5xx after all retries.
         """
         url = f"{self.base_url}/api/v1/demand/forecast/{sku_id}"
-        params = {
+        params: dict[str, str | int] = {
             "warehouse_id": warehouse_id,
             "horizon": horizon,
         }

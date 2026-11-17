@@ -46,7 +46,9 @@ def _id_maps() -> tuple[dict[str, str], dict[str, str]]:
     product_codes = sorted({row["product_code"] for row in _read("product_master")})
     supplier_codes = sorted({row["supplier_code"] for row in _read("supplier_master")})
     sku_ids = {code: f"SKU-{i:06d}" for i, code in enumerate(product_codes, start=1)}
-    supplier_ids = {code: f"SUP-{i:05d}" for i, code in enumerate(supplier_codes, start=1)}
+    supplier_ids = {
+        code: f"SUP-{i:05d}" for i, code in enumerate(supplier_codes, start=1)
+    }
     return sku_ids, supplier_ids
 
 
@@ -58,11 +60,13 @@ def _staged(sku_ids, supplier_ids) -> tuple[list[dict], list[dict]]:
     snapshots = []
     for row in _read("inventory_snapshot"):
         if row["product_code"] in sku_ids and row["warehouse_code"] in WAREHOUSE_IDS:
-            snapshots.append({
-                **row,
-                "sku_id": sku_ids[row["product_code"]],
-                "warehouse_id": WAREHOUSE_IDS[row["warehouse_code"]],
-            })
+            snapshots.append(
+                {
+                    **row,
+                    "sku_id": sku_ids[row["product_code"]],
+                    "warehouse_id": WAREHOUSE_IDS[row["warehouse_code"]],
+                }
+            )
     orders = []
     for row_num, row in enumerate(_read("purchase_order_history"), start=1):
         if (
@@ -71,13 +75,15 @@ def _staged(sku_ids, supplier_ids) -> tuple[list[dict], list[dict]]:
             and row["supplier_code"] in supplier_ids
         ):
             year = row["order_date"][:4] if row["order_date"][:4].isdigit() else "2026"
-            orders.append({
-                **row,
-                "po_id": f"PO-{year}-{row_num:06d}",
-                "sku_id": sku_ids[row["product_code"]],
-                "warehouse_id": WAREHOUSE_IDS[row["warehouse_code"]],
-                "supplier_id": supplier_ids[row["supplier_code"]],
-            })
+            orders.append(
+                {
+                    **row,
+                    "po_id": f"PO-{year}-{row_num:06d}",
+                    "sku_id": sku_ids[row["product_code"]],
+                    "warehouse_id": WAREHOUSE_IDS[row["warehouse_code"]],
+                    "supplier_id": supplier_ids[row["supplier_code"]],
+                }
+            )
     return snapshots, orders
 
 
@@ -139,10 +145,14 @@ def test_sample_files_with_invalid_rows_fail_the_load_cleanly(db_session, master
     snapshots, orders = _staged(*master_data)
     # Row 251 is the sample's negative quantity_on_hand row; it reuses the key
     # of row 1, so the duplicate check reports it first.
-    with pytest.raises(ClientImportValidationError, match=r"inventory_snapshots\[row 251\]"):
+    with pytest.raises(
+        ClientImportValidationError, match=r"inventory_snapshots\[row 251\]"
+    ):
         import_staging_dataset(
             db_session,
-            StagingDataset(inventory_snapshots=snapshots, purchase_order_history=orders),
+            StagingDataset(
+                inventory_snapshots=snapshots, purchase_order_history=orders
+            ),
             dry_run=True,
         )
 
@@ -159,7 +169,11 @@ def test_sample_files_load_and_ignore_open_and_cancelled_pos(db_session, master_
     statuses = [row["po_status"] for row in orders]
     assert summary.inventory_snapshots.added == 250
     assert summary.purchase_order_history.added == 365
-    assert (statuses.count("Received"), statuses.count("Open"), statuses.count("Cancelled")) == (338, 12, 15)
+    assert (
+        statuses.count("Received"),
+        statuses.count("Open"),
+        statuses.count("Cancelled"),
+    ) == (338, 12, 15)
     received = sum(p.received_po_count for p in summary.supplier_performance)
     open_count = sum(p.open_po_count for p in summary.supplier_performance)
     cancelled = sum(p.cancelled_po_count for p in summary.supplier_performance)
@@ -168,5 +182,7 @@ def test_sample_files_load_and_ignore_open_and_cancelled_pos(db_session, master_
     assert cancelled == statuses.count("Cancelled")
     # Every canonical ID that reached Inventory came from the mapping, never
     # from a reformatted client code.
-    assert {r.warehouse_id for r in summary.snapshot_records} <= set(WAREHOUSE_IDS.values())
+    assert {r.warehouse_id for r in summary.snapshot_records} <= set(
+        WAREHOUSE_IDS.values()
+    )
     assert "WH-MUM-01" not in {r.warehouse_id for r in summary.snapshot_records}

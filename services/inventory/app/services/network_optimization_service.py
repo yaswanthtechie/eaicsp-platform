@@ -1,6 +1,7 @@
 from collections import defaultdict
 from datetime import date, timedelta
 from math import ceil, sqrt
+from typing import cast
 
 from sqlalchemy.orm import Session
 
@@ -68,15 +69,17 @@ def _daily_demand_std_all(
         .all()
     )
 
-    daily = defaultdict(lambda: defaultdict(float))
+    daily: dict[tuple[str, str], dict[date, float]] = defaultdict(
+        lambda: defaultdict(float)
+    )
 
     for record in records:
         key = (
-            record.sku_id,
-            record.warehouse_id,
+            str(record.sku_id),
+            str(record.warehouse_id),
         )
 
-        daily[key][record.sale_date] += record.quantity_sold
+        daily[key][cast(date, record.sale_date)] += float(record.quantity_sold)
 
     result = {}
 

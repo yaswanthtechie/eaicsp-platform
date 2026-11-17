@@ -216,7 +216,7 @@ def reorder_plan(
             avg_demand = calculation["rolling_avg_demand"]
 
             urgency_score = calculate_urgency_score(
-                quantity_on_hand=inventory.quantity_on_hand,
+                quantity_on_hand=int(inventory.quantity_on_hand),
                 reorder_point=reorder_point,
                 avg_daily_demand=avg_demand,
             )
@@ -695,20 +695,24 @@ def decrement_inventory_route(
                 uncosted_quantity,
             )
 
-        old_quantity = item.quantity_on_hand
-        item.quantity_on_hand -= quantity
+        old_quantity = int(item.quantity_on_hand)
+        item.quantity_on_hand = int(item.quantity_on_hand) - quantity
 
         # Every stock change is a new version. Optimistic locking (a PUT
         # based on a pre-sale read must get 409) and the cache's version
         # fence both depend on this.
-        item.version += 1
+        item.version = int(item.version or 0) + 1
 
         # Same transaction as the stock change: both commit, or neither does.
         check_and_record_low_stock(db=db, item=item, previous_quantity=old_quantity)
 
         db.commit()
         db.refresh(item)
-        invalidate_inventory_cache(sku_id, warehouse_id, version=item.version)
+        invalidate_inventory_cache(
+            sku_id,
+            warehouse_id,
+            version=int(item.version) if item.version is not None else None,
+        )
 
         # -----------------------------------------------------
         # MILESTONE 2:
