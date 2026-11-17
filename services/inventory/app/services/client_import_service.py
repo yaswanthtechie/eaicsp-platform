@@ -25,12 +25,10 @@ from app.services.purchase_order_service import select_supplier
 from app.services.reorder_service import (
     build_reorder_context,
     calculate_reorder_point,
-    calculate_urgency_score,
 )
 from app.services.supplier_performance_service import (
     calculate_all_suppliers_performance,
 )
-from app.services.transfer_service import find_transfer_suggestion
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +85,7 @@ class SnapshotImportRecord:
     reorder_point: int
     reorder_point_source: str  # "imported" or "calculated"
     safety_stock: int
-    safety_stock_source: str  # "imported" or "calculated"
+    safety_stock_source: str  # "imported" or "default"
     fallback_reason: str | None = None
 
 
@@ -99,11 +97,12 @@ class SupplierPerformanceSummary:
     supplier_name: str | None
     received_po_count: int
     on_time_po_count: int
-    on_time_delivery_percent: float
+    on_time_delivery_percent: float | None
     total_po_count: int = 0
     open_po_count: int = 0
     cancelled_po_count: int = 0
     late_po_count: int = 0
+    unverified_po_count: int = 0
 
 
 @dataclass
@@ -189,12 +188,12 @@ class ClientImportSummary:
             imp_ss = sum(
                 1 for r in self.snapshot_records if r.safety_stock_source == "imported"
             )
-            calc_ss = sum(
-                1 for r in self.snapshot_records if r.safety_stock_source == "calculated"
+            default_ss = sum(
+                1 for r in self.snapshot_records if r.safety_stock_source == "default"
             )
             lines.extend([
                 f"  Reorder points: imported={imp_rop}, calculated_fallback={calc_rop}",
-                f"  Safety stocks: imported={imp_ss}, calculated_fallback={calc_ss}",
+                f"  Safety stocks: imported={imp_ss}, default_fallback={default_ss}",
             ])
 
         if (
@@ -213,10 +212,15 @@ class ClientImportSummary:
         if self.supplier_performance:
             lines.extend(["", "Supplier on-time delivery performance:"])
             for sp in self.supplier_performance:
+                percent = (
+                    f"{sp.on_time_delivery_percent:.1f}%"
+                    if sp.on_time_delivery_percent is not None
+                    else "n/a (no dated Received POs)"
+                )
                 lines.append(
-                    f"  {sp.supplier_id} ({sp.supplier_name or 'Unknown'}): "
-                    f"{sp.on_time_delivery_percent:.1f}% "
-                    f"(Received: {sp.received_po_count}, On-time: {sp.on_time_po_count}; "
+                    f"  {sp.supplier_id} ({sp.supplier_name or 'Unknown'}): {percent} "
+                    f"(Received: {sp.received_po_count}, On-time: {sp.on_time_po_count}, "
+                    f"Unverified: {sp.unverified_po_count}; "
                     f"Open: {sp.open_po_count}, Cancelled: {sp.cancelled_po_count} ignored)"
                 )
 
@@ -270,7 +274,6 @@ class _ParsedSnapshot:
     sku_id: str
     warehouse_id: str
     quantity_on_hand: int
-    quantity_reserved: int
     reorder_point: int | None
     safety_stock: int | None
     snapshot_date: date | None
@@ -829,15 +832,6 @@ def _parse_inventory_snapshots(
             raw_qoh, "inventory_snapshots", row_num, "quantity_on_hand", minimum=0
         )
 
-        has_res, raw_res = _pick_present(row, ("quantity_reserved",))
-        res_qty = (
-            _parse_int_value(
-                raw_res, "inventory_snapshots", row_num, "quantity_reserved", minimum=0
-            )
-            if has_res
-            else 0
-        )
-
         has_rop, raw_rop = _pick_present(row, ("reorder_point", "rop"))
         rop: int | None = None
         if has_rop:
@@ -864,7 +858,6 @@ def _parse_inventory_snapshots(
                 sku_id=sku_id,
                 warehouse_id=warehouse_id,
                 quantity_on_hand=qoh,
-                quantity_reserved=res_qty,
                 reorder_point=rop,
                 safety_stock=safety_stock,
                 snapshot_date=snap_date,
@@ -946,6 +939,17 @@ def _parse_purchase_order_history(
         else:
             if has_rd:
                 received_date = _parse_iso_date(raw_rd, "purchase_order_history", row_num, "received_date")
+
+        if expected_date < order_date:
+            raise ClientImportValidationError(
+                f"purchase_order_history[row {row_num}]: expected_date {expected_date} "
+                f"is before order_date {order_date}"
+            )
+        if received_date is not None and received_date < order_date:
+            raise ClientImportValidationError(
+                f"purchase_order_history[row {row_num}]: received_date {received_date} "
+                f"is before order_date {order_date}"
+            )
 
         parsed_items.append(
             _ParsedPurchaseOrder(
@@ -1412,6 +1416,7 @@ def import_staging_dataset(
                     open_po_count=p.open_po_count,
                     cancelled_po_count=p.cancelled_po_count,
                     late_po_count=p.late_po_count,
+                    unverified_po_count=p.unverified_po_count,
                 )
             )
 
@@ -1429,25 +1434,12 @@ def import_staging_dataset(
             if inv_item is not None:
                 calc = calculate_reorder_point(db, inv_item, context=reorder_context)
                 rop_for_eval = calc["reorder_point"]
-                avg_demand = calc["rolling_avg_demand"]
                 needs_reorder = inv_item.quantity_on_hand < rop_for_eval
                 suggested_qty = (
                     max(rop_for_eval - inv_item.quantity_on_hand, 1)
                     if needs_reorder
                     else 0
                 )
-                _ = find_transfer_suggestion(
-                    db=db,
-                    destination=inv_item,
-                    destination_reorder_point=rop_for_eval,
-                    context=reorder_context,
-                )
-                if needs_reorder:
-                    _ = calculate_urgency_score(
-                        quantity_on_hand=inv_item.quantity_on_hand,
-                        reorder_point=rop_for_eval,
-                        avg_daily_demand=avg_demand,
-                    )
             else:
                 needs_reorder = snap_rec.quantity_on_hand < snap_rec.reorder_point
                 suggested_qty = (

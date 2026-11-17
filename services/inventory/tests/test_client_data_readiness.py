@@ -608,6 +608,15 @@ def test_api_supplier_performance_endpoints(client):
     # 4. Unknown supplier returns 404
     resp_404 = client.get("/api/v1/inventory/suppliers/SUP-NONEXIST/performance")
     assert resp_404.status_code == 404
+    assert "not found" in resp_404.json().get("detail", "").lower()
+
+    # 5. Route collision protection: /suppliers/performance has two path segments
+    # and must NOT be captured by /{sku_id}/{warehouse_id}.
+    # If captured by /{sku_id}/{warehouse_id}, it would return 404 {"detail": "Inventory not found"}.
+    assert resp_all.status_code == 200
+    assert isinstance(data_all, list)
+    assert resp_single.status_code == 200
+    assert data_single.get("supplier_id") == "SUP-00001"
 
 
 # =========================================================================
@@ -715,3 +724,73 @@ def test_end_to_end_client_data_readiness_and_reorder_summary(tmp_path, db_sessi
     assert "Supplier on-time delivery performance:" in formatted
     assert "Reorder recommendations:" in formatted
     assert "50.0%" in formatted
+
+
+# =========================================================================
+# 6. REGRESSION TESTS FOR REVIEW ITEMS (MUST-FIX 1-4)
+# =========================================================================
+
+
+def _po_row(po_id: str, supplier_id: str, status: str, **dates: str) -> dict[str, str]:
+    row = {
+        "po_id": po_id,
+        "supplier_id": supplier_id,
+        "sku_id": "SKU-000001",
+        "warehouse_id": "WH-BLR-01",
+        "order_date": "2026-03-01",
+        "expected_date": "2026-03-10",
+        "received_date": "",
+        "quantity_ordered": "10",
+        "unit_cost": "50.0",
+        "po_status": status,
+    }
+    row.update(dates)
+    return row
+
+
+def test_summary_prints_supplier_with_only_open_pos(db_session):
+    """A supplier with no dated Received POs has no on-time %, and the summary still prints."""
+    _seed_master_data(db_session)
+    dataset = StagingDataset(
+        purchase_order_history=[_po_row("PO-2026-000101", "SUP-00002", "Open")]
+    )
+    summary = import_staging_dataset(db_session, dataset, dry_run=False)
+    perf = {p.supplier_id: p for p in summary.supplier_performance}
+    assert perf["SUP-00002"].on_time_delivery_percent is None
+    assert "SUP-00002 (Beta Logistics Supply): n/a" in summary.format_summary()
+
+
+def test_summary_counts_default_safety_stock_fallbacks(db_session):
+    """A missing safety_stock is counted as a default fallback in the summary."""
+    _seed_master_data(db_session)
+    dataset = StagingDataset(
+        inventory_snapshots=[
+            {
+                "sku_id": "SKU-000002",
+                "warehouse_id": "WH-BOM-01",
+                "quantity_on_hand": "45",
+                "reorder_point": "30",
+                "safety_stock": "",
+            }
+        ]
+    )
+    summary = import_staging_dataset(db_session, dataset, dry_run=False)
+    assert "Safety stocks: imported=0, default_fallback=1" in summary.format_summary()
+
+
+@pytest.mark.parametrize(
+    "dates, field",
+    [
+        ({"expected_date": "2026-02-20"}, "expected_date"),
+        ({"received_date": "2026-02-25"}, "received_date"),
+    ],
+)
+def test_purchase_order_dates_before_order_date_rejected(db_session, dates, field):
+    """A PO cannot be expected or received before it was ordered."""
+    _seed_master_data(db_session)
+    row = _po_row(
+        "PO-2026-000102", "SUP-00001", "Received", **{"received_date": "2026-03-05", **dates}
+    )
+    dataset = StagingDataset(purchase_order_history=[row])
+    with pytest.raises(ClientImportValidationError, match=f"{field} .* is before order_date"):
+        import_staging_dataset(db_session, dataset, dry_run=True)

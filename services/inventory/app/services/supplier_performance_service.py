@@ -4,7 +4,7 @@ Calculates on-time delivery percentage strictly based on Received purchase order
 - Received POs: on_time = (received_date <= expected_date)
 - on_time_delivery_percent = (on_time_received_pos / total_received_pos) * 100
 - Cancelled POs and Open POs are completely excluded from the percentage denominator and numerator.
-- Safe handling of divide-by-zero (0 Received POs -> 0.0%).
+- Safe handling of divide-by-zero (0 Received POs -> None).
 """
 
 from __future__ import annotations
