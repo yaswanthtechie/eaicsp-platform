@@ -1153,21 +1153,22 @@ def screen_bulk(
 
     final_results: list[dict[str, Any]] = []
 
-    for index, result in enumerate(results):
-        if result is None:
-            result = build_clean_response(
+    for index, maybe_result in enumerate(results):
+        if maybe_result is None:
+            clean_result = build_clean_response(
                 duration=0,
                 entity_name=names[index],
                 country=country,
             )
 
-            result = apply_override(
+            clean_result = apply_override(
                 db=db,
-                result=result,
+                result=clean_result,
                 entity_name=names[index],
             )
-
-        final_results.append(result)
+            final_results.append(clean_result)
+        else:
+            final_results.append(maybe_result)
 
     total_duration = (time.perf_counter() - start) * 1000
 

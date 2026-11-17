@@ -1,4 +1,5 @@
 import re
+from typing import Any
 
 from rapidfuzz import fuzz
 
@@ -49,9 +50,9 @@ def create_bucket_key(name: str) -> str:
 
 
 def merge_records(
-    target: dict,
-    source: dict,
-) -> dict:
+    target: dict[str, Any],
+    source: dict[str, Any],
+) -> dict[str, Any]:
 
     target_sources = set(target.get("sources", []))
 
@@ -95,8 +96,8 @@ def merge_records(
 
 
 def create_entity_record(
-    entity,
-) -> dict:
+    entity: Any,
+) -> dict[str, Any]:
 
     return {
         "name": entity.name,
@@ -109,7 +110,7 @@ def create_entity_record(
 
 def _find_exact_record(
     normalized_name: str,
-    bucket_records: dict[str, dict],
+    bucket_records: dict[str, dict[str, Any]],
 ):
 
     if normalized_name in bucket_records:
@@ -120,12 +121,12 @@ def _find_exact_record(
 
 def _find_fuzzy_record(
     normalized_name: str,
-    bucket_records: dict[str, dict],
+    bucket_records: dict[str, dict[str, Any]],
     threshold: int,
 ):
 
-    matched_key = None
-    best_score = 0
+    matched_key: str | None = None
+    best_score: float = 0.0
 
     for existing_key in bucket_records:
         if normalized_name == existing_key:
@@ -153,11 +154,11 @@ def _find_fuzzy_record(
 
 
 def deduplicate_entities(
-    entities,
+    entities: list[Any],
     threshold: int = 90,
-) -> dict:
+) -> dict[str, dict[str, Any]]:
 
-    buckets = {}
+    buckets: dict[str, list[Any]] = {}
 
     comparisons = 0
 
@@ -174,13 +175,13 @@ def deduplicate_entities(
 
     print(f"Created buckets: {len(buckets)}")
 
-    final_records = {}
+    final_records: dict[str, dict[str, Any]] = {}
 
     for (
-        bucket_key,
+        _,
         bucket_entities,
     ) in buckets.items():
-        bucket_records = {}
+        bucket_records: dict[str, dict[str, Any]] = {}
 
         for entity in bucket_entities:
             normalized = normalize_name(entity.name)

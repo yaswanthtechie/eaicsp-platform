@@ -76,5 +76,5 @@ def get_match_threshold(screening_tier: str) -> int:
 
     try:
         return thresholds[screening_tier]
-    except KeyError:
-        raise ValueError(f"Unknown screening tier: {screening_tier}")
+    except KeyError as exc:
+        raise ValueError(f"Unknown screening tier: {screening_tier}") from exc

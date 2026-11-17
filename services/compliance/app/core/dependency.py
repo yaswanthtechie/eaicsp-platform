@@ -51,19 +51,19 @@ async def verify_internal_caller(request: Request) -> str:
                 headers={"X-API-Key": api_key},
             )
 
-    except httpx.TimeoutException:
+    except httpx.TimeoutException as err:
         logger.warning("Platform service authentication timed out")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Platform service authentication timed out",
-        )
+        ) from err
 
-    except httpx.RequestError:
+    except httpx.RequestError as err:
         logger.exception("Platform service authentication unavailable")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Platform service authentication unavailable",
-        )
+        ) from err
 
     if response.status_code == status.HTTP_401_UNAUTHORIZED:
         logger.warning("Rejected internal compliance call: invalid or revoked API key")
@@ -84,11 +84,11 @@ async def verify_internal_caller(request: Request) -> str:
 
     try:
         data = response.json()
-    except ValueError:
+    except ValueError as err:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Invalid response from Platform authentication",
-        )
+        ) from err
 
     if not isinstance(data, dict) or data.get("authenticated") is not True:
         raise HTTPException(
@@ -165,20 +165,20 @@ async def verify_token(
     # ----------------------------------------
     # 4. Auth service timeout
     # ----------------------------------------
-    except httpx.TimeoutException:
+    except httpx.TimeoutException as err:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service timed out",
-        )
+        ) from err
 
     # ----------------------------------------
     # 5. Auth service unavailable
     # ----------------------------------------
-    except httpx.RequestError:
+    except httpx.RequestError as err:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service is unavailable",
-        )
+        ) from err
 
     # ----------------------------------------
     # 6. Invalid/expired token
@@ -204,11 +204,11 @@ async def verify_token(
     try:
         data = response.json()
 
-    except ValueError:
+    except ValueError as err:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service returned invalid JSON",
-        )
+        ) from err
 
     # ----------------------------------------
     # 9. Verify token validity

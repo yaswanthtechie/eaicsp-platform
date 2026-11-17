@@ -180,7 +180,7 @@ def internal_compliance_check(
     except HTTPException:
         raise
 
-    except Exception:
+    except Exception as exc:
         logger.exception(
             "Internal compliance check failed: caller=%s supplier_id=%s",
             caller_service,
@@ -190,7 +190,7 @@ def internal_compliance_check(
         raise HTTPException(
             status_code=503,
             detail="Compliance service unavailable",
-        )
+        ) from exc
 
     logger.info(
         "Internal compliance response returned: "
@@ -364,7 +364,7 @@ def list_cases(
         raise HTTPException(
             status_code=400,
             detail=str(exc),
-        )
+        ) from exc
 
     return {
         "cases": cases,
@@ -391,7 +391,7 @@ def get_case(
         raise HTTPException(
             status_code=404,
             detail=str(exc),
-        )
+        ) from exc
 
     return case
 
@@ -416,7 +416,7 @@ def assign_case_to_officer(
         raise HTTPException(
             status_code=404,
             detail=str(exc),
-        )
+        ) from exc
 
     try:
         return assign_case(
@@ -430,7 +430,7 @@ def assign_case_to_officer(
         raise HTTPException(
             status_code=400,
             detail=str(exc),
-        )
+        ) from exc
 
 
 @router.post(
@@ -455,7 +455,7 @@ def update_case_status(
         raise HTTPException(
             status_code=404,
             detail=str(exc),
-        )
+        ) from exc
 
     try:
         updated_case = transition_case(
@@ -471,7 +471,7 @@ def update_case_status(
         raise HTTPException(
             status_code=400,
             detail=str(exc),
-        )
+        ) from exc
 
     clear_internal_cache()
 
@@ -502,7 +502,7 @@ def get_case_history_route(
         raise HTTPException(
             status_code=404,
             detail=str(exc),
-        )
+        ) from exc
 
 
 # ============================================================

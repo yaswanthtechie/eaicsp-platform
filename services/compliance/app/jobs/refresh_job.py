@@ -76,7 +76,7 @@ def archive_previous_downloads():
 
             write_refresh_log(f"Locked file skipped: {file.name}")
 
-        except Exception as error:
+        except OSError as error:
             print(f"Archive failed {file.name}: {error}")
 
             write_refresh_log(f"Archive failed {file.name}: {error}")

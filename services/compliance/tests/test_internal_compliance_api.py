@@ -592,7 +592,7 @@ def test_sla_alerts_are_rate_limited(monkeypatch):
     with patch.object(
         ics,
         "send_sla_alert",
-    ) as mock_send:
+    ):
         first = ics._alert_sla_degraded(
             "inventory-service",
             "SUP001",

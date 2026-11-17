@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -42,14 +44,18 @@ def get_compliance_summary(db: Session) -> dict:
         .all()
     )
 
-    if resolved_cases:
-        total_resolution_seconds = sum(
-            (case.resolved_at - case.created_at).total_seconds()
-            for case in resolved_cases
-        )
+    valid_resolution_times: list[float] = [
+        (case.resolved_at - case.created_at).total_seconds()
+        for case in resolved_cases
+        if isinstance(case.resolved_at, datetime)
+        and isinstance(case.created_at, datetime)
+    ]
+
+    if valid_resolution_times:
+        total_resolution_seconds = sum(valid_resolution_times)
 
         average_resolution_time_hours = (
-            total_resolution_seconds / len(resolved_cases) / 3600
+            total_resolution_seconds / len(valid_resolution_times) / 3600
         )
     else:
         average_resolution_time_hours = 0.0

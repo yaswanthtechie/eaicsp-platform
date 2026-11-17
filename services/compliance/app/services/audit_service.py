@@ -164,6 +164,7 @@ def write_bulk_audit(
     for entity_name, result in zip(
         entity_names,
         results,
+        strict=True,
     ):
         duration_ms = float(
             result.get(

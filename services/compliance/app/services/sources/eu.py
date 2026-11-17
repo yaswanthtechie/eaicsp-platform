@@ -1,3 +1,5 @@
+from xml.parsers.expat import ExpatError
+
 import xmltodict
 
 from app.schemas.sanctions import SanctionedEntity
@@ -81,8 +83,8 @@ def load_eu(
 
         data = xmltodict.parse(xml_content)
 
-    except Exception as error:
-        raise RuntimeError(f"Failed loading EU sanctions XML: {error}")
+    except (OSError, ExpatError) as error:
+        raise RuntimeError(f"Failed loading EU sanctions XML: {error}") from error
 
     entities: list[SanctionedEntity] = []
 
