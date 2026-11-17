@@ -222,10 +222,17 @@ describe("mapAnalyticsEventToAlert", () => {
     expect(result?.severity).toBe("warning");
   });
 
-  it("returns null for an unknown event type", () => {
-    const result = mapAnalyticsEventToAlert(createEvent("unknown.event", {}));
+  it("maps an unknown event type to a generic alert that keeps its payload", () => {
+    const result = mapAnalyticsEventToAlert(
+      createEvent("unknown.event", { sku_id: "SKU-000001" }, "warning"),
+    );
 
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result?.type).toBe("system");
+    expect(result?.title).toBe("Unrecognised event");
+    expect(result?.severity).toBe("warning");
+    expect(result?.eventType).toBe("unknown.event");
+    expect(result?.payload).toEqual({ sku_id: "SKU-000001" });
   });
 
   it("preserves the event ID", () => {

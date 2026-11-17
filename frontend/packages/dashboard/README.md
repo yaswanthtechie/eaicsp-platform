@@ -74,6 +74,7 @@ frontend/
             │
             ├── test/
             │   ├── AlertsPanel.test.tsx
+            |   ├── AlertDetailsDrawer.test.tsx
             |   ├── AnalyticsKpiPanel.test.tsx
             |   ├── App.role.test.tsx
             |   ├── authRefresh.test.ts
@@ -1231,11 +1232,11 @@ npm run test:e2e
 
 Test verification completed successfully.
 
-* Vitest: 24 test files, 216/216 tests passed
+* Vitest: 25 test files, 232/232 tests passed
 * Playwright Dashboard E2E: 4/4 tests passed
 * Authentication E2E: 14/14 passed with valid credentials.
 * Live Alerts WebSocket: 1/1 test  passed.
-* Total: 235 tests passed across the three reported test groups.
+* Total: 251 tests passed across the three reported test groups.
 
 The authentication tests are run separately using
 npm run test:e2e:auth.
@@ -1538,4 +1539,87 @@ The live mode verifies the real gateway integration, while mock mode allows loca
 - Kept severity classification in the API Gateway; the frontend does not calculate severity.
 - Added tests for severity mapping, fallback behaviour, badge display, sorting, and filtering.
 
+## R15 [C6] — Alert Details Drawer
 
+### 1. Goal
+
+Added an Alert Details Drawer to the Executive Dashboard.
+
+When a planner clicks an alert, a drawer opens on the right side and shows more information about why the alert was generated. The planner does not need to leave the dashboard.
+
+### 2. How It Works
+
+- Click an alert to open its details.
+- Press **Enter** to open an alert using the keyboard.
+- Press **Escape** to close the drawer.
+- Click the **Close** button to close it.
+- After closing, keyboard focus returns to the alert that was selected.
+
+### 3. What the Drawer Shows
+
+The drawer displays:
+
+- Alert severity (Critical, Warning, or Info).
+- Event date and time.
+- Event type.
+- Producer name.
+- Event version.
+- Trace ID, if available.
+- Other details related to the alert.
+
+It supports these six event types:
+
+| Event type | Information shown |
+|---|---|
+| `inventory.stock.low` | Product and stock details |
+| `iot.anomaly.detected` | Sensor, warehouse, and anomaly details |
+| `supplierrisk.score.changed` | Supplier and risk changes |
+| `eta.shipment.predicted` | Shipment and expected arrival details |
+| `forecast.batch.completed` | Forecast batch and completion status |
+| `data.pipeline.completed` | Data pipeline and completion details |
+
+The drawer uses the top-level `severity` field received from the WebSocket event. This follows the C5 implementation. The frontend does not calculate severity itself.
+
+### 4. Handling Missing and Unknown Data
+
+The drawer also handles incomplete or new event data.
+
+- If an optional field is missing, it displays **Not available** instead of `undefined`.
+- If an unknown event type arrives, it displays the available payload fields as readable key-value pairs.
+- The drawer does not crash or remain blank when it receives an unsupported event.
+
+### 5. Styling
+
+- Uses the existing design tokens from `src/tokens.ts`.
+- Follows the dashboard's existing colours, spacing, and styling.
+- Reuses the severity badges implemented in C5.
+
+### 6. Tests
+
+Added and updated tests in:
+
+- `src/test/AlertDetailsDrawer.test.tsx`
+- `src/test/AlertsPanel.test.tsx`
+
+Tests cover:
+
+1. Displaying details for all six supported event types.
+2. Displaying unknown event payloads.
+3. Showing **Not available** for missing fields.
+4. Opening the drawer by clicking an alert.
+5. Opening the drawer using Enter.
+6. Closing the drawer using Escape.
+7. Closing the drawer using the Close button.
+8. Returning focus to the selected alert after closing.
+
+The existing AlertsPanel tests also check that C5 features still work, including severity sorting, filtering, and automatic alert dismissal.
+
+Run the focused tests:
+
+```powershell
+npx vitest run src/test/AlertsPanel.test.tsx src/test/AlertDetailsDrawer.test.tsx
+```
+
+### 7. Outcome
+
+Planners can now click an alert and see why it was generated without leaving the dashboard. The drawer supports keyboard controls, displays event details, and safely handles missing or unknown data.
