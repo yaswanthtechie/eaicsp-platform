@@ -7,11 +7,18 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 from app.core.database import Base
 
+# Imported for their side effect: each model module registers its table on
+# Base.metadata, which autogenerate and `alembic check` compare with the database.
+from app.models import (  # noqa: F401
+    audit,
+    case_history,
+    compliance_case,
+    compliance_override,
+    regulatory_rule,
+)
+
 # Load environment variables from .env
 load_dotenv()
-
-# Import models so their tables are registered in Base.metadata
-
 
 # Alembic Config object
 config = context.config
