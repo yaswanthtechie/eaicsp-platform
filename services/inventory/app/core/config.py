@@ -52,6 +52,7 @@ class Settings(BaseSettings):
 
     # Optional local folder with canonical client staging CSVs (R15-B8).
     CLIENT_STAGING_DIR: str | None = None
+    DEFAULT_SAFETY_STOCK: int = 10
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -71,3 +72,4 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+DEFAULT_SAFETY_STOCK = settings.DEFAULT_SAFETY_STOCK

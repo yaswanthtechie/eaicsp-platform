@@ -363,6 +363,70 @@ paths:
                 title: Response Low Stock Route Api V1 Inventory Low Stock Get
       security:
       - HTTPBearer: []
+  /api/v1/inventory/suppliers/performance:
+    get:
+      tags:
+      - Inventory
+      summary: Get supplier on-time delivery performance
+      operationId: get_all_suppliers_performance_route_api_v1_inventory_suppliers_performance_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Supplier Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SupplierPerformanceResponse'
+                title: Response Get All Suppliers Performance Route Api V1 Inventory
+                  Suppliers Performance Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inventory/suppliers/{supplier_id}/performance:
+    get:
+      tags:
+      - Inventory
+      summary: Get supplier on-time delivery performance by supplier ID
+      operationId: get_supplier_performance_route_api_v1_inventory_suppliers__supplier_id__performance_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupplierPerformanceResponse'
+        '404':
+          description: Supplier not found
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/inventory/bulk-upload:
     post:
       tags:
@@ -767,8 +831,8 @@ components:
       properties:
         file:
           type: string
-          format: binary
           title: File
+          format: binary
       type: object
       required:
       - file
@@ -1491,6 +1555,62 @@ components:
       - needs_reorder
       - suggested_order_qty
       title: SimulationResponse
+    SupplierPerformanceResponse:
+      properties:
+        supplier_id:
+          type: string
+          title: Supplier Id
+        supplier_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Supplier Name
+        received_po_count:
+          type: integer
+          minimum: 0.0
+          title: Received Po Count
+        on_time_po_count:
+          type: integer
+          minimum: 0.0
+          title: On Time Po Count
+        on_time_delivery_percent:
+          anyOf:
+          - type: number
+            maximum: 100.0
+            minimum: 0.0
+          - type: 'null'
+          title: On Time Delivery Percent
+        total_po_count:
+          type: integer
+          minimum: 0.0
+          title: Total Po Count
+          default: 0
+        open_po_count:
+          type: integer
+          minimum: 0.0
+          title: Open Po Count
+          default: 0
+        cancelled_po_count:
+          type: integer
+          minimum: 0.0
+          title: Cancelled Po Count
+          default: 0
+        late_po_count:
+          type: integer
+          minimum: 0.0
+          title: Late Po Count
+          default: 0
+        unverified_po_count:
+          type: integer
+          minimum: 0.0
+          title: Unverified Po Count
+          default: 0
+      type: object
+      required:
+      - supplier_id
+      - received_po_count
+      - on_time_po_count
+      title: SupplierPerformanceResponse
     TransferSuggestion:
       properties:
         sku_id:

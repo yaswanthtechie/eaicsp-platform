@@ -137,7 +137,18 @@ def calculate_reorder_point(
         abc_tier=abc_tier,
     )
 
-    reorder_point = int(rolling_avg_demand * lead_time_days + adjusted_safety_stock)
+    stored_rop = None
+    if hasattr(inventory, "reorder_point"):
+        stored_rop = inventory.reorder_point
+    elif isinstance(inventory, dict):
+        stored_rop = inventory.get("reorder_point")
+
+    if stored_rop is not None:
+        reorder_point = int(stored_rop)
+    else:
+        reorder_point = int(
+            rolling_avg_demand * lead_time_days + adjusted_safety_stock
+        )
 
     return {
         "reorder_point": reorder_point,
