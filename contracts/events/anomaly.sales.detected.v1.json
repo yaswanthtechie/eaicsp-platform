@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://eaicsp.internal/contracts/events/anomaly.sales.detected.v1.json",
+  "title": "anomaly.sales.detected",
+  "description": "One event per sales anomaly incident (an unusual spike or drop in daily sales of one product at one warehouse). Published by the anomaly-detection service batch job to the Kafka topic named after event_type (anomaly.sales.detected), partition key = payload.sku_id + '|' + payload.warehouse_id. The payload.date is the first day of the incident; later days of the same incident do not get their own event. Delivery is at-least-once: a crash replay can re-publish the same anomaly with a NEW event_id, so consumers must de-duplicate on (payload.sku_id, payload.warehouse_id, payload.date), not on event_id. Consumers must ignore unknown fields so additive changes do not break them.",
+  "type": "object",
+  "allOf": [
+    { "$ref": "envelope.v1.json" },
+    {
+      "properties": {
+        "event_type": { "const": "anomaly.sales.detected" },
+        "event_version": { "const": 1 },
+        "producer": { "const": "anomaly-detection-service" },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "sku_id": {
+              "type": "string",
+              "pattern": "^SKU-\\d{6}$",
+              "description": "Canonical product id, e.g. SKU-000123."
+            },
+            "warehouse_id": {
+              "type": "string",
+              "pattern": "^WH-[A-Z]{3}-[0-9]{2}$",
+              "description": "Canonical warehouse id (city IATA code), e.g. WH-BLR-01."
+            },
+            "date": {
+              "type": "string",
+              "format": "date",
+              "description": "Sales day of the anomaly, YYYY-MM-DD. For a run of anomalous days this is the first day."
+            },
+            "expected_quantity": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Units the detector expected for that day: the median of the same weekday over the previous 8 weeks."
+            },
+            "actual_quantity": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Units actually sold that day, summed over all rows for the product and warehouse. 0 when the warehouse reported other products that day but none of this one."
+            },
+            "score": {
+              "type": "number",
+              "description": "Robust z-score of the day: (actual - expected) / noise scale. Positive for a spike, negative for a drop. Drops are judged by their share of the expected quantity, so a drop can have a small negative score."
+            },
+            "severity": {
+              "type": "string",
+              "enum": ["high", "medium", "low"],
+              "description": "Producer-assigned urgency, ordered low < medium < high. Treat it as an ordered label only; the exact rule is owned by the anomaly service."
+            }
+          },
+          "required": [
+            "sku_id",
+            "warehouse_id",
+            "date",
+            "expected_quantity",
+            "actual_quantity",
+            "score",
+            "severity"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

@@ -2364,6 +2364,39 @@ Realistic run in detail: precision 0.8188, recall 0.5458, F1 0.6550; spikes foun
 
 **Limits.** Under realistic noise the detector is conservative: it keeps false alarms near 2 per 1000 days and accepts that moderate one-day spikes are missed. Drops are only called when the expected value is at least 15 units, so slow sellers get no drop flags. Injected events stay in later baselines, which can hide a second event soon after the first. The thresholds are design values calibrated on the seed; real client data may need `src.calibrate_sales_anomaly` re-run. Publishing events and the batch job are #327.
 
+# Round 15 - Sales anomaly events and batch job (#327)
+
+Sales anomalies are published as `anomaly.sales.detected` events, with the same envelope as every other platform event. Contract: `contracts/events/anomaly.sales.detected.v1.json`, example: `contracts/events/examples/anomaly.sales.detected.v1.json`. Topic = event type, producer `anomaly-detection-service`, partition key `sku_id|warehouse_id` so one product at one warehouse stays in order.
+
+| Payload field | Meaning |
+|---|---|
+| `sku_id`, `warehouse_id` | Canonical ids (`SKU-000123`, `WH-BLR-01`) |
+| `date` | Sales day (YYYY-MM-DD); the first day of the incident |
+| `expected_quantity` | Median of the same weekday over the previous 8 weeks |
+| `actual_quantity` | Units sold that day (0 for a product that stopped selling) |
+| `score` | Robust z-score, positive for a spike, negative for a drop |
+| `severity` | `high`, `medium` or `low` (the #326 rule) |
+
+**One event per incident.** The job publishes only `run_start` rows (see "One incident, one event" above), so a product that stops selling gives one event, not one a day for five weeks. Severity is the one on the first day of the incident; if the incident gets worse later, no second event is sent.
+
+**Running it.** From `ml-services/anomaly-detection`:
+
+```
+python -m src.sales_anomaly_batch --input <staging sales file or folder> --last-days 7
+python -m src.sales_anomaly_batch --input <sales.csv> --dry-run
+python -m src.sales_anomaly_batch --input <sales.csv> --no-kafka --events-log output/sales_events.jsonl
+```
+
+`--input` is one CSV or a folder of CSVs (the staging sales files, canonical columns `date`, `sku_id`, `warehouse_id`, `quantity_sold`). It expects one row per day, product and warehouse; if files in a folder overlap, the same day is summed twice. Kafka comes from `KAFKA_BOOTSTRAP_SERVERS` (default `localhost:9092`) and `KAFKA_SALES_ANOMALY_TOPIC` (default `anomaly.sales.detected`). `--dry-run` publishes and records nothing and only prints the count. `--no-kafka --events-log <file>` writes the events to a JSON-lines file instead. The job prints one line: incidents found, published, already published, older than `--last-days`, and rows skipped for non-canonical ids.
+
+**Running it twice.** Every published anomaly (`sku_id|warehouse_id|date`) is written to `output/sales_anomaly_published.jsonl` (`--ledger` changes the path; the folder is gitignored). A run skips anything in the ledger, so a second run over the same data publishes nothing. On the synthetic seed (3,820 incidents), the first run with `--last-days 7` published 68 and the second run published 0 (`already published: 68`). The ledger line is written after Kafka acknowledged the event, so if the job crashes in between, the next run can publish that one event again with a new `event_id`. That is why the contract tells consumers to de-duplicate on `sku_id`, `warehouse_id` and `date`. If delivery fails, the job stops and the events not yet delivered are sent on the next run. Delete the ledger only if you want every incident published again.
+
+**First run.** The first run over a long history would publish every past incident as a live alert (3,820 on the 2-year seed). Use `--last-days N` the first time: only incidents in the last N days of the data are published, older ones are left out and are not recorded in the ledger.
+
+**Not published.** Rows whose product or warehouse is not a canonical id (for example client codes such as `PRD-10482` or `HYD-01`) are counted in the output line and never published, because the contract only allows canonical ids.
+
+The gateway BFF does not read this topic yet (`KAFKA_TOPICS` in `services/api-gateway/app/core/config.py`), and an event type it does not know about shows as `info` until it is mapped (#320).
+
 # Future Improvements
 
 Potential future enhancements include:
@@ -2486,7 +2519,7 @@ The validated continuous-lifecycle results are:
 ## Test suite
 
 ```text
-745 passed
+828 passed
 3 warnings
 0 failures
 ```
