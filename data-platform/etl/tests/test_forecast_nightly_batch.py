@@ -411,3 +411,40 @@ def test_rerun_is_idempotent_in_real_clickhouse():
         )
         client.close()
 
+from datetime import date as _date, datetime as _datetime, timezone as _timezone
+
+
+class _LaterDayModel:
+    """Forecasts from 2026-11-15, as the model does when run on 2026-11-14."""
+
+    def predict(self, sku, warehouse, horizon):
+        return sample_forecast(start="2026-11-15", count=horizon)
+
+
+def test_forecast_window_must_start_the_day_after_batchdate():
+    with pytest.raises(ValueError, match="expected 2026-11-13 to 2026-12-12"):
+        build_rows(
+            batch_date=date(2026, 11, 12),
+            forecasts_by_pair=[
+                ("SKU-000001", "WH-HYD-01", sample_forecast(start="2026-11-15"))
+            ],
+            model_version="demand_forecast/1",
+            generated_at=datetime(2026, 11, 14, 1, tzinfo=timezone.utc),
+            version=datetime(2026, 11, 14, 1, tzinfo=timezone.utc),
+            horizon=30,
+        )
+
+
+def test_rerun_of_past_batch_date_fails_with_the_reason():
+    with pytest.raises(RuntimeError, match="First failure: .*expected 2026-11-13"):
+        forecast_pairs(
+            model=_LaterDayModel(),
+            pairs={("SKU-000001", "WH-HYD-01")},
+            horizon=30,
+            batch_date=date(2026, 11, 12),
+            model_version="demand_forecast/1",
+            generated_at=datetime(2026, 11, 14, 1, tzinfo=timezone.utc),
+            version=datetime(2026, 11, 14, 1, tzinfo=timezone.utc),
+            interval_level=0.8,
+            run_id="BATCH-20261112-01",
+        )

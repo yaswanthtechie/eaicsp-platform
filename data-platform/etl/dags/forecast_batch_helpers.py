@@ -4,7 +4,7 @@ import json
 import math
 import re
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 
 SKU_PATTERN = re.compile(r"SKU-\d{6}")
@@ -42,6 +42,22 @@ def build_rows(
             raise ValueError(
                 f"{sku}/{warehouse}: expected {horizon} forecast points, "
                 f"received {len(forecast)}"
+            )
+
+        # Reject shifted forecast windows on later-day reruns.
+        forecast_dates = [
+            datetime.fromisoformat(str(point["date"]).replace("Z", "+00:00")).date()
+            for point in forecast
+        ]
+        expected_dates = [
+            batch_date + timedelta(days=offset)
+            for offset in range(1, horizon + 1)
+        ]
+        if forecast_dates != expected_dates:
+            raise ValueError(
+                f"{sku}/{warehouse}: forecast covers {forecast_dates[0]} to "
+                f"{forecast_dates[-1]}, expected {expected_dates[0]} to "
+                f"{expected_dates[-1]} for batch_date {batch_date}"
             )
 
         for point in forecast:
@@ -222,8 +238,10 @@ def forecast_pairs(
         )
 
     if not successful:
+        first_failure = failed[0][2] if failed else "no pairs to forecast"
         raise RuntimeError(
-            "No SKU/warehouse pairs produced a valid forecast."
+            "No SKU/warehouse pairs produced a valid forecast. "
+            f"First failure: {first_failure}"
         )
 
     return rows, cache_entries, successful, failed
