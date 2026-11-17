@@ -33,6 +33,9 @@ from app.schemas.inventory import (
     WhatIfRequest,
     WhatIfResponse,
 )
+from app.schemas.supplier_performance import (
+    SupplierPerformanceResponse,
+)
 from app.services.cache_service import (
     get_all_inventory_generation,
     get_cached_all_inventory,
@@ -69,6 +72,10 @@ from app.services.reorder_service import (
 )
 from app.services.simulation_service import (
     simulate_demand_growth,
+)
+from app.services.supplier_performance_service import (
+    calculate_all_suppliers_performance,
+    get_supplier_performance,
 )
 from app.services.transfer_service import (
     find_transfer_suggestion,
@@ -261,6 +268,48 @@ def low_stock_route(
             status_code=400,
             detail=str(exc),
         ) from exc
+
+
+# =========================================================
+# SUPPLIER ON-TIME DELIVERY PERFORMANCE (R15 / #325)
+# Permission: inventory:read
+# =========================================================
+
+@router.get(
+    "/suppliers/performance",
+    response_model=list[SupplierPerformanceResponse],
+    dependencies=[
+        Depends(require_permission("inventory:read"))
+    ],
+    summary="Get supplier on-time delivery performance",
+)
+def get_all_suppliers_performance_route(
+    supplier_id: str | None = None,
+    db: Session = Depends(get_db),
+):
+    return calculate_all_suppliers_performance(db, supplier_id=supplier_id)
+
+
+@router.get(
+    "/suppliers/{supplier_id}/performance",
+    response_model=SupplierPerformanceResponse,
+    responses={404: {"description": "Supplier not found"}},
+    dependencies=[
+        Depends(require_permission("inventory:read"))
+    ],
+    summary="Get supplier on-time delivery performance by supplier ID",
+)
+def get_supplier_performance_route(
+    supplier_id: str,
+    db: Session = Depends(get_db),
+):
+    perf = get_supplier_performance(db, supplier_id=supplier_id)
+    if perf is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Supplier '{supplier_id}' not found",
+        )
+    return perf
 
 
 # =========================================================
