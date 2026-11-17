@@ -480,11 +480,7 @@ def test_strict_reseed_preserves_existing_active_keys_without_env(
         before = {
             record.service_name: (record.id, record.key_hash, record.is_active)
             for record in db.query(ServiceAPIKey)
-            .filter(
-                ServiceAPIKey.service_name.in_(
-                    [name for name, _ in identities]
-                )
-            )
+            .filter(ServiceAPIKey.service_name.in_([name for name, _ in identities]))
             .all()
         }
         assert len(before) == 4
@@ -496,11 +492,7 @@ def test_strict_reseed_preserves_existing_active_keys_without_env(
         after = {
             record.service_name: (record.id, record.key_hash, record.is_active)
             for record in db.query(ServiceAPIKey)
-            .filter(
-                ServiceAPIKey.service_name.in_(
-                    [name for name, _ in identities]
-                )
-            )
+            .filter(ServiceAPIKey.service_name.in_([name for name, _ in identities]))
             .all()
         }
 
