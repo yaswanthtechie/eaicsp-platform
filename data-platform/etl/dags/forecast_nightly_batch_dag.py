@@ -89,8 +89,12 @@ def run_forecast_batch(**context):
         send_receive_timeout=120,
     )
 
+    redis_url = os.environ.get("FORECAST_REDIS_URL", "")
+    if not redis_url:
+        raise RuntimeError("FORECAST_REDIS_URL is not set; see data-platform/etl/README.md")
+
     cache = redis.Redis.from_url(
-        os.environ["FORECAST_REDIS_URL"],
+        redis_url,
         decode_responses=True,
     )
 

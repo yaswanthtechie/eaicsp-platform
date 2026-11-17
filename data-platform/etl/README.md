@@ -1391,6 +1391,7 @@ Parity: PASS (rows, quantity sum and price sum identical). Input: ~10.05M genera
 - **Windows note:** if several Python versions are installed, set `PYSPARK_PYTHON` and `PYSPARK_DRIVER_PYTHON` to the interpreter running pytest, otherwise Spark workers may start with a different Python and fail with `Connection reset`.
 
 - After the review fixes, the DAG was triggered again for 2024-02: dag_run id 8 succeeded, all 263,613 rows carry run_id 8 (the Airflow run id), and the quantity sum (13,173,901) was unchanged, so the re-run was idempotent.
+
 ## R15 Nightly Forecast Batch
 
 DAG `forecast_nightly_batch` runs daily at 01:00 UTC (`max_active_runs=1`, 2 retries). It loads the Production model `demand_forecast` from MLflow, forecasts 30 days for every SKU/warehouse pair in the seed sales file, writes ClickHouse `demand_forecast_history`, caches each pair in Redis, and publishes `forecast.batch.completed` (contract `contracts/events/forecast.batch.completed.v1.json`).
@@ -1413,6 +1414,17 @@ docker compose up -d
 docker compose -f docker-compose.yml -f docker-compose.shared.yml up -d
 ```
 
+In `.env`, point the batch at the infra services by their aliases:
+
+```env
+CLICKHOUSE_HOST=infra-clickhouse
+FORECAST_REDIS_URL=redis://infra-redis:6379/1
+MLFLOW_TRACKING_URI=http://infra-mlflow:5000
+MLFLOW_S3_ENDPOINT_URL=http://infra-minio:9000
+```
+
+Kafka has no infra alias yet, so `forecast.batch.completed` goes to the ETL stack's own Kafka until infra adds an `infra-kafka` alias and listener (#230). The Kafka alias and listener are a follow-up for Ajith, not for this PR.
+
 **Redis cache (owned by this batch, see the integration blueprint):**
 
 - Key: `forecast_cache:{batch_date}:{sku_id}:{warehouse_id}`, for example `forecast_cache:2026-11-16:SKU-000123:WH-BLR-01`.
@@ -1423,6 +1435,7 @@ docker compose -f docker-compose.yml -f docker-compose.shared.yml up -d
 **Reruns:** each run gets a new UUID v4 `event_id`. ClickHouse rows are replaced through `ReplacingMergeTree(version)`, so read with `FINAL`. Pairs that fail on a rerun keep the previous run's rows for that `batch_date`; check `model_version` and `generated_at`.
 
 **Tests:** `pytest tests/test_forecast_nightly_batch.py -q` runs without Docker.
+
 ## V4 Dashboard KPI Views
 
 The four dashboard KPIs are implemented as ClickHouse views under
@@ -1450,3 +1463,22 @@ read `purchase_orders`, `po_lines`, `goods_receipt_lines` and
 shipments, so those three views remain empty until the Flow B event consumer
 is implemented in the follow-up issue. Their tests use fixture rows based on
 the event examples in `contracts/events/examples/`.
+
+## Client Data Loader Setup
+
+Before loading client data, initialize the client ingestion tables in PostgreSQL.
+
+From the `data-platform/etl` directory, run:
+
+```powershell
+psql -f sql/client_ingest_schema.sql
+```
+
+This creates the tables required for client data ingestion:
+
+- client_id_mapping
+- client_ingest_staging
+- client_ingest_rejects
+- client_ingest_reports
+
+After creating the schema, run the client data loader using the configured client data directory.

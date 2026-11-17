@@ -158,6 +158,7 @@ def write_batch(ch, cache, rows, cache_entries, columns, ttl, batch_date_text):
             )
         pipeline.execute()
 
+
 def forecast_pairs(
     model,
     pairs,

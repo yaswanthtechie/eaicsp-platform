@@ -53,8 +53,8 @@ x-airflow-common:
   environment:
     &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: CeleryExecutor
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${DB_PASSWORD}@postgres/airflow 
-    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:${DB_PASSWORD}@postgres/airflow
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${DB_USER}:${DB_PASSWORD}@postgres/${DB_NAME} 
+    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${DB_USER}:${DB_PASSWORD}@postgres/${DB_NAME}
     AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
     AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:?set it in .env}
     AIRFLOW__API__SECRET_KEY: ${AIRFLOW__API__SECRET_KEY:?set it in .env}
@@ -82,10 +82,10 @@ x-airflow-common:
     MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
     MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL:-http://minio:9000}
     MLFLOW_MODEL_NAME: ${MLFLOW_MODEL_NAME:-demand_forecast}
-    AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in .env}
-    AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
+    AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-}
+    AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-}
     # Must not point at the Airflow Celery broker (the local "redis" service).
-    FORECAST_REDIS_URL: ${FORECAST_REDIS_URL:?set FORECAST_REDIS_URL in .env}
+    FORECAST_REDIS_URL: ${FORECAST_REDIS_URL:-}
     SEED_SALES_PATH: /opt/airflow/seed-data/sales_daily.csv
     # /opt/airflow/etl (the mounted etl/ project dir) must be importable as
     # the "etl" package so "from etl.src.alerts import ..." in the DAG resolves.
