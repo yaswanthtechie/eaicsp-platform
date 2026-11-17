@@ -97,9 +97,7 @@ def test_audit_summary_without_token_returns_401(client):
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == (
-        "Missing authentication token"
-    )
+    assert response.json()["detail"] == ("Missing authentication token")
 
 
 def test_audit_summary_with_invalid_token_returns_401(
@@ -116,9 +114,7 @@ def test_audit_summary_with_invalid_token_returns_401(
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == (
-        "Invalid or expired authentication token"
-    )
+    assert response.json()["detail"] == ("Invalid or expired authentication token")
 
 
 def test_audit_summary_with_compliance_officer_returns_200(
@@ -154,8 +150,7 @@ def test_audit_summary_wrong_role_returns_403(
 
     assert response.status_code == 403
     assert response.json()["detail"] == (
-        "Role 'procurement_manager' "
-        "is not authorized for this endpoint"
+        "Role 'procurement_manager' is not authorized for this endpoint"
     )
 
 
@@ -171,9 +166,7 @@ def test_override_without_token_returns_401(client):
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == (
-        "Missing authentication token"
-    )
+    assert response.json()["detail"] == ("Missing authentication token")
 
 
 def test_override_with_invalid_token_returns_401(
@@ -191,9 +184,7 @@ def test_override_with_invalid_token_returns_401(
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == (
-        "Invalid or expired authentication token"
-    )
+    assert response.json()["detail"] == ("Invalid or expired authentication token")
 
 
 def test_override_with_compliance_officer_returns_success(
@@ -231,8 +222,7 @@ def test_override_wrong_role_returns_403(
 
     assert response.status_code == 403
     assert response.json()["detail"] == (
-        "Role 'procurement_manager' "
-        "is not authorized for this endpoint"
+        "Role 'procurement_manager' is not authorized for this endpoint"
     )
 
 
@@ -252,9 +242,7 @@ def test_read_override_without_token_returns_401(client):
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == (
-        "Missing authentication token"
-    )
+    assert response.json()["detail"] == ("Missing authentication token")
 
 
 def test_read_override_with_invalid_token_returns_401(
@@ -276,9 +264,7 @@ def test_read_override_with_invalid_token_returns_401(
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == (
-        "Invalid or expired authentication token"
-    )
+    assert response.json()["detail"] == ("Invalid or expired authentication token")
 
 
 def test_read_override_with_compliance_officer_returns_success(
@@ -324,8 +310,7 @@ def test_read_override_wrong_role_returns_403(
 
     assert response.status_code == 403
     assert response.json()["detail"] == (
-        "Role 'procurement_manager' "
-        "is not authorized for this endpoint"
+        "Role 'procurement_manager' is not authorized for this endpoint"
     )
 
 
@@ -348,9 +333,7 @@ def test_auth_service_timeout_returns_503(
     )
 
     assert response.status_code == 503
-    assert "timed out" in (
-        response.json()["detail"].lower()
-    )
+    assert "timed out" in (response.json()["detail"].lower())
 
 
 def test_auth_service_unavailable_returns_503(
@@ -367,10 +350,7 @@ def test_auth_service_unavailable_returns_503(
     )
 
     assert response.status_code == 503
-    assert "unavailable" in (
-        response.json()["detail"].lower()
-    )
-
+    assert "unavailable" in (response.json()["detail"].lower())
 
 
 def test_read_all_overrides_without_token_returns_401(client):
@@ -504,9 +484,11 @@ def test_remove_override_wrong_role_returns_403(
 
     assert response.status_code == 403
 
+
 # ============================================================
 # POST /SCREEN AUTH TESTS
 # ============================================================
+
 
 def test_screen_without_token_returns_401(client):
     response = client.post(
@@ -519,9 +501,7 @@ def test_screen_without_token_returns_401(client):
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == (
-        "Missing authentication token"
-    )
+    assert response.json()["detail"] == ("Missing authentication token")
 
 
 def test_screen_with_invalid_token_returns_401(
@@ -541,9 +521,7 @@ def test_screen_with_invalid_token_returns_401(
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == (
-        "Invalid or expired authentication token"
-    )
+    assert response.json()["detail"] == ("Invalid or expired authentication token")
 
 
 def test_screen_with_compliance_officer_returns_success(
@@ -589,14 +567,14 @@ def test_screen_wrong_role_returns_403(
 
     assert response.status_code == 403
     assert response.json()["detail"] == (
-        "Role 'procurement_manager' "
-        "is not authorized for this endpoint"
+        "Role 'procurement_manager' is not authorized for this endpoint"
     )
 
 
 # ============================================================
 # POST /SCREEN-BULK AUTH TESTS
 # ============================================================
+
 
 def test_screen_bulk_without_token_returns_401(client):
     response = client.post(
@@ -609,9 +587,7 @@ def test_screen_bulk_without_token_returns_401(client):
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == (
-        "Missing authentication token"
-    )
+    assert response.json()["detail"] == ("Missing authentication token")
 
 
 def test_screen_bulk_with_invalid_token_returns_401(
@@ -631,9 +607,7 @@ def test_screen_bulk_with_invalid_token_returns_401(
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == (
-        "Invalid or expired authentication token"
-    )
+    assert response.json()["detail"] == ("Invalid or expired authentication token")
 
 
 def test_screen_bulk_with_compliance_officer_returns_success(
@@ -679,14 +653,14 @@ def test_screen_bulk_wrong_role_returns_403(
 
     assert response.status_code == 403
     assert response.json()["detail"] == (
-        "Role 'procurement_manager' "
-        "is not authorized for this endpoint"
+        "Role 'procurement_manager' is not authorized for this endpoint"
     )
 
 
 # ============================================================
 # GET /AUDIT AUTH TESTS
 # ============================================================
+
 
 def test_audit_without_token_returns_401(client):
     response = client.get(
@@ -697,9 +671,7 @@ def test_audit_without_token_returns_401(client):
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == (
-        "Missing authentication token"
-    )
+    assert response.json()["detail"] == ("Missing authentication token")
 
 
 def test_audit_with_invalid_token_returns_401(
@@ -717,9 +689,7 @@ def test_audit_with_invalid_token_returns_401(
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == (
-        "Invalid or expired authentication token"
-    )
+    assert response.json()["detail"] == ("Invalid or expired authentication token")
 
 
 def test_audit_with_compliance_officer_returns_success(
@@ -761,6 +731,5 @@ def test_audit_wrong_role_returns_403(
 
     assert response.status_code == 403
     assert response.json()["detail"] == (
-        "Role 'procurement_manager' "
-        "is not authorized for this endpoint"
+        "Role 'procurement_manager' is not authorized for this endpoint"
     )

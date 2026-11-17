@@ -1,6 +1,5 @@
 from typing import Any
 
-
 REGULATORY_RULES: dict[str, list[dict[str, Any]]] = {
     "INDIA": [
         {
@@ -118,10 +117,7 @@ def evaluate_regulatory_rules(
             }
         )
 
-    statuses = {
-        result["status"]
-        for result in results
-    }
+    statuses = {result["status"] for result in results}
 
     if "FAILED" in statuses:
         overall_status = "FAILED"
@@ -130,20 +126,11 @@ def evaluate_regulatory_rules(
     else:
         overall_status = "PASSED"
 
-    passed_count = sum(
-        result["status"] == "PASSED"
-        for result in results
-    )
+    passed_count = sum(result["status"] == "PASSED" for result in results)
 
-    failed_count = sum(
-        result["status"] == "FAILED"
-        for result in results
-    )
+    failed_count = sum(result["status"] == "FAILED" for result in results)
 
-    review_count = sum(
-        result["status"] == "REVIEW"
-        for result in results
-    )
+    review_count = sum(result["status"] == "REVIEW" for result in results)
 
     return {
         "country": normalized_country,

@@ -1,10 +1,8 @@
-
 from unittest.mock import patch
 
 import pytest
 
 from app.services import internal_compliance_service as ics
-
 
 URL = "/api/v1/compliance/internal-check"
 
@@ -76,7 +74,10 @@ def contract_service_auth(fake_platform):
     ],
 )
 def test_internal_check_contract(
-    client, screening_result, decision, cleared,
+    client,
+    screening_result,
+    decision,
+    cleared,
 ):
     with patch.object(
         ics,

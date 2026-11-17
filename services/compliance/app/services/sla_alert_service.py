@@ -4,7 +4,6 @@ import httpx
 
 from app.core.config import SLA_ALERT_WEBHOOK_URL
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -14,13 +13,9 @@ def send_sla_alert(
     latency_ms: float,
     threshold_ms: float,
 ) -> bool:
-    
 
     if not SLA_ALERT_WEBHOOK_URL:
-        logger.warning(
-            "SLA alert not sent: "
-            "SLA_ALERT_WEBHOOK_URL is not configured"
-        )
+        logger.warning("SLA alert not sent: SLA_ALERT_WEBHOOK_URL is not configured")
 
         return False
 
@@ -32,8 +27,7 @@ def send_sla_alert(
         "latency_ms": round(latency_ms, 2),
         "threshold_ms": threshold_ms,
         "message": (
-            "Compliance Service latency exceeded "
-            "the configured SLA threshold."
+            "Compliance Service latency exceeded the configured SLA threshold."
         ),
     }
 

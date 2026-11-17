@@ -13,7 +13,6 @@ from app.core.database import Base
 
 
 class ComplianceCase(Base):
-
     __tablename__ = "compliance_case"
 
     id = Column(
@@ -27,7 +26,7 @@ class ComplianceCase(Base):
         nullable=False,
         unique=True,
         index=True,
-)
+    )
 
     entity_name = Column(
         String,

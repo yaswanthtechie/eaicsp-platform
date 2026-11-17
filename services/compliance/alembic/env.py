@@ -2,22 +2,15 @@ import os
 from logging.config import fileConfig
 
 from dotenv import load_dotenv
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
+from sqlalchemy import engine_from_config, pool
 
 from alembic import context
-
 from app.core.database import Base
 
 # Load environment variables from .env
 load_dotenv()
 
 # Import models so their tables are registered in Base.metadata
-from app.models.audit import ComplianceAudit
-from app.models.case_history import CaseHistory
-from app.models.compliance_case import ComplianceCase
-from app.models.compliance_override import ComplianceOverride
-from app.models.regulatory_rule import RegulatoryRule
 
 
 # Alembic Config object

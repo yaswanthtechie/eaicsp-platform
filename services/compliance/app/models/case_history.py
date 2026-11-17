@@ -13,7 +13,6 @@ from app.core.database import Base
 
 
 class CaseHistory(Base):
-
     __tablename__ = "case_history"
 
     id = Column(
@@ -24,9 +23,7 @@ class CaseHistory(Base):
 
     case_id = Column(
         Integer,
-        ForeignKey(
-            "compliance_case.id"
-        ),
+        ForeignKey("compliance_case.id"),
         nullable=False,
         index=True,
     )

@@ -2,14 +2,12 @@ import logging
 import uuid
 
 import httpx
-
 from fastapi import (
     Depends,
     HTTPException,
     Request,
     status,
 )
-
 from fastapi.security import (
     HTTPAuthorizationCredentials,
     HTTPBearer,
@@ -17,7 +15,6 @@ from fastapi.security import (
 
 from app.core import config
 from app.core.config import PLATFORM_AUTH_URL
-
 
 security = HTTPBearer(auto_error=False)
 logger = logging.getLogger(__name__)
@@ -43,10 +40,7 @@ async def verify_internal_caller(request: Request) -> str:
             detail="Missing or invalid service API key",
         )
 
-    verify_url = (
-        f"{PLATFORM_AUTH_URL.rstrip('/')}"
-        "/api/v1/auth/service-verify"
-    )
+    verify_url = f"{PLATFORM_AUTH_URL.rstrip('/')}/api/v1/auth/service-verify"
 
     try:
         async with httpx.AsyncClient(
@@ -58,27 +52,21 @@ async def verify_internal_caller(request: Request) -> str:
             )
 
     except httpx.TimeoutException:
-        logger.warning(
-            "Platform service authentication timed out"
-        )
+        logger.warning("Platform service authentication timed out")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Platform service authentication timed out",
         )
 
     except httpx.RequestError:
-        logger.exception(
-            "Platform service authentication unavailable"
-        )
+        logger.exception("Platform service authentication unavailable")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Platform service authentication unavailable",
         )
 
     if response.status_code == status.HTTP_401_UNAUTHORIZED:
-        logger.warning(
-            "Rejected internal compliance call: invalid or revoked API key"
-        )
+        logger.warning("Rejected internal compliance call: invalid or revoked API key")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or revoked service API key",
@@ -138,9 +126,7 @@ async def verify_internal_caller(request: Request) -> str:
 
 async def verify_token(
     request: Request,
-    credentials: HTTPAuthorizationCredentials = Depends(
-        security
-    ),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     # ----------------------------------------
     # 1. Check Authorization header
@@ -165,9 +151,7 @@ async def verify_token(
     # 3. Call Rahul Platform Service
     # ----------------------------------------
     try:
-        async with httpx.AsyncClient(
-            timeout=5.0
-        ) as client:
+        async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.post(
                 f"{PLATFORM_AUTH_URL}/api/v1/auth/verify",
                 headers={
@@ -258,10 +242,7 @@ def require_roles(*allowed_roles: str):
         if user_role not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    f"Role '{user_role}' is not authorized "
-                    f"for this endpoint"
-                ),
+                detail=(f"Role '{user_role}' is not authorized for this endpoint"),
             )
 
         return user

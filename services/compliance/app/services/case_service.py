@@ -1,22 +1,22 @@
-from uuid import uuid4
 from datetime import datetime, timezone
+from uuid import uuid4
+
 from sqlalchemy.orm import Session
-from app.models.compliance_case import ComplianceCase
+
 from app.models.case_history import CaseHistory
+from app.models.compliance_case import ComplianceCase
 from app.services.case_state_machine import (
-    CASE_OPEN,
-    CASE_UNDER_REVIEW,
     CASE_CLEARED,
     CASE_CONFIRMED,
+    CASE_OPEN,
+    CASE_UNDER_REVIEW,
     validate_transition,
 )
 
 
 def normalize_case_name(entity_name: str) -> str:
-    
-    normalized = " ".join(
-        entity_name.strip().upper().split()
-    )
+
+    normalized = " ".join(entity_name.strip().upper().split())
 
     replacements = {
         "CORPORATION": "CORP",
@@ -45,19 +45,13 @@ def create_case(
 
     normalized_name = normalize_case_name(entity_name)
 
-    normalized_country = (
-        country.strip().upper()
-        if country
-        else None
-    )
+    normalized_country = country.strip().upper() if country else None
 
     existing_case = (
         db.query(ComplianceCase)
         .filter(
-            ComplianceCase.normalized_entity_name
-            == normalized_name,
-            ComplianceCase.country
-            == normalized_country,
+            ComplianceCase.normalized_entity_name == normalized_name,
+            ComplianceCase.country == normalized_country,
             ComplianceCase.status.in_(
                 [
                     CASE_OPEN,
@@ -71,17 +65,16 @@ def create_case(
     if existing_case:
         return existing_case
 
-    matched_lists = result.get(
-        "matched_lists",
-        [],
-    ) or []
+    matched_lists = (
+        result.get(
+            "matched_lists",
+            [],
+        )
+        or []
+    )
 
     if isinstance(matched_lists, list):
-        matched_lists = ",".join(
-            str(item)
-            for item in matched_lists
-            if item
-        )
+        matched_lists = ",".join(str(item) for item in matched_lists if item)
 
     case = ComplianceCase(
         case_number=f"PENDING-{uuid4().hex}",
@@ -89,9 +82,7 @@ def create_case(
         normalized_entity_name=normalized_name,
         entity_type=entity_type,
         country=normalized_country,
-        matched_name=result.get(
-            "matched_name"
-        ),
+        matched_name=result.get("matched_name"),
         matched_lists=matched_lists,
         match_score=int(
             result.get(
@@ -107,12 +98,8 @@ def create_case(
             )
             or 0.0
         ),
-        screening_tier=result.get(
-            "screening_tier"
-        ),
-        screening_action=result.get(
-            "screening_action"
-        ),
+        screening_tier=result.get("screening_tier"),
+        screening_action=result.get("screening_action"),
         status=CASE_OPEN,
     )
 
@@ -141,6 +128,7 @@ def create_case(
 
     return case
 
+
 def transition_case(
     db: Session,
     case: ComplianceCase,
@@ -149,7 +137,7 @@ def transition_case(
     reason: str | None = None,
     comments: str | None = None,
 ) -> ComplianceCase:
-    
+
     validate_transition(
         current_status=case.status,
         new_status=new_status,
@@ -163,20 +151,14 @@ def transition_case(
         CASE_CONFIRMED,
     }:
         if not reason or not reason.strip():
-            raise ValueError(
-                "Resolution reason is required when closing a case"
-            )
+            raise ValueError("Resolution reason is required when closing a case")
 
         case.resolution = new_status
         case.resolution_reason = reason.strip()
-        case.resolved_at = datetime.now(
-            timezone.utc
-        )
+        case.resolved_at = datetime.now(timezone.utc)
 
     case.status = new_status
-    case.updated_at = datetime.now(
-        timezone.utc
-    )
+    case.updated_at = datetime.now(timezone.utc)
 
     history = CaseHistory(
         case_id=case.id,
@@ -217,25 +199,17 @@ def assign_case(
         CASE_CLEARED,
         CASE_CONFIRMED,
     }:
-        raise ValueError(
-            "Closed cases cannot be reassigned"
-        )
+        raise ValueError("Closed cases cannot be reassigned")
 
     assigned_to = assigned_to.strip()
 
     # Prevent blank assignments.
     if not assigned_to:
-        raise ValueError(
-            "assigned_to must not be blank"
-        )
+        raise ValueError("assigned_to must not be blank")
 
     case.assigned_to = assigned_to
-    case.assigned_at = datetime.now(
-        timezone.utc
-    )
-    case.updated_at = datetime.now(
-        timezone.utc
-    )
+    case.assigned_at = datetime.now(timezone.utc)
+    case.updated_at = datetime.now(timezone.utc)
 
     # Assignment is an audit event, not a state transition.
     #
@@ -284,9 +258,7 @@ def review_case(
     reviewer = reviewer.strip()
 
     if not reviewer:
-        raise ValueError(
-            "reviewer must not be blank"
-        )
+        raise ValueError("reviewer must not be blank")
 
     decision = decision.strip().upper()
 
@@ -294,14 +266,11 @@ def review_case(
         CASE_CLEARED,
         CASE_CONFIRMED,
     }:
-        raise ValueError(
-            "Decision must be CLEARED or CONFIRMED"
-        )
+        raise ValueError("Decision must be CLEARED or CONFIRMED")
 
     if case.status != CASE_OPEN:
         raise ValueError(
-            f"Case must be OPEN before review. "
-            f"Current status: {case.status}"
+            f"Case must be OPEN before review. Current status: {case.status}"
         )
 
     # Assign the case to the reviewer.
@@ -343,9 +312,7 @@ def get_case_or_404(
 ) -> ComplianceCase:
     case = (
         db.query(ComplianceCase)
-        .filter(
-            ComplianceCase.case_number == case_number
-        )
+        .filter(ComplianceCase.case_number == case_number)
         .first()
     )
 
@@ -353,6 +320,7 @@ def get_case_or_404(
         raise ValueError("Case not found")
 
     return case
+
 
 def get_cases(
     db: Session,
@@ -376,21 +344,12 @@ def get_cases(
 
         if status not in allowed_statuses:
             raise ValueError(
-                "Invalid status. Allowed values: "
-                "OPEN, UNDER_REVIEW, CLEARED, CONFIRMED"
+                "Invalid status. Allowed values: OPEN, UNDER_REVIEW, CLEARED, CONFIRMED"
             )
 
-        query = query.filter(
-            ComplianceCase.status == status
-        )
+        query = query.filter(ComplianceCase.status == status)
 
-    return (
-        query
-        .order_by(
-            ComplianceCase.created_at.desc()
-        )
-        .all()
-    )
+    return query.order_by(ComplianceCase.created_at.desc()).all()
 
 
 def get_case_history(
@@ -403,11 +362,7 @@ def get_case_history(
 
     return (
         db.query(CaseHistory)
-        .filter(
-            CaseHistory.case_id == case.id
-        )
-        .order_by(
-            CaseHistory.id.asc()
-        )
+        .filter(CaseHistory.case_id == case.id)
+        .order_by(CaseHistory.id.asc())
         .all()
     )

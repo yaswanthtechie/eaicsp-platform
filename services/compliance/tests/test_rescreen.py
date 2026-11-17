@@ -1,7 +1,7 @@
 from app.core.database import SessionLocal
 from app.models.audit import ComplianceAudit
-from app.services import rescreen_service
 from app.models.compliance_case import ComplianceCase
+from app.services import rescreen_service
 
 
 def create_audit(
@@ -72,10 +72,7 @@ def test_get_previously_cleared_entities():
 
         cleared = rescreen_service.get_previously_cleared_entities(db)
 
-        names = [
-            record.entity_name
-            for record in cleared
-        ]
+        names = [record.entity_name for record in cleared]
 
         assert "CLEARED SUPPLIER" in names
 
@@ -103,10 +100,7 @@ def test_latest_matched_entity_is_not_cleared():
 
         cleared = rescreen_service.get_previously_cleared_entities(db)
 
-        names = [
-            record.entity_name
-            for record in cleared
-        ]
+        names = [record.entity_name for record in cleared]
 
         assert "ALREADY MATCHED" not in names
 
@@ -160,10 +154,7 @@ def test_rescreen_entity_still_clean(monkeypatch):
 
         audits = (
             db.query(ComplianceAudit)
-            .filter(
-                ComplianceAudit.entity_name
-                == "CLEAN SUPPLIER"
-            )
+            .filter(ComplianceAudit.entity_name == "CLEAN SUPPLIER")
             .all()
         )
 
@@ -270,14 +261,10 @@ def test_newly_flagged_record_is_saved(monkeypatch):
         new_audit = (
             db.query(ComplianceAudit)
             .filter(
-                ComplianceAudit.entity_name
-                == "SANCTIONED COMPANY",
-                ComplianceAudit.screening_type
-                == "RESCREEN",
+                ComplianceAudit.entity_name == "SANCTIONED COMPANY",
+                ComplianceAudit.screening_type == "RESCREEN",
             )
-            .order_by(
-                ComplianceAudit.id.desc()
-            )
+            .order_by(ComplianceAudit.id.desc())
             .first()
         )
 
@@ -660,10 +647,7 @@ def test_newly_flagged_rescreen_creates_case(monkeypatch):
 
         case = (
             db.query(ComplianceCase)
-            .filter(
-                ComplianceCase.entity_name
-                == "NEWLY SANCTIONED SUPPLIER"
-            )
+            .filter(ComplianceCase.entity_name == "NEWLY SANCTIONED SUPPLIER")
             .first()
         )
 
@@ -745,6 +729,7 @@ def test_nightly_rescreen_publishes_one_status_change_event(
 
     finally:
         db.close()
+
 
 def _flagged(score):
     return lambda name: {
@@ -857,19 +842,14 @@ def test_kafka_outage_keeps_rescreen_results(monkeypatch):
 
         db.expire_all()
 
-        latest = rescreen_service.get_latest_audits(
-            db
-        )["OUTAGE SUPPLIER"]
+        latest = rescreen_service.get_latest_audits(db)["OUTAGE SUPPLIER"]
 
         assert latest.matched is True
         assert latest.decision == "BLOCK"
 
         assert (
             db.query(ComplianceCase)
-            .filter(
-                ComplianceCase.entity_name
-                == "OUTAGE SUPPLIER"
-            )
+            .filter(ComplianceCase.entity_name == "OUTAGE SUPPLIER")
             .count()
             == 1
         )

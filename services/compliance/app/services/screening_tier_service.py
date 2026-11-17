@@ -1,11 +1,11 @@
 from app.core.config import (
-    LOW_COUNTRY_RISK_MAX,
-    MEDIUM_COUNTRY_RISK_MAX,
-    LOW_TRANSACTION_VALUE_MAX,
-    MEDIUM_TRANSACTION_VALUE_MAX,
-    LOW_TIER_MATCH_THRESHOLD,
-    MEDIUM_TIER_MATCH_THRESHOLD,
     HIGH_TIER_MATCH_THRESHOLD,
+    LOW_COUNTRY_RISK_MAX,
+    LOW_TIER_MATCH_THRESHOLD,
+    LOW_TRANSACTION_VALUE_MAX,
+    MEDIUM_COUNTRY_RISK_MAX,
+    MEDIUM_TIER_MATCH_THRESHOLD,
+    MEDIUM_TRANSACTION_VALUE_MAX,
 )
 
 
@@ -40,13 +40,9 @@ def calculate_screening_tier(
     transaction_value: float,
 ) -> str:
 
-    country_tier = calculate_country_risk_tier(
-        country_risk_score
-    )
+    country_tier = calculate_country_risk_tier(country_risk_score)
 
-    transaction_tier = calculate_transaction_tier(
-        transaction_value
-    )
+    transaction_tier = calculate_transaction_tier(transaction_value)
 
     tier_priority = {
         "LOW": 1,
@@ -60,6 +56,7 @@ def calculate_screening_tier(
         key=lambda tier: tier_priority[tier],
     )
 
+
 def get_screening_action(screening_tier: str) -> str:
     actions = {
         "LOW": "STANDARD_SCREENING",
@@ -68,6 +65,7 @@ def get_screening_action(screening_tier: str) -> str:
     }
 
     return actions[screening_tier]
+
 
 def get_match_threshold(screening_tier: str) -> int:
     thresholds = {
@@ -79,6 +77,4 @@ def get_match_threshold(screening_tier: str) -> int:
     try:
         return thresholds[screening_tier]
     except KeyError:
-        raise ValueError(
-            f"Unknown screening tier: {screening_tier}"
-        )
+        raise ValueError(f"Unknown screening tier: {screening_tier}")

@@ -1,4 +1,3 @@
-
 import csv
 
 from app.schemas.sanctions import SanctionedEntity
@@ -7,7 +6,7 @@ from app.schemas.sanctions import SanctionedEntity
 def load_ofac(
     csv_path,
 ) -> list[SanctionedEntity]:
-   
+
     entities: list[SanctionedEntity] = []
 
     with open(
@@ -15,11 +14,9 @@ def load_ofac(
         encoding="utf-8",
         newline="",
     ) as file:
-
         reader = csv.reader(file)
 
         for row in reader:
-
             # Ignore malformed/empty rows.
             if len(row) < 2:
                 continue
@@ -48,4 +45,3 @@ def load_ofac(
             )
 
     return entities
-
