@@ -6,6 +6,7 @@ from fastapi import (
     Depends,
     File,
     HTTPException,
+    Query,
     UploadFile,
     status,
 )
@@ -17,6 +18,8 @@ from app.core.auth import (
 )
 from app.database import get_db
 from app.models.inventory import Inventory
+from app.models.product import Product
+from app.models.warehouse import Warehouse
 from app.schemas.inventory import (
     BulkUpdateItem,
     BulkUploadResponse,
@@ -32,6 +35,10 @@ from app.schemas.inventory import (
     SimulationResponse,
     WhatIfRequest,
     WhatIfResponse,
+)
+from app.schemas.master_data import (
+    ProductListResponse,
+    WarehouseListResponse,
 )
 from app.schemas.supplier_performance import (
     SupplierPerformanceResponse,
@@ -310,6 +317,129 @@ def get_supplier_performance_route(
             detail=f"Supplier '{supplier_id}' not found",
         )
     return perf
+
+
+# =========================================================
+# PRODUCTS & WAREHOUSES MASTER DATA (R15 / #353 / #354)
+# Permission: inventory:read
+# =========================================================
+
+
+@router.get(
+    "/products",
+    response_model=ProductListResponse,
+    dependencies=[Depends(require_permission("inventory:read"))],
+    summary="Get list of products",
+    description="Retrieve a paginated list of products with optional canonical ID filtering.",
+    responses={
+        200: {
+            "description": "List of products with total count",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "items": [
+                            {
+                                "sku_id": "SKU-000001",
+                                "name": "Product 1",
+                                "category": "Electronics",
+                                "unit_of_measure": "PCS",
+                            }
+                        ],
+                        "total": 1,
+                    }
+                }
+            },
+        }
+    },
+)
+def get_products_route(
+    limit: int = Query(
+        default=500,
+        ge=1,
+        le=1000,
+        description="Maximum number of products to return",
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+        description="Number of products to skip",
+    ),
+    ids: str | None = Query(
+        default=None,
+        description="Optional comma-separated list of canonical SKU IDs",
+    ),
+    db: Session = Depends(get_db),
+):
+    query = db.query(Product)
+    if ids is not None:
+        id_list = [i.strip() for i in ids.split(",") if i.strip()]
+        if id_list:
+            query = query.filter(Product.sku_id.in_(id_list))
+        else:
+            query = query.filter(False)
+
+    total = query.count()
+    items = query.order_by(Product.sku_id).offset(offset).limit(limit).all()
+    return ProductListResponse(items=items, total=total)
+
+
+@router.get(
+    "/warehouses",
+    response_model=WarehouseListResponse,
+    dependencies=[Depends(require_permission("inventory:read"))],
+    summary="Get list of warehouses",
+    description="Retrieve a paginated list of warehouses with optional canonical ID filtering.",
+    responses={
+        200: {
+            "description": "List of warehouses with total count",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "items": [
+                            {
+                                "warehouse_id": "WH-BLR-01",
+                                "name": "Bangalore Warehouse",
+                                "city": "Bangalore",
+                                "state": "Karnataka",
+                                "country": "India",
+                            }
+                        ],
+                        "total": 1,
+                    }
+                }
+            },
+        }
+    },
+)
+def get_warehouses_route(
+    limit: int = Query(
+        default=500,
+        ge=1,
+        le=1000,
+        description="Maximum number of warehouses to return",
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+        description="Number of warehouses to skip",
+    ),
+    ids: str | None = Query(
+        default=None,
+        description="Optional comma-separated list of canonical warehouse IDs",
+    ),
+    db: Session = Depends(get_db),
+):
+    query = db.query(Warehouse)
+    if ids is not None:
+        id_list = [i.strip() for i in ids.split(",") if i.strip()]
+        if id_list:
+            query = query.filter(Warehouse.warehouse_id.in_(id_list))
+        else:
+            query = query.filter(False)
+
+    total = query.count()
+    items = query.order_by(Warehouse.warehouse_id).offset(offset).limit(limit).all()
+    return WarehouseListResponse(items=items, total=total)
 
 
 # =========================================================
