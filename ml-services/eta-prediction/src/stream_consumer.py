@@ -4,7 +4,7 @@ import os
 import re
 import time
 from collections import OrderedDict
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 from .eta_publisher import create_producer, publish_dlq, publish_prediction
@@ -144,14 +144,26 @@ def validate_event(event):
 
     _parse_aware_datetime(payload["dispatched_at"], "dispatched_at")
 
+    planned = payload.get("planned_delivery_date")
+
+    if planned is not None:
+        if not isinstance(planned, str) or not re.fullmatch(
+            r"\d{4}-\d{2}-\d{2}", planned
+        ):
+            raise ValueError(
+                "Invalid planned_delivery_date: expected YYYY-MM-DD."
+            )
+
+        try:
+            datetime.strptime(planned, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError(
+                "Invalid planned_delivery_date: expected YYYY-MM-DD."
+            ) from None
+
     return event
 
-def build_prediction_event(
-    event,
-    prediction,
-    model_version,
-    planned_delivery_date=None,
-):
+def build_prediction_event(event, prediction, model_version):
     """Build the ETA prediction event with optional delay information."""
 
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -163,6 +175,7 @@ def build_prediction_event(
         "model_version": model_version,
         "predicted_at": now,
     }
+    planned_delivery_date = event["payload"].get("planned_delivery_date")
 
     if planned_delivery_date is not None:
         planned_date = datetime.strptime(
@@ -174,9 +187,11 @@ def build_prediction_event(
             "dispatched_at",
         )
 
-        predicted_arrival = dispatched_at + timedelta(
-            days=float(prediction["eta_days"])
-        )
+        # Compare calendar dates in UTC, the same way the ClickHouse sink
+        # stores predicted_eta.
+        predicted_arrival = (
+            dispatched_at + timedelta(days=float(prediction["eta_days"]))
+        ).astimezone(timezone.utc)
 
         payload["planned_delivery_date"] = planned_date.isoformat()
         payload["predicted_delay_days"] = (
@@ -335,7 +350,6 @@ def run(settings):
                 event,
                 prediction,
                 settings["model_version"],
-                planned_delivery_date=event["payload"].get("planned_delivery_date"),
             )
 
             # 3. Publish. Broker failure raises and prevents offset commit.
