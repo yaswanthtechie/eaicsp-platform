@@ -50,4 +50,4 @@ def test_sales_runs_before_inventory():
     assert sales_join.task_id in {
         task.task_id
         for task in inventory_extract.upstream_list
-    }     
+    }

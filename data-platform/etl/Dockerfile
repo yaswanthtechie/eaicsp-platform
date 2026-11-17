@@ -12,8 +12,19 @@ USER airflow
 # fail or silently upgrade packages Airflow depends on.
 RUN python -m venv /home/airflow/dbt_venv \
  && /home/airflow/dbt_venv/bin/pip install --no-cache-dir "dbt-core==1.9.4" "dbt-postgres==1.9.0"
+
 ENV DBT_BIN=/home/airflow/dbt_venv/bin/dbt
 
-# These two coexist with Airflow's constraints (checked with pip --dry-run).
 # kafka-python 2.0.x does not import on Python 3.12 (the image's Python); 3.x renamed configs.
-RUN pip install --no-cache-dir "clickhouse-connect==0.8.18" "kafka-python>=2.2.0,<3" "pyspark==3.5.3"
+# cryptography is pinned to 43.0.3 for compatibility with the required package set.
+# Keep Airflow's constraints local so image builds do not depend on GitHub availability.
+COPY constraints-airflow-2.10.5-py3.12.txt /tmp/airflow-constraints.txt
+RUN pip install --no-cache-dir \
+    --constraint /tmp/airflow-constraints.txt \
+    "clickhouse-connect==0.8.18" \
+    "kafka-python>=2.2.0,<3" \
+    "pyspark==3.5.3" \
+    "mlflow==3.4.0" \
+    "redis==5.2.1" \
+    "prophet==1.4.0" \
+    "holidays==0.101"

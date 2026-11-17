@@ -1,0 +1,28 @@
+# Use only when the shared infra stack (make up) is running:
+# docker compose -f docker-compose.yml -f docker-compose.shared.yml up -d
+
+services:
+  airflow-webserver:
+    networks:
+      - default
+      - infra_shared
+
+  airflow-scheduler:
+    networks:
+      - default
+      - infra_shared
+
+  airflow-worker:
+    networks:
+      - default
+      - infra_shared
+
+  airflow-triggerer:
+    networks:
+      - default
+      - infra_shared
+
+networks:
+  infra_shared:
+    external: true
+    name: infra_shared
