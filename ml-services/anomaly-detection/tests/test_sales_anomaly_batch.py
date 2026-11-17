@@ -5,6 +5,8 @@ publishes nothing new.
 
 import json
 from pathlib import Path
+import sys
+import types
 
 import pandas as pd
 import pytest
@@ -12,7 +14,14 @@ from jsonschema import FormatChecker
 from jsonschema.validators import validator_for
 from referencing import Registry, Resource
 
-from src.sales_anomaly_batch import PublishedLedger, main, read_sales, run
+from src.sales_anomaly_batch import (
+    FanOutPublisher,
+    KafkaSalesEventPublisher,
+    PublishedLedger,
+    main,
+    read_sales,
+    run,
+)
 from src.sales_anomaly_events import anomaly_key
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -268,18 +277,33 @@ def test_ledger_ignores_blank_and_damaged_lines(ledger_path):
 # ---------------------------------------------------------------------
 
 
-def test_last_days_leaves_old_incidents_out_and_they_are_not_recorded(ledger_path):
+def test_last_days_records_old_incidents_as_skipped_so_they_are_never_published(
+    ledger_path,
+):
 
     summary, publisher = run_once(make_sales(), ledger_path, last_days=10)
 
     assert publisher.events == []
     assert summary["outside_window"] == 2
-    assert len(PublishedLedger(ledger_path)) == 0
 
-    # Without the window they are still new.
-    _, later = run_once(make_sales(), ledger_path)
+    ledger = PublishedLedger(ledger_path)
+    assert len(ledger) == 0
+    assert ledger.was_skipped("SKU-000001|WH-BLR-01|2026-08-10")
+    ledger.close()
 
-    assert len(later.events) == 2
+    # A later run without the window does not publish the old history.
+    later_summary, later = run_once(make_sales(), ledger_path)
+
+    assert later.events == []
+    assert later_summary["outside_window"] == 2
+    assert later_summary["already_published"] == 0
+
+
+def test_last_days_dry_run_records_nothing(ledger_path):
+
+    run_once(make_sales(), ledger_path, last_days=10, dry_run=True)
+
+    assert PublishedLedger(ledger_path).is_empty()
 
 
 def test_last_days_keeps_recent_incidents(ledger_path):
@@ -325,6 +349,7 @@ def test_command_line_writes_events_once(tmp_path, capsys):
         "--ledger", str(tmp_path / "ledger.jsonl"),
         "--no-kafka",
         "--events-log", str(tmp_path / "events.jsonl"),
+        "--last-days", "30",
     ]
 
     main(args)
@@ -358,6 +383,7 @@ def test_command_line_reads_a_folder_of_files(tmp_path):
         "--ledger", str(tmp_path / "ledger.jsonl"),
         "--no-kafka",
         "--events-log", str(tmp_path / "events.jsonl"),
+        "--last-days", "30",
     ])
 
     assert len((tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()) == 2
@@ -399,3 +425,336 @@ def test_key_in_ledger_matches_the_event(ledger_path):
         assert anomaly_key(p["sku_id"], p["warehouse_id"], p["date"]) in ledger
 
     ledger.close()
+
+
+# ---------------------------------------------------------------------
+# a replay after a crash reuses the event_id
+# ---------------------------------------------------------------------
+
+
+def test_a_replay_after_a_crash_reuses_the_event_id(ledger_path, monkeypatch):
+    """Delivered, then crashed before the ledger confirmed it: same event_id."""
+
+    first = ListPublisher()
+    ledger = PublishedLedger(ledger_path)
+
+    def crash(key, event_id):
+        raise RuntimeError("killed after delivery")
+
+    monkeypatch.setattr(ledger, "add", crash)
+
+    with pytest.raises(RuntimeError):
+        run(make_sales(), first, ledger)
+
+    ledger.close()
+
+    _, second = run_once(make_sales(), ledger_path)
+
+    assert first.events[0]["payload"] == second.events[0]["payload"]
+    assert first.events[0]["event_id"] == second.events[0]["event_id"]
+
+    # Confirmed now, so a third run publishes nothing.
+    _, third = run_once(make_sales(), ledger_path)
+    assert third.events == []
+
+
+def test_a_failed_delivery_is_retried_with_the_same_event_id(ledger_path):
+
+    class FailOnce(ListPublisher):
+
+        def __init__(self):
+            super().__init__()
+            self.attempted = []
+
+        def publish(self, event):
+
+            self.attempted.append(event)
+
+            if len(self.attempted) == 2:
+                raise RuntimeError("broker down")
+
+            super().publish(event)
+
+    failing = FailOnce()
+
+    with pytest.raises(RuntimeError):
+        run_once(make_sales(), ledger_path, publisher=failing)
+
+    failed_event = failing.attempted[1]
+
+    _, retry = run_once(make_sales(), ledger_path)
+
+    assert len(retry.events) == 1
+    assert retry.events[0]["event_id"] == failed_event["event_id"]
+    assert retry.events[0]["payload"] == failed_event["payload"]
+
+
+def test_pending_lines_are_not_counted_as_published(ledger_path):
+
+    ledger = PublishedLedger(ledger_path)
+    ledger.reserve("SKU-000001|WH-BLR-01|2026-08-10", "id-1")
+    ledger.close()
+
+    again = PublishedLedger(ledger_path)
+
+    assert "SKU-000001|WH-BLR-01|2026-08-10" not in again
+    assert again.pending_event_id("SKU-000001|WH-BLR-01|2026-08-10") == "id-1"
+    assert len(again) == 0
+    assert not again.is_empty()
+
+    again.add("SKU-000001|WH-BLR-01|2026-08-10", "id-1")
+
+    assert again.pending_event_id("SKU-000001|WH-BLR-01|2026-08-10") is None
+
+    again.close()
+
+    third = PublishedLedger(ledger_path)
+
+    assert "SKU-000001|WH-BLR-01|2026-08-10" in third
+    assert third.pending_event_id("SKU-000001|WH-BLR-01|2026-08-10") is None
+
+    third.close()
+
+
+def test_old_ledger_lines_without_a_status_count_as_published(ledger_path):
+
+    ledger_path.write_text(
+        '{"key": "SKU-000001|WH-BLR-01|2026-08-10", "event_id": "old"}\n',
+        encoding="utf-8",
+    )
+
+    ledger = PublishedLedger(ledger_path)
+
+    assert "SKU-000001|WH-BLR-01|2026-08-10" in ledger
+    assert len(ledger) == 1
+
+    ledger.close()
+
+
+# ---------------------------------------------------------------------
+# the ledger path does not depend on the working directory
+# ---------------------------------------------------------------------
+
+
+def test_default_ledger_does_not_depend_on_the_working_directory(tmp_path, monkeypatch):
+
+    import src.sales_anomaly_batch as batch
+
+    monkeypatch.chdir(tmp_path)
+
+    assert batch.DEFAULT_LEDGER.is_absolute()
+    assert batch.DEFAULT_LEDGER.parent == Path(batch.__file__).resolve().parents[1] / "output"
+
+
+# ---------------------------------------------------------------------
+# the first run needs a choice
+# ---------------------------------------------------------------------
+
+
+def first_run_args(tmp_path, *extra):
+
+    csv = tmp_path / "sales.csv"
+
+    if not csv.exists():
+        make_sales().to_csv(csv, index=False)
+
+    return [
+        "--input", str(csv),
+        "--ledger", str(tmp_path / "ledger.jsonl"),
+        "--no-kafka",
+        "--events-log", str(tmp_path / "events.jsonl"),
+        *extra,
+    ]
+
+
+def test_first_run_without_a_choice_is_refused_and_publishes_nothing(tmp_path):
+
+    with pytest.raises(SystemExit):
+        main(first_run_args(tmp_path))
+
+    assert not (tmp_path / "events.jsonl").exists() or (
+        (tmp_path / "events.jsonl").read_text(encoding="utf-8") == ""
+    )
+    assert PublishedLedger(tmp_path / "ledger.jsonl").is_empty()
+
+
+def test_publish_all_sends_the_whole_history_on_purpose(tmp_path):
+
+    main(first_run_args(tmp_path, "--publish-all"))
+
+    lines = (tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()
+
+    assert len(lines) == 2
+
+
+def test_later_runs_need_no_flag(tmp_path, capsys):
+
+    main(first_run_args(tmp_path, "--last-days", "30"))
+    capsys.readouterr()
+
+    main(first_run_args(tmp_path))
+
+    assert "published: 0" in capsys.readouterr().out
+
+
+def test_dry_run_needs_no_flag(tmp_path, capsys):
+
+    csv = tmp_path / "sales.csv"
+    make_sales().to_csv(csv, index=False)
+
+    main(["--input", str(csv), "--ledger", str(tmp_path / "l.jsonl"), "--dry-run"])
+
+    assert "would publish: 2" in capsys.readouterr().out
+
+
+def test_last_days_and_publish_all_together_are_refused(tmp_path):
+
+    with pytest.raises(SystemExit):
+        main(first_run_args(tmp_path, "--last-days", "7", "--publish-all"))
+
+
+def test_second_run_after_last_days_publishes_only_new_incidents(tmp_path, capsys):
+
+    main(first_run_args(tmp_path, "--last-days", "30"))
+    capsys.readouterr()
+
+    longer = tmp_path / "sales.csv"
+    make_sales(days=100, extra_spike_day=90).to_csv(longer, index=False)
+
+    main(first_run_args(tmp_path))
+
+    out = capsys.readouterr().out
+    lines = (tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()
+
+    assert "published: 1" in out
+    assert len(lines) == 3
+
+
+# ---------------------------------------------------------------------
+# Kafka publisher: a slow message is not queued twice
+# ---------------------------------------------------------------------
+
+
+class FakeProducer:
+    """Stands in for confluent_kafka.Producer. `script` has one step per flush."""
+
+    script = []
+    instances = []
+
+    def __init__(self, config):
+        self.config = config
+        self.produced = []
+        self._callbacks = []
+        self.flushes = 0
+        FakeProducer.instances.append(self)
+
+    def produce(self, topic, key=None, value=None, on_delivery=None):
+        self.produced.append((topic, key, value))
+        self._callbacks.append(on_delivery)
+
+    def flush(self, timeout):
+
+        step = FakeProducer.script[self.flushes]
+        self.flushes += 1
+
+        if step == "timeout":
+            return len(self._callbacks)
+
+        error = None if step == "ok" else "broker said no"
+
+        for callback in self._callbacks:
+            callback(error, None)
+
+        self._callbacks = []
+
+        return 0
+
+
+@pytest.fixture
+def kafka(monkeypatch):
+
+    FakeProducer.instances = []
+    monkeypatch.setitem(sys.modules, "confluent_kafka", types.SimpleNamespace(Producer=FakeProducer))
+    monkeypatch.setattr("src.sales_anomaly_batch.time.sleep", lambda seconds: None)
+
+    def make(*script):
+        FakeProducer.script = list(script)
+        return KafkaSalesEventPublisher("localhost:9092")
+
+    return make
+
+
+def an_event():
+
+    from src.sales_anomaly_events import build_sales_anomaly_event
+
+    return build_sales_anomaly_event(
+        sku_id="SKU-000123",
+        warehouse_id="WH-BLR-01",
+        date="2026-11-14",
+        expected_quantity=52,
+        actual_quantity=214,
+        score=8.2,
+        severity="medium",
+    )
+
+
+def test_kafka_publish_sends_once_to_the_event_type_topic_with_the_series_key(kafka):
+
+    publisher = kafka("ok")
+    publisher.publish(an_event())
+
+    producer = FakeProducer.instances[0]
+
+    assert len(producer.produced) == 1
+    assert producer.produced[0][0] == "anomaly.sales.detected"
+    assert producer.produced[0][1] == "SKU-000123|WH-BLR-01"
+    assert producer.config["enable.idempotence"] is True
+
+
+def test_kafka_slow_acknowledgement_is_flushed_again_not_queued_twice(kafka):
+
+    publisher = kafka("timeout", "ok")
+    publisher.publish(an_event())
+
+    producer = FakeProducer.instances[0]
+
+    assert len(producer.produced) == 1
+    assert producer.flushes == 2
+
+
+def test_kafka_delivery_error_is_sent_again(kafka):
+
+    publisher = kafka("error", "ok")
+    publisher.publish(an_event())
+
+    assert len(FakeProducer.instances[0].produced) == 2
+
+
+def test_kafka_gives_up_after_three_attempts(kafka):
+
+    publisher = kafka("error", "error", "error")
+
+    with pytest.raises(RuntimeError, match="3 attempts"):
+        publisher.publish(an_event())
+
+    assert len(FakeProducer.instances[0].produced) == 3
+
+
+def test_kafka_still_unacknowledged_at_the_end_is_an_error(kafka):
+
+    publisher = kafka("timeout", "timeout", "timeout")
+
+    with pytest.raises(RuntimeError, match="unacknowledged"):
+        publisher.publish(an_event())
+
+    assert len(FakeProducer.instances[0].produced) == 1
+
+
+def test_fan_out_sends_to_every_publisher_in_order():
+
+    a, b = ListPublisher(), ListPublisher()
+
+    FanOutPublisher([a, b]).publish({"x": 1})
+
+    assert a.events == b.events == [{"x": 1}]

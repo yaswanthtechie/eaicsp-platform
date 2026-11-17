@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://eaicsp.internal/contracts/events/anomaly.sales.detected.v1.json",
   "title": "anomaly.sales.detected",
-  "description": "One event per sales anomaly incident (an unusual spike or drop in daily sales of one product at one warehouse). Published by the anomaly-detection service batch job to the Kafka topic named after event_type (anomaly.sales.detected), partition key = payload.sku_id + '|' + payload.warehouse_id. The payload.date is the first day of the incident; later days of the same incident do not get their own event. Delivery is at-least-once: a crash replay can re-publish the same anomaly with a NEW event_id, so consumers must de-duplicate on (payload.sku_id, payload.warehouse_id, payload.date), not on event_id. Consumers must ignore unknown fields so additive changes do not break them.",
+  "description": "One event per sales anomaly incident (an unusual spike or drop in daily sales of one product at one warehouse). Published by the anomaly-detection service batch job to the Kafka topic named after event_type (anomaly.sales.detected), partition key = payload.sku_id + '|' + payload.warehouse_id. The payload.date is the first day of the incident; later days of the same incident do not get their own event. Delivery is at-least-once: a crash replay can re-publish the same anomaly, always with the SAME event_id, so consumers de-duplicate on event_id like every other topic. Consumers must ignore unknown fields so additive changes do not break them.",
   "type": "object",
   "allOf": [
     { "$ref": "envelope.v1.json" },

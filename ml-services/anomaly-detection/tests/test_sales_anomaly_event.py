@@ -259,6 +259,22 @@ def test_builder_rejects_bad_input(change):
     with pytest.raises(ValueError):
         build_sales_anomaly_event(**{**GOOD, **change})
 
+def test_numpy_numbers_are_accepted(validator):
+
+    import numpy as np
+
+    event = build_sales_anomaly_event(
+        **{
+            **GOOD,
+            "expected_quantity": np.float64(52.0),
+            "actual_quantity": np.int64(214),
+            "score": np.float32(8.2),
+        }
+    )
+
+    assert errors(validator, event) == []
+    assert type(event["payload"]["actual_quantity"]) is float
+
 
 def test_builder_rejects_a_non_date():
 

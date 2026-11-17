@@ -5,19 +5,26 @@ publish one anomaly.sales.detected event per new anomaly incident.
 Only run_start days are published (the first day of an incident), so a
 product that stops selling gives one event, not one a day for five weeks.
 
-Re-running is safe. Every published anomaly is written to a ledger file
-(sku_id|warehouse_id|date); a run skips anything already in the ledger.
-The ledger entry is written after the event was delivered, so a crash between
-the two can re-publish one event on the next run (at-least-once). Consumers
-de-duplicate on (sku_id, warehouse_id, date), as the contract says.
+Re-running is safe. Every anomaly is recorded in a ledger file
+(sku_id|warehouse_id|date); a run skips anything already in it.
 
-Run (from ml-services/anomaly-detection):
-    python -m src.sales_anomaly_batch --input ../../data-platform/etl/data/staging/sales
+The ledger line "pending" (with the event_id) is written BEFORE the event is
+published and the confirmed line AFTER delivery. If the job dies in between,
+the next run publishes the same anomaly again with the SAME event_id, so
+consumers de-duplicate on event_id like on every other topic (at-least-once
+delivery, never a second alert).
+
+The first run needs a choice: --last-days N publishes only the last N days
+and records older incidents as skipped (they are never published later), or
+--publish-all sends the whole history on purpose.
+
+Run (from anywhere; the ledger path does not depend on the working directory):
+    python -m src.sales_anomaly_batch --input <staging sales file or folder> --last-days 7
     python -m src.sales_anomaly_batch --input <sales.csv> --dry-run
-    python -m src.sales_anomaly_batch --input <sales.csv> --no-kafka --events-log output/sales_events.jsonl
+    python -m src.sales_anomaly_batch --input <sales.csv> --no-kafka --events-log output/sales_events.jsonl --last-days 7
 
-Kafka settings come from KAFKA_BOOTSTRAP_SERVERS (default localhost:9092) and
-KAFKA_SALES_ANOMALY_TOPIC (default anomaly.sales.detected).
+Kafka comes from KAFKA_BOOTSTRAP_SERVERS (default localhost:9092). The topic
+is the event type, anomaly.sales.detected, as for every other event.
 """
 
 import argparse
@@ -43,17 +50,31 @@ from .sales_anomaly_events import (
 
 log = logging.getLogger("sales_anomaly_batch")
 
-DEFAULT_LEDGER = Path("output") / "sales_anomaly_published.jsonl"
+# Resolved from this file, not the working directory, so every run finds the
+# same ledger wherever the job is started from.
+SERVICE_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_LEDGER = SERVICE_ROOT / "output" / "sales_anomaly_published.jsonl"
 
 
 class PublishedLedger:
-    """Append-only record of the anomalies already published."""
+    """
+    Append-only record of every anomaly the job has dealt with.
+
+    published: delivered and confirmed.
+    skipped:   older than --last-days on a run, never to be published.
+    pending:   event_id reserved, delivery not confirmed (job died or the
+               broker failed); the next run re-sends it with the same event_id.
+
+    A line without a status is a confirmed one.
+    """
 
     def __init__(self, path):
 
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._seen = set()
+        self._skipped = set()
+        self._pending = {}
 
         if self._path.exists():
             with open(self._path, encoding="utf-8") as handle:
@@ -61,22 +82,63 @@ class PublishedLedger:
                     if not line.strip():
                         continue
                     try:
-                        self._seen.add(json.loads(line)["key"])
-                    except (ValueError, KeyError, TypeError):
+                        entry = json.loads(line)
+                        key = entry["key"]
+                        status = entry.get("status")
+                        if status == "pending":
+                            self._pending[key] = entry["event_id"]
+                        elif status == "skipped":
+                            self._skipped.add(key)
+                        else:
+                            self._seen.add(key)
+                    except (ValueError, KeyError, TypeError, AttributeError):
                         continue
+
+        for key in self._seen | self._skipped:
+            self._pending.pop(key, None)
 
         self._file = open(self._path, "a", encoding="utf-8")
 
     def __contains__(self, key):
-        return key in self._seen
+        return key in self._seen or key in self._skipped
 
     def __len__(self):
+        """Number of confirmed (published) anomalies."""
         return len(self._seen)
 
+    def is_empty(self):
+        return not (self._seen or self._skipped or self._pending)
+
+    def was_skipped(self, key):
+        return key in self._skipped
+
+    def pending_event_id(self, key):
+        """event_id of an earlier run that did not confirm delivery."""
+        return self._pending.get(key)
+
+    def reserve(self, key, event_id):
+        """Record the event_id before publishing, so a replay reuses it."""
+
+        self._pending[key] = event_id
+        self._write({"key": key, "event_id": event_id, "status": "pending"})
+
     def add(self, key, event_id):
+        """Confirm delivery."""
 
         self._seen.add(key)
-        self._file.write(json.dumps({"key": key, "event_id": event_id}) + "\n")
+        self._pending.pop(key, None)
+        self._write({"key": key, "event_id": event_id})
+
+    def skip(self, key):
+        """Record an incident that is too old to publish, now or later."""
+
+        self._skipped.add(key)
+        self._pending.pop(key, None)
+        self._write({"key": key, "status": "skipped"})
+
+    def _write(self, entry):
+
+        self._file.write(json.dumps(entry) + "\n")
         self._file.flush()
         os.fsync(self._file.fileno())
 
@@ -103,7 +165,7 @@ class JsonlEventLog:
 
 class KafkaSalesEventPublisher:
 
-    def __init__(self, bootstrap_servers, topic, flush_timeout=10.0):
+    def __init__(self, bootstrap_servers, topic=EVENT_TYPE, flush_timeout=10.0):
 
         from confluent_kafka import Producer
 
@@ -117,17 +179,21 @@ class KafkaSalesEventPublisher:
         self._timeout = flush_timeout
 
     def publish(self, event, attempts=3, backoff_seconds=2.0):
+        """
+        Send one event and wait for the broker to acknowledge it.
 
-        last_error = None
+        A message that is only slow stays in the producer queue, so we flush
+        again instead of queueing a second copy. We produce again only after
+        the delivery callback reported an error.
+        """
 
-        for attempt in range(1, attempts + 1):
+        errors = []
 
-            errors = []
+        def on_delivery(err, msg):
+            if err is not None:
+                errors.append(str(err))
 
-            def on_delivery(err, msg):
-                if err is not None:
-                    errors.append(str(err))
-
+        def send():
             self._producer.produce(
                 self._topic,
                 key=event_key(event),
@@ -135,13 +201,25 @@ class KafkaSalesEventPublisher:
                 on_delivery=on_delivery,
             )
 
+        send()
+        last_error = None
+
+        for attempt in range(1, attempts + 1):
+
             remaining = self._producer.flush(self._timeout)
 
-            if not remaining and not errors:
+            if remaining == 0 and not errors:
                 return
 
-            last_error = f"{remaining} unacknowledged, {errors}"
-            time.sleep(backoff_seconds * attempt)
+            if errors:
+                last_error = errors[-1]
+                errors.clear()
+
+                if attempt < attempts:
+                    time.sleep(backoff_seconds * attempt)
+                    send()
+            else:
+                last_error = f"{remaining} message(s) still unacknowledged"
 
         raise RuntimeError(
             f"Event delivery failed after {attempts} attempts: {last_error}"
@@ -186,7 +264,8 @@ def run(sales, publisher, ledger, last_days=None, dry_run=False):
 
     Returns a summary dict: incidents (run starts found), new (published, or
     that would be in a dry run), already_published, outside_window (older
-    than last_days) and skipped_ids (not canonical ids, never published).
+    than last_days, now or on an earlier run) and skipped_ids (not canonical
+    ids, never published).
     """
 
     scores, _ = detect(sales)
@@ -223,14 +302,21 @@ def run(sales, publisher, ledger, last_days=None, dry_run=False):
             summary["skipped_ids"] += 1
             continue
 
-        if cutoff is not None and row.date < cutoff:
-            summary["outside_window"] += 1
-            continue
-
         key = anomaly_key(row.product, row.warehouse, row.date)
 
         if key in ledger:
-            summary["already_published"] += 1
+            if ledger.was_skipped(key):
+                summary["outside_window"] += 1
+            else:
+                summary["already_published"] += 1
+            continue
+
+        if cutoff is not None and row.date < cutoff:
+            summary["outside_window"] += 1
+
+            if not dry_run:
+                ledger.skip(key)
+
             continue
 
         event = build_sales_anomaly_event(
@@ -241,9 +327,13 @@ def run(sales, publisher, ledger, last_days=None, dry_run=False):
             actual_quantity=row.quantity,
             score=row.score,
             severity=row.severity,
+            # A replay after a crash re-sends the same event_id, so consumers
+            # de-duplicate on event_id as the blueprint says.
+            event_id=ledger.pending_event_id(key),
         )
 
         if not dry_run:
+            ledger.reserve(key, event["event_id"])
             publisher.publish(event)
             ledger.add(key, event["event_id"])
 
@@ -265,8 +355,14 @@ def main(argv=None):
         "--last-days",
         type=int,
         default=None,
-        help="Only publish incidents from the last N days of data "
-        "(use on the first run so history is not published as alerts).",
+        help="Only publish incidents from the last N days of data; older ones "
+        "are recorded as skipped and never published later. Needed on the "
+        "first run, so history is not published as live alerts.",
+    )
+    parser.add_argument(
+        "--publish-all",
+        action="store_true",
+        help="First run only: publish the whole history on purpose.",
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--no-kafka", action="store_true")
@@ -278,6 +374,9 @@ def main(argv=None):
     if args.last_days is not None and args.last_days < 1:
         parser.error("--last-days must be at least 1")
 
+    if args.last_days is not None and args.publish_all:
+        parser.error("Use either --last-days or --publish-all, not both.")
+
     publishers = []
 
     if not args.dry_run:
@@ -286,7 +385,7 @@ def main(argv=None):
             publishers.append(
                 KafkaSalesEventPublisher(
                     os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"),
-                    os.environ.get("KAFKA_SALES_ANOMALY_TOPIC", EVENT_TYPE),
+                    EVENT_TYPE,
                 )
             )
 
@@ -297,6 +396,20 @@ def main(argv=None):
             parser.error("Nothing to publish to: drop --no-kafka or set --events-log.")
 
     ledger = PublishedLedger(args.ledger)
+
+    if (
+        ledger.is_empty()
+        and args.last_days is None
+        and not args.publish_all
+        and not args.dry_run
+    ):
+        ledger.close()
+        for publisher in publishers:
+            publisher.close()
+        parser.error(
+            "The ledger is empty, so this would publish the whole history as "
+            "live alerts. Pass --last-days N (recommended) or --publish-all."
+        )
 
     try:
         summary = run(

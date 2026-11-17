@@ -11,6 +11,7 @@ in the payload.
 
 from datetime import UTC, date, datetime
 import math
+import numbers
 import re
 import uuid
 
@@ -52,7 +53,7 @@ def anomaly_key(sku_id, warehouse_id, day):
 
 def _finite_number(name, value, minimum=None):
 
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
         raise ValueError(f"{name} must be a number.")
 
     if not math.isfinite(value):

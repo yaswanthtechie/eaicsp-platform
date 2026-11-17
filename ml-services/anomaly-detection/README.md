@@ -2379,19 +2379,21 @@ Sales anomalies are published as `anomaly.sales.detected` events, with the same 
 
 **One event per incident.** The job publishes only `run_start` rows (see "One incident, one event" above), so a product that stops selling gives one event, not one a day for five weeks. Severity is the one on the first day of the incident; if the incident gets worse later, no second event is sent.
 
-**Running it.** From `ml-services/anomaly-detection`:
+**Running it.** From any folder (the ledger path does not depend on the working directory):
 
 ```
 python -m src.sales_anomaly_batch --input <staging sales file or folder> --last-days 7
 python -m src.sales_anomaly_batch --input <sales.csv> --dry-run
-python -m src.sales_anomaly_batch --input <sales.csv> --no-kafka --events-log output/sales_events.jsonl
+python -m src.sales_anomaly_batch --input <sales.csv> --no-kafka --events-log output/sales_events.jsonl --last-days 7
 ```
 
-`--input` is one CSV or a folder of CSVs (the staging sales files, canonical columns `date`, `sku_id`, `warehouse_id`, `quantity_sold`). It expects one row per day, product and warehouse; if files in a folder overlap, the same day is summed twice. Kafka comes from `KAFKA_BOOTSTRAP_SERVERS` (default `localhost:9092`) and `KAFKA_SALES_ANOMALY_TOPIC` (default `anomaly.sales.detected`). `--dry-run` publishes and records nothing and only prints the count. `--no-kafka --events-log <file>` writes the events to a JSON-lines file instead. The job prints one line: incidents found, published, already published, older than `--last-days`, and rows skipped for non-canonical ids.
+`--input` is one CSV or a folder of CSVs (the staging sales files, canonical columns `date`, `sku_id`, `warehouse_id`, `quantity_sold`). It expects one row per day, product and warehouse; if files in a folder overlap, the same day is summed twice. Kafka comes from `KAFKA_BOOTSTRAP_SERVERS` (default `localhost:9092`); the topic is always the event type. `--dry-run` publishes and records nothing and only prints the counts. `--no-kafka --events-log <file>` writes the events to a JSON-lines file instead. The job prints one line: incidents found, published, already published, older than `--last-days`, and rows skipped for non-canonical ids.
 
-**Running it twice.** Every published anomaly (`sku_id|warehouse_id|date`) is written to `output/sales_anomaly_published.jsonl` (`--ledger` changes the path; the folder is gitignored). A run skips anything in the ledger, so a second run over the same data publishes nothing. On the synthetic seed (3,820 incidents), the first run with `--last-days 7` published 68 and the second run published 0 (`already published: 68`). The ledger line is written after Kafka acknowledged the event, so if the job crashes in between, the next run can publish that one event again with a new `event_id`. That is why the contract tells consumers to de-duplicate on `sku_id`, `warehouse_id` and `date`. If delivery fails, the job stops and the events not yet delivered are sent on the next run. Delete the ledger only if you want every incident published again.
+**First run.** A first run over a long history would publish every past incident as a live alert (3,820 on the 2-year seed). So when the ledger is empty the job refuses to run unless you choose: `--last-days N` publishes only the incidents in the last N days of the data and records the older ones as skipped, so a later run never publishes them; `--publish-all` sends the whole history on purpose. After that, runs need no flag.
 
-**First run.** The first run over a long history would publish every past incident as a live alert (3,820 on the 2-year seed). Use `--last-days N` the first time: only incidents in the last N days of the data are published, older ones are left out and are not recorded in the ledger.
+**Running it twice.** Every anomaly (`sku_id|warehouse_id|date`) is written to a ledger, `output/sales_anomaly_published.jsonl` in the service folder (`--ledger` changes the path; the folder is gitignored). A run skips anything in it, so a second run over the same data publishes nothing. On the synthetic seed (3,820 incidents), the first run with `--last-days 7` published 68 and recorded the other 3,752 as skipped; the second run published 0 (`already published: 68`). Before an event is delivered, the job writes a `pending` ledger line with its `event_id`; after delivery it writes the confirmed line. If the job dies in between, the next run sends the same anomaly again with the same `event_id`, so consumers de-duplicate on `event_id` like on every other topic. If delivery fails, the job stops and the events not yet delivered are sent on the next run. Delete the ledger only if you want every incident treated as new.
+
+**Kafka.** The producer is idempotent. A message that is only slow is flushed again rather than queued twice; it is sent again only after the broker reported an error, and the job stops after 3 attempts.
 
 **Not published.** Rows whose product or warehouse is not a canonical id (for example client codes such as `PRD-10482` or `HYD-01`) are counted in the output line and never published, because the contract only allows canonical ids.
 
@@ -2519,7 +2521,7 @@ The validated continuous-lifecycle results are:
 ## Test suite
 
 ```text
-828 passed
+847 passed
 3 warnings
 0 failures
 ```
