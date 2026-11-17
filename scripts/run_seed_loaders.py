@@ -8,6 +8,27 @@ from dotenv import dotenv_values
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data-platform" / "out"
 
+# Settings that `app.seed --require-service-keys` needs. Keep in sync with
+# services/platform/app/seed.py (REQUIRED_SERVICE_KEYS and _required_password).
+PLATFORM_SEED_VARIABLES = (
+    "SECRET_KEY",
+    "CEO_PASSWORD",
+    "WAREHOUSE_MANAGER_PASSWORD",
+    "VP_OPERATIONS_PASSWORD",
+    "PROCUREMENT_MANAGER_PASSWORD",
+    "LOGISTICS_MANAGER_PASSWORD",
+    "COMPLIANCE_OFFICER_PASSWORD",
+    "SUPPLIER_PASSWORD",
+    "ANALYST_PASSWORD",
+    "SUPPLIER_19_PASSWORD",
+    "SUPPLIER_21_PASSWORD",
+    "SUPPLIER_22_PASSWORD",
+    "INVENTORY_SERVICE_API_KEY",
+    "SUPPLIER_PORTAL_SERVICE_API_KEY",
+    "GATEWAY_BFF_SERVICE_API_KEY",
+    "FORECAST_SERVING_SERVICE_API_KEY",
+)
+
 
 def database_url_variable(service_name: str) -> str:
     """Return the environment variable name for a service database URL."""
@@ -27,6 +48,38 @@ def require_database_url(service_name: str, environment: dict) -> str:
         )
 
     return database_url.strip()
+
+
+def require_platform_seed_settings(root_env: dict) -> None:
+    """Fail before any loader runs if the Platform seed would stop halfway.
+
+    The Platform seed reads services/platform/.env through load_dotenv(),
+    which never overrides a value that is already set, so root .env and
+    shell values win. The merge below follows the same order.
+    """
+    platform_env_file = ROOT / "services" / "platform" / ".env"
+    platform_env = {}
+    if platform_env_file.exists():
+        platform_env = {
+            key: value
+            for key, value in dotenv_values(platform_env_file).items()
+            if value is not None
+        }
+
+    merged = {**platform_env, **root_env}
+    missing = [
+        name
+        for name in PLATFORM_SEED_VARIABLES
+        if not (merged.get(name) or "").strip()
+    ]
+
+    if missing:
+        raise SystemExit(
+            "Missing or empty Platform seed settings: "
+            + ", ".join(missing)
+            + ". Copy services/platform/.env.example to services/platform/.env "
+            "and fill them in (see infra/README.md)."
+        )
 
 
 def load_environment() -> dict:
@@ -67,6 +120,7 @@ def main() -> None:
     platform_database_url = None
     if platform_dir.exists():
         platform_database_url = require_database_url("platform", root_env)
+        require_platform_seed_settings(root_env)
 
     # Execute loaders only after all configuration has been validated.
     for loader, database_url in configured_loaders:

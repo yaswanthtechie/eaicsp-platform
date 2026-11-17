@@ -2,6 +2,10 @@ import pytest
 
 import scripts.run_seed_loaders as seed_loaders
 
+PLATFORM_SEED_SETTINGS = {
+    name: "local-test-value" for name in seed_loaders.PLATFORM_SEED_VARIABLES
+}
+
 
 def test_inventory_database_url_variable_name():
     assert seed_loaders.database_url_variable("inventory") == (
@@ -196,7 +200,10 @@ def test_main_runs_platform_seed_with_database_url(
     monkeypatch.setattr(
         seed_loaders,
         "dotenv_values",
-        lambda _: {"PLATFORM_DATABASE_URL": expected_url},
+        lambda _: {
+            "PLATFORM_DATABASE_URL": expected_url,
+            **PLATFORM_SEED_SETTINGS,
+        },
     )
 
     monkeypatch.delenv("PLATFORM_DATABASE_URL", raising=False)
@@ -253,6 +260,7 @@ def test_main_runs_both_inventory_loader_and_platform_seed(
         lambda _: {
             "INVENTORY_DATABASE_URL": inventory_url,
             "PLATFORM_DATABASE_URL": platform_url,
+            **PLATFORM_SEED_SETTINGS,
         },
     )
 
@@ -330,20 +338,59 @@ def test_main_fails_upfront_when_platform_database_url_missing(
     assert calls == []
 
 
-def test_env_example_database_urls_have_no_unresolved_placeholders():
-    env_example_path = seed_loaders.ROOT / ".env.example"
-    assert env_example_path.exists(), ".env.example file must exist in repo root"
+def test_env_example_database_urls_resolve_to_working_urls(monkeypatch):
+    for name in ("POSTGRES_DB", "POSTGRES_PORT", "INVENTORY_DB_PASSWORD", "PLATFORM_DB_PASSWORD"):
+        monkeypatch.delenv(name, raising=False)
 
-    env_values = seed_loaders.dotenv_values(env_example_path)
+    env_values = seed_loaders.dotenv_values(seed_loaders.ROOT / ".env.example")
 
-    assert "INVENTORY_DATABASE_URL" in env_values
-    assert "PLATFORM_DATABASE_URL" in env_values
+    assert env_values["INVENTORY_DATABASE_URL"] == (
+        "postgresql+psycopg2://inventory_user:change_me@localhost:5432/shared_platform"
+    )
+    assert env_values["PLATFORM_DATABASE_URL"] == (
+        "postgresql+psycopg2://platform_user:change_me@localhost:5432/shared_platform"
+    )
 
-    inv_url = env_values["INVENTORY_DATABASE_URL"]
-    plat_url = env_values["PLATFORM_DATABASE_URL"]
 
-    assert inv_url is not None and inv_url != ""
-    assert plat_url is not None and plat_url != ""
+def test_main_fails_upfront_when_platform_seed_settings_missing(tmp_path, monkeypatch):
+    loader = tmp_path / "services" / "inventory" / "scripts" / "load_seed.py"
+    loader.parent.mkdir(parents=True)
+    loader.touch()
+    (tmp_path / "services" / "platform").mkdir(parents=True)
 
-    assert "${" not in inv_url, f"Unresolved placeholder in INVENTORY_DATABASE_URL: {inv_url}"
-    assert "${" not in plat_url, f"Unresolved placeholder in PLATFORM_DATABASE_URL: {plat_url}"
+    monkeypatch.setattr(seed_loaders, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        seed_loaders,
+        "dotenv_values",
+        lambda _: {
+            "INVENTORY_DATABASE_URL": "postgresql://inventory_user:secret@localhost/shared_platform",
+            "PLATFORM_DATABASE_URL": "postgresql://platform_user:secret@localhost/shared_platform",
+        },
+    )
+    for name in seed_loaders.PLATFORM_SEED_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+
+    calls = []
+    monkeypatch.setattr(seed_loaders.subprocess, "run", lambda *args, **kwargs: calls.append(args))
+
+    with pytest.raises(SystemExit, match="CEO_PASSWORD.*INVENTORY_SERVICE_API_KEY"):
+        seed_loaders.main()
+
+    # Nothing ran, so the Inventory load is not wasted.
+    assert calls == []
+
+
+def test_platform_seed_settings_come_from_platform_env_file(tmp_path, monkeypatch):
+    platform_dir = tmp_path / "services" / "platform"
+    platform_dir.mkdir(parents=True)
+    lines = [f"{name}=local-test-value" for name in seed_loaders.PLATFORM_SEED_VARIABLES]
+    (platform_dir / ".env").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    monkeypatch.setattr(seed_loaders, "ROOT", tmp_path)
+    for name in seed_loaders.PLATFORM_SEED_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+
+    seed_loaders.require_platform_seed_settings({})
+
+    with pytest.raises(SystemExit, match="Missing or empty Platform seed settings: CEO_PASSWORD"):
+        seed_loaders.require_platform_seed_settings({"CEO_PASSWORD": ""})

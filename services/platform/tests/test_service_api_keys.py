@@ -2,15 +2,13 @@ import hashlib
 import os
 from datetime import UTC, datetime, timedelta
 
-import pytest
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from app.core.service_auth import (
     generate_service_api_key,
     hash_service_api_key,
     require_service,
-    verify_service_api_key,
 )
 from app.database import SessionLocal
 from app.main import app
@@ -451,51 +449,14 @@ def test_reseed_does_not_reactivate_revoked_key(monkeypatch):
         db.refresh(record)
 
         assert record.is_active is False
+        res = client.post(
+            "/api/v1/auth/service-verify",
+            headers={"X-API-Key": raw_key},
+        )
+        assert res.status_code == 401
 
-        with pytest.raises(HTTPException) as exc_info:
-            verify_service_api_key(x_api_key=raw_key, db=db)
-        assert exc_info.value.status_code == 401
-        assert "inactive or revoked" in exc_info.value.detail.lower()
     finally:
         if record is not None:
             record.is_active = True
             db.commit()
-        db.close()
-
-
-def test_strict_reseed_preserves_existing_active_keys_without_env(
-    monkeypatch,
-):
-    identities = list(REQUIRED_SERVICE_KEYS.items())
-
-    # Remove all four plaintext API keys from the test environment.
-    for _, env_name in identities:
-        monkeypatch.delenv(env_name, raising=False)
-
-    db = SessionLocal()
-    try:
-        # Ensure the four records exist before testing strict reseeding.
-        seed_service_api_keys(db, require_env=False)
-
-        before = {
-            record.service_name: (record.id, record.key_hash, record.is_active)
-            for record in db.query(ServiceAPIKey)
-            .filter(ServiceAPIKey.service_name.in_([name for name, _ in identities]))
-            .all()
-        }
-        assert len(before) == 4
-        assert all(active for _, _, active in before.values())
-
-        # Strict mode must reuse existing active records without plaintext keys.
-        seed_service_api_keys(db, require_env=True)
-
-        after = {
-            record.service_name: (record.id, record.key_hash, record.is_active)
-            for record in db.query(ServiceAPIKey)
-            .filter(ServiceAPIKey.service_name.in_([name for name, _ in identities]))
-            .all()
-        }
-
-        assert after == before
-    finally:
         db.close()

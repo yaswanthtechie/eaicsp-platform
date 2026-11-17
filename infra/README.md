@@ -124,6 +124,10 @@ The loaders connect as their service-specific users (`inventory_user`, `platform
 
 If a required service database URL is missing or empty, the shared runner stops upfront before executing any loaders and reports the specific missing configuration (naming `INVENTORY_DATABASE_URL` or `PLATFORM_DATABASE_URL`) instead of displaying an unhelpful settings-validation traceback.
 
+The Platform seed also needs its own settings: `SECRET_KEY`, the demo user passwords (`CEO_PASSWORD`, `SUPPLIER_PASSWORD` and the others) and the four service API keys (`INVENTORY_SERVICE_API_KEY`, `SUPPLIER_PORTAL_SERVICE_API_KEY`, `GATEWAY_BFF_SERVICE_API_KEY`, `FORECAST_SERVING_SERVICE_API_KEY`). Before the first `make seed`, copy `services/platform/.env.example` to `services/platform/.env` and fill them in; see "Service-to-Service API Keys" in `services/platform/README.md` for generating the keys. The `DATABASE_URL` in that file is not used by `make seed`: the runner sets it from `PLATFORM_DATABASE_URL`, and `load_dotenv()` does not override a value that is already set. The runner checks all of these before any loader starts and names any that are missing.
+
+`make seed` runs the Platform seed with the same Python as the other loaders, so install `services/platform/requirements.txt` into that environment too.
+
 > [!NOTE]
 > Database passwords should use URL-safe characters. Characters such as `@`, `:`, `/`, and `#` can break connection URLs unless URL-encoded.
 
@@ -147,7 +151,7 @@ Alternatively, run the equivalent Docker Compose commands directly from PowerShe
 ## Running the whole platform
 
 1. Copy `.env.example` to `.env` if needed, then set unique local secrets and database passwords. Do not commit `.env`.
-2. Ensure `INVENTORY_DATABASE_URL` and `PLATFORM_DATABASE_URL` are configured in the root `.env` file for the seed loaders.
+2. Ensure `INVENTORY_DATABASE_URL` and `PLATFORM_DATABASE_URL` are configured in the root `.env` file, and copy `services/platform/.env.example` to `services/platform/.env` with the Platform seed settings filled in (see "Seed loader database configuration").
 3. From the repository root, run `make up`. This starts the shared stores, initializes MinIO buckets, builds the application images, and waits for configured health checks.
 4. Run `make seed` to generate shared seed data and run the available seed loaders.
 5. Run `make logs` to follow container logs, or `make ps` to inspect service status.
