@@ -302,7 +302,7 @@ The client workflow has dedicated tests covering:
 - End-to-end integration test covering shipment loading, route-distance
   enrichment, and feature preparation
 
-The full ETA prediction test suite currently passes with **310 tests**.
+The full ETA prediction test suite currently passes with **318 tests**.
 
 ### R15-H4 limitations
 
