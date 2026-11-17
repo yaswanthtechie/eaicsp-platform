@@ -4,7 +4,7 @@ import os
 import re
 import time
 from collections import OrderedDict
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from uuid import UUID, uuid4
 
 from .eta_publisher import create_producer, publish_dlq, publish_prediction
@@ -146,10 +146,42 @@ def validate_event(event):
 
     return event
 
-def build_prediction_event(event, prediction, model_version):
-    """Build the eta.shipment.predicted event from a dispatched shipment."""
+def build_prediction_event(
+    event,
+    prediction,
+    model_version,
+    planned_delivery_date=None,
+):
+    """Build the ETA prediction event with optional delay information."""
 
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    payload = {
+        "shipment_id": event["payload"]["shipment_id"],
+        "po_number": event["payload"]["po_number"],
+        **prediction,
+        "model_version": model_version,
+        "predicted_at": now,
+    }
+
+    if planned_delivery_date is not None:
+        planned_date = datetime.strptime(
+            planned_delivery_date, "%Y-%m-%d"
+        ).date()
+
+        dispatched_at = _parse_aware_datetime(
+            event["payload"]["dispatched_at"],
+            "dispatched_at",
+        )
+
+        predicted_arrival = dispatched_at + timedelta(
+            days=float(prediction["eta_days"])
+        )
+
+        payload["planned_delivery_date"] = planned_date.isoformat()
+        payload["predicted_delay_days"] = (
+            predicted_arrival.date() - planned_date
+        ).days
 
     return {
         "event_id": str(uuid4()),
@@ -158,15 +190,8 @@ def build_prediction_event(event, prediction, model_version):
         "occurred_at": now,
         "producer": "eta-prediction",
         "trace_id": event.get("trace_id"),
-        "payload": {
-            "shipment_id": event["payload"]["shipment_id"],
-            "po_number": event["payload"]["po_number"],
-            **prediction,
-            "model_version": model_version,
-            "predicted_at": now,
-        },
+        "payload": payload,
     }
-
 
 class EventDeduplicator:
     """Remember the last max_size processed event_ids (LRU)."""
@@ -310,6 +335,7 @@ def run(settings):
                 event,
                 prediction,
                 settings["model_version"],
+                planned_delivery_date=event["payload"].get("planned_delivery_date"),
             )
 
             # 3. Publish. Broker failure raises and prevents offset commit.
