@@ -682,3 +682,108 @@ def test_run_stops_on_fatal_kafka_error():
 
         with pytest.raises(Exception):
             run(settings)
+
+@pytest.mark.parametrize(
+    ("planned_date", "expected_delay"),
+    [
+        ("2026-10-19", 1),
+        ("2026-10-21", -1),
+        ("2026-10-20", 0),
+    ],
+)
+def test_prediction_event_delay_fields(planned_date, expected_delay):
+    prediction = {
+        "eta_days": 5.2,
+        "confidence_low": 4.1,
+        "confidence_high": 7.3,
+    }
+
+    result = build_prediction_event(
+        VALID_EVENT,
+        prediction,
+        "eta_seed_routes/1",
+        planned_delivery_date=planned_date,
+    )
+
+    assert result["payload"]["planned_delivery_date"] == planned_date
+    assert result["payload"]["predicted_delay_days"] == expected_delay
+
+def test_prediction_event_omits_delay_fields_without_planned_date():
+    prediction = {
+        "eta_days": 5.2,
+        "confidence_low": 4.1,
+        "confidence_high": 7.3,
+    }
+
+    result = build_prediction_event(
+        VALID_EVENT,
+        prediction,
+        "eta_seed_routes/1",
+    )
+
+    assert "planned_delivery_date" not in result["payload"]
+    assert "predicted_delay_days" not in result["payload"]
+
+
+def test_prediction_event_rejects_invalid_planned_delivery_date():
+    prediction = {
+        "eta_days": 5.2,
+        "confidence_low": 4.1,
+        "confidence_high": 7.3,
+    }
+
+    with pytest.raises(ValueError):
+        build_prediction_event(
+            VALID_EVENT,
+            prediction,
+            "eta_seed_routes/1",
+            planned_delivery_date="2026-15-45",
+        )
+
+def test_prediction_event_rejects_missing_dispatched_at():
+    event = {
+        **VALID_EVENT,
+        "payload": {
+            **VALID_EVENT["payload"],
+        },
+    }
+    event["payload"].pop("dispatched_at", None)
+
+    prediction = {
+        "eta_days": 5.2,
+        "confidence_low": 4.1,
+        "confidence_high": 7.3,
+    }
+
+    with pytest.raises(KeyError, match="dispatched_at"):
+        build_prediction_event(
+            event,
+            prediction,
+            "eta_seed_routes/1",
+            planned_delivery_date="2026-10-19",
+        )
+
+def test_prediction_event_uses_planned_date_from_input_event():
+    event = {
+        **VALID_EVENT,
+        "payload": {
+            **VALID_EVENT["payload"],
+            "planned_delivery_date": "2026-10-19",
+        },
+    }
+
+    prediction = {
+        "eta_days": 5.2,
+        "confidence_low": 4.1,
+        "confidence_high": 7.3,
+    }
+
+    result = build_prediction_event(
+        event,
+        prediction,
+        "eta_seed_routes/1",
+        planned_delivery_date=event["payload"].get("planned_delivery_date"),
+    )
+
+    assert result["payload"]["planned_delivery_date"] == "2026-10-19"
+    assert "predicted_delay_days" in result["payload"]

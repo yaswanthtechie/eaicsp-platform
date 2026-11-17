@@ -91,6 +91,15 @@
           "format": "date-time",
           "description": "UTC time the prediction was made. Latest predicted_at per shipment_id wins."
         },
+        "planned_delivery_date": {
+          "type": "string",
+          "format": "date",
+          "description": "Optional planned delivery date for the shipment."
+        },
+        "predicted_delay_days": {
+          "type": "integer",
+          "description": "Optional predicted delay in calendar days. Positive means late, negative means early, and zero means on time."
+        },
         "top_features": {
           "type": "array",
           "maxItems": 5,
