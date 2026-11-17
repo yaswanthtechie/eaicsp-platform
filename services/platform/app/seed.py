@@ -186,23 +186,10 @@ def seed_service_api_keys(db, *, require_env: bool = False) -> dict[str, str]:
     from app.core.service_auth import generate_service_api_key, hash_service_api_key
     from app.models.service_api_keys import ServiceAPIKey
 
-    missing = [
-        env_name
-        for env_name in REQUIRED_SERVICE_KEYS.values()
-        if not os.getenv(env_name)
-    ]
-    if require_env and missing:
-        raise RuntimeError(
-            "Missing required service API-key environment variables: "
-            + ", ".join(missing)
-        )
-
     created: dict[str, str] = {}
 
     for service_name, env_name in REQUIRED_SERVICE_KEYS.items():
-        raw_key = os.getenv(env_name)
-        if not raw_key:
-            raw_key = generate_service_api_key()
+        env_key = os.getenv(env_name)
 
         existing = (
             db.query(ServiceAPIKey)
@@ -212,16 +199,26 @@ def seed_service_api_keys(db, *, require_env: bool = False) -> dict[str, str]:
 
         if existing is not None:
             if not existing.is_active:
-                # Never undo an admin revoke. Re-issue via POST /api/v1/admin/service-keys.
                 print(f"Skipping '{service_name}': key is revoked.")
                 continue
-            env_key = os.getenv(env_name)
+
+            # Reuse existing active records when the plaintext key is unavailable.
+            # Only update the hash when an explicit environment key is supplied.
             if env_key:
                 expected_hash = hash_service_api_key(env_key)
                 if existing.key_hash != expected_hash:
                     existing.key_hash = expected_hash
                 created[service_name] = env_key
+
             continue
+
+        # A missing database record requires an explicit key in strict mode.
+        if require_env and not env_key:
+            raise RuntimeError(
+                f"Missing required service API-key environment variable: {env_name}"
+            )
+
+        raw_key = env_key or generate_service_api_key()
 
         db.add(
             ServiceAPIKey(

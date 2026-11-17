@@ -50,8 +50,9 @@ def main() -> None:
     root_env = load_environment()
 
     loaders = sorted((ROOT / "services").glob("*/scripts/load_seed.py"))
+    platform_dir = ROOT / "services" / "platform"
 
-    if not loaders:
+    if not loaders and not platform_dir.exists():
         print("No service seed loaders found; generated data only.")
         return
 
@@ -62,6 +63,10 @@ def main() -> None:
         service_name = loader.parents[1].name
         database_url = require_database_url(service_name, root_env)
         configured_loaders.append((loader, database_url))
+
+    platform_database_url = None
+    if platform_dir.exists():
+        platform_database_url = require_database_url("platform", root_env)
 
     # Execute loaders only after all configuration has been validated.
     for loader, database_url in configured_loaders:
@@ -78,6 +83,24 @@ def main() -> None:
                 str(DATA_DIR),
             ],
             cwd=ROOT,
+            env=child_env,
+            check=True,
+        )
+
+    if platform_dir.exists():
+        child_env = root_env.copy()
+        child_env["DATABASE_URL"] = platform_database_url
+
+        print(f"==> {platform_dir.relative_to(ROOT)} (app.seed)", flush=True)
+
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "app.seed",
+                "--require-service-keys",
+            ],
+            cwd=platform_dir,
             env=child_env,
             check=True,
         )

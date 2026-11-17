@@ -73,7 +73,7 @@ The low-memory profile has no Kafka, so event flows (Flow B and Flow C) cannot r
 
 | Store | Host address |
 |---|---|
-| PostgreSQL | `localhost:5432`; use the appropriate service-specific user and password from `.env` |
+| PostgreSQL | `localhost:${POSTGRES_PORT}` (default: `localhost:5432`); use the appropriate service-specific user and password from `.env` |
 | Kafka | `localhost:29092` |
 | Redis | `localhost:6379` |
 | ClickHouse | `localhost:8123` |
@@ -101,21 +101,31 @@ The seed generator writes its output to `data-platform/out/`.
 
 Each service seed loader receives its database connection through the `DATABASE_URL` environment variable.
 
-Use the `<NAME>_DATABASE_URL` convention for service-specific configuration: take the service folder name under `services/`, convert it to uppercase, replace hyphens (`-`) with underscores (`_`), and append `_DATABASE_URL`. For example, `services/supplier-portal/` uses `SUPPLIER_PORTAL_DATABASE_URL`.
+Use the `<NAME>_DATABASE_URL` convention for service-specific configuration: take the service folder name under `services/`, convert it to uppercase, replace hyphens (`-`) with underscores (`_`), and append `_DATABASE_URL`. For example, `services/supplier-portal/` uses `SUPPLIER_PORTAL_DATABASE_URL`, `services/inventory/` uses `INVENTORY_DATABASE_URL`, and `services/platform/` uses `PLATFORM_DATABASE_URL`.
 
-Currently, the Inventory service is the only service with a seed loader. Configure its connection in the repository-root `.env` file:
+Configure the service database connections in the repository-root `.env` file:
 
 ```dotenv
-INVENTORY_DB_PASSWORD=your_inventory_password
 POSTGRES_DB=shared_platform
-INVENTORY_DATABASE_URL=postgresql+psycopg2://inventory_user:${INVENTORY_DB_PASSWORD}@localhost:5432/${POSTGRES_DB}
+POSTGRES_PORT=5432
+INVENTORY_DB_PASSWORD=your_inventory_password
+INVENTORY_DATABASE_URL=postgresql+psycopg2://inventory_user:${INVENTORY_DB_PASSWORD}@localhost:${POSTGRES_PORT}/${POSTGRES_DB}
+PLATFORM_DB_PASSWORD=your_platform_password
+PLATFORM_DATABASE_URL=postgresql+psycopg2://platform_user:${PLATFORM_DB_PASSWORD}@localhost:${POSTGRES_PORT}/${POSTGRES_DB}
 ```
 
-The shared runner reads the root `.env` file and maps `INVENTORY_DATABASE_URL` to `DATABASE_URL` when running the Inventory loader.
+The host port defaults to `5432` (`POSTGRES_PORT=5432`). If your local environment already runs a PostgreSQL service on port 5432, set `POSTGRES_PORT=5433` (or another free port) in `.env` to prevent port collisions; Docker Compose port forwarding and the seed loader database URLs will adapt automatically.
 
-The loader connects as `inventory_user` and writes only to the Inventory schema. Never use the PostgreSQL superuser for service seed loading.
+The shared runner (`scripts/run_seed_loaders.py`) reads the root `.env` file and maps each service-specific configuration to `DATABASE_URL`:
+- Maps `INVENTORY_DATABASE_URL` to `DATABASE_URL` when running the Inventory loader.
+- Maps `PLATFORM_DATABASE_URL` to `DATABASE_URL` when running the Platform seed process (`python -m app.seed --require-service-keys`).
 
-If a required service database URL is missing or empty, the runner stops and reports the missing configuration instead of displaying an unhelpful settings-validation traceback.
+The loaders connect as their service-specific users (`inventory_user`, `platform_user`) and write only to their own schemas. Never use the PostgreSQL superuser for service seed loading.
+
+If a required service database URL is missing or empty, the shared runner stops upfront before executing any loaders and reports the specific missing configuration (naming `INVENTORY_DATABASE_URL` or `PLATFORM_DATABASE_URL`) instead of displaying an unhelpful settings-validation traceback.
+
+> [!NOTE]
+> Database passwords should use URL-safe characters. Characters such as `@`, `:`, `/`, and `#` can break connection URLs unless URL-encoded.
 
 
 ## Running Make on Windows
@@ -137,7 +147,7 @@ Alternatively, run the equivalent Docker Compose commands directly from PowerShe
 ## Running the whole platform
 
 1. Copy `.env.example` to `.env` if needed, then set unique local secrets and database passwords. Do not commit `.env`.
-2. Ensure `INVENTORY_DATABASE_URL` is configured in the root `.env` file for the Inventory seed loader.
+2. Ensure `INVENTORY_DATABASE_URL` and `PLATFORM_DATABASE_URL` are configured in the root `.env` file for the seed loaders.
 3. From the repository root, run `make up`. This starts the shared stores, initializes MinIO buckets, builds the application images, and waits for configured health checks.
 4. Run `make seed` to generate shared seed data and run the available seed loaders.
 5. Run `make logs` to follow container logs, or `make ps` to inspect service status.
