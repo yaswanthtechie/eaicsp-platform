@@ -1,18 +1,19 @@
-
-import { fireEvent,
+import {
+  act,
+  fireEvent,
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-
+import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import AlertsPanel from "../components/AlertsPanel";
 import { analyticsEvents } from "../mocks/wsServer";
-import type {
-  AlertMessage,
-  AnalyticsEventEnvelope,
-} from "../types/forecast";
+import type { AlertMessage, AnalyticsEventEnvelope } from "../types/forecast";
 import { mapAnalyticsEventToAlert } from "../utils/alertMapper";
+import { alertEventFixtures } from "./fixtures/alertEventFixtures";
 
 vi.mock("../components/Skeleton", () => ({
   default: ({ width, height }: { width: string; height: number }) => (
@@ -53,13 +54,21 @@ function getMockAlert(eventType: string): AlertMessage {
   return mappedAlert;
 }
 
+function getContractAlert(
+  event: AnalyticsEventEnvelope,
+): AlertMessage {
+  const mappedAlert = mapAnalyticsEventToAlert(event);
+
+  if (!mappedAlert) {
+    throw new Error(`Could not map event: ${event.event_type}`);
+  }
+
+  return mappedAlert;
+}
+
 function renderAlert(alert: AlertMessage) {
   return render(
-    <AlertsPanel
-      {...defaultProps}
-      alerts={[alert]}
-      onRemove={vi.fn()}
-    />,
+    <AlertsPanel {...defaultProps} alerts={[alert]} onRemove={vi.fn()} />,
   );
 }
 
@@ -93,7 +102,7 @@ describe("C6 - Alert Details Drawer", () => {
 
   // 2. IoT anomaly event
   it("displays IoT anomaly details and top features", () => {
-    const alert = getMockAlert("iot.anomaly.detected");
+    const alert = getContractAlert(alertEventFixtures.iot);
 
     const { dialog } = openAlert(alert);
 
@@ -106,39 +115,39 @@ describe("C6 - Alert Details Drawer", () => {
 
   // 3. Supplier risk event
   it("displays supplier risk details", () => {
-    const alert = getMockAlert("supplierrisk.score.changed");
+    const alert = getContractAlert(alertEventFixtures.supplierrisk);
 
     const { dialog } = openAlert(alert);
 
-    expect(dialog).toHaveTextContent("ABC Suppliers");
-    expect(dialog).toHaveTextContent("SUP-00045");
-    expect(dialog).toHaveTextContent("low");
+    expect(dialog).toHaveTextContent("Unity Manufacturing GmbH");
+    expect(dialog).toHaveTextContent("SUP-00019");
+    expect(dialog).toHaveTextContent("medium");
     expect(dialog).toHaveTextContent("high");
     expect(dialog).toHaveTextContent("78.5");
   });
 
   // 4. ETA prediction event
   it("displays ETA shipment details", () => {
-    const alert = getMockAlert("eta.shipment.predicted");
+    const alert = getContractAlert(alertEventFixtures.eta);
 
     const { dialog } = openAlert(alert);
 
     expect(dialog).toHaveTextContent("SHP-2026-000077");
     expect(dialog).toHaveTextContent("PO-2026-000123");
-    expect(dialog).toHaveTextContent("3.4");
-    expect(dialog).toHaveTextContent("2.8");
-    expect(dialog).toHaveTextContent("4.2");
+    expect(dialog).toHaveTextContent("5.2");
+    expect(dialog).toHaveTextContent("4.1");
+    expect(dialog).toHaveTextContent("7.3");
   });
 
   // 5. Forecast batch event
   it("displays forecast batch details and nested metrics", () => {
-    const alert = getMockAlert("forecast.batch.completed");
+    const alert = getContractAlert(alertEventFixtures.forecastBatch);
 
     const { dialog } = openAlert(alert);
 
     expect(dialog).toHaveTextContent("BATCH-20261015-01");
     expect(dialog).toHaveTextContent("SUCCESS");
-    expect(dialog).toHaveTextContent("prophet-xgb-r5");
+    expect(dialog).toHaveTextContent("demand_forecast/4");
     expect(dialog).toHaveTextContent("0.118");
     expect(dialog).toHaveTextContent("0.094");
     expect(dialog).toHaveTextContent("24.5");
@@ -189,11 +198,14 @@ describe("C6 - Alert Details Drawer", () => {
   });
 
   it("displays Not available when an optional payload field is missing", () => {
-    const alert = getMockAlert("iot.anomaly.detected");
+    const base = getContractAlert(alertEventFixtures.eta);
+    const payload = { ...base.payload };
+    delete payload.top_features;
 
-    const { dialog } = openAlert(alert);
+    const { dialog } = openAlert({ ...base, traceId: "trace-1", payload });
 
-    expect(dialog).toHaveTextContent("Not available");
+    const row = within(dialog).getByText("Top Features").parentElement;
+    expect(row).toHaveTextContent("Not available");
     expect(dialog).not.toHaveTextContent("undefined");
   });
 
@@ -211,7 +223,8 @@ describe("C6 - Alert Details Drawer", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
-  it("opens the drawer when Enter is pressed on an alert", () => {
+  it("opens the drawer when Enter is pressed on an alert", async() => {
+    const user = userEvent.setup();
     const alert = getMockAlert("inventory.stock.low");
 
     renderAlert(alert);
@@ -222,10 +235,7 @@ describe("C6 - Alert Details Drawer", () => {
 
     alertButton.focus();
 
-    fireEvent.keyDown(alertButton, {
-      key: "Enter",
-      code: "Enter",
-    });
+    await user.keyboard("{Enter}");
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
@@ -275,5 +285,80 @@ describe("C6 - Alert Details Drawer", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
       expect(alertButton).toHaveFocus();
     });
+  });
+
+  it("keeps the opened alert and its drawer while the drawer is open", () => {
+    vi.useFakeTimers();
+
+    try {
+      const base = getMockAlert("inventory.stock.low");
+
+      function Harness() {
+        const [alerts, setAlerts] = useState<AlertMessage[]>([base]);
+
+        return (
+          <AlertsPanel
+            {...defaultProps}
+            alerts={alerts}
+            onRemove={(id) =>
+              setAlerts((prev) => prev.filter((a) => a.id !== id))
+            }
+          />
+        );
+      }
+
+      render(<Harness />);
+
+      const alertButton = screen.getByRole("button", {
+        name: /press enter to view details/i,
+      });
+
+      act(() => {
+        vi.advanceTimersByTime(3000);
+      });
+
+      fireEvent.click(alertButton);
+
+      act(() => {
+        vi.advanceTimersByTime(10000);
+      });
+
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(alertButton).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows the raw payload of an unknown event type that came through the mapper", () => {
+    const alert = mapAnalyticsEventToAlert({
+      event_id: "test-sales-anomaly",
+      event_type: "sales.anomaly.detected",
+      event_version: 1,
+      occurred_at: "2026-11-16T10:30:00.000Z",
+      producer: "anomaly-detection",
+      severity: "warning",
+      payload: {
+        sku_id: "SKU-000501",
+        warehouse_id: "WH-BLR-01",
+        expected: 50,
+      },
+    });
+
+    expect(alert).not.toBeNull();
+
+    const { dialog } = openAlert(alert as AlertMessage);
+
+    expect(dialog).toHaveTextContent("sales.anomaly.detected");
+    expect(dialog).toHaveTextContent("SKU-000501");
+    expect(dialog).toHaveTextContent("WH-BLR-01");
+  });
+
+  it("shows Not available for an invalid timestamp", () => {
+    const base = getMockAlert("inventory.stock.low");
+
+    const { dialog } = openAlert({ ...base, timestamp: "not-a-date" });
+
+    expect(dialog).not.toHaveTextContent("Invalid Date");
   });
 });

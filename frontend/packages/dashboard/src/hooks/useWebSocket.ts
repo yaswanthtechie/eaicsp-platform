@@ -267,7 +267,8 @@ export function useWebSocket({
 
         const alert: AlertMessage | null = mapAnalyticsEventToAlert(data);
 
-        // Valid event types not supported by this dashboard are ignored.
+        // Unknown event types map to a generic alert (C6); the null check
+        // only guards the type.
         if (alert) onMessageRef.current(alert);
       };
 

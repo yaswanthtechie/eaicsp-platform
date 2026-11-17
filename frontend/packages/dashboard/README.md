@@ -74,7 +74,7 @@ frontend/
             │
             ├── test/
             │   ├── AlertsPanel.test.tsx
-            |   ├── AlertDetailDrawer.test.tsx
+            |   ├── AlertDetailsDrawer.test.tsx
             |   ├── AnalyticsKpiPanel.test.tsx
             |   ├── App.role.test.tsx
             |   ├── authRefresh.test.ts
@@ -1232,11 +1232,11 @@ npm run test:e2e
 
 Test verification completed successfully.
 
-* Vitest: 25 test files, 229/229 tests passed
+* Vitest: 25 test files, 232/232 tests passed
 * Playwright Dashboard E2E: 4/4 tests passed
 * Authentication E2E: 14/14 passed with valid credentials.
 * Live Alerts WebSocket: 1/1 test  passed.
-* Total: 248 tests passed across the three reported test groups.
+* Total: 251 tests passed across the three reported test groups.
 
 The authentication tests are run separately using
 npm run test:e2e:auth.

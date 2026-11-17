@@ -147,7 +147,15 @@ export function mapAnalyticsEventToAlert(
     }
 
     default:
-      return null;
+      // C6: Unknown event types still become generic alerts,
+    // allowing the details drawer to display their raw payload.
+    mapping = {
+      type: "system",
+      title: "Unrecognised event",
+      severity,
+      message: `Received ${event.event_type} event.`,
+    };
+    break;
   }
 
   return {

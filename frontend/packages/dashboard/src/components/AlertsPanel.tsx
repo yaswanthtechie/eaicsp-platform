@@ -123,6 +123,16 @@ function formatFieldValue(value: unknown): string {
   return String(value);
 }
 
+function formatDateTime(timestamp: string | undefined): string {
+  if (!timestamp) {
+    return "Not available";
+  }
+
+  const date = new Date(timestamp);
+
+  return Number.isNaN(date.getTime()) ? "Not available" : date.toLocaleString();
+}
+
 function normalizeSeverity(
   severity: AlertMessage["severity"],
 ): "critical" | "warning" | "info" | "success" {
@@ -240,6 +250,14 @@ export default function AlertsPanel({
 
   const openAlert = (alert: AlertMessage, trigger: HTMLElement) => {
     alertTriggerRef.current = trigger;
+
+    // C6: the opened alert must not auto-dismiss while its drawer is open.
+    // Its timers restart from zero when the drawer closes.
+    clearTimeout(timers.current[alert.id]);
+    clearTimeout(removeTimers.current[alert.id]);
+    delete timers.current[alert.id];
+    delete removeTimers.current[alert.id];
+    setFadingAlerts((prev) => prev.filter((id) => id !== alert.id));
     setSelectedAlert(alert);
   };
 
@@ -254,7 +272,7 @@ export default function AlertsPanel({
   // C5: Auto-dismiss only alerts that are actually visible.
   useEffect(() => {
     visibleAlerts.forEach((alert) => {
-      if (timers.current[alert.id]) {
+      if (timers.current[alert.id] || alert.id === selectedAlert?.id) {
         return;
       }
 
@@ -277,7 +295,7 @@ export default function AlertsPanel({
         }, 500);
       }, 5000);
     });
-  }, [visibleAlerts, onRemove]);
+  }, [visibleAlerts, onRemove, selectedAlert]);
 
   useEffect(() => {
     const timersMap = timers.current;
@@ -362,6 +380,10 @@ export default function AlertsPanel({
 
     return "System Status";
   };
+
+  const selectedBadge = getSeverityBadge(
+    normalizeSeverity(selectedAlert?.severity ?? "info"),
+  );
 
   const formatTime = (timestamp: string) => {
     return new Date(timestamp).toLocaleTimeString("en-GB");
@@ -566,19 +588,8 @@ export default function AlertsPanel({
                 const SeverityIcon = severityBadge.icon;
 
                 return (
-                  <div
+                  <article
                     key={alert.id}
-                    role="button"
-                    tabIndex={isFading ? -1 : 0}
-                    aria-haspopup="dialog"
-                    aria-label={`${getTitle(alert)}: ${alert.message}. Press Enter to view details`}
-                    onClick={(event) => openAlert(alert, event.currentTarget)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        openAlert(alert, event.currentTarget);
-                      }
-                    }}
                     style={{
                       opacity: isFading ? 0 : 1,
                       transition: "opacity 0.5s ease",
@@ -588,62 +599,78 @@ export default function AlertsPanel({
                       borderRadius: radius.md,
                       borderLeft: `4px solid ${severityBadge.color}`,
                       background: colors.bg,
-                      cursor: "pointer",
                     }}
                   >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        gap: space.sm,
-                        marginBottom: space.xs,
-                      }}
-                    >
-                      <h3
-                        style={{
-                          margin: 0,
-                          color: colors.text,
-                          fontSize: "15px",
-                        }}
-                      >
-                        {getTitle(alert)}
-                      </h3>
-                      <Badge
-                        className="px-3 py-1.5 text-base font-semibold"
-                        style={{
-                          color: severityBadge.color,
-                          backgroundColor: colors.surface,
-                          borderColor: severityBadge.color,
-                        }}
-                      >
-                        <SeverityIcon size={20} />
-                        {severityBadge.label}
-                      </Badge>
-                    </div>
-
-                    <p
+                    <h3
                       style={{
                         margin: 0,
-                        color: colors.textMuted,
-                        fontSize: "14px",
-                        lineHeight: 1.5,
+                        color: colors.text,
+                        fontSize: "15px",
                       }}
                     >
-                      {alert.message}
-                    </p>
+                      {getTitle(alert)}
+                    </h3>
 
-                    <span
+                    <button
+                      type="button"
+                      tabIndex={isFading ? -1 : 0}
+                      aria-haspopup="dialog"
+                      aria-label={`${getTitle(alert)}: ${alert.message}. Press Enter to view details`}
+                      onClick={(event) => openAlert(alert, event.currentTarget)}
                       style={{
                         display: "block",
-                        marginTop: space.xs,
-                        color: colors.textMuted,
-                        fontSize: "12px",
+                        width: "100%",
+                        padding: 0,
+                        border: "none",
+                        background: "transparent",
+                        color: colors.text,
+                        textAlign: "left",
+                        cursor: "pointer",
                       }}
                     >
-                      {formatTime(alert.timestamp)}
-                    </span>
-                  </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "flex-end",
+                          marginBottom: space.xs,
+                        }}
+                      >
+                        <Badge
+                          className="px-3 py-1.5 text-base font-semibold"
+                          style={{
+                            color: severityBadge.color,
+                            backgroundColor: colors.surface,
+                            borderColor: severityBadge.color,
+                          }}
+                        >
+                          <SeverityIcon size={20} />
+                          {severityBadge.label}
+                        </Badge>
+                      </div>
+
+                      <p
+                        style={{
+                          margin: 0,
+                          color: colors.textMuted,
+                          fontSize: "14px",
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        {alert.message}
+                      </p>
+
+                      <span
+                        style={{
+                          display: "block",
+                          marginTop: space.xs,
+                          color: colors.textMuted,
+                          fontSize: "12px",
+                        }}
+                      >
+                        {formatTime(alert.timestamp)}
+                      </span>
+                    </button>
+                  </article>
                 );
               })
             )}
@@ -656,7 +683,7 @@ export default function AlertsPanel({
             style={{
               position: "fixed",
               inset: 0,
-              background: "rgba(0, 0, 0, 0.55)",
+              background: colors.overlayBlack30,
               zIndex: 100,
             }}
           />
@@ -750,21 +777,25 @@ export default function AlertsPanel({
                 >
                   <div>
                     <strong>Severity</strong>
-                    <p style={{ margin: 0, color: colors.textMuted }}>
-                      {
-                        getSeverityBadge(
-                          normalizeSeverity(selectedAlert.severity),
-                        ).label
-                      }
-                    </p>
+                    <div style={{ marginTop: space.xs }}>
+                      <Badge
+                        className="px-3 py-1.5 text-sm font-semibold"
+                        style={{
+                          color: selectedBadge.color,
+                          backgroundColor: colors.surface,
+                          borderColor: selectedBadge.color,
+                        }}
+                      >
+                        <selectedBadge.icon size={16} />
+                        {selectedBadge.label}
+                      </Badge>
+                    </div>
                   </div>
 
                   <div>
                     <strong>Timestamp</strong>
                     <p style={{ margin: 0, color: colors.textMuted }}>
-                      {selectedAlert.timestamp
-                        ? new Date(selectedAlert.timestamp).toLocaleString()
-                        : "Not available"}
+                      {formatDateTime(selectedAlert.timestamp)}
                     </p>
                   </div>
 
