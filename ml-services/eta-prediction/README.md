@@ -112,6 +112,24 @@ After a restart, a message that was published but not yet committed can be predi
 again. The `eta.shipment.predicted` contract allows this: consumers keep the latest
 `predicted_at` per `shipment_id`.
 
+### Planned Delivery and Delay Fields
+
+The ETA prediction event supports two optional fields:
+
+| Field | Description |
+|---|---|
+| `planned_delivery_date` | Planned delivery date in `YYYY-MM-DD` format. |
+| `predicted_delay_days` | Difference between predicted arrival date and planned delivery date, in calendar days. |
+
+- Positive value: Shipment is predicted to arrive late.
+- Negative value: Shipment is predicted to arrive early.
+- Zero: Shipment is predicted to arrive on time.
+
+Both fields are included when the planned delivery date is available.
+When it is unavailable, both fields are omitted.
+
+The upstream Supplier Portal event must provide `planned_delivery_date` before these fields can be populated in live Kafka events.
+
 ## R15-H4: Client Shipment-History ETA Training
 
 R15-H4 prepares the ETA prediction service to train on a client's shipment history when the client data becomes available.
@@ -284,7 +302,7 @@ The client workflow has dedicated tests covering:
 - End-to-end integration test covering shipment loading, route-distance
   enrichment, and feature preparation
 
-The full ETA prediction test suite currently passes with **303 tests**.
+The full ETA prediction test suite currently passes with **310 tests**.
 
 ### R15-H4 limitations
 
