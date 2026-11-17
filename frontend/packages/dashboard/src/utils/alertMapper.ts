@@ -147,7 +147,15 @@ export function mapAnalyticsEventToAlert(
     }
 
     default:
-      return null;
+      // C6: Unknown event types still become generic alerts,
+    // allowing the details drawer to display their raw payload.
+    mapping = {
+      type: "system",
+      title: "Unrecognised event",
+      severity,
+      message: `Received ${event.event_type} event.`,
+    };
+    break;
   }
 
   return {
@@ -157,6 +165,12 @@ export function mapAnalyticsEventToAlert(
     message: mapping.message,
     timestamp: event.occurred_at,
     title: mapping.title,
+    eventType: event.event_type,
+    producer: event.producer,
+    eventVersion: event.event_version,
+    traceId: event.trace_id,
+    payload: event.payload,
+    
     ...(event.event_type === "eta.shipment.predicted"
       ? {
         shipmentId: getString(payload, "shipment_id"),
