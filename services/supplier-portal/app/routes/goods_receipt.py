@@ -77,12 +77,12 @@ def create_goods_receipt_endpoint(
             raise HTTPException(
                 status_code=404,
                 detail=message,
-            )
+            ) from exc
 
         raise HTTPException(
             status_code=400,
             detail=message,
-        )
+        ) from exc
 
 
 # ============================================================

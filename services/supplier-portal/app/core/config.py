@@ -149,4 +149,4 @@ class Settings(BaseSettings):
 
 
 # IMPORTANT: Do not add a trailing comma here.
-settings = Settings()
+settings = Settings()  # type: ignore[call-arg]

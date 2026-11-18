@@ -379,7 +379,7 @@ def _calculate_supplier_trend(
     # Group supplier POs by creation month
     # --------------------------------------------------------
 
-    monthly_pos = {}
+    monthly_pos: dict[str, list[dict]] = {}
 
     for po in supplier_pos:
         created_at = po.get("created_at")
@@ -404,7 +404,7 @@ def _calculate_supplier_trend(
     # associated PO creation date.
     # --------------------------------------------------------
 
-    monthly_invoices = {}
+    monthly_invoices: dict[str, list[dict]] = {}
 
     for invoice in supplier_invoices:
         po_numbers = _get_invoice_po_numbers(invoice)

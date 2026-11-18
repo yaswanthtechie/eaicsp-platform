@@ -3951,7 +3951,7 @@ def test_purge_does_not_delete_recent_file(
 
     objects, mock_list_objects = orphan_test_setup
 
-    object_key = add_minio_invoice_object(
+    add_minio_invoice_object(
         objects,
         supplier_id="SUP-00007",
         invoice_number="INV010",
@@ -4361,7 +4361,7 @@ def test_supplier_cannot_purge_orphaned_file_physically(
 
     objects, mock_list_objects = orphan_test_setup
 
-    object_key = add_minio_invoice_object(
+    add_minio_invoice_object(
         objects,
         supplier_id="SUP-00002",
         invoice_number="INV9903",

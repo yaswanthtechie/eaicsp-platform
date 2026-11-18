@@ -101,18 +101,18 @@ def create_shipment_notice(
             raise HTTPException(
                 status_code=404,
                 detail=message,
-            )
+            ) from e
 
         if "does not own" in message:
             raise HTTPException(
                 status_code=403,
                 detail=message,
-            )
+            ) from e
 
         raise HTTPException(
             status_code=400,
             detail=message,
-        )
+        ) from e
 
 
 # ============================================================

@@ -552,7 +552,7 @@ def resolve_three_way_discrepancy(
             P2PState.discrepancy,
         )
 
-        raise ValueError(f"Unable to resolve discrepancy: {exc}")
+        raise ValueError(f"Unable to resolve discrepancy: {exc}") from exc
 
     now = datetime.now(timezone.utc)
 
@@ -644,7 +644,7 @@ def approve_payment(
             P2PState.matched,
         )
 
-        raise ValueError(f"Unable to approve payment: {exc}")
+        raise ValueError(f"Unable to approve payment: {exc}") from exc
 
     now = datetime.now(timezone.utc)
 

@@ -205,15 +205,21 @@ class SupplierStatusChangedConsumer:
                 if message is None:
                     continue
 
-                if message.error():
-                    self._handle_consumer_error(message.error())
+                error = message.error()
+                if error is not None:
+                    self._handle_consumer_error(error)
                     continue
 
-                retry_key = (
-                    message.topic(),
-                    message.partition(),
-                    message.offset(),
-                )
+                topic = message.topic()
+                partition = message.partition()
+                offset = message.offset()
+
+                if topic is None or partition is None or offset is None:
+                    raise KafkaConsumerError(
+                        "Kafka message is missing topic, partition, or offset."
+                    )
+
+                retry_key = (topic, partition, offset)
 
                 try:
                     self.process_message(message)
@@ -234,7 +240,7 @@ class SupplierStatusChangedConsumer:
                     elif not self._running:
                         raise KafkaConsumerError(
                             "Consumer stopped after a DLQ/commit failure."
-                        )
+                        ) from exc
 
                     continue
 
@@ -266,7 +272,7 @@ class SupplierStatusChangedConsumer:
                         elif not self._running:
                             raise KafkaConsumerError(
                                 "Consumer stopped after a DLQ/commit failure."
-                            )
+                            ) from exc
                     else:
                         logger.exception(
                             "Processing failed (attempt %s/%s); rewinding offset %s",

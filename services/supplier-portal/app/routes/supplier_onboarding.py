@@ -170,7 +170,7 @@ def register_supplier_endpoint(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
-        )
+        ) from exc
 
 
 # ============================================================
@@ -204,7 +204,7 @@ def get_supplier_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
-        )
+        ) from exc
 
     return supplier
 
@@ -265,7 +265,7 @@ def upload_document_endpoint(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=message,
-            )
+            ) from exc
 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -304,7 +304,7 @@ def list_documents_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
-        )
+        ) from exc
 
     return documents
 
@@ -403,12 +403,12 @@ def verify_supplier_endpoint(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=message,
-            )
+            ) from exc
 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=message,
-        )
+        ) from exc
 
 
 # ============================================================
@@ -444,12 +444,12 @@ def approve_supplier_endpoint(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=message,
-            )
+            ) from exc
 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=message,
-        )
+        ) from exc
 
 
 # ============================================================
@@ -483,14 +483,14 @@ def activate_supplier_endpoint(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
-        )
+        ) from exc
 
     # Compliance could not be reached.
     except ComplianceServiceUnavailableError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
-        )
+        ) from exc
 
     # Compliance returned an HTTP error, invalid response,
     # invalid decision, or contradictory result.
@@ -498,7 +498,7 @@ def activate_supplier_endpoint(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
-        )
+        ) from exc
 
     # Supplier not found or invalid onboarding transition.
     except ValueError as exc:
@@ -508,12 +508,12 @@ def activate_supplier_endpoint(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=message,
-            )
+            ) from exc
 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=message,
-        )
+        ) from exc
 
 
 # ============================================================
@@ -562,7 +562,7 @@ def supplier_status_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
-        )
+        ) from exc
 
     return result
 
@@ -598,6 +598,6 @@ def supplier_history_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
-        )
+        ) from exc
 
     return history

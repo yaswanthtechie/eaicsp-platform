@@ -66,7 +66,7 @@ def get_supplier_risk_score_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
-        )
+        ) from exc
 
     # 4. Retrieve risk information and build the response.
     try:
@@ -76,4 +76,4 @@ def get_supplier_risk_score_endpoint(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
-        )
+        ) from exc

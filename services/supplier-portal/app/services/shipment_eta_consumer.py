@@ -206,12 +206,7 @@ class ShipmentETAConsumer:
                 shipment.predicted_at = payload.predicted_at
 
                 shipment.top_features = (
-                    [
-                        feature.model_dump()
-                        if hasattr(feature, "model_dump")
-                        else feature
-                        for feature in payload.top_features
-                    ]
+                    [feature.model_dump() for feature in payload.top_features]
                     if payload.top_features is not None
                     else None
                 )
@@ -274,10 +269,12 @@ class ShipmentETAConsumer:
             event = ETAShipmentPredictedEvent.model_validate(data)
 
             # Contract timestamps must be UTC.
-            if event.occurred_at.utcoffset().total_seconds() != 0:
+            occurred_at_offset = event.occurred_at.utcoffset()
+            if occurred_at_offset is None or occurred_at_offset.total_seconds() != 0:
                 raise ValueError("occurred_at must be UTC.")
 
-            if event.payload.predicted_at.utcoffset().total_seconds() != 0:
+            predicted_at_offset = event.payload.predicted_at.utcoffset()
+            if predicted_at_offset is None or predicted_at_offset.total_seconds() != 0:
                 raise ValueError("predicted_at must be UTC.")
 
             return event

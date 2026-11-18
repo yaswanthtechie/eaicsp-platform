@@ -162,6 +162,10 @@ def _save_shipment_and_dispatch_event(
             finally:
                 db.close()
 
+    raise RuntimeError(
+        "Unable to allocate a unique shipment ID after maximum attempts."
+    )
+
 
 def _get_acknowledged_inventory_po(
     po_number: str,

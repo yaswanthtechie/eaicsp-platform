@@ -135,7 +135,7 @@ class InventoryGoodsReceivedConsumer:
             db.add(record)
             db.commit()
             return True
-        except IntegrityError:
+        except IntegrityError as exc:
             db.rollback()
             # Same event_id already committed: safe to acknowledge.
             existing = db.get(InventoryGoodsReceiptEvent, event["event_id"])
@@ -157,7 +157,7 @@ class InventoryGoodsReceivedConsumer:
                     f"receipt_id={payload['receipt_id']}: "
                     f"existing_event_id={existing.event_id}, "
                     f"incoming_event_id={event['event_id']}"
-                )
+                ) from exc
             raise
         finally:
             db.close()
@@ -263,10 +263,11 @@ class InventoryGoodsReceivedConsumer:
                 message = self.consumer.poll(1.0)
                 if message is None:
                     continue
-                if message.error():
-                    if message.error().code() == KafkaError._PARTITION_EOF:
+                error = message.error()
+                if error is not None:
+                    if error.code() == KafkaError._PARTITION_EOF:
                         continue
-                    raise RuntimeError(str(message.error()))
+                    raise RuntimeError(str(error))
 
                 # Failures that cannot be parked in the DLQ propagate: the
                 # runner restarts the consumer from the last committed

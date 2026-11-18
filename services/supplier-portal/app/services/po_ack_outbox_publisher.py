@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from threading import Event, Thread
 from typing import Any
 
-from confluent_kafka import Producer
+from confluent_kafka import KafkaException, Producer
 
 from app.core.config import settings
 from app.database import SessionLocal
@@ -52,9 +52,13 @@ class POAckOutboxPublisher:
                 for row in rows:
                     delivery_errors: list[str] = []
 
-                    def on_delivery(error: Any, _message: Any) -> None:
+                    def on_delivery(
+                        error: Any,
+                        _message: Any,
+                        errors: list[str] = delivery_errors,
+                    ) -> None:
                         if error is not None:
-                            delivery_errors.append(str(error))
+                            errors.append(str(error))
 
                     row.attempts += 1
 
@@ -66,7 +70,7 @@ class POAckOutboxPublisher:
                             on_delivery=on_delivery,
                         )
                         pending = producer.flush(10)
-                    except Exception as exc:
+                    except (KafkaException, BufferError) as exc:
                         row.last_error = str(exc)[:1000]
                         continue
 

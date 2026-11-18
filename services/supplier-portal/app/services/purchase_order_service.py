@@ -18,7 +18,7 @@ from app.services.supplier_onboarding_service import (
 purchase_orders = {}
 
 # In-memory event storage
-po_events = {}
+po_events: dict[str, list[dict[str, str]]] = {}
 
 
 def create_purchase_order(

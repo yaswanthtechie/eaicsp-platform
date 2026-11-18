@@ -311,6 +311,9 @@ def upload_supplier_document(
 
     file_extension = Path(original_name).suffix.lower()
 
+    if file.content_type is None:
+        raise ValueError("Unsupported document file type.")
+
     allowed_extensions = ALLOWED_DOCUMENT_TYPES.get(file.content_type)
 
     if allowed_extensions is None:

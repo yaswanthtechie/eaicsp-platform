@@ -160,20 +160,20 @@ def execute_match(
             raise HTTPException(
                 status_code=404,
                 detail=message,
-            )
+            ) from exc
 
         if "purchase order" in lower_message:
             if "not found" in lower_message:
                 raise HTTPException(
                     status_code=404,
                     detail=message,
-                )
+                ) from exc
 
             if "does not own" in lower_message:
                 raise HTTPException(
                     status_code=403,
                     detail=message,
-                )
+                ) from exc
 
         if (
             "must be fulfilled" in lower_message
@@ -185,12 +185,12 @@ def execute_match(
             raise HTTPException(
                 status_code=400,
                 detail=message,
-            )
+            ) from exc
 
         raise HTTPException(
             status_code=400,
             detail=message,
-        )
+        ) from exc
 
 
 # ============================================================
@@ -316,12 +316,12 @@ def resolve_match(
             raise HTTPException(
                 status_code=404,
                 detail=message,
-            )
+            ) from exc
 
         raise HTTPException(
             status_code=400,
             detail=message,
-        )
+        ) from exc
 
 
 @router.get(
@@ -366,13 +366,13 @@ def get_resolution_suggestion(
         raise HTTPException(
             status_code=404,
             detail=str(exc),
-        )
+        ) from exc
 
     except ValueError as exc:
         raise HTTPException(
             status_code=400,
             detail=str(exc),
-        )
+        ) from exc
 
 
 # ============================================================
@@ -426,9 +426,9 @@ def approve_payment_endpoint(
             raise HTTPException(
                 status_code=404,
                 detail=message,
-            )
+            ) from exc
 
         raise HTTPException(
             status_code=400,
             detail=message,
-        )
+        ) from exc

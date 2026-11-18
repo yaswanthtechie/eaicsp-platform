@@ -6,7 +6,7 @@ import time
 import uuid
 
 import pytest
-from confluent_kafka import Consumer, Producer, TopicPartition
+from confluent_kafka import Consumer, KafkaException, Producer, TopicPartition
 from confluent_kafka.admin import AdminClient, NewTopic
 
 from app.services import kafka_consumer as kafka_consumer_module
@@ -135,7 +135,7 @@ def test_real_kafka_block_event_updates_sqlite_and_commits_offset(
         def run_consumer():
             try:
                 consumer_instance.run(poll_timeout=0.2)
-            except BaseException as exc:
+            except Exception as exc:  # noqa: BLE001 - capture worker-thread failures for assertion in the test thread.
                 thread_errors.append(exc)
 
         consumer_thread = threading.Thread(
@@ -224,7 +224,7 @@ def test_real_kafka_block_event_updates_sqlite_and_commits_offset(
             for future in futures.values():
                 try:
                     future.result(timeout=15)
-                except Exception:
+                except KafkaException:
                     pass
-        except Exception:
+        except KafkaException:
             pass

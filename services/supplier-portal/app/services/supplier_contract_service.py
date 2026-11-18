@@ -230,8 +230,8 @@ def _validate_supplier_active(
 
     try:
         get_supplier(supplier_id)
-    except ValueError:
-        raise ValueError("Supplier not found.")
+    except ValueError as exc:
+        raise ValueError("Supplier not found.") from exc
 
     if not is_supplier_active(supplier_id):
         raise ValueError("Contract can only be created for an active supplier.")

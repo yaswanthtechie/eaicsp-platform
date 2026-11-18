@@ -139,7 +139,7 @@ def clear_supplier_state(monkeypatch, tmp_path):
 @pytest.fixture
 def consumer():
     with (
-        patch("app.services.kafka_consumer.Consumer") as mock_consumer,
+        patch("app.services.kafka_consumer.Consumer"),
         patch("app.services.kafka_consumer.Producer") as mock_producer,
     ):
         mock_producer.return_value.flush.return_value = 0

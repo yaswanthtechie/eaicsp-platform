@@ -172,12 +172,12 @@ def create_contract_endpoint(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=message,
-            )
+            ) from exc
 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=message,
-        )
+        ) from exc
 
 
 # ============================================================
@@ -241,7 +241,7 @@ def list_expiring_contracts_endpoint(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
-        )
+        ) from exc
 
 
 # ============================================================
@@ -331,7 +331,7 @@ def get_contract_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
-        )
+        ) from exc
 
     check_supplier_access(
         contract["supplier_id"],
@@ -387,12 +387,12 @@ def update_contract_endpoint(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=message,
-            )
+            ) from exc
 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=message,
-        )
+        ) from exc
 
 
 # ============================================================
@@ -432,12 +432,12 @@ def activate_contract_endpoint(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=message,
-            )
+            ) from exc
 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=message,
-        )
+        ) from exc
 
 
 # ============================================================
@@ -479,12 +479,12 @@ def renew_contract_endpoint(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=message,
-            )
+            ) from exc
 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=message,
-        )
+        ) from exc
 
 
 # ============================================================
@@ -520,7 +520,7 @@ def contract_history_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
-        )
+        ) from exc
 
     # --------------------------------------------------------
     # Supplier ownership
@@ -542,4 +542,4 @@ def contract_history_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
-        )
+        ) from exc

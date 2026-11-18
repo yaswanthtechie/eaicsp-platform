@@ -96,7 +96,7 @@ def supplier_stats(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
-        )
+        ) from e
 
     return result
 
@@ -140,6 +140,6 @@ def get_supplier_scorecard(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
-        )
+        ) from e
 
     return result

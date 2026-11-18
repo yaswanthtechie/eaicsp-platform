@@ -1,5 +1,6 @@
 import re
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import UploadFile
 
@@ -31,9 +32,9 @@ MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
 # In-memory storage
-invoices = {}
+invoices: dict[tuple[str, str], dict[str, Any]] = {}
 # In-memory invoice status history
-invoice_events = {}
+invoice_events: dict[tuple[str, str], list[dict[str, str | None]]] = {}
 
 
 def get_all_invoices():
@@ -1231,9 +1232,9 @@ def upload_invoice_document(
     # 7. Validate declared size
     # ---------------------------------------------------------
 
-    if getattr(file, "size", None) is not None:
-        if file.size > MAX_FILE_SIZE:
-            raise ValueError("Maximum file size is 10 MB.")
+    file_size = getattr(file, "size", None)
+    if file_size is not None and file_size > MAX_FILE_SIZE:
+        raise ValueError("Maximum file size is 10 MB.")
 
     # ---------------------------------------------------------
     # 8. Read contents for validation

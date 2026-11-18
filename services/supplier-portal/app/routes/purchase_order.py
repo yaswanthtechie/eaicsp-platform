@@ -283,7 +283,7 @@ def create_po(
             raise HTTPException(
                 status_code=409,
                 detail=message,
-            )
+            ) from e
 
         # ----------------------------------------------------
         # Invalid business data -> 400 Bad Request
@@ -292,7 +292,7 @@ def create_po(
         raise HTTPException(
             status_code=400,
             detail=message,
-        )
+        ) from e
 
 
 # ============================================================
@@ -336,7 +336,7 @@ def bulk_send_po(
         raise HTTPException(
             status_code=400,
             detail=str(e),
-        )
+        ) from e
 
 
 # ============================================================
@@ -549,7 +549,7 @@ def update_po(
         raise HTTPException(
             status_code=400,
             detail=str(e),
-        )
+        ) from e
 
 
 # ============================================================
@@ -703,7 +703,7 @@ def acknowledge_po(
         raise HTTPException(
             status_code=400,
             detail=str(e),
-        )
+        ) from e
 
 
 # ============================================================
@@ -776,4 +776,4 @@ def transition_po(
         raise HTTPException(
             status_code=400,
             detail=str(e),
-        )
+        ) from e
