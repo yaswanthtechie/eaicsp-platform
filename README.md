@@ -20,7 +20,39 @@ Enterprise AI-Powered Supply Chain Platform.
 2. `git checkout -b yourname/your-service`
 3. Work in your assigned folder only
 4. Push, open PR, wait for review
-﻿# UI Library
+﻿
+## Run the client data stack locally
+
+Use the root Docker Compose environment for the integrated platform, Airflow, and client-data workflow.
+
+### Configure environment
+
+If you do not already have a local .env file, create one with:
+
+    Copy-Item .env.example .env
+
+Set secure local values for the Airflow Fernet key, API and webserver secrets, database passwords, and admin password. Never commit .env.
+
+### Start the environment
+
+    make up
+
+Airflow: http://localhost:8080
+MLflow: http://localhost:5000
+
+Sign in to Airflow using AIRFLOW_ADMIN_USERNAME and AIRFLOW_ADMIN_PASSWORD from .env.
+
+### Load synthetic client data
+
+    make demo-client-data
+
+The loader reads samples from data-platform/etl/client_ingest/samples/client_format/ and loads them into the client_ingest PostgreSQL schema.
+
+### Standalone ETL
+
+The Compose files under data-platform/etl/ are retained for standalone ETL development. They use data-platform/etl/.env.example. Use the root Compose file for the integrated shared environment.
+
+# UI Library
 
 ## Overview
 
