@@ -1,21 +1,20 @@
-from datetime import datetime, timezone
-from typing import Any
 import logging
 import threading
 import time
+from datetime import datetime, timezone
+from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.services.sanctions_service import screen_entity
-from app.services.sla_service import record_request, start_timer
-from app.services.sla_alert_service import send_sla_alert
 from app.core.config import (
     INTERNAL_BLOCK_MATCH_SCORE,
     INTERNAL_REVIEW_MATCH_SCORE,
     SLA_ALERT_COOLDOWN_SECONDS,
     SLA_LATENCY_THRESHOLD_MS,
 )
-
+from app.services.sanctions_service import screen_entity
+from app.services.sla_alert_service import send_sla_alert
+from app.services.sla_service import record_request, start_timer
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +34,7 @@ def _alert_sla_degraded(
     with _SLA_ALERT_LOCK:
         if (
             _LAST_SLA_ALERT_AT is not None
-            and now - _LAST_SLA_ALERT_AT
-            < SLA_ALERT_COOLDOWN_SECONDS
+            and now - _LAST_SLA_ALERT_AT < SLA_ALERT_COOLDOWN_SECONDS
         ):
             return False
 
@@ -78,7 +76,7 @@ _CACHE_GENERATION = 0
 
 
 def clear_internal_cache() -> None:
-    
+
     global _CACHE_GENERATION
 
     with _CACHE_LOCKS_GUARD:
@@ -118,11 +116,7 @@ def get_cache_metrics() -> dict[str, float | int]:
     with _CACHE_METRICS_LOCK:
         total_requests = _CACHE_HITS + _CACHE_MISSES
 
-        hit_rate = (
-            (_CACHE_HITS / total_requests) * 100
-            if total_requests > 0
-            else 0.0
-        )
+        hit_rate = (_CACHE_HITS / total_requests) * 100 if total_requests > 0 else 0.0
 
         return {
             "cache_hits": _CACHE_HITS,
@@ -137,6 +131,7 @@ def get_cache_metrics() -> dict[str, float | int]:
 # ============================================================
 # CACHE KEY
 # ============================================================
+
 
 def _get_cache_key(
     supplier_id: str,
@@ -154,6 +149,7 @@ def _get_cache_key(
 # GET CACHED RESULT
 # ============================================================
 
+
 def _get_cached_result(
     cache_key: tuple[str, str, str],
 ) -> dict[str, Any] | None:
@@ -165,9 +161,7 @@ def _get_cached_result(
 
     cached_at, result = cached
 
-    age_seconds = (
-        datetime.now(timezone.utc) - cached_at
-    ).total_seconds()
+    age_seconds = (datetime.now(timezone.utc) - cached_at).total_seconds()
 
     if age_seconds >= CACHE_TTL_SECONDS:
         _INTERNAL_CHECK_CACHE.pop(
@@ -176,8 +170,7 @@ def _get_cached_result(
         )
 
         logger.debug(
-            "Internal compliance cache expired: "
-            "cache_key=%s",
+            "Internal compliance cache expired: cache_key=%s",
             cache_key,
         )
 
@@ -190,6 +183,7 @@ def _get_cached_result(
 # CACHE RESULT
 # ============================================================
 
+
 def _cache_result(
     cache_key: tuple[str, str, str],
     result: dict[str, Any],
@@ -197,11 +191,7 @@ def _cache_result(
 ) -> None:
 
     with _CACHE_LOCKS_GUARD:
-
-        if (
-            generation is not None
-            and generation != _CACHE_GENERATION
-        ):
+        if generation is not None and generation != _CACHE_GENERATION:
             logger.info(
                 "Discarding internal compliance result: cache was "
                 "cleared during screening: cache_key=%s",
@@ -218,6 +208,7 @@ def _cache_result(
 # ============================================================
 # CACHE LOCK
 # ============================================================
+
 
 def _get_cache_lock(
     cache_key: tuple[str, str, str],
@@ -237,6 +228,7 @@ def _get_cache_lock(
 # BUILD COMPLIANCE RESPONSE
 # ============================================================
 
+
 def _build_compliance_response(
     result: dict[str, Any],
     supplier_id: str,
@@ -255,10 +247,7 @@ def _build_compliance_response(
             "country": country,
             "cleared": True,
             "decision": "CLEAR",
-            "reason": (
-                "Supplier match was reviewed and "
-                "approved by compliance."
-            ),
+            "reason": ("Supplier match was reviewed and approved by compliance."),
         }
 
     # --------------------------------------------------------
@@ -272,9 +261,7 @@ def _build_compliance_response(
             "country": country,
             "cleared": True,
             "decision": "CLEAR",
-            "reason": (
-                "No sanctions or watchlist match found."
-            ),
+            "reason": ("No sanctions or watchlist match found."),
         }
 
     # --------------------------------------------------------
@@ -294,20 +281,14 @@ def _build_compliance_response(
     )
 
     if not isinstance(matched_lists, list):
-        matched_lists = [
-            str(matched_lists)
-        ]
+        matched_lists = [str(matched_lists)]
 
     # --------------------------------------------------------
     # STRONG MATCH -> BLOCK
     # --------------------------------------------------------
 
     if match_score >= INTERNAL_BLOCK_MATCH_SCORE:
-
-        sources = ", ".join(
-            str(source)
-            for source in matched_lists
-        )
+        sources = ", ".join(str(source) for source in matched_lists)
 
         reason = "Strong compliance match found"
 
@@ -333,16 +314,14 @@ def _build_compliance_response(
         "country": country,
         "cleared": False,
         "decision": "REVIEW",
-        "reason": (
-            "Potential compliance match requires "
-            "human review."
-        ),
+        "reason": ("Potential compliance match requires human review."),
     }
 
 
 # ============================================================
 # INTERNAL COMPLIANCE CHECK
 # ============================================================
+
 
 def perform_internal_compliance_check(
     db: Session,
@@ -385,7 +364,6 @@ def perform_internal_compliance_check(
     cached_result = _get_cached_result(cache_key)
 
     if cached_result is not None:
-
         _record_cache_hit()
 
         logger.info(
@@ -427,11 +405,9 @@ def perform_internal_compliance_check(
     # --------------------------------------------------------
 
     with cache_lock:
-
         cached_result = _get_cached_result(cache_key)
 
         if cached_result is not None:
-
             _record_cache_hit()
 
             logger.info(
@@ -482,14 +458,12 @@ def perform_internal_compliance_check(
         )
 
         try:
-
             result = screen_entity(
                 name=company_name,
                 country=country,
                 db=db,
                 match_threshold=INTERNAL_REVIEW_MATCH_SCORE,
             )
-
 
             response = _build_compliance_response(
                 result=result,
@@ -498,26 +472,20 @@ def perform_internal_compliance_check(
                 country=country,
             )
 
-
             _cache_result(
                 cache_key=cache_key,
                 result=response,
                 generation=generation,
             )
 
-
             completed_at = datetime.now(timezone.utc)
 
-            duration_ms = (
-                completed_at - started_at
-            ).total_seconds() * 1000
-
+            duration_ms = (completed_at - started_at).total_seconds() * 1000
 
             sla_duration_ms = record_request(
                 start_time=sla_start_time,
                 success=True,
             )
-
 
             logger.info(
                 "Internal compliance check completed: "
@@ -536,7 +504,6 @@ def perform_internal_compliance_check(
             )
 
             if duration_ms > SLA_LATENCY_THRESHOLD_MS:
-
                 logger.warning(
                     "Compliance SLA degraded: "
                     "caller=%s supplier_id=%s "
@@ -558,7 +525,6 @@ def perform_internal_compliance_check(
             return response
 
         except Exception:
-
             duration_ms = record_request(
                 start_time=sla_start_time,
                 success=False,

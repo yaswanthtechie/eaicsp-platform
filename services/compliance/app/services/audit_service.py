@@ -55,18 +55,19 @@ def _build_audit_values(
 
     risk_factors["country_risk"] = country_risk_score
 
-    matched_lists = result.get(
-        "matched_lists",
-        [],
-    ) or []
+    matched_lists = (
+        result.get(
+            "matched_lists",
+            [],
+        )
+        or []
+    )
 
     if isinstance(matched_lists, str):
         matched_lists_value = matched_lists
     else:
         matched_lists_value = ",".join(
-            str(source).strip()
-            for source in matched_lists
-            if source
+            str(source).strip() for source in matched_lists if source
         )
 
     matched = bool(
@@ -94,9 +95,7 @@ def _build_audit_values(
         "country": country,
         "matched": matched,
         "decision": decision,
-        "matched_name": result.get(
-            "matched_name"
-        ),
+        "matched_name": result.get("matched_name"),
         "matched_lists": matched_lists_value,
         "match_score": match_score,
         "risk_score": float(
@@ -106,9 +105,7 @@ def _build_audit_values(
             )
             or 0.0
         ),
-        "risk_factors": json.dumps(
-            risk_factors
-        ),
+        "risk_factors": json.dumps(risk_factors),
         "country_risk_score": country_risk_score,
         "overall_supplier_risk": float(
             result.get(
@@ -121,9 +118,7 @@ def _build_audit_values(
         "newly_flagged": newly_flagged,
         "screening_run_id": screening_run_id,
         "service_name": SERVICE_NAME,
-        "duration_ms": float(
-            duration_ms
-        ),
+        "duration_ms": float(duration_ms),
     }
 
 
@@ -145,9 +140,7 @@ def write_audit(
         screening_run_id=screening_run_id,
     )
 
-    audit = ComplianceAudit(
-        **audit_values
-    )
+    audit = ComplianceAudit(**audit_values)
 
     db.add(audit)
 
@@ -171,6 +164,7 @@ def write_bulk_audit(
     for entity_name, result in zip(
         entity_names,
         results,
+        strict=True,
     ):
         duration_ms = float(
             result.get(
@@ -189,9 +183,7 @@ def write_bulk_audit(
             screening_run_id=screening_run_id,
         )
 
-        audit = ComplianceAudit(
-            **audit_values
-        )
+        audit = ComplianceAudit(**audit_values)
 
         audits.append(audit)
 
@@ -213,16 +205,10 @@ def get_audit_history(
     return (
         db.query(ComplianceAudit)
         .filter(
-            func.lower(
-                func.trim(
-                    ComplianceAudit.entity_name
-                )
-            )
+            func.lower(func.trim(ComplianceAudit.entity_name))
             == entity_name.strip().lower()
         )
-        .order_by(
-            ComplianceAudit.created_at.desc()
-        )
+        .order_by(ComplianceAudit.created_at.desc())
         .all()
     )
 
@@ -230,21 +216,13 @@ def get_audit_history(
 def get_all_audits(
     db: Session,
 ):
-    return (
-        db.query(ComplianceAudit)
-        .order_by(
-            ComplianceAudit.created_at.desc()
-        )
-        .all()
-    )
+    return db.query(ComplianceAudit).order_by(ComplianceAudit.created_at.desc()).all()
 
 
 def delete_all_audits(
     db: Session,
 ):
-    db.query(
-        ComplianceAudit
-    ).delete()
+    db.query(ComplianceAudit).delete()
 
     db.commit()
 
@@ -267,9 +245,7 @@ def get_latest_audits(
     for record in records:
         entity_name = record.entity_name or ""
 
-        entity_key = (
-            entity_name.strip().upper()
-        )
+        entity_key = entity_name.strip().upper()
 
         if not entity_key:
             continue
@@ -284,19 +260,13 @@ def get_previously_cleared_entities(
     db: Session,
 ) -> list[ComplianceAudit]:
 
-    latest_records = get_latest_audits(
-        db
-    )
+    latest_records = get_latest_audits(db)
 
-    cleared_entities: list[
-        ComplianceAudit
-    ] = []
+    cleared_entities: list[ComplianceAudit] = []
 
     for record in latest_records.values():
         if record.matched is False:
-            cleared_entities.append(
-                record
-            )
+            cleared_entities.append(record)
 
     return cleared_entities
 
@@ -304,36 +274,18 @@ def get_previously_cleared_entities(
 def get_audit_summary(
     db: Session,
 ):
-    total_screenings = (
-        db.query(
-            func.count(
-                ComplianceAudit.id
-            )
-        )
-        .scalar()
-        or 0
-    )
+    total_screenings = db.query(func.count(ComplianceAudit.id)).scalar() or 0
 
     total_flagged = (
-        db.query(
-            func.count(
-                ComplianceAudit.id
-            )
-        )
-        .filter(
-            ComplianceAudit.matched.is_(True)
-        )
+        db.query(func.count(ComplianceAudit.id))
+        .filter(ComplianceAudit.matched.is_(True))
         .scalar()
         or 0
     )
 
     overall_flag_rate = (
         round(
-            (
-                total_flagged
-                / total_screenings
-            )
-            * 100,
+            (total_flagged / total_screenings) * 100,
             2,
         )
         if total_screenings
@@ -342,12 +294,8 @@ def get_audit_summary(
 
     daily_stats = (
         db.query(
-            func.date(
-                ComplianceAudit.created_at
-            ).label("day"),
-            func.count(
-                ComplianceAudit.id
-            ).label("total"),
+            func.date(ComplianceAudit.created_at).label("day"),
+            func.count(ComplianceAudit.id).label("total"),
             func.sum(
                 func.cast(
                     ComplianceAudit.matched,
@@ -355,16 +303,8 @@ def get_audit_summary(
                 )
             ).label("flagged"),
         )
-        .group_by(
-            func.date(
-                ComplianceAudit.created_at
-            )
-        )
-        .order_by(
-            func.date(
-                ComplianceAudit.created_at
-            )
-        )
+        .group_by(func.date(ComplianceAudit.created_at))
+        .order_by(func.date(ComplianceAudit.created_at))
         .all()
     )
 
@@ -376,11 +316,7 @@ def get_audit_summary(
 
         flag_rate = (
             round(
-                (
-                    flagged
-                    / total
-                )
-                * 100,
+                (flagged / total) * 100,
                 2,
             )
             if total
@@ -396,33 +332,18 @@ def get_audit_summary(
             }
         )
 
-    normalized_entity = (
-        func.lower(
-            func.trim(
-                ComplianceAudit.entity_name
-            )
-        )
-        .label("entity_name")
+    normalized_entity = func.lower(func.trim(ComplianceAudit.entity_name)).label(
+        "entity_name"
     )
 
     top_entities = (
         db.query(
             normalized_entity,
-            func.count(
-                ComplianceAudit.id
-            ).label("count"),
+            func.count(ComplianceAudit.id).label("count"),
         )
-        .filter(
-            ComplianceAudit.matched.is_(True)
-        )
-        .group_by(
-            normalized_entity
-        )
-        .order_by(
-            func.count(
-                ComplianceAudit.id
-            ).desc()
-        )
+        .filter(ComplianceAudit.matched.is_(True))
+        .group_by(normalized_entity)
+        .order_by(func.count(ComplianceAudit.id).desc())
         .limit(5)
         .all()
     )
@@ -436,42 +357,22 @@ def get_audit_summary(
     ]
 
     newly_flagged_count = (
-        db.query(
-            func.count(
-                ComplianceAudit.id
-            )
-        )
-        .filter(
-            ComplianceAudit.newly_flagged.is_(True)
-        )
+        db.query(func.count(ComplianceAudit.id))
+        .filter(ComplianceAudit.newly_flagged.is_(True))
         .scalar()
         or 0
     )
 
     initial_screenings = (
-        db.query(
-            func.count(
-                ComplianceAudit.id
-            )
-        )
-        .filter(
-            ComplianceAudit.screening_type
-            == "INITIAL"
-        )
+        db.query(func.count(ComplianceAudit.id))
+        .filter(ComplianceAudit.screening_type == "INITIAL")
         .scalar()
         or 0
     )
 
     rescreenings = (
-        db.query(
-            func.count(
-                ComplianceAudit.id
-            )
-        )
-        .filter(
-            ComplianceAudit.screening_type
-            == "RESCREEN"
-        )
+        db.query(func.count(ComplianceAudit.id))
+        .filter(ComplianceAudit.screening_type == "RESCREEN")
         .scalar()
         or 0
     )
@@ -479,9 +380,7 @@ def get_audit_summary(
     country_stats = (
         db.query(
             ComplianceAudit.country,
-            func.count(
-                ComplianceAudit.id
-            ).label("screenings"),
+            func.count(ComplianceAudit.id).label("screenings"),
             func.sum(
                 func.cast(
                     ComplianceAudit.matched,
@@ -489,17 +388,9 @@ def get_audit_summary(
                 )
             ).label("flagged"),
         )
-        .filter(
-            ComplianceAudit.country.isnot(None)
-        )
-        .group_by(
-            ComplianceAudit.country
-        )
-        .order_by(
-            func.count(
-                ComplianceAudit.id
-            ).desc()
-        )
+        .filter(ComplianceAudit.country.isnot(None))
+        .group_by(ComplianceAudit.country)
+        .order_by(func.count(ComplianceAudit.id).desc())
         .all()
     )
 
@@ -511,11 +402,7 @@ def get_audit_summary(
 
         flag_rate = (
             round(
-                (
-                    flagged
-                    / total
-                )
-                * 100,
+                (flagged / total) * 100,
                 2,
             )
             if total
@@ -539,7 +426,6 @@ def get_audit_summary(
         "initial_screenings": initial_screenings,
         "rescreenings": rescreenings,
         "flag_rate_over_time": flag_rate_over_time,
-        "most_frequently_flagged_entities":
-            most_frequently_flagged_entities,
+        "most_frequently_flagged_entities": most_frequently_flagged_entities,
         "country_summary": country_summary,
     }

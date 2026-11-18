@@ -4,9 +4,7 @@ from app.models.compliance_override import ComplianceOverride
 
 
 def normalize_override_name(entity_name: str) -> str:
-    return " ".join(
-        entity_name.strip().upper().split()
-    )
+    return " ".join(entity_name.strip().upper().split())
 
 
 def normalize_source(source: str) -> str:
@@ -21,29 +19,18 @@ def create_override(
     reason: str,
     reviewed_by: str,
 ):
-    normalized_entity = normalize_override_name(
-        entity_name
-    )
+    normalized_entity = normalize_override_name(entity_name)
 
-    normalized_match = normalize_override_name(
-        matched_name
-    )
+    normalized_match = normalize_override_name(matched_name)
 
-    normalized_source = normalize_source(
-        source
-    )
+    normalized_source = normalize_source(source)
 
     existing = (
         db.query(ComplianceOverride)
         .filter(
-            ComplianceOverride.entity_name
-            == normalized_entity,
-
-            ComplianceOverride.matched_name
-            == normalized_match,
-
-            ComplianceOverride.source
-            == normalized_source,
+            ComplianceOverride.entity_name == normalized_entity,
+            ComplianceOverride.matched_name == normalized_match,
+            ComplianceOverride.source == normalized_source,
         )
         .first()
     )
@@ -78,29 +65,18 @@ def get_override(
     matched_name: str,
     source: str,
 ):
-    normalized_entity = normalize_override_name(
-        entity_name
-    )
+    normalized_entity = normalize_override_name(entity_name)
 
-    normalized_match = normalize_override_name(
-        matched_name
-    )
+    normalized_match = normalize_override_name(matched_name)
 
-    normalized_source = normalize_source(
-        source
-    )
+    normalized_source = normalize_source(source)
 
     return (
         db.query(ComplianceOverride)
         .filter(
-            ComplianceOverride.entity_name
-            == normalized_entity,
-
-            ComplianceOverride.matched_name
-            == normalized_match,
-
-            ComplianceOverride.source
-            == normalized_source,
+            ComplianceOverride.entity_name == normalized_entity,
+            ComplianceOverride.matched_name == normalized_match,
+            ComplianceOverride.source == normalized_source,
         )
         .first()
     )
@@ -111,9 +87,7 @@ def get_all_overrides(
 ):
     return (
         db.query(ComplianceOverride)
-        .order_by(
-            ComplianceOverride.created_at.desc()
-        )
+        .order_by(ComplianceOverride.created_at.desc())
         .all()
     )
 

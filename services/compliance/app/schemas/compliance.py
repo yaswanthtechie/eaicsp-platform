@@ -1,4 +1,3 @@
-
 from datetime import datetime
 from typing import Literal
 
@@ -11,7 +10,6 @@ from pydantic import (
 
 
 class ComplianceRequest(BaseModel):
-
     entity_name: str = Field(
         ...,
         min_length=1,
@@ -49,9 +47,7 @@ class ComplianceRequest(BaseModel):
         value: str,
     ) -> str:
         if not value.strip():
-            raise ValueError(
-                "entity_name must not be blank"
-            )
+            raise ValueError("entity_name must not be blank")
 
         return value
 
@@ -62,15 +58,12 @@ class ComplianceRequest(BaseModel):
         value: str,
     ) -> str:
         if not value.strip():
-            raise ValueError(
-                "country must not be blank"
-            )
+            raise ValueError("country must not be blank")
 
         return value
 
 
 class RiskFactors(BaseModel):
-
     match_confidence: float
 
     source_coverage: float
@@ -79,7 +72,6 @@ class RiskFactors(BaseModel):
 
 
 class ComplianceResponse(BaseModel):
-
     entity_name: str | None
 
     entity_type: str
@@ -135,15 +127,18 @@ class ComplianceResponse(BaseModel):
 
     case_number: str | None = None
 
-    case_status: Literal[
-        "OPEN",
-        "UNDER_REVIEW",
-        "CLEARED",
-        "CONFIRMED",
-    ] | None = None
+    case_status: (
+        Literal[
+            "OPEN",
+            "UNDER_REVIEW",
+            "CLEARED",
+            "CONFIRMED",
+        ]
+        | None
+    ) = None
+
 
 class CaseResponse(BaseModel):
-
     id: int
 
     case_number: str
@@ -187,14 +182,14 @@ class CaseResponse(BaseModel):
 
     updated_at: datetime
 
-class CaseListResponse(BaseModel):
 
+class CaseListResponse(BaseModel):
     cases: list[CaseResponse]
 
     count: int
 
-class BulkComplianceRequest(BaseModel):
 
+class BulkComplianceRequest(BaseModel):
     entity_names: list[str] = Field(
         ...,
         min_length=1,
@@ -225,7 +220,6 @@ class BulkComplianceRequest(BaseModel):
 
 
 class BulkComplianceResponse(BaseModel):
-
     entity_type: str
 
     country: str
@@ -238,7 +232,6 @@ class BulkComplianceResponse(BaseModel):
 
 
 class FlagRatePoint(BaseModel):
-
     date: str
 
     total: int
@@ -249,14 +242,12 @@ class FlagRatePoint(BaseModel):
 
 
 class TopFlaggedEntity(BaseModel):
-
     entity_name: str
 
     count: int
 
 
 class AuditSummaryResponse(BaseModel):
-
     total_screenings: int
 
     total_flagged: int
@@ -265,13 +256,10 @@ class AuditSummaryResponse(BaseModel):
 
     flag_rate_over_time: list[FlagRatePoint]
 
-    most_frequently_flagged_entities: list[
-        TopFlaggedEntity
-    ]
+    most_frequently_flagged_entities: list[TopFlaggedEntity]
 
 
 class OverrideCreateRequest(BaseModel):
-
     entity_name: str = Field(
         ...,
         min_length=1,
@@ -300,9 +288,7 @@ class OverrideCreateRequest(BaseModel):
         ...,
         min_length=1,
         json_schema_extra={
-            "example": (
-                "Reviewed and confirmed as a different company"
-            ),
+            "example": ("Reviewed and confirmed as a different company"),
         },
     )
 
@@ -327,15 +313,12 @@ class OverrideCreateRequest(BaseModel):
         value: str,
     ) -> str:
         if not value.strip():
-            raise ValueError(
-                "Value must not be blank"
-            )
+            raise ValueError("Value must not be blank")
 
         return value
 
 
 class OverrideResponse(BaseModel):
-
     id: int
 
     entity_name: str
@@ -358,8 +341,8 @@ class ComplianceSummaryResponse(BaseModel):
     open_cases: int
     average_resolution_time_hours: float
 
-class InternalComplianceRequest(BaseModel):
 
+class InternalComplianceRequest(BaseModel):
     supplier_id: str = Field(
         ...,
         min_length=1,
@@ -405,9 +388,8 @@ class InternalComplianceRequest(BaseModel):
 
         return value
 
-    
-class InternalComplianceResponse(BaseModel):
 
+class InternalComplianceResponse(BaseModel):
     supplier_id: str
 
     company_name: str

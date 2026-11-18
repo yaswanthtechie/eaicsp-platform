@@ -1,6 +1,6 @@
-from unittest.mock import patch
 import time
 from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
 
 from app.core.database import SessionLocal
 from app.services.internal_compliance_service import (
@@ -247,15 +247,9 @@ def test_concurrent_same_supplier_check_runs_screening_once():
                 )
 
             with ThreadPoolExecutor(max_workers=5) as executor:
-                futures = [
-                    executor.submit(make_request)
-                    for _ in range(5)
-                ]
+                futures = [executor.submit(make_request) for _ in range(5)]
 
-                results = [
-                    future.result()
-                    for future in futures
-                ]
+                results = [future.result() for future in futures]
 
         assert len(results) == 5
 

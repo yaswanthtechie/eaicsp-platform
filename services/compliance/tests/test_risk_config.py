@@ -1,24 +1,19 @@
-
 import pytest
 
 import app.services.risk_score_service as risk_service
 from app.core.config import (
     CONFIDENCE_WEIGHT,
-    SOURCE_WEIGHT,
+    COUNTRY_RISK_INDEX,
+    COUNTRY_RISK_WEIGHT,
     RECENCY_WEIGHT,
     SANCTIONS_WEIGHT,
-    COUNTRY_RISK_WEIGHT,
-    COUNTRY_RISK_INDEX,
+    SOURCE_WEIGHT,
     UNKNOWN_COUNTRY_RISK,
 )
 
 
 def test_risk_weights_sum_to_one():
-    total = (
-        CONFIDENCE_WEIGHT
-        + SOURCE_WEIGHT
-        + RECENCY_WEIGHT
-    )
+    total = CONFIDENCE_WEIGHT + SOURCE_WEIGHT + RECENCY_WEIGHT
 
     assert total == pytest.approx(1.0)
 
@@ -35,9 +30,7 @@ def test_risk_score_uses_configured_weights():
     )
 
     confidence_score = 80.0
-    source_score = (
-        2 / risk_service.TOTAL_SOURCES
-    ) * 100
+    source_score = (2 / risk_service.TOTAL_SOURCES) * 100
 
     recency_score = result["risk_factors"]["recency"]
 
@@ -91,9 +84,7 @@ def test_risk_score_changes_when_configured_weights_change(
         listed_date=None,
     )
 
-    assert changed_result["risk_score"] != (
-        original_result["risk_score"]
-    )
+    assert changed_result["risk_score"] != (original_result["risk_score"])
 
 
 def test_risk_score_respects_zero_weight(
@@ -123,13 +114,7 @@ def test_risk_score_respects_zero_weight(
         listed_date=None,
     )
 
-    expected = round(
-        (
-            1
-            / risk_service.TOTAL_SOURCES
-        )
-        * 100
-    )
+    expected = round((1 / risk_service.TOTAL_SOURCES) * 100)
 
     assert result["risk_score"] == expected
 
@@ -165,71 +150,42 @@ def test_risk_score_respects_custom_weight_combination(
         listed_date=None,
     )
 
-    source_score = (
-        2 / risk_service.TOTAL_SOURCES
-    ) * 100
+    source_score = (2 / risk_service.TOTAL_SOURCES) * 100
 
     expected = round(
-        80 * confidence_weight
-        + source_score * source_weight
-        + 50 * recency_weight
+        80 * confidence_weight + source_score * source_weight + 50 * recency_weight
     )
 
     assert result["risk_score"] == expected
 
 
 def test_country_risk_uses_configured_values():
-    india_result = risk_service.calculate_country_risk(
-        "INDIA"
-    )
+    india_result = risk_service.calculate_country_risk("INDIA")
 
-    iran_result = risk_service.calculate_country_risk(
-        "IRAN"
-    )
+    iran_result = risk_service.calculate_country_risk("IRAN")
 
     assert india_result == COUNTRY_RISK_INDEX["INDIA"]
     assert iran_result == COUNTRY_RISK_INDEX["IRAN"]
 
 
 def test_country_risk_is_case_insensitive():
-    assert (
-        risk_service.calculate_country_risk(
-            "india"
-        )
-        == COUNTRY_RISK_INDEX["INDIA"]
-    )
+    assert risk_service.calculate_country_risk("india") == COUNTRY_RISK_INDEX["INDIA"]
 
-    assert (
-        risk_service.calculate_country_risk(
-            " India "
-        )
-        == COUNTRY_RISK_INDEX["INDIA"]
-    )
+    assert risk_service.calculate_country_risk(" India ") == COUNTRY_RISK_INDEX["INDIA"]
 
 
 def test_unknown_country_uses_configured_default():
-    result = risk_service.calculate_country_risk(
-        "UNKNOWN COUNTRY"
-    )
+    result = risk_service.calculate_country_risk("UNKNOWN COUNTRY")
 
     assert result == UNKNOWN_COUNTRY_RISK
 
 
 def test_empty_country_uses_configured_default():
-    assert (
-        risk_service.calculate_country_risk(None)
-        == UNKNOWN_COUNTRY_RISK
-    )
+    assert risk_service.calculate_country_risk(None) == UNKNOWN_COUNTRY_RISK
 
-    assert (
-        risk_service.calculate_country_risk("")
-        == UNKNOWN_COUNTRY_RISK
-    )
+    assert risk_service.calculate_country_risk("") == UNKNOWN_COUNTRY_RISK
 
-    assert (
-        risk_service.calculate_country_risk("   ")
-        == UNKNOWN_COUNTRY_RISK
-    )
+    assert risk_service.calculate_country_risk("   ") == UNKNOWN_COUNTRY_RISK
 
 
 def test_overall_supplier_risk_uses_configured_weights():
@@ -237,8 +193,7 @@ def test_overall_supplier_risk_uses_configured_weights():
     country_risk_score = 60.0
 
     expected = round(
-        sanctions_score * SANCTIONS_WEIGHT
-        + country_risk_score * COUNTRY_RISK_WEIGHT,
+        sanctions_score * SANCTIONS_WEIGHT + country_risk_score * COUNTRY_RISK_WEIGHT,
         2,
     )
 
@@ -253,11 +208,9 @@ def test_overall_supplier_risk_uses_configured_weights():
 def test_overall_supplier_risk_changes_when_weights_change(
     monkeypatch,
 ):
-    original_result = (
-        risk_service.calculate_overall_supplier_risk(
-            sanctions_score=80.0,
-            country_risk_score=60.0,
-        )
+    original_result = risk_service.calculate_overall_supplier_risk(
+        sanctions_score=80.0,
+        country_risk_score=60.0,
     )
 
     monkeypatch.setattr(
@@ -272,11 +225,9 @@ def test_overall_supplier_risk_changes_when_weights_change(
         0.40,
     )
 
-    changed_result = (
-        risk_service.calculate_overall_supplier_risk(
-            sanctions_score=80.0,
-            country_risk_score=60.0,
-        )
+    changed_result = risk_service.calculate_overall_supplier_risk(
+        sanctions_score=80.0,
+        country_risk_score=60.0,
     )
 
     assert changed_result != original_result
@@ -297,31 +248,24 @@ def test_overall_supplier_risk_respects_zero_weight(
         0.0,
     )
 
-    result = (
-        risk_service.calculate_overall_supplier_risk(
-            sanctions_score=80.0,
-            country_risk_score=100.0,
-        )
+    result = risk_service.calculate_overall_supplier_risk(
+        sanctions_score=80.0,
+        country_risk_score=100.0,
     )
 
     assert result == 80.0
 
 
 def test_overall_supplier_risk_is_bounded():
-    low_result = (
-        risk_service.calculate_overall_supplier_risk(
-            sanctions_score=-10.0,
-            country_risk_score=-20.0,
-        )
+    low_result = risk_service.calculate_overall_supplier_risk(
+        sanctions_score=-10.0,
+        country_risk_score=-20.0,
     )
 
-    high_result = (
-        risk_service.calculate_overall_supplier_risk(
-            sanctions_score=150.0,
-            country_risk_score=200.0,
-        )
+    high_result = risk_service.calculate_overall_supplier_risk(
+        sanctions_score=150.0,
+        country_risk_score=200.0,
     )
 
     assert low_result == 0.0
     assert high_result == 100.0
-

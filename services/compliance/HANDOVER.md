@@ -251,7 +251,6 @@ response = httpx.post(
 
 print("Status:", response.status_code)
 print("Response:", response.json())
-
 ```
 
 Expected verification:

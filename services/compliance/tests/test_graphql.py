@@ -93,9 +93,7 @@ def test_graphql_without_token_returns_401(client):
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == (
-        "Missing authentication token"
-    )
+    assert response.json()["detail"] == ("Missing authentication token")
 
 
 def test_graphql_wrong_role_returns_403(
@@ -123,8 +121,7 @@ def test_graphql_wrong_role_returns_403(
 
     assert response.status_code == 403
     assert response.json()["detail"] == (
-        "Role 'procurement_manager' "
-        "is not authorized for this endpoint"
+        "Role 'procurement_manager' is not authorized for this endpoint"
     )
 
 
@@ -317,6 +314,7 @@ def test_graphql_screening_filters_and_pagination(
     assert screenings["items"][0]["country"] == "India"
     assert screenings["items"][0]["status"] == "CLEAR"
 
+
 def test_graphql_analyst_is_rejected(client, fake_platform):
     fake_platform(
         status_code=200,
@@ -370,7 +368,7 @@ def test_graphql_review_filter_returns_review_screenings(client, fake_platform):
         headers=_authorization_header(),
         json={
             "query": "{ screenings(status: REVIEW) "
-                     "{ total items { entityName status } } }"
+            "{ total items { entityName status } } }"
         },
     )
 

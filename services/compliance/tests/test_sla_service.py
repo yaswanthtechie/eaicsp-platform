@@ -106,6 +106,7 @@ def test_sla_status_endpoint(
     assert "max_latency_ms" in data
     assert "status" in data
 
+
 def test_sla_status_requires_auth(client):
     response = client.get("/api/v1/compliance/sla")
     assert response.status_code == 401

@@ -1,20 +1,25 @@
 from __future__ import annotations
+
 import json
 import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any
+
 from confluent_kafka import Producer
+
 from app.core.config import (
     KAFKA_BOOTSTRAP_SERVERS,
     KAFKA_FLUSH_TIMEOUT_SECONDS,
     SERVICE_NAME,
 )
+
 logger = logging.getLogger(__name__)
 EVENT_TYPE = "compliance.supplier.status_changed"
 EVENT_VERSION = 1
 TOPIC = EVENT_TYPE
 _producer: Producer | None = None
+
 
 def get_kafka_producer() -> Producer:
     global _producer
@@ -45,9 +50,7 @@ def build_supplier_status_changed_event(
         "event_id": str(uuid.uuid4()),
         "event_type": EVENT_TYPE,
         "event_version": EVENT_VERSION,
-        "occurred_at": datetime.now(
-            timezone.utc
-        ).isoformat(),
+        "occurred_at": datetime.now(timezone.utc).isoformat(),
         "producer": SERVICE_NAME,
         "payload": {
             "supplier_name": supplier_name,
@@ -91,9 +94,7 @@ def publish_supplier_status_changed(
             msg,
         ) -> None:
             if err is not None:
-                delivery_errors.append(
-                    str(err)
-                )
+                delivery_errors.append(str(err))
 
         producer.produce(
             TOPIC,
@@ -102,9 +103,7 @@ def publish_supplier_status_changed(
             callback=delivery_callback,
         )
 
-        remaining = producer.flush(
-            KAFKA_FLUSH_TIMEOUT_SECONDS
-        )
+        remaining = producer.flush(KAFKA_FLUSH_TIMEOUT_SECONDS)
 
         if delivery_errors or remaining:
             logger.error(
@@ -122,4 +121,3 @@ def publish_supplier_status_changed(
             EVENT_TYPE,
         )
         return False
-

@@ -28,9 +28,7 @@ EU_XML_PATH = DOWNLOAD_DIR / "eu.xml"
 
 FIXTURE_DIR = DATA_DIR / "fixtures"
 
-INTERNAL_WATCHLIST_PATH = (
-    DATA_DIR / "internal_watchlist.csv"
-)
+INTERNAL_WATCHLIST_PATH = DATA_DIR / "internal_watchlist.csv"
 
 PEP_CSV_PATH = DATA_DIR / "pep.csv"
 
@@ -41,22 +39,13 @@ TOTAL_SOURCES = int(
     )
 )
 
-OFAC_FIXTURE_PATH = (
-    FIXTURE_DIR / "ofac_sample.csv"
-)
+OFAC_FIXTURE_PATH = FIXTURE_DIR / "ofac_sample.csv"
 
-UN_FIXTURE_PATH = (
-    FIXTURE_DIR / "un_sample.xml"
-)
+UN_FIXTURE_PATH = FIXTURE_DIR / "un_sample.xml"
 
-EU_FIXTURE_PATH = (
-    FIXTURE_DIR / "eu_sample.xml"
-)
+EU_FIXTURE_PATH = FIXTURE_DIR / "eu_sample.xml"
 
-SNAPSHOT_FILE = (
-    SNAPSHOT_DIR
-    / "previous_sanctions.json"
-)
+SNAPSHOT_FILE = SNAPSHOT_DIR / "previous_sanctions.json"
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
@@ -202,10 +191,12 @@ PLATFORM_VERIFY_TIMEOUT_SECONDS = float(
 )
 # Services allowed to call POST /internal-check.
 # These must match the service names registered in Platform.
-INTERNAL_CHECK_ALLOWED_CALLERS = frozenset({
-    "inventory",
-    "supplier-portal",
-})
+INTERNAL_CHECK_ALLOWED_CALLERS = frozenset(
+    {
+        "inventory",
+        "supplier-portal",
+    }
+)
 PLATFORM_SERVICE_API_KEY = os.getenv(
     "PLATFORM_SERVICE_API_KEY",
 )
@@ -284,8 +275,7 @@ OFAC_DOWNLOAD_URL = os.getenv(
 
 UN_DOWNLOAD_URL = os.getenv(
     "UN_DOWNLOAD_URL",
-    "https://scsanctions.un.org/"
-    "resources/xml/en/consolidated.xml",
+    "https://scsanctions.un.org/resources/xml/en/consolidated.xml",
 )
 
 EU_DOWNLOAD_URL = os.getenv(
@@ -294,11 +284,13 @@ EU_DOWNLOAD_URL = os.getenv(
 )
 
 
-
-USE_FIXTURES = os.getenv(
-    "USE_FIXTURES",
-    "false",
-).lower() == "true"
+USE_FIXTURES = (
+    os.getenv(
+        "USE_FIXTURES",
+        "false",
+    ).lower()
+    == "true"
+)
 
 KAFKA_BOOTSTRAP_SERVERS = os.getenv(
     "KAFKA_BOOTSTRAP_SERVERS",
