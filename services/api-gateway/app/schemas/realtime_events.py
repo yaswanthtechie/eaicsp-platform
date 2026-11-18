@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
@@ -122,31 +122,17 @@ class EtaShipmentPredictedPayload(BaseModel):
 
 
 class SalesAnomalyDetectedPayload(BaseModel):
+    """Payload of contracts/events/anomaly.sales.detected.v1.json (all fields required)."""
+
     model_config = ConfigDict(extra="ignore")
 
-    severity: str
-    sku_id: Optional[str] = None
-    product: Optional[str] = None
-    warehouse_id: Optional[str] = None
-    warehouse: Optional[str] = None
-    date: Optional[str] = None
-    quantity: Optional[float] = None
-    expected: Optional[float] = None
-    scale: Optional[float] = None
-    score: Optional[float] = None
-    direction: Optional[str] = None
-    is_anomaly: Optional[bool] = None
-    run_start: Optional[bool] = None
-    reason: Optional[str] = None
-    message: Optional[str] = None
-
-    @field_validator("severity")
-    @classmethod
-    def validate_severity(cls, v: str) -> str:
-        clean = v.strip().lower()
-        if clean not in {"low", "medium", "high"}:
-            raise ValueError(f"Invalid severity '{v}', must be one of low, medium, high")
-        return clean
+    sku_id: str = Field(..., pattern=SKU_ID_PATTERN)
+    warehouse_id: str = Field(..., pattern=WAREHOUSE_ID_PATTERN)
+    date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
+    expected_quantity: float = Field(..., ge=0)
+    actual_quantity: float = Field(..., ge=0)
+    score: float
+    severity: Literal["high", "medium", "low"]
 
 
 class ForecastBatchCompletedPayload(BaseModel):

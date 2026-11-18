@@ -93,10 +93,12 @@ def _resolve_eta_severity(payload: Dict[str, Any]) -> SeverityLevel:
     - predicted_delay_days >= 4 -> 'critical'
     - 1 <= predicted_delay_days < 4 -> 'warning'
     - predicted_delay_days <= 0 -> 'info'
-    - missing field / invalid -> 'info'
+    - missing field / invalid / boolean -> 'info'
     """
     raw_delay = payload.get("predicted_delay_days")
-    if raw_delay is None:
+
+    # bool is a subclass of int in Python: never read True as a 1-day delay.
+    if raw_delay is None or isinstance(raw_delay, bool):
         return SEVERITY_INFO
     try:
         delay = float(raw_delay)

@@ -257,12 +257,26 @@ class TestEtaSeverity:
         }
         assert resolve_severity("eta.shipment.predicted", payload) == SEVERITY_INFO
 
+    def test_eta_boolean_delay_is_not_a_delay(self):
+        """bool is a subclass of int in Python: True/False must not be treated as delays."""
+        payload = {"shipment_id": "SHP-2026-000077", "predicted_delay_days": True}
+        assert resolve_severity("eta.shipment.predicted", payload) == SEVERITY_INFO
+        payload_false = {"shipment_id": "SHP-2026-000077", "predicted_delay_days": False}
+        assert resolve_severity("eta.shipment.predicted", payload_false) == SEVERITY_INFO
+
     def test_eta_payload_not_mutated(self):
         """Severity resolver must not mutate ETA payload."""
         payload = {"shipment_id": "SHP-2026-000077", "predicted_delay_days": 4.5}
         orig = dict(payload)
         resolve_severity("eta.shipment.predicted", payload)
         assert payload == orig
+
+
+def test_eta_boolean_delay_is_not_a_delay():
+    payload = {"shipment_id": "SHP-2026-000077", "predicted_delay_days": True}
+    assert resolve_severity("eta.shipment.predicted", payload) == SEVERITY_INFO
+    payload_false = {"shipment_id": "SHP-2026-000077", "predicted_delay_days": False}
+    assert resolve_severity("eta.shipment.predicted", payload_false) == SEVERITY_INFO
 
 
 # ---------------------------------------------------------------------------
@@ -276,8 +290,11 @@ class TestSalesAnomalySeverity:
         payload = {
             "sku_id": "SKU-000123",
             "warehouse_id": "WH-BLR-01",
+            "date": "2026-11-14",
+            "expected_quantity": 52.0,
+            "actual_quantity": 214.0,
+            "score": 8.2,
             "severity": sev,
-            "quantity": 250,
         }
         assert resolve_severity("anomaly.sales.detected", payload) == SEVERITY_CRITICAL
 
@@ -287,8 +304,11 @@ class TestSalesAnomalySeverity:
         payload = {
             "sku_id": "SKU-000123",
             "warehouse_id": "WH-BLR-01",
+            "date": "2026-11-14",
+            "expected_quantity": 52.0,
+            "actual_quantity": 100.0,
+            "score": 4.5,
             "severity": sev,
-            "quantity": 100,
         }
         assert resolve_severity("anomaly.sales.detected", payload) == SEVERITY_WARNING
 
@@ -298,8 +318,11 @@ class TestSalesAnomalySeverity:
         payload = {
             "sku_id": "SKU-000123",
             "warehouse_id": "WH-BLR-01",
+            "date": "2026-11-14",
+            "expected_quantity": 52.0,
+            "actual_quantity": 55.0,
+            "score": 1.2,
             "severity": sev,
-            "quantity": 55,
         }
         assert resolve_severity("anomaly.sales.detected", payload) == SEVERITY_INFO
 

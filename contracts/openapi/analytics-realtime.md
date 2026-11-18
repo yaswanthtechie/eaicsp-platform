@@ -336,7 +336,7 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 | `confidence_high` | `number` | **Yes** | Upper bound (days) | Upper 80% prediction interval bound in days from dispatched_at (e.g. `7.3`). |
 | `model_version` | `string` | **Yes** | Model release tag | MLflow registered model name and version, e.g. `eta_pipeline/3`. |
 | `predicted_at` | `string` | **Yes** | UTC ISO-8601 | UTC date-time when prediction inference executed. |
-| `predicted_delay_days` | `number` | *No* | Days of delay | Predicted delay beyond scheduled delivery date in calendar days (e.g. `4.2`). Negative values indicate early arrival. |
+| `predicted_delay_days` | `integer` | *No* | Days of delay | Predicted delay beyond scheduled delivery date in calendar days (e.g. `4`). Negative values indicate early arrival. (added by #371) |
 | `top_features` | `array[object]` | *No* | SHAP explanations | Optional list of up to 5 `{feature, shap_value}` objects explaining prediction. |
 
 #### Realistic JSON Example
@@ -355,7 +355,7 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
     "eta_days": 8.5,
     "confidence_low": 6.8,
     "confidence_high": 10.4,
-    "predicted_delay_days": 4.2,
+    "predicted_delay_days": 4,
     "model_version": "eta_pipeline/3",
     "predicted_at": "2026-10-15T06:31:04Z",
     "top_features": [
@@ -489,52 +489,44 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 
 ### 4.7 Event 7: `anomaly.sales.detected`
 
-- **Producer:** `anomaly-detection-service` (Sales Anomaly Detector / Pod 2, Issue #327)
-- **Status:** **Confirmed in repository** (`ml-services/anomaly-detection/src/sales_anomaly.py`)
-- **Trigger:** Published when the seasonal-naive sales anomaly detector identifies an unusual daily sales spike or drop for a product and warehouse relative to its same-weekday historical baseline.
-- **Routing Key:** `{sku_id}` or `{warehouse_id}`
+- **Producer:** `anomaly-detection-service` (Pod 2, Issue #327)
+- **Contract:** `contracts/events/anomaly.sales.detected.v1.json`
+- **Example:** `contracts/events/examples/anomaly.sales.detected.v1.json`
+- **Status:** **Confirmed in repository** (`ml-services/anomaly-detection/src/sales_anomaly_events.py`)
+- **Trigger:** One event per new sales anomaly incident (an unusual daily spike or drop for one product at one warehouse). `date` is the first day of the incident.
+- **Routing Key:** `{sku_id}|{warehouse_id}`
 - **Dedup key:** `event_id`
 
 #### Payload Fields
 
 | Field Name | Type | Required | Units / Meaning | Description |
 |:---|:---|:---|:---|:---|
-| `severity` | `string` | **Yes** | Severity Level | Anomaly severity level decided by detector: `high`, `medium`, or `low`. |
-| `sku_id` | `string` | *No* | Canonical SKU ID | SKU identifier (e.g. `SKU-000123`). |
-| `warehouse_id` | `string` | *No* | Canonical Warehouse ID | Warehouse identifier (e.g. `WH-BLR-01`). |
-| `date` | `string` | *No* | Date (YYYY-MM-DD) | Date on which the sales anomaly occurred. |
-| `quantity` | `number` | *No* | Unit count | Observed daily quantity sold. |
-| `expected` | `number` | *No* | Unit count | Expected seasonal baseline sales quantity. |
-| `scale` | `number` | *No* | Dispersion scale | Estimated noise scale / dispersion. |
-| `score` | `number` | *No* | Z-Score | Robust z-score metric. |
-| `direction` | `string` | *No* | Direction | Direction of the anomaly: `"spike"` or `"drop"`. |
-| `is_anomaly` | `boolean` | *No* | Boolean flag | Indicates detected anomaly (`true`). |
-| `run_start` | `boolean` | *No* | Incident starter | `true` on the first day of an anomaly incident run. |
-| `reason` | `string` | *No* | Human summary | Explanation of anomaly (e.g. `"sold 250 vs expected 45 (spike: z=17.08 >= 4.0)"`). |
+| `sku_id` | `string` | **Yes** | Canonical SKU ID | e.g. `SKU-000123` |
+| `warehouse_id` | `string` | **Yes** | Canonical Warehouse ID | e.g. `WH-BLR-01` |
+| `date` | `string` | **Yes** | Date (YYYY-MM-DD) | First day of the anomaly incident |
+| `expected_quantity` | `number` | **Yes** | Units, >= 0 | Expected daily sales from the seasonal baseline |
+| `actual_quantity` | `number` | **Yes** | Units, >= 0 | Units actually sold that day |
+| `score` | `number` | **Yes** | Robust z-score | Size of the deviation |
+| `severity` | `string` | **Yes** | `high`, `medium` or `low` | Producer severity; the BFF maps it to the top-level severity |
 
 #### Realistic JSON Example
 
 ```json
 {
-  "event_id": "7d9b23f1-4c5a-4e89-a1b2-3c4d5e6f7a8b",
+  "event_id": "7c1e4a52-6d3b-4f08-a9e1-2b5d8c0f4e17",
   "event_type": "anomaly.sales.detected",
   "event_version": 1,
-  "occurred_at": "2026-10-15T11:00:00Z",
+  "occurred_at": "2026-11-17T03:20:41.205318+00:00",
   "producer": "anomaly-detection-service",
-  "severity": "critical",
+  "severity": "warning",
   "payload": {
     "sku_id": "SKU-000123",
     "warehouse_id": "WH-BLR-01",
-    "date": "2026-10-15",
-    "quantity": 250,
-    "expected": 45,
-    "scale": 12.0,
-    "score": 17.08,
-    "severity": "high",
-    "direction": "spike",
-    "is_anomaly": true,
-    "run_start": true,
-    "reason": "sold 250 vs expected 45 (spike: z=17.08 >= 4.0)"
+    "date": "2026-11-14",
+    "expected_quantity": 52.0,
+    "actual_quantity": 214.0,
+    "score": 8.2,
+    "severity": "medium"
   }
 }
 ```
@@ -610,7 +602,7 @@ The BFF consumer pipeline evaluates each valid, deduplicated event and applies t
 | `eta.shipment.predicted` | ETA Prediction | **Producer contract** | `contracts/events/eta.shipment.predicted.v1.json` (PR #270), delay severity added in Issue #351 |
 | `forecast.batch.completed` | Demand Forecast | **Proposed Event Shape** | Serving API proposed in PR #241; Issue #228 (Uday) |
 | `data.pipeline.completed` | ETL Pipeline | **Confirmed** | Outbox publisher in `data-platform/etl/etl/src/kafka_events.py` |
-| `anomaly.sales.detected` | Anomaly Detection | **Confirmed** | Sales anomaly detector in `ml-services/anomaly-detection/src/sales_anomaly.py` (Issue #327, #351) |
+| `anomaly.sales.detected` | Anomaly Detection | **Confirmed** | Producer in `ml-services/anomaly-detection/src/sales_anomaly_events.py` (Issue #327, #351) |
 
 ---
 
