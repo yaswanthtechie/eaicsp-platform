@@ -511,6 +511,8 @@ def test_sanctions_refreshed_before_rescreen(monkeypatch):
 
 
 def test_nightly_rescreen_job(monkeypatch):
+    from app.jobs import rescreen_job
+
     expected = {
         "total_checked": 10,
         "newly_flagged": 2,
@@ -535,7 +537,7 @@ def test_nightly_rescreen_job(monkeypatch):
         lambda: expected,
     )
 
-    result = rescreen_service.nightly_rescreen_job()
+    result = rescreen_job.nightly_rescreen_job()
 
     assert result == expected
 
