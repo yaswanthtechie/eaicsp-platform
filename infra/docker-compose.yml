@@ -12,7 +12,7 @@ services:
       LOGISTICS_DB_PASSWORD: ${LOGISTICS_DB_PASSWORD}
       MLFLOW_DB_PASSWORD: ${MLFLOW_DB_PASSWORD}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init-schemas.sh:/docker-entrypoint-initdb.d/10-init-schemas.sh:ro
