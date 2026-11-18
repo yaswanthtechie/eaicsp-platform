@@ -283,7 +283,10 @@ components:
             - 'Recent incident occurred 15 days ago'
             - 'On-time delivery rate is 94.5%'
         client_risk_features:
-          $ref: '#/components/schemas/ClientRiskFeatures'
+          description: Client-based risk features; null when the supplier has no client data.
+          oneOf:
+            - $ref: '#/components/schemas/ClientRiskFeatures'
+            - type: 'null'
 
     RiskFactor:
       type: object

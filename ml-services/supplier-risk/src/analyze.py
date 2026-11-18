@@ -1069,8 +1069,12 @@ def compute_canonical_supplier_risk_score(
 
     has_client_data = bool(client_master or client_incidents)
 
+    # A score for a past as_of_date is never read from or written to the cache:
+    # the cache holds the current score only.
+    use_cache = as_of_date is None
+
     # 2. Check if MongoDB has an existing fresh persisted assessment
-    saved_doc = fetch_risk_assessment(supplier_id)
+    saved_doc = fetch_risk_assessment(supplier_id) if use_cache else None
     if saved_doc and _is_fresh(saved_doc.get("computed_at")):
         cached_has_client_fields = (
             "client_risk_features" in saved_doc
@@ -1179,7 +1183,8 @@ def compute_canonical_supplier_risk_score(
             top_reasons=top_reasons,
             client_risk_features=client_features,
         )
-        _save_assessment(supplier_id, supplier_name, response)
+        if use_cache:
+            _save_assessment(supplier_id, supplier_name, response)
         return response
 
     # 5. Adverse news headlines filed under the seed name or any reviewed alias
@@ -1234,12 +1239,20 @@ def compute_canonical_supplier_risk_score(
     final_tier: Optional[str] = None
 
     if nlp_score is not None and client_score is not None:
-        # Both NLP headlines and Client data contribute genuinely
-        final_score = round(
-            cfg.nlp_risk_weight * nlp_score + cfg.client_risk_weight * client_score,
+        # Client data adds evidence; it must never lower the news-based risk.
+        blended = round(
+            cfg.nlp_risk_weight * nlp_score
+            + cfg.client_risk_weight * client_score,
             2,
         )
-        final_tier = assign_risk_tier(final_score, cfg)
+
+        if blended > nlp_score:
+            final_score = blended
+            final_tier = assign_risk_tier(final_score, cfg)
+        else:
+            # Keep the trend's hysteresis tier when the news score decides.
+            final_score = nlp_score
+            final_tier = nlp_tier
     elif nlp_score is not None:
         # Only NLP news headlines available
         final_score = nlp_score
@@ -1291,7 +1304,8 @@ def compute_canonical_supplier_risk_score(
         top_reasons=top_reasons,
         client_risk_features=client_features,
     )
-    _save_assessment(supplier_id, supplier_name, response)
+    if use_cache:
+        _save_assessment(supplier_id, supplier_name, response)
     return response
 
 

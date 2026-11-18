@@ -89,6 +89,31 @@ def validate_incident_type(raw_type: Any) -> str:
     return stripped
 
 
+def normalize_incident_type(raw_type: Any) -> str:
+    """
+    Map a client incident type to Quality, Delay, Dispute or Other.
+
+    The client spec allows any text here (the #322 sample also has
+    Compliance and Packaging), so an unrecognised type counts as Other
+    instead of being dropped.
+
+    Raises:
+        ValueError: If raw_type is missing or blank.
+    """
+    if not isinstance(raw_type, str) or not raw_type.strip():
+        raise ValueError(
+            f"Incident type must be a non-empty string, got {raw_type!r}"
+        )
+
+    title = raw_type.strip().title()
+
+    if title in ALLOWED_INCIDENT_TYPES:
+        return title
+
+    logger.info("Counting incident type %r as Other", raw_type)
+    return "Other"
+
+
 # ----------------------------------------------------
 # Pydantic Schemas for Client Data
 # ----------------------------------------------------
@@ -448,7 +473,7 @@ def calculate_client_risk_features(
         # Validate date and type
         try:
             valid_date_str = validate_incident_date(raw_date)
-            valid_type = validate_incident_type(raw_type)
+            valid_type = normalize_incident_type(raw_type)
         except ValueError as exc:
             logger.warning("Skipping malformed incident record (%s): %s", inc_dict, exc)
             continue

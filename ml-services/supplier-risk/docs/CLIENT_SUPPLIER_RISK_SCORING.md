@@ -158,6 +158,8 @@ When both client operational data and adverse news headlines exist:
 $$\text{Composite Score} = w_{\text{client}} \cdot \text{Client Score} + w_{\text{nlp}} \cdot \text{NLP Score}$$
 *(Defaults: $w_{\text{client}} = 0.50$, $w_{\text{nlp}} = 0.50$)*
 
+Client data can increase the NLP/news-based risk score through weighted blending, but clean client data must never reduce an existing NLP/news-based risk score; when the NLP score determines the result, its hysteresis tier is preserved.
+
 - If **only client operational data** exists: Composite Score equals the Client Operational Score.
 - If **only NLP news headlines** exist: Composite Score equals the FinBERT NLP Score (preserving existing baseline behavior).
 - If **no evidence** exists: Preserves existing no-evidence baseline (`score: null`, `tier: null`).

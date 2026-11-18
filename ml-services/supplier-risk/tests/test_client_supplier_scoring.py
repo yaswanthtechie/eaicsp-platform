@@ -30,11 +30,15 @@ Verifies all 25 required test scenarios:
 25. Existing NLP scoring tests.
 """
 
+import csv
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
+from jsonschema import Draft202012Validator
 from pymongo.errors import PyMongoError
+import yaml
 
 from src.analyze import (
     SupplierRiskScoreResponse,
@@ -56,6 +60,7 @@ from src.client_supplier import (
     validate_incident_date,
     validate_incident_type,
 )
+from src.client_supplier import normalize_incident_type
 from src.config import (
     Settings,
     get_settings,
@@ -67,6 +72,18 @@ from src.db import (
     fetch_client_supplier,
     save_client_incident,
     save_client_supplier,
+)
+
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+CLIENT_SAMPLES = (
+    REPO_ROOT
+    / "data-platform"
+    / "etl"
+    / "client_ingest"
+    / "samples"
+    / "client_format"
 )
 
 
@@ -1000,3 +1017,247 @@ def test_ensure_client_data_indexes_once_avoids_repeated_work():
         res2 = db_module.ensure_client_data_indexes_once()
         assert res2 == {"suppliers": [], "incidents": []}
         assert mock_ensure.call_count == 1
+
+
+# -----------------------------------------------------------------------------
+# Must-fix 1: Normalize Unknown Client Incident Types
+# -----------------------------------------------------------------------------
+def test_unrecognised_incident_types_count_as_other():
+    assert normalize_incident_type("Compliance") == "Other"
+    assert normalize_incident_type("packaging") == "Other"
+    assert normalize_incident_type("delay") == "Delay"
+
+    with pytest.raises(ValueError):
+        normalize_incident_type("  ")
+
+
+def test_every_valid_sample_incident_is_counted():
+    with (
+        CLIENT_SAMPLES / "supplier_incidents.csv"
+    ).open(encoding="utf-8", newline="") as file:
+        rows = list(csv.DictReader(file))
+
+    valid_rows = []
+
+    for row in rows:
+        try:
+            validate_incident_date(row["incident_date"])
+        except ValueError:
+            continue
+
+        valid_rows.append(row)
+
+    features = calculate_client_risk_features(
+        master=None,
+        incidents=rows,
+        scoring_date="2026-11-16",
+    )
+
+    counted = (
+        features.quality_incidents_12m
+        + features.delay_incidents_12m
+        + features.dispute_incidents_12m
+        + features.other_incidents_12m
+    )
+
+    assert counted == len(valid_rows)
+    assert features.other_incidents_12m > 0
+
+
+# -----------------------------------------------------------------------------
+# Must-fix 2: Prevent Historical Scores from Replacing Current Risk Assessment
+# -----------------------------------------------------------------------------
+def test_as_of_date_score_does_not_replace_the_current_score(
+    auth_client,
+    fake_supplier_store,
+):
+    fake_supplier_store.suppliers.insert_one({
+        "supplier_id": "SUP-93001",
+        "name": "As Of Probe Corp",
+        "normalized_name": "as of probe corp",
+        "sanctions_flag": False,
+    })
+
+    save_client_supplier({
+        "supplier_id": "SUP-93001",
+        "legal_name": "As Of Probe Corp",
+        "on_time_delivery_pct": 99.0,
+    })
+
+    for incident_date in (
+        "2026-10-01",
+        "2026-10-05",
+        "2026-10-09",
+        "2026-10-12",
+    ):
+        save_client_incident({
+            "supplier_id": "SUP-93001",
+            "incident_date": incident_date,
+            "incident_type": "Quality",
+        })
+
+    past = auth_client.get(
+        "/api/v1/suppliers/SUP-93001/risk-score?as_of_date=2026-01-01"
+    )
+
+    current = auth_client.get(
+        "/api/v1/suppliers/SUP-93001/risk-score"
+    )
+
+    assert past.status_code == 200
+    assert current.status_code == 200
+
+    assert (
+        past.json()["client_risk_features"]["quality_incidents_12m"]
+        == 0
+    )
+
+    assert (
+        current.json()["client_risk_features"]["quality_incidents_12m"]
+        == 4
+    )
+
+    assert current.json()["score"] > past.json()["score"]
+
+
+# -----------------------------------------------------------------------------
+# Must-fix 3: Make client_risk_features Nullable in OpenAPI Contract
+# -----------------------------------------------------------------------------
+def _risk_score_validator() -> Draft202012Validator:
+    spec = yaml.safe_load(
+        (
+            REPO_ROOT
+            / "contracts"
+            / "openapi"
+            / "supplier-risk.yaml"
+        ).read_text(encoding="utf-8")
+    )
+
+    schema = {
+        "$ref": "#/components/schemas/SupplierRiskScoreResponse",
+        "components": spec["components"],
+    }
+
+    return Draft202012Validator(schema)
+
+
+def test_response_without_client_data_matches_the_contract(
+    auth_client,
+    fake_supplier_store,
+):
+    fake_supplier_store.suppliers.insert_one({
+        "supplier_id": "SUP-93002",
+        "name": "Sanctioned Probe Corp",
+        "normalized_name": "sanctioned probe corp",
+        "sanctions_flag": True,
+        "sanctions_list": "OFAC SDN",
+    })
+
+    res = auth_client.get(
+        "/api/v1/suppliers/SUP-93002/risk-score"
+    )
+
+    assert res.status_code == 200
+    assert res.json()["client_risk_features"] is None
+
+    errors = list(
+        _risk_score_validator().iter_errors(res.json())
+    )
+
+    assert errors == []
+
+
+# -----------------------------------------------------------------------------
+# Must-fix 4: Prevent Clean Client Data from Lowering NLP Risk Score
+# -----------------------------------------------------------------------------
+def test_clean_client_data_does_not_lower_the_news_score(
+    fake_supplier_store,
+    monkeypatch,
+):
+    fake_supplier_store.suppliers.insert_one({
+        "supplier_id": "SUP-93003",
+        "name": "News Risk Corp",
+        "normalized_name": "news risk corp",
+        "sanctions_flag": False,
+    })
+
+    save_client_supplier({
+        "supplier_id": "SUP-93003",
+        "legal_name": "News Risk Corp",
+        "on_time_delivery_pct": 99.0,
+    })
+
+    monkeypatch.setattr(
+        "src.analyze.load_active_trend_headlines",
+        lambda: {
+            "News Risk Corp": [
+                {"headline": "News Risk Corp faces fraud probe"}
+            ]
+        },
+    )
+
+    monkeypatch.setattr(
+        "src.analyze.calculate_supplier_trend",
+        lambda *args, **kwargs: {
+            "current_risk_score": 80.0,
+            "current_risk_tier": "high",
+            "top_evidence": [],
+        },
+    )
+
+    res = compute_canonical_supplier_risk_score(
+        {"supplier_id": "SUP-93003", "name": "News Risk Corp"},
+        as_of_date="2026-11-16",
+    )
+
+    assert res.client_risk_features is not None
+    assert res.score == 80.0
+    assert res.tier == "high"
+
+
+def test_higher_client_risk_uses_weighted_blend(
+    fake_supplier_store,
+    monkeypatch,
+):
+    fake_supplier_store.suppliers.insert_one({
+        "supplier_id": "SUP-93005",
+        "name": "High Client Risk Corp",
+        "normalized_name": "high client risk corp",
+        "sanctions_flag": False,
+    })
+
+    save_client_supplier({
+        "supplier_id": "SUP-93005",
+        "legal_name": "High Client Risk Corp",
+        "on_time_delivery_pct": 50.0,
+    })
+
+    monkeypatch.setattr(
+        "src.analyze.load_active_trend_headlines",
+        lambda: {
+            "High Client Risk Corp": [
+                {"headline": "Minor supply chain concern"}
+            ]
+        },
+    )
+
+    monkeypatch.setattr(
+        "src.analyze.calculate_supplier_trend",
+        lambda *args, **kwargs: {
+            "current_risk_score": 20.0,
+            "current_risk_tier": "Low",
+            "top_evidence": [],
+        },
+    )
+
+    res = compute_canonical_supplier_risk_score(
+        {"supplier_id": "SUP-93005", "name": "High Client Risk Corp"},
+        as_of_date="2026-11-16",
+    )
+
+    assert res.client_risk_features is not None
+    # On-time 50% => delivery penalty 95 - 50 = 45.0
+    # Client score is 45.0, NLP score is 20.0
+    # Blended = round(0.5 * 20.0 + 0.5 * 45.0, 2) = 32.5
+    # Since blended (32.5) > NLP (20.0), blended score is applied
+    assert res.score == 32.5
