@@ -259,7 +259,8 @@ class SupplierIncident(BaseModel):
     @field_validator("incident_type", mode="before")
     @classmethod
     def validate_type_field(cls, v: Any) -> str:
-        return validate_incident_type(v)
+        # Same rule as the scorer: an unrecognised type is stored as Other.
+        return normalize_incident_type(v)
 
     @field_validator("description", mode="before")
     @classmethod

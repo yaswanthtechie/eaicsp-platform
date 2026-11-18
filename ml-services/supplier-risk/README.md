@@ -943,7 +943,7 @@ For the full architectural specification, refer to: [docs/CLIENT_SUPPLIER_RISK_S
 4. **12-Month Rolling Window & Age Metrics**: Computes rolling 12-month counts and days since last eligible incident relative to an injectable `as_of_date` (defaults to current date).
 5. **Future Incident Exclusion**: Incidents dated in the future (`incident_date > as_of_date`) are strictly excluded.
 6. **Safe Handling of Missing On-Time Delivery**: Missing delivery percentage never incurs a zero-percentage penalty. Clearly marked as `null` with a dedicated integration TODO for Balaji's GitHub Issue #325 endpoint.
-7. **Composite Score Blending**: Configurable weights blend internal operational risk (`client_risk_weight`, default 0.5) with external FinBERT adverse media sentiment (`nlp_risk_weight`, default 0.5), while preserving sanctions hard-blocks (85.0 / Critical).
+7. **Combining Scores**: The final score is the higher of the client operational score and the FinBERT adverse media score, so neither source can lower the other, while preserving sanctions hard-blocks (85.0 / Critical).
 8. **Top Three Grounded Reasons**: Every risk score produces the top 3 driving reasons grounded strictly in verified input data.
 9. **API Compatibility**: Extends `GET /api/v1/suppliers/{supplier_id}/risk-score` and aliases with additive `top_reasons` and `client_risk_features`, alongside the client-code route `GET /api/v1/supplier-risk/client-suppliers/{supplier_code}/risk-score`.
 10. **MongoDB Caching & Persistence**: Cached assessments persist client features and reasons; old cache records remain fully readable.

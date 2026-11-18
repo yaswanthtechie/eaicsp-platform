@@ -1239,15 +1239,9 @@ def compute_canonical_supplier_risk_score(
     final_tier: Optional[str] = None
 
     if nlp_score is not None and client_score is not None:
-        # Client data adds evidence; it must never lower the news-based risk.
-        blended = round(
-            cfg.nlp_risk_weight * nlp_score
-            + cfg.client_risk_weight * client_score,
-            2,
-        )
-
-        if blended > nlp_score:
-            final_score = blended
+        # Both sources are evidence of risk; neither may lower the other.
+        if client_score > nlp_score:
+            final_score = client_score
             final_tier = assign_risk_tier(final_score, cfg)
         else:
             # Keep the trend's hysteresis tier when the news score decides.

@@ -510,11 +510,11 @@ def resolve_canonical_supplier(
         if client_doc and client_doc.get("supplier_id"):
             canon_id = client_doc["supplier_id"].strip().upper()
             if CANONICAL_ID_REGEX.match(canon_id):
+                # Only a supplier that exists in the seed mapping resolves.
+                # An ID that appears only in client data stays unresolved.
                 doc = col.find_one({"supplier_id": canon_id}, {"_id": 0})
                 if doc:
                     return doc
-                # If canonical supplier doc not yet in mapping collection, return client record info
-                return client_doc
     except PyMongoError:
         raise
     except Exception as exc:

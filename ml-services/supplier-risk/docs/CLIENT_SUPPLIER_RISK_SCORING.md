@@ -153,16 +153,13 @@ $$\text{Delivery Modifier} = \begin{cases}
 
 $$\text{Client Operational Score} = \text{round}\left(\min(100.0, \max(0.0, \text{Incident Score} + \text{Recency Modifier} + \text{Delivery Modifier})), 2\right)$$
 
-### 2. Composite Score Blending
-When both client operational data and adverse news headlines exist:
-$$\text{Composite Score} = w_{\text{client}} \cdot \text{Client Score} + w_{\text{nlp}} \cdot \text{NLP Score}$$
-*(Defaults: $w_{\text{client}} = 0.50$, $w_{\text{nlp}} = 0.50$)*
+### 2. Combining Client and News Scores
 
-Client data can increase the NLP/news-based risk score through weighted blending, but clean client data must never reduce an existing NLP/news-based risk score; when the NLP score determines the result, its hysteresis tier is preserved.
+When both client operational data and adverse news headlines exist, the final score is the higher of the two:
 
-- If **only client operational data** exists: Composite Score equals the Client Operational Score.
-- If **only NLP news headlines** exist: Composite Score equals the FinBERT NLP Score (preserving existing baseline behavior).
-- If **no evidence** exists: Preserves existing no-evidence baseline (`score: null`, `tier: null`).
+$$\text{Composite Score} = \max(\text{Client Score}, \text{NLP Score})$$
+
+Both sources are evidence of risk, so neither may lower the other: clean client data does not reduce a news-based score, and weak news does not reduce a client-based score. When the NLP score decides the result, its hysteresis tier is kept. `client_risk_weight` and `nlp_risk_weight` are still validated in `src/config.py` but no longer change the score.
 
 ### 3. Sanctions & Risk Tiers
 - **Sanctions Override**: Any active sanctions designation in seed master data sets `score = 85.0` and `tier = "Critical"` (preserving exact baseline behavior from `origin/develop`).

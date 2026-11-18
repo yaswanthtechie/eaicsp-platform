@@ -73,6 +73,7 @@ from src.db import (
     save_client_incident,
     save_client_supplier,
 )
+from src.evaluate import assign_risk_tier
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -515,12 +516,31 @@ def test_scenario_15_invalid_incident_type():
     with pytest.raises(ValueError, match="Invalid incident type"):
         validate_incident_type("UnauthorizedType")
 
+    incident = SupplierIncident(
+        supplier_id="SUP-90001",
+        incident_date="2026-10-01",
+        incident_type="Bankruptcy",
+    )
+    assert incident.incident_type == "Other"
+
+
+def test_saving_incidents_stores_unrecognised_types_as_other(fake_supplier_store):
+    saved = save_supplier_incidents_data([
+        {"supplier_id": "SUP-93006", "incident_date": "2026-09-01", "incident_type": "Compliance"},
+        {"supplier_id": "SUP-93006", "incident_date": "2026-09-02", "incident_type": "packaging"},
+        {"supplier_id": "SUP-93006", "incident_date": "2026-09-03", "incident_type": "delay"},
+    ])
+
+    assert saved == 3
+    types = sorted(i["incident_type"] for i in fetch_client_incidents("SUP-93006"))
+    assert types == ["Delay", "Other", "Other"]
+
+
+def test_saving_an_incident_with_a_blank_type_is_rejected(fake_supplier_store):
     with pytest.raises(ValueError):
-        SupplierIncident(
-            supplier_id="SUP-90001",
-            incident_date="2026-10-01",
-            incident_type="Bankruptcy",  # Not an incident type
-        )
+        save_supplier_incidents_data([
+            {"supplier_id": "SUP-93007", "incident_date": "2026-09-01", "incident_type": "  "},
+        ])
 
 
 # -----------------------------------------------------------------------------
@@ -1215,7 +1235,7 @@ def test_clean_client_data_does_not_lower_the_news_score(
     assert res.tier == "high"
 
 
-def test_higher_client_risk_uses_weighted_blend(
+def test_weak_news_does_not_lower_a_higher_client_score(
     fake_supplier_store,
     monkeypatch,
 ):
@@ -1256,8 +1276,20 @@ def test_higher_client_risk_uses_weighted_blend(
     )
 
     assert res.client_risk_features is not None
-    # On-time 50% => delivery penalty 95 - 50 = 45.0
-    # Client score is 45.0, NLP score is 20.0
-    # Blended = round(0.5 * 20.0 + 0.5 * 45.0, 2) = 32.5
-    # Since blended (32.5) > NLP (20.0), blended score is applied
-    assert res.score == 32.5
+    # On-time 50% => delivery penalty 95 - 50 = 45.0, so the client score is 45.0.
+    # The news score is 20.0. Weak news must not pull the client score down.
+    assert res.score == 45.0
+    assert res.tier == assign_risk_tier(45.0, get_settings())
+
+
+# -----------------------------------------------------------------------------
+# Regression: Client-only supplier IDs must remain unresolved
+# -----------------------------------------------------------------------------
+def test_client_supplier_id_not_in_seed_stays_unresolved(fake_supplier_store):
+    from src.supplier_mapping import resolve_canonical_supplier
+
+    fake_supplier_store.client_suppliers.insert_one(
+        {"supplier_code": "ACME-1", "supplier_id": "SUP-99999"}
+    )
+
+    assert resolve_canonical_supplier("ACME-1") is None
