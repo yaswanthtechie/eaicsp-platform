@@ -204,16 +204,16 @@ def get_supplier_stats(supplier_id):
             continue
 
         for po_number in _get_invoice_po_numbers(invoice):
-            po = purchase_orders.get(po_number)
+            matched_po = purchase_orders.get(po_number)
 
-            if not po:
+            if not matched_po:
                 continue
 
-            if po.get("supplier_id") != supplier_id:
+            if matched_po.get("supplier_id") != supplier_id:
                 continue
 
             try:
-                created_date = _to_date(po.get("created_at"))
+                created_date = _to_date(matched_po.get("created_at"))
             except (TypeError, ValueError):
                 continue
 

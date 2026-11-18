@@ -24,7 +24,4 @@ select = [
 
 [tool.mypy]
 python_version = "3.12"
-
-[[tool.mypy.overrides]]
-module = ["kafka.*"]
-ignore_missing_imports = true
+check_untyped_defs = true

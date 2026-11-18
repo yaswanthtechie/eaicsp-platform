@@ -72,11 +72,12 @@ class ShipmentETAConsumer:
                 if message is None:
                     continue
 
-                if message.error():
-                    if message.error().code() == KafkaError._PARTITION_EOF:
+                error = message.error()
+                if error is not None:
+                    if error.code() == KafkaError._PARTITION_EOF:
                         continue
 
-                    raise KafkaException(message.error())
+                    raise KafkaException(error)
 
                 self._process_with_retry(message)
 
