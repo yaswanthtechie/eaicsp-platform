@@ -27,6 +27,3 @@ known-third-party = ["alembic"]
 [tool.mypy]
 python_version = "3.12"
 
-[[tool.mypy.overrides]]
-module = ["kafka.*"]
-ignore_missing_imports = true

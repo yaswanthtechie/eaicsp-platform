@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+# Imported for its side effect: registers every model on Base.metadata.
 import app.models as _models  # noqa: F401
 from app.core.config import settings
 from app.database import engine
@@ -100,6 +101,7 @@ def custom_openapi():
     return app.openapi_schema
 
 
+# Override FastAPI's openapi method with custom OpenAPI schema caching
 app.openapi = custom_openapi  # type: ignore[method-assign]
 
 

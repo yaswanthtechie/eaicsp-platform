@@ -19,6 +19,7 @@ from app.schemas.events import POAcknowledgedPayload
 try:
     from confluent_kafka import Consumer, KafkaError, KafkaException, TopicPartition
 except ImportError:
+    # Graceful fallback when confluent_kafka is not installed in the environment
     Consumer = None  # type: ignore[misc,assignment]
     KafkaError = None  # type: ignore[misc,assignment]
     KafkaException = None  # type: ignore[misc,assignment]

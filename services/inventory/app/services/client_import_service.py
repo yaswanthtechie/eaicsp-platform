@@ -1572,10 +1572,11 @@ def _read_csv_records(path: Path, dataset: str) -> list[dict[str, str]]:
         cleaned_records: list[dict[str, str]] = []
         for row in reader:
             cleaned_row: dict[str, str] = {
-                (k.strip() if isinstance(k, str) else str(k or "")): (
+                k.strip(): (
                     v.strip() if isinstance(v, str) else ("" if v is None else str(v))
                 )
                 for k, v in row.items()
+                if k is not None
             }
             cleaned_records.append(cleaned_row)
         return cleaned_records
