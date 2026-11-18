@@ -14,12 +14,21 @@ the next run publishes the same anomaly again with the SAME event_id, so
 consumers de-duplicate on event_id like on every other topic (at-least-once
 delivery, never a second alert).
 
+Every run is also logged to MLflow (parameters, thresholds, data range, anomaly
+count by severity, precision and recall of the registered setup) when
+MLFLOW_TRACKING_URI is set, and with --reference (the setup window: the clean
+data the thresholds were calibrated on) an Evidently drift report compares it
+with the latest 28 days of the input. Drift above the configured threshold is
+logged as a warning; it never stops the job, and neither does MLflow being
+down.
+
 The first run needs a choice: --last-days N publishes only the last N days
 and records older incidents as skipped (they are never published later), or
 --publish-all sends the whole history on purpose.
 
 Run (from anywhere; the ledger path does not depend on the working directory):
     python -m src.sales_anomaly_batch --input <staging sales file or folder> --last-days 7
+    python -m src.sales_anomaly_batch --input <sales.csv> --last-days 7 --reference <clean setup sales.csv>
     python -m src.sales_anomaly_batch --input <sales.csv> --dry-run
     python -m src.sales_anomaly_batch --input <sales.csv> --no-kafka --events-log output/sales_events.jsonl --last-days 7
 
@@ -38,6 +47,7 @@ import time
 import pandas as pd
 
 from .sales_anomaly import detect
+from .sales_anomaly_drift import check_drift, latest_window
 from .sales_anomaly_events import (
     EVENT_TYPE,
     SKU_PATTERN,
@@ -45,6 +55,13 @@ from .sales_anomaly_events import (
     anomaly_key,
     build_sales_anomaly_event,
     event_key,
+)
+from .sales_anomaly_tracking import (
+    date_range,
+    registered_setup,
+    safe_log_run,
+    severity_counts,
+    tracking_uri,
 )
 
 
@@ -258,19 +275,99 @@ def read_sales(path):
     return pd.read_csv(path, dtype=str)
 
 
-def run(sales, publisher, ledger, last_days=None, dry_run=False):
+def _check_drift(reference, scores):
+    """Compare the setup window with the latest load. Never raises."""
+
+    try:
+        reference_scores, _ = detect(reference)
+        result = check_drift(reference_scores, latest_window(scores))
+    except Exception as error:
+        log.warning("Drift check skipped: %s", error)
+        return None
+
+    if result.alert:
+        log.warning("DATA DRIFT: %s", result.message())
+    else:
+        log.info("No data drift: %s", result.message())
+
+    return result
+
+
+def _log_to_mlflow(args, summary):
+    """Log this run to MLflow. Never raises."""
+
+    drift = summary["drift"]
+
+    metrics = {
+        "incidents_found": summary["incidents"],
+        "published": summary["new"],
+        "already_published": summary["already_published"],
+        "outside_window": summary["outside_window"],
+        "skipped_ids": summary["skipped_ids"],
+    }
+    tags = {
+        "run_kind": "batch",
+        "drift_alert": "not checked" if drift is None else str(drift.alert).lower(),
+    }
+
+    if drift is not None:
+        metrics.update(drift.metrics())
+
+    if tracking_uri() is not None:
+        try:
+            setup = registered_setup()
+        except Exception as error:
+            log.warning("Could not look up the registered setup: %s", error)
+            setup = None
+
+        if setup is None:
+            tags["setup_model_version"] = "not registered"
+            log.warning(
+                "The thresholds in force are not registered in MLflow; run "
+                "python -m src.sales_anomaly_eval --register."
+            )
+        else:
+            tags["setup_model_version"] = str(setup["version"])
+            metrics["setup_precision"] = setup["precision"]
+            metrics["setup_recall"] = setup["recall"]
+
+    safe_log_run(
+        "sales-anomaly-batch",
+        params={
+            "input": str(args.input),
+            "reference": args.reference or "none",
+            "last_days": args.last_days,
+            "publish_all": args.publish_all,
+        },
+        data_start=summary["data_start"],
+        data_end=summary["data_end"],
+        severities=summary["severity_counts"],
+        metrics=metrics,
+        texts={"drift_report.html": drift.html} if drift is not None else None,
+        tags=tags,
+    )
+
+
+def run(sales, publisher, ledger, last_days=None, dry_run=False, reference=None):
     """
     Detect anomalies in sales and publish the new ones.
 
     Returns a summary dict: incidents (run starts found), new (published, or
     that would be in a dry run), already_published, outside_window (older
     than last_days, now or on an earlier run) and skipped_ids (not canonical
-    ids, never published).
+    ids, never published), plus data_start, data_end, severity_counts (flagged
+    days by severity) and drift (a DriftResult, or None when there is no
+    reference or the check could not run).
+
+    reference is a sales frame of the setup window. The drift check only warns;
+    nothing in it can stop events from being published.
     """
 
     scores, _ = detect(sales)
     anomalies = scores[scores["is_anomaly"].astype(bool)]
     incidents = anomalies[anomalies["run_start"].astype(bool)]
+
+    data_start, data_end = date_range(scores["date"])
 
     summary = {
         "incidents": len(incidents),
@@ -278,7 +375,14 @@ def run(sales, publisher, ledger, last_days=None, dry_run=False):
         "already_published": 0,
         "outside_window": 0,
         "skipped_ids": 0,
+        "data_start": data_start,
+        "data_end": data_end,
+        "severity_counts": severity_counts(anomalies),
+        "drift": None,
     }
+
+    if reference is not None:
+        summary["drift"] = _check_drift(reference, scores)
 
     if incidents.empty:
         return summary
@@ -364,6 +468,13 @@ def main(argv=None):
         action="store_true",
         help="First run only: publish the whole history on purpose.",
     )
+    parser.add_argument(
+        "--reference",
+        default=None,
+        help="Sales file or folder of the setup window (the clean data the "
+        "thresholds were calibrated on). Enables the drift check against the "
+        "latest 28 days of --input.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--no-kafka", action="store_true")
     parser.add_argument("--events-log", default=None)
@@ -411,6 +522,14 @@ def main(argv=None):
             "live alerts. Pass --last-days N (recommended) or --publish-all."
         )
 
+    reference = None
+
+    if args.reference:
+        try:
+            reference = read_sales(args.reference)
+        except Exception as error:
+            log.warning("Drift check skipped: cannot read --reference: %s", error)
+
     try:
         summary = run(
             read_sales(args.input),
@@ -418,11 +537,18 @@ def main(argv=None):
             ledger,
             last_days=args.last_days,
             dry_run=args.dry_run,
+            reference=reference,
         )
     finally:
         ledger.close()
         for publisher in publishers:
             publisher.close()
+
+    if not args.dry_run:
+        _log_to_mlflow(args, summary)
+
+    drift = summary["drift"]
+    drift_label = "not checked" if drift is None else ("ALERT" if drift.alert else "ok")
 
     label = "would publish" if args.dry_run else "published"
 
@@ -432,7 +558,8 @@ def main(argv=None):
         f"{label}: {summary['new']}  "
         f"already published: {summary['already_published']}  "
         f"older than --last-days: {summary['outside_window']}  "
-        f"not canonical ids: {summary['skipped_ids']}"
+        f"not canonical ids: {summary['skipped_ids']}  "
+        f"drift: {drift_label}"
     )
 
 

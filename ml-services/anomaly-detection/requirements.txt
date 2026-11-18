@@ -15,4 +15,5 @@ confluent-kafka==2.15.1
 influxdb-client==1.50.0
 python-dotenv==1.2.3
 jsonschema[format-nongpl]==4.26.0
+evidently==0.7.23
 ../eval-framework

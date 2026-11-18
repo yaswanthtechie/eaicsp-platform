@@ -2399,6 +2399,41 @@ python -m src.sales_anomaly_batch --input <sales.csv> --no-kafka --events-log ou
 
 The gateway BFF does not read this topic yet (`KAFKA_TOPICS` in `services/api-gateway/app/core/config.py`), and an event type it does not know about shows as `info` until it is mapped (#320).
 
+# Round 15 - MLflow tracking and data drift (#366)
+
+Every sales anomaly run is logged to MLflow, and the batch job checks whether the latest load looks different from the data the thresholds were set up on.
+
+## Tracking
+
+`MLFLOW_TRACKING_URI` must be set (for the compose server: `http://localhost:5000`); it is never hard-coded. If it is not set, nothing is logged and a warning says so. MLflow errors are turned into warnings and never stop a run.
+
+Each run (the evaluation, and every batch run except `--dry-run`) logs, in the experiment `anomaly-detection-r15-sales`:
+
+- parameters: every threshold in `src/config.py`, the drift settings, and the run's own settings (input, seeds, window)
+- data date range: `data_start`, `data_end`, `data_days`
+- metrics: `anomalies_high`, `anomalies_medium`, `anomalies_low`, `anomalies_total`; precision and recall on the injected anomalies (evaluation); the drift numbers (batch)
+- artifact: the Evidently report `drift_report.html` (batch)
+
+## Model registry
+
+    python -m src.sales_anomaly_eval --register
+
+registers the thresholds in force (and a copy of the code) as a new version of `sales-anomaly-detector`. Versions carry a `config_hash` tag, so registering the same thresholds again does not create a new version. The batch job tags each run with the registered version and logs its precision and recall (`setup_precision`, `setup_recall`). If the thresholds in force are not registered, the run is tagged `not registered` and a warning is logged.
+
+## Data drift
+
+    python -m src.sales_anomaly_batch --input <sales.csv> --reference <setup window sales.csv> --last-days 7
+
+`--reference` is the setup window: the clean sales file the thresholds were calibrated on. It is compared with the latest `DRIFT_LATEST_DAYS` (28) days of `--input` on two columns: the quantity distribution and the share of zero-sales days. A column drifts when its Evidently drift score passes `DRIFT_NUM_THRESHOLD` / `DRIFT_CAT_THRESHOLD` (0.1). If the share of drifted columns reaches `DRIFT_ALERT_SHARE` (0.5, so either column), the job logs `DATA DRIFT: ...` as a warning and sets the MLflow tag `drift_alert=true`. The job still runs and publishes events. The summary line ends with `drift: ok`, `drift: ALERT` or `drift: not checked`.
+
+All drift settings are in `src/config.py`. The tests use synthetic data only and a mocked MLflow, plus one round trip against a local sqlite store.
+
+## Limits
+
+- The setup window is a file passed with `--reference`; it is not stored anywhere yet.
+- The registry is keyed by the hash of the thresholds: the same thresholds never get a second version.
+- Evidently is needed for the drift check (`evidently==0.7.23` in `requirements.txt`).
+
 # Future Improvements
 
 Potential future enhancements include:
@@ -2521,7 +2556,7 @@ The validated continuous-lifecycle results are:
 ## Test suite
 
 ```text
-847 passed
+900 passed
 3 warnings
 0 failures
 ```
