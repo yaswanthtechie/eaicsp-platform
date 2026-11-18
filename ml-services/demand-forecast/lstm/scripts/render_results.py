@@ -36,28 +36,38 @@ def table(headers, rows):
 wf = load("walk_forward_summary.json")
 print("### Walk-forward folds\n")
 print(table(
-    ["Fold", "Train end", "Train windows", "Global MAE",
-     "Per-SKU MAE", "Eligible SKUs"],
+    ["Fold", "Train end", "Train windows", "Global MAE", "Global MAPE",
+     "Per-SKU MAE", "Per-SKU MAPE", "Eligible SKUs"],
     [
         [
             fold["fold"],
             fold["train_end"],
             fold["train_windows"],
             fmt(fold["global_common_sku_metrics"]["MAE"]),
+            fmt(fold["global_common_sku_metrics"]["MAPE"]),
             fmt(fold["per_sku_common_metrics"]["MAE"]),
+            fmt(fold["per_sku_common_metrics"]["MAPE"]),
             fold["eligible_skus"],
         ]
         for fold in wf["folds"]
     ],
 ))
-print("\nMean common-SKU MAE:")
+print("\nMean common-SKU metrics:")
 print(
     "Global:",
     fmt(wf["mean_fold_metrics"]["global_common_eligible_skus"]["MAE"]),
 )
 print(
-    "Per-SKU:",
+    "Per-SKU MAE:",
     fmt(wf["mean_fold_metrics"]["per_sku_common_eligible_skus"]["MAE"]),
+)
+print(
+    "Global MAPE:",
+    fmt(wf["mean_fold_metrics"]["global_common_eligible_skus"]["MAPE"]),
+)
+print(
+    "Per-SKU MAPE:",
+    fmt(wf["mean_fold_metrics"]["per_sku_common_eligible_skus"]["MAPE"]),
 )
 
 st = load("stacked_ensemble_metrics.json")
@@ -97,9 +107,9 @@ print(table(
     [
         [
             name,
-            fmt(metrics["mae"]),
-            fmt(metrics["rmse"]),
-            fmt(metrics["mape"]),
+            fmt(metrics["MAE"]),
+            fmt(metrics["RMSE"]),
+            fmt(metrics["MAPE"]),
         ]
         for name, metrics in cs["metrics"].items()
     ],

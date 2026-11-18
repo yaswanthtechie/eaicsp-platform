@@ -607,6 +607,7 @@ def main() -> None:
     ).reshape(actual_scaled.shape)
 
     # Same exact cold test windows for all three methods.
+    mlflow.set_tracking_uri("sqlite:///mlflow.db")
     mlflow.set_experiment(EXPERIMENT_NAME)
 
     results = {}
@@ -670,17 +671,17 @@ def main() -> None:
 
             shared_metrics = calculate_metrics(actual, predictions)
             metrics = {
-                "mae": shared_metrics["MAE"],
-                "rmse": shared_metrics["RMSE"],
-                "mape": shared_metrics["MAPE"],
+                "MAE": shared_metrics["MAE"],
+                "RMSE": shared_metrics["RMSE"],
+                "MAPE": shared_metrics["MAPE"],
             }
             metrics["training_seconds"] = float(training_seconds)
             results[model_name] = metrics
 
             model_mlflow_metrics = {
-                "test_mae": metrics["mae"],
-                "test_rmse": metrics["rmse"],
-                "test_mape": metrics["mape"],
+                "test_mae": metrics["MAE"],
+                "test_rmse": metrics["RMSE"],
+                "test_mape": metrics["MAPE"],
                 "training_seconds": training_seconds,
             }
             mlflow.log_metrics({
@@ -706,9 +707,9 @@ def main() -> None:
     )
     shared_baseline_metrics = calculate_metrics(actual, baseline_predictions)
     baseline_metrics = {
-        "mae": shared_baseline_metrics["MAE"],
-        "rmse": shared_baseline_metrics["RMSE"],
-        "mape": shared_baseline_metrics["MAPE"],
+        "MAE": shared_baseline_metrics["MAE"],
+        "RMSE": shared_baseline_metrics["RMSE"],
+        "MAPE": shared_baseline_metrics["MAPE"],
     }
     baseline_metrics["training_seconds"] = 0.0
     results["last_value_baseline"] = baseline_metrics
@@ -723,9 +724,9 @@ def main() -> None:
             }
         )
         baseline_mlflow_metrics = {
-            "test_mae": baseline_metrics["mae"],
-            "test_rmse": baseline_metrics["rmse"],
-            "test_mape": baseline_metrics["mape"],
+            "test_mae": baseline_metrics["MAE"],
+            "test_rmse": baseline_metrics["RMSE"],
+            "test_mape": baseline_metrics["MAPE"],
             "training_seconds": 0.0,
         }
         mlflow.log_metrics({
@@ -758,22 +759,22 @@ def main() -> None:
         rows.append(
             {
                 "model": model_name,
-                "mae": metrics["mae"],
-                "rmse": metrics["rmse"],
-                "mape": metrics["mape"],
+                "MAE": metrics["MAE"],
+                "RMSE": metrics["RMSE"],
+                "MAPE": metrics["MAPE"],
                 "training_seconds": metrics["training_seconds"],
             }
         )
 
     results_path = OUTPUT_DIR / "short_history_cold_start_metrics.csv"
-    pd.DataFrame(rows).sort_values("mae").to_csv(
+    pd.DataFrame(rows).sort_values("MAE").to_csv(
         results_path, index=False
     )
 
     print("\nFinal results sorted by MAE:")
     print(
         pd.DataFrame(rows)
-        .sort_values("mae")
+        .sort_values("MAE")
         .to_string(index=False)
     )
 

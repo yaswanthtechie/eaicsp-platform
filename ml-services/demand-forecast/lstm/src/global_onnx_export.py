@@ -18,6 +18,39 @@ ONNX_PATH = OUTPUT / "global_best_model.onnx"
 DATA_PATH = ROOT / GLOBAL_DATA_PATH
 
 
+
+def export_model(model, sample, onnx_path):
+    """Export a GlobalDemandLSTM model to ONNX."""
+    onnx_path = Path(onnx_path)
+    onnx_path.parent.mkdir(parents=True, exist_ok=True)
+
+    torch.onnx.export(
+        model,
+        sample,
+        str(onnx_path),
+        input_names=[
+            "input_sequence",
+            "sku_id",
+            "category_id",
+            "warehouse_id",
+        ],
+        output_names=["forecast"],
+        dynamic_axes={
+            "input_sequence": {0: "batch"},
+            "sku_id": {0: "batch"},
+            "category_id": {0: "batch"},
+            "warehouse_id": {0: "batch"},
+            "forecast": {0: "batch"},
+        },
+        opset_version=17,
+        dynamo=False,
+    )
+
+    graph = onnx.load(str(onnx_path))
+    onnx.checker.check_model(graph)
+    return onnx_path
+
+
 def main():
     if not CHECKPOINT_PATH.exists():
         raise FileNotFoundError(

@@ -149,8 +149,8 @@ def forecast_sku(
                 category_tensor,
                 warehouse_tensor,
             ).cpu().numpy()[0]
-            unk_prediction = (
-                unk_prediction * scaler_scale[0] + scaler_mean[0]
+            unk_prediction = np.maximum(
+                unk_prediction * scaler_scale[0] + scaler_mean[0], 0
             )
             embedding_effect = forecast - unk_prediction
         else:

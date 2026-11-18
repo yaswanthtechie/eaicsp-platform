@@ -771,29 +771,13 @@ Ensemble (unconstrained)   2.4004   weights 1.00 / 0.00 / 0.00
 - This is an honest ensemble result: adding more models does not automatically improve forecast accuracy.
 
 
-### Cold-Start Global LSTM Experiment
+### Cold-start (held-out SKUs)
 
-**Status: Experiment completed**
-
-* Implemented a global LSTM without SKU-specific embeddings.
-* Used a 30-day lookback and 7-day forecast horizon.
-* Selected the best checkpoint using validation loss.
-* Evaluated short-history SKUs SKU010â€“SKU015 on 399 test windows.
-* Cold-start LSTM MAE: 8.17; RMSE: 10.32.
-* Last-value baseline MAE: 10.09; RMSE: 13.36.
-* Aggregate MAE improved by approximately 19.0% over the baseline.
-* The LSTM achieved lower MAE on 5 of the 6 evaluated SKUs.
-* SKU012 performed better with the last-value baseline, highlighting the need for SKU-level evaluation.
-* Dataset is synthetic; real-world generalization has not yet been established.
-
-**Artifacts**
-
-* `output/cold_start_best_model.pt`
-* `output/cold_start_scaler.pkl`
-* `output/short_history_cold_start_summary.json`
-* `output/short_history_cold_start_metrics.csv`
-
-**Limitation:** This experiment uses a 30-day lookback, whereas the existing global LSTM uses a 45-day lookback. The results are not a direct model-to-model comparison.
+| Model | MAE | RMSE | MAPE |
+|---|---:|---:|---:|
+| global_lstm_no_embeddings | 7.3548 | 9.6253 | 17.4431 |
+| global_lstm_with_embeddings | 9.7936 | 12.2916 | 25.4202 |
+| last_value_baseline | 10.2000 | 13.4300 | 23.1070 |
 
 
 Round 12-13 (Track B): status
@@ -892,7 +876,7 @@ The following aggregate metrics are from the latest output/walk_forward_summary.
 
 | MAPE | 12.5639% | 13.9482% |
 
-For additional context, the latest global-model evaluation across all test SKUs recorded MAE 10.4242, RMSE 14.3003, and MAPE 14.1180%. This all-SKU result is reported separately from the common-eligible-SKU comparison. This all-SKU result is reported separately from the common-eligible-SKU comparison.
+For additional context, the latest global-model evaluation across all test SKUs recorded MAE 10.4242, RMSE 14.3003, and MAPE 14.1180%. This all-SKU result is reported separately from the common-eligible-SKU comparison.
 Fold-level MAE
 | Fold | Global LSTM MAE | Per-SKU LSTM MAE | Eligible SKUs |
 
@@ -930,9 +914,9 @@ Fold-level results: output/walk_forward_fold_metrics.csv
 Milestone 1  Test Status
 The following test command completed successfully in the latest reported run:
 
-python -m pytest -m "not integration" -q
+pytest -q
 
-Result: 44 passed.
+Result: 49 passed, 3 warnings.
 
 ---
 
@@ -945,45 +929,37 @@ Result: 44 passed.
 - Compared Prophet, XGBoost, LSTM, equal-weight averaging, and Stacked Ridge using MAE, RMSE, and MAPE.
 ### Final test results
 
+Stacked ensemble (data_seed=42):
+
 | Model | MAE | RMSE | MAPE |
-
 |---|---:|---:|---:|
-
-| Prophet | 2.4142 | 3.0514 | 1.7817% |
-
-| XGBoost | 3.4777 | 4.3930 | 2.5706% |
-
-| LSTM | 4.2409 | 5.3526 | 3.1658% |
-
-| Equal-weight average | 2.9736 | 3.6997 | 2.2105% |
-
-| Stacked Ridge | 2.4189 | 3.0467 | 1.7885% |
+| Prophet | 2.4142 | 3.0514 | 1.7817 |
+| XGBoost | 3.4777 | 4.3930 | 2.5706 |
+| LSTM | 4.2409 | 5.3526 | 3.1658 |
+| EqualWeightAverage | 2.9736 | 3.6997 | 2.2105 |
+| StackedRidge | 2.4189 | 3.0467 | 1.7885 |
 
 ### Conclusion
 
-For data_seed=123, StackedRidge slightly outperformed Prophet on the reported metrics. However, the five-seed robustness evaluation below shows Prophet with marginally better mean metrics and lower variability. The single-seed result does not establish a robust advantage for StackedRidge.
-Five-seed robustness results
-Model	MAE mean ± std	RMSE mean ± std	MAPE mean ± std
-EqualWeightAverage	2.9114 ± 0.1722	3.6349 ± 0.1600	2.1692 ± 0.1217
-LSTM	4.0058 ± 0.6505	4.9748 ± 0.7353	2.9794 ± 0.4799
-Prophet	2.3696 ± 0.0819	3.0092 ± 0.0928	1.7684 ± 0.0623
-StackedRidge	2.3741 ± 0.0867	3.0093 ± 0.0820	1.7719 ± 0.0655
-XGBoost	3.4768 ± 0.1701	4.3865 ± 0.2384	2.5817 ± 0.1411
+For data_seed=42, Prophet achieved lower MAE and MAPE than StackedRidge, while StackedRidge achieved a slightly lower RMSE. Five-seed results show Prophet with marginally better mean metrics and lower variability. StackedRidge has not demonstrated a consistent improvement over Prophet.
 
+### Stacking robustness (5 seeds)
 
-Robustness interpretation: Prophet had slightly better mean MAE, RMSE, and MAPE than StackedRidge, with lower standard deviation. StackedRidge is promising but did not demonstrate a robust improvement over Prophet across these five seeds.
+| Model | MAE mean +/- std | RMSE mean +/- std | MAPE mean +/- std |
+|---|---:|---:|---:|
+| EqualWeightAverage | 2.9114 +/- 0.1722 | 3.6349 +/- 0.1600 | 2.1692 +/- 0.1217 |
+| LSTM | 4.0058 +/- 0.6505 | 4.9748 +/- 0.7353 | 2.9794 +/- 0.4799 |
+| Prophet | 2.3696 +/- 0.0819 | 3.0092 +/- 0.0928 | 1.7684 +/- 0.0623 |
+| StackedRidge | 2.3741 +/- 0.0867 | 3.0093 +/- 0.0820 | 1.7719 +/- 0.0655 |
+| XGBoost | 3.4768 +/- 0.1701 | 4.3865 +/- 0.2384 | 2.5817 +/- 0.1411 |
 
-The meta-learner coefficients from the recorded run were:
+### Ridge coefficients
 
 | Base model | Ridge coefficient |
-
 |---|---:|
-
-| Prophet | 0.9604 |
-
-| XGBoost | -0.0065 |
-
-| LSTM | 0.0283 |
+| Prophet | 0.9603759743 |
+| XGBoost | -0.0064776526 |
+| LSTM | 0.0283012708 |
 
 These coefficients are specific to this experiment and should not be interpreted as universally optimal weights.
 
@@ -1095,16 +1071,23 @@ MAPE	14.55043%	14.50006%
 FP32-to-INT8 prediction difference: MAE 0.19342, RMSE 0.24483, and MAPE 0.32981%.
 Latency and throughput
 Batch size	Runtime	Mean latency (ms)	p50 (ms)	p95 (ms)	Throughput (samples/s)
-1	FP32	4.558	0.790	10.866	219.39
-1	INT8	1.541	0.627	6.725	649.06
-32	FP32	33.855	20.253	102.513	945.22
-32	INT8	17.082	12.780	34.826	1,873.30
-256	FP32	101.243	91.074	175.325	2,528.58
-256	INT8	94.321	84.032	163.520	2,714.13
+1      FP32    0.376   0.179   0.303   0.758   2,660.92
+1      INT8    0.287   0.135   0.243   0.509   3,485.07
+32     FP32    5.532   2.643   4.431   11.890  5,784.95
+32     INT8    5.441   5.336   4.111   8.274   5,881.78
+256    FP32    39.571  14.718  34.761  61.142  6,469.40
+256    INT8    36.581  10.885  31.960  58.919  6,998.13
 
 
-Interpretation and limitations
-Dynamic INT8 reduced model size by approximately 69.5%, with similar measured accuracy. INT8 had lower measured mean latency and higher throughput in these runs, but batch-1 timing showed high variance. Measurements are CPU- and environment-dependent and do not establish production performance under concurrent traffic or on other hardware.
+### Production decision
+
+Decision: keep FP32 ONNX for the global SKU model. Across three benchmark runs on 1,296 held-out windows, dynamic INT8 reduced model size by 69.5% (229.77 KB to 70.06 KB) with no accuracy loss (MAE 9.29038 to 9.28119). However, INT8 did not show consistent throughput improvement across batch sizes. It was faster at batch 1 in all three runs, but results varied at batch 32 and batch 256. Therefore, retain FP32 until INT8 performance is more consistent.
+
+The single-series model also stays on FP32 because INT8 showed no consistent speedup.
+
+### Benchmark limitations
+
+Measurements use ONNX Runtime CPU and are environment-dependent. They do not establish production performance under concurrent traffic or on other hardware.
 
 Results artifact: output/global_onnx_benchmark_report.json
 
@@ -1120,7 +1103,7 @@ python -m src.stacked_ensemble
 
 python -m src.benchmark_onnx
 
-python -m pytest -m "not integration" -q
+pytest -q
 
 The scripts regenerate training, walk-forward, stacked ensemble, and ONNX benchmark outputs. Execution time and benchmark measurements may vary by machine and runtime environment.
 
@@ -1138,86 +1121,6 @@ The scripts regenerate training, walk-forward, stacked ensemble, and ONNX benchm
 
 | FP32 vs dynamic INT8 ONNX benchmark | Completed |
 
-| Automated tests | 48 passed, 3 warnings |
+| Automated tests | 49 passed, 3 warnings |
 
 The results above describe the experiments and runs recorded here. They should not be interpreted as proof that every deployment or production acceptance criterion has been met.
-<!-- BEGIN LATEST ROUND 12-13 RESULTS -->
-Latest Round 12–13 Results (2026-11-12)
-Current verification
-python -m pytest -m "not integration" -q — 48 passed, 3 warnings.
-
-python -m compileall -q src scripts — completed successfully.
-Global LSTM vs Per-SKU LSTM: five-fold walk-forward
-Fold	Train end	Train windows	Global MAE	Per-SKU MAE	Eligible SKUs
-1	2025-10-14	1,894	9.5605	10.4845	7
-2	2025-12-12	2,388	10.7574	11.7435	9
-3	2026-02-09	2,935	10.6822	10.7549	9
-4	2026-04-09	3,540	9.9785	11.3472	10
-5	2026-06-07	4,203	9.9114	10.8939	11
-Mean common-SKU MAE			10.1780	11.0448	
-
-
-Global LSTM training averaged 1,409.76 seconds per fold; Per-SKU training averaged 866.12 seconds.
-Stacked ensemble: single seed (data_seed=123)
-Model	MAE	RMSE	MAPE
-Prophet	2.3390	3.0019	1.7403%
-XGBoost	3.3901	4.2187	2.4999%
-LSTM	5.0087	6.0636	3.7195%
-EqualWeightAverage	3.1789	3.8873	2.3553%
-StackedRidge	2.3382	2.9977	1.7380%
-
-
-Stacking robustness: five seeds
-Model	MAE mean ± std	RMSE mean ± std	MAPE mean ± std
-EqualWeightAverage	2.9114 ± 0.1722	3.6349 ± 0.1600	2.1692 ± 0.1217
-LSTM	4.0058 ± 0.6505	4.9748 ± 0.7353	2.9794 ± 0.4799
-Prophet	2.3696 ± 0.0819	3.0092 ± 0.0928	1.7684 ± 0.0623
-StackedRidge	2.3741 ± 0.0867	3.0093 ± 0.0820	1.7719 ± 0.0655
-XGBoost	3.4768 ± 0.1701	4.3865 ± 0.2384	2.5817 ± 0.1411
-
-
-Five-seed results show Prophet with marginally better mean metrics and lower variability than StackedRidge. The single-seed StackedRidge win is not a demonstrated robust advantage.
-Cold-start: held-out SKUs
-Model	MAE	RMSE	MAPE
-Global LSTM without embeddings	7.3548	9.6253	17.4431%
-Global LSTM with embeddings	9.7936	12.2916	25.4202%
-Last-value baseline	10.2000	13.4300	23.1070%
-
-
-The no-embedding model achieved the best MAE and RMSE. The last-value baseline had lower MAPE than the embedding model.
-Global SKU LSTM ONNX / dynamic INT8
-- Held-out test windows: 1,296; input (1296, 45, 4); output (1296, 7).
-- Maximum PyTorch/ONNX difference: 1.19209290e-06.
-- FP32 model size: 229.77 KB; INT8 model size: 70.06 KB; reduction: approximately 69.5%.
-- Quantized operators: 4.
-Metric	FP32	INT8
-MAE	9.29038	9.28119
-RMSE	12.83631	12.83088
-MAPE	14.55043%	14.50006%
-
-
-Batch	Runtime	Mean latency (ms)	p50 (ms)	p95 (ms)	Throughput (samples/s)
-1	FP32	4.558	0.790	10.866	219.39
-1	INT8	1.541	0.627	6.725	649.06
-32	FP32	33.855	20.253	102.513	945.22
-32	INT8	17.082	12.780	34.826	1,873.30
-256	FP32	101.243	91.074	175.325	2,528.58
-256	INT8	94.321	84.032	163.520	2,714.13
-
-
-INT8 reduced file size substantially while retaining similar measured accuracy. Timing is CPU- and environment-dependent; batch-1 variance is high, and these results do not establish production-load performance.
-
-Artifact: output/global_onnx_benchmark_report.json
-Track B status
-Area	Status
-Global vs Per-SKU walk-forward evaluation	Completed
-Leakage-free stacked ensemble	Completed
-Five-seed stacking robustness	Completed
-Cold-start evaluation	Completed
-Global SKU LSTM ONNX export and parity validation	Completed
-Global SKU LSTM dynamic INT8 benchmark	Completed
-Automated tests	48 passed, 3 warnings
-
-
-Limitations: The experiments use synthetic data. Stacking was evaluated on one series. ONNX benchmark timings are hardware- and runtime-dependent and require representative production workload validation.
-<!-- END LATEST ROUND 12-13 RESULTS -->

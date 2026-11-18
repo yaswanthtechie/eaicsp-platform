@@ -10,6 +10,7 @@ import joblib
 
 from src.config import LOOKBACK, HORIZON, DATASET_DAYS
 from src.data import generate_data
+from src.evaluate import calculate_metrics
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -118,20 +119,6 @@ def inverse_scale(values, scaler):
     ).reshape(original_shape)
 
 
-def accuracy_metrics(y_true, y_pred):
-    error = y_pred - y_true
-    nonzero = np.abs(y_true) > 1e-8
-
-    return {
-        "MAE": float(np.mean(np.abs(error))),
-        "RMSE": float(np.sqrt(np.mean(error ** 2))),
-        "MAPE_percent": (
-            float(np.mean(np.abs(error[nonzero] / y_true[nonzero])) * 100)
-            if np.any(nonzero)
-            else None
-        ),
-    }
-
 
 def main():
     for path in [FP32_MODEL, SCALER_PATH]:
@@ -168,9 +155,9 @@ def main():
         },
         "benchmark": {},
         "accuracy": {
-            "fp32": accuracy_metrics(y_true, fp32_actual),
-            "int8": accuracy_metrics(y_true, int8_actual),
-            "quantization_prediction_difference": accuracy_metrics(
+            "fp32": calculate_metrics(y_true, fp32_actual),
+            "int8": calculate_metrics(y_true, int8_actual),
+            "quantization_prediction_difference": calculate_metrics(
                 fp32_actual, int8_actual
             ),
         },

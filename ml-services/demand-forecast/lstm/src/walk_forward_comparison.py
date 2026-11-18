@@ -19,6 +19,7 @@ from src.common import fit_with_early_stopping, set_seed
 from src.global_data import load_global_data
 from src.global_model import GlobalDemandLSTM
 from src.per_sku_model import PerSKUModel
+from src.evaluate import calculate_metrics
 from src.config import (
     GLOBAL_SEED as SEED,
     GLOBAL_DATA_PATH,
@@ -44,22 +45,6 @@ MLFLOW_EXPERIMENT = "Demand-Forecast-LSTM-Walk-Forward"
 MLFLOW_RUN_NAME = "five-fold-global-vs-per-sku"
 
 
-
-def score(actual, predicted):
-    actual = np.asarray(actual, dtype=float).reshape(-1)
-    predicted = np.asarray(predicted, dtype=float).reshape(-1)
-    if actual.size != predicted.size:
-        raise ValueError("actual and predicted must have the same number of values")
-    if not actual.size:
-        return {"MAE": None, "RMSE": None, "MAPE_percent": None}
-    error = predicted - actual
-    nonzero = np.abs(actual) > 1e-8
-    return {
-        "MAE": float(np.mean(np.abs(error))),
-        "RMSE": float(np.sqrt(np.mean(error ** 2))),
-        "MAPE_percent": float(np.mean(np.abs(error[nonzero] / actual[nonzero])) * 100)
-        if nonzero.any() else None,
-    }
 
 
 def inverse_scale(scaler, values):
@@ -221,7 +206,7 @@ def run_walk_forward():
                 for name, dataset in split_datasets.items()
             }
             mask = global_skus == sku_id
-            metrics = score(global_actual[mask], global_predicted[mask])
+            metrics = calculate_metrics(global_actual[mask], global_predicted[mask])
             global_sku_rows.append({
                 "row_type": "global_sku_detail", "fold": fold, "sku_id": sku,
                 "status": "evaluated" if mask.any() else "not_evaluated",
@@ -238,7 +223,7 @@ def run_walk_forward():
             test_ids = torch.where(test.tensors[1] == sku_id)[0]
             status, reason = "eligible", ""
             seconds = best_mse = best_epoch = None
-            metrics = score([], [])
+            metrics = {"MAE": None, "RMSE": None, "MAPE": None}
             if len(train_ids) < MIN_TRAIN:
                 status, reason = "not_trained", "insufficient_training_windows"
             elif len(val_ids) == 0:
@@ -256,7 +241,7 @@ def run_walk_forward():
                     DataLoader(sku_val, batch_size=VALIDATION_BATCH, shuffle=False), device, False,
                 )
                 actual, predicted = predict_sku(model, sku_test, device, data.scaler)
-                metrics = score(actual, predicted)
+                metrics = calculate_metrics(actual, predicted)
                 eligible_ids.add(sku_id)
                 per_actual_parts.append(actual)
                 per_pred_parts.append(predicted)
@@ -270,12 +255,12 @@ def run_walk_forward():
             })
 
         common_mask = np.isin(global_skus, list(eligible_ids))
-        global_common = score(global_actual[common_mask], global_predicted[common_mask])
-        per_common = score(
+        global_common = calculate_metrics(global_actual[common_mask], global_predicted[common_mask])
+        per_common = calculate_metrics(
             np.concatenate(per_actual_parts) if per_actual_parts else [],
             np.concatenate(per_pred_parts) if per_pred_parts else [],
         )
-        global_all = score(global_actual, global_predicted)
+        global_all = calculate_metrics(global_actual, global_predicted)
         fold_info = {
             "fold": fold, "train_end": str(train_end.date()),
             "validation_end": str(val_end.date()), "test_end": str(test_end.date()),
@@ -314,7 +299,7 @@ def run_walk_forward():
 
     def mean_metrics(key):
         result = {}
-        for metric in ("MAE", "RMSE", "MAPE_percent"):
+        for metric in ("MAE", "RMSE", "MAPE"):
             vals = [fold[key][metric] for fold in folds if fold[key][metric] is not None]
             result[metric] = float(np.mean(vals)) if vals else None
         return result

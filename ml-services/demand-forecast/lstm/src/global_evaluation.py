@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader
 
 from src.global_data import load_global_data
 from src.global_model import load_global_checkpoint
+from src.evaluate import calculate_metrics
 from src.config import (
     GLOBAL_DATA_PATH as DATA_PATH,
     GLOBAL_LOOKBACK as LOOKBACK,
@@ -21,28 +22,6 @@ from src.config import (
 CHECKPOINT_PATH = Path("output/global_best_model.pt")
 SUMMARY_PATH = Path("output/global_vs_per_sku_summary.json")
 
-
-
-def get_metrics(actual, predicted):
-    """Calculate MAE, RMSE and MAPE in original sales units."""
-    actual = np.asarray(actual, dtype=np.float64).reshape(-1)
-    predicted = np.asarray(predicted, dtype=np.float64).reshape(-1)
-
-    if actual.size == 0 or actual.shape != predicted.shape:
-        raise ValueError("Actual and predicted arrays must be non-empty and aligned.")
-
-    errors = predicted - actual
-    nonzero = np.abs(actual) > 1e-8
-
-    return {
-        "MAE": float(np.mean(np.abs(errors))),
-        "RMSE": float(np.sqrt(np.mean(errors ** 2))),
-        "MAPE_percent": (
-            float(np.mean(np.abs(errors[nonzero] / actual[nonzero])) * 100)
-            if nonzero.any()
-            else None
-        ),
-    }
 
 
 
@@ -114,7 +93,32 @@ def run_evaluation():
                 "Use the matching dataset or retrain the model."
             )
 
-    # Last observed sales value in each input window (scaled).
+    model.to(device)
+
+    test_loader = DataLoader(
+        data.test,
+        batch_size=BATCH_SIZE,
+        shuffle=False,
+    )
+
+    all_predictions = []
+    all_actual = []
+    all_last_values = []
+    all_sku_ids = []
+
+    with torch.no_grad():
+        for x, sku, category, warehouse, y in test_loader:
+            prediction = model(
+                x.to(device),
+                sku.to(device),
+                category.to(device),
+                warehouse.to(device),
+            )
+
+            all_predictions.append(prediction.cpu().numpy())
+            all_actual.append(y.numpy())
+
+            # Last observed sales value in each input window (scaled).
             all_last_values.append(x[:, -1, 0].numpy())
             all_sku_ids.extend(sku.numpy().tolist())
 
@@ -140,8 +144,8 @@ def run_evaluation():
         baseline_scaled, scaler_mean[0], scaler_scale[0]
     )
 
-    global_metrics = get_metrics(actual, predictions)
-    baseline_metrics = get_metrics(actual, baseline_predictions)
+    global_metrics = calculate_metrics(actual, predictions)
+    baseline_metrics = calculate_metrics(actual, baseline_predictions)
 
     coverage = {
         "skus_with_train_windows": data.skus_with_train_windows,

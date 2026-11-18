@@ -11,6 +11,7 @@ from onnxruntime.quantization import quantize_dynamic, QuantType
 
 from src.config import GLOBAL_DATA_PATH, GLOBAL_LOOKBACK, GLOBAL_HORIZON
 from src.global_data import load_global_data
+from src.evaluate import calculate_metrics
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -84,22 +85,6 @@ def inverse_scale(values, scaler):
         values.reshape(-1, 1)
     ).reshape(shape)
 
-
-def accuracy_metrics(actual, predicted):
-    error = predicted - actual
-    nonzero = np.abs(actual) > 1e-8
-
-    return {
-        "MAE": float(np.mean(np.abs(error))),
-        "RMSE": float(np.sqrt(np.mean(error ** 2))),
-        "MAPE_percent": (
-            float(
-                np.mean(np.abs(error[nonzero] / actual[nonzero])) * 100
-            )
-            if np.any(nonzero)
-            else None
-        ),
-    }
 
 
 def benchmark_session(session, tensors, batch_size):
@@ -233,9 +218,9 @@ def main():
             "int8": graph_node_summary(INT8_MODEL),
         },
         "accuracy_original_sales_units": {
-            "fp32": accuracy_metrics(y_true, fp32_actual),
-            "int8": accuracy_metrics(y_true, int8_actual),
-            "int8_vs_fp32_prediction_difference": accuracy_metrics(
+            "fp32": calculate_metrics(y_true, fp32_actual),
+            "int8": calculate_metrics(y_true, int8_actual),
+            "int8_vs_fp32_prediction_difference": calculate_metrics(
                 fp32_actual, int8_actual
             ),
         },

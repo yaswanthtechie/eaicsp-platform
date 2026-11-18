@@ -1,4 +1,5 @@
 ﻿import json
+import mlflow
 import os
 
 import pandas as pd
@@ -69,6 +70,13 @@ def main():
             file,
             indent=2,
         )
+
+    mlflow.set_tracking_uri("sqlite:///mlflow.db")
+    mlflow.set_experiment("Demand-Forecast-Stacking-Robustness")
+    with mlflow.start_run(run_name="stacking-robustness-five-seeds"):
+        mlflow.log_param("seeds", ",".join(str(seed) for seed in SEEDS))
+        mlflow.log_param("run_count", len(SEEDS))
+        mlflow.log_artifact(report_path)
 
     print("\n=== ROBUSTNESS SUMMARY: mean and standard deviation ===")
     print(summary.round(4).to_string())

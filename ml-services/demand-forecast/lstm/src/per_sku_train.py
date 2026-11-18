@@ -15,6 +15,7 @@ from src.common import fit_with_early_stopping, set_seed
 from src.global_data import load_global_data
 from src.global_model import GlobalDemandLSTM, load_global_checkpoint
 from src.per_sku_model import PerSKUModel
+from src.evaluate import calculate_metrics
 from src.config import (
     GLOBAL_SEED as SEED,
     GLOBAL_DATA_PATH as DATA_PATH,
@@ -39,28 +40,6 @@ MLFLOW_EXPERIMENT = "Demand-Forecast-LSTM-Global-vs-Per-SKU"
 MLFLOW_RUN_NAME = "global-vs-per-sku-comparison"
 
 
-
-def get_metrics(actual, predicted):
-    """Calculate regression metrics in the original sales units."""
-    actual = np.asarray(actual).reshape(-1)
-    predicted = np.asarray(predicted).reshape(-1)
-
-    errors = predicted - actual
-    nonzero = np.abs(actual) > 1e-8
-
-    return {
-        "MAE": float(np.mean(np.abs(errors))),
-        "RMSE": float(np.sqrt(np.mean(errors ** 2))),
-        "MAPE_percent": (
-            float(
-                np.mean(
-                    np.abs(errors[nonzero] / actual[nonzero])
-                ) * 100
-            )
-            if nonzero.any()
-            else None
-        ),
-    }
 
 
 def inverse_sales(scaler, values):
@@ -310,7 +289,7 @@ def _run_comparison():
 
         total_sku_training_seconds += result["training_seconds"]
 
-        sku_metrics = get_metrics(
+        sku_metrics = calculate_metrics(
             result["actual"],
             result["predicted"],
         )
@@ -359,8 +338,8 @@ def _run_comparison():
             "Actual test targets are not aligned between models."
         )
 
-    global_metrics = get_metrics(common_actual, global_common)
-    per_sku_metrics = get_metrics(common_actual, per_sku_common)
+    global_metrics = calculate_metrics(common_actual, global_common)
+    per_sku_metrics = calculate_metrics(common_actual, per_sku_common)
 
     per_sku_wall_clock_seconds = time.perf_counter() - start_all
 
@@ -379,7 +358,9 @@ def _run_comparison():
         "skipped_skus": skipped,
         "global_lstm_metrics": global_metrics,
         "per_sku_lstm_metrics": per_sku_metrics,
-        "global_checkpoint_training_seconds": None,
+        "global_checkpoint_training_seconds": round(
+            float(checkpoint["training_seconds"]), 2
+        ),
         "per_sku_total_training_seconds": round(
             total_sku_training_seconds, 2
         ),
@@ -387,8 +368,6 @@ def _run_comparison():
             per_sku_wall_clock_seconds, 2
         ),
         "note": (
-            "Global training time is not stored in the checkpoint. "
-            "Run timing was not measured for the existing global model. "
             "Compare model metrics only on common eligible test windows."
         ),
     }
@@ -398,8 +377,13 @@ def _run_comparison():
     summary_path = OUTPUT_DIR / "global_vs_per_sku_summary.json"
     metrics_path = OUTPUT_DIR / "per_sku_metrics.csv"
 
+    existing = {}
+    if summary_path.exists():
+        existing = json.loads(summary_path.read_text(encoding="utf-8"))
+    existing.update(summary)
+
     with open(summary_path, "w", encoding="utf-8") as file:
-        json.dump(summary, file, indent=2)
+        json.dump(existing, file, indent=2)
 
     pd.DataFrame(per_sku_results).to_csv(
         metrics_path,
@@ -432,7 +416,7 @@ def _run_comparison():
             {
                 "MAE": result["MAE"],
                 "RMSE": result["RMSE"],
-                "MAPE_percent": result["MAPE_percent"],
+                "MAPE": result["MAPE"],
                 "training_seconds": result["training_seconds"],
                 "best_validation_mse": result["best_validation_mse"],
                 "best_epoch": result["best_epoch"],

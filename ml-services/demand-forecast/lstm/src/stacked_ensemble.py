@@ -1,6 +1,7 @@
 ﻿"""Leakage-free, time-ordered stacking for Prophet, XGBoost and LSTM."""
 
 import json
+import mlflow
 import os
 from pathlib import Path
 
@@ -227,6 +228,23 @@ def run_stacked_ensemble(block_size=DEFAULT_BLOCK_SIZE, data_seed=42, model_seed
         with open(metrics_path, "w", encoding="utf-8") as file:
             json.dump(report, file, indent=2)
 
+        mlflow.set_tracking_uri("sqlite:///mlflow.db")
+        mlflow.set_experiment("Demand-Forecast-Stacked-Ensemble")
+        with mlflow.start_run(run_name=f"stacked-ridge-seed-{data_seed}"):
+            mlflow.log_params({
+                "data_seed": data_seed,
+                "model_seed": model_seed,
+                "block_size_days": block_size,
+                "meta_alpha": META_ALPHA,
+            })
+            for model_name, values in metrics.items():
+                mlflow.log_metrics({
+                    f"{model_name}_{key}": float(value)
+                    for key, value in values.items()
+                    if value is not None
+                })
+            mlflow.log_artifact(metrics_path)
+
     print("\n=== Leakage-Free Stacked Ensemble ===")
     print(f"Dataset rows: {n_rows}")
     print(f"OOF rows: {len(oof_predictions)}")
@@ -244,8 +262,6 @@ def run_stacked_ensemble(block_size=DEFAULT_BLOCK_SIZE, data_seed=42, model_seed
     return report
 
 
-if __name__ == "__main__":
-    run_stacked_ensemble()
 
 
 def run_multi_series_stacked_ensemble(
@@ -490,3 +506,9 @@ def run_multi_series_stacked_ensemble(
         print(f"Metrics report: {metrics_path}")
 
     return report
+
+
+if __name__ == "__main__":
+    run_stacked_ensemble()
+    run_multi_series_stacked_ensemble()
+

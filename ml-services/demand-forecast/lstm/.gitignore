@@ -9,3 +9,6 @@ output/*.onnx.data
 mlflow.db
 mlruns/
 
+
+# Backup files
+*.bak
