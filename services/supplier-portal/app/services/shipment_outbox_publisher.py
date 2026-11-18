@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from threading import Event, Thread
 from typing import Any
 
-from confluent_kafka import KafkaException, Producer
+from confluent_kafka import Producer
 
 from app.core.config import settings
 from app.database import SessionLocal
@@ -65,7 +65,13 @@ class ShipmentOutboxPublisher:
                             on_delivery=on_delivery,
                         )
                         pending = producer.flush(10)
-                    except (KafkaException, BufferError) as exc:
+                    except Exception as exc:
+                        # Any per-row failure (Kafka, serialization, bad topic)
+                        # is recorded on this row only. Rows already sent in
+                        # this batch must still be committed as published.
+                        logger.exception(
+                            "Outbox row %s failed to publish", row.event_id
+                        )
                         row.last_error = str(exc)[:1000]
                         continue
 
