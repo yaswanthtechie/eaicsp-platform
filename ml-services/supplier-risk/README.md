@@ -19,6 +19,7 @@ The service combines:
 - **25-Company Calibration & Benchmark Dataset** (300 headlines)
 - **Historical Risk Trend & Deterioration Detection** (`is_deteriorating`, `risk_delta`, `deterioration_summary`)
 - **Compliance Integration Contract** (Contract-first future consumption specification)
+- **Client Supplier Risk Scoring (Issue #350 — R15-M7)** (Client master format, operational incident tracking, 12-month rolling metrics, grounded top reasons, and canonical resolution)
 
 ---
 
@@ -43,6 +44,7 @@ The service combines:
 - 25-Company Benchmark Dataset Evaluation
 - Historical Risk Trend with Time-Series Deterioration Detection
 - Compliance Integration Contract Specification (Documentation-Only)
+- Client Supplier Master & Operational Incident Ingestion with Grounded Top-3 Reasons (GitHub Issue #350)
 
 ---
 
@@ -67,6 +69,7 @@ supplier-risk/
 ├── src/
 │   ├── __init__.py
 │   ├── analyze.py                         # FastAPI application and prediction/trend endpoints
+│   ├── client_supplier.py                 # Client supplier master, incident processing & feature extraction (Issue #350)
 │   ├── config.py                          # Config-driven weights, penalties, MongoDB & validation settings
 │   ├── data.py                            # Authoritative MongoDB loader with test fallback handling
 │   ├── db.py                              # MongoDB connection pool, indexing, deduplication & queries
@@ -76,6 +79,7 @@ supplier-risk/
 │   ├── preprocess.py                      # Text normalization and cleaning
 │   ├── sentiment.py                       # FinBERT pipeline integration
 │   ├── signals.py                         # Keyword signal detection, mitigation, and context logic
+│   ├── supplier_mapping.py                # Canonical supplier mapping and resolution
 │   ├── transformer_eval.py                # Transformer evaluation, attention explanations & MLflow tracking
 │   ├── trend.py                           # Date validation, trend aggregation, and recency decay
 │   ├── supplier_headlines.json            # 10-company baseline dataset (120 headlines)
@@ -87,12 +91,16 @@ supplier-risk/
 │   └── synthetic_held_out_validation.json # 12-company non-circular held-out validation dataset (96 headlines)
 │
 ├── tests/
+│   ├── conftest.py                        # Shared test fixtures & in-memory MongoDB mocks
 │   ├── test_api.py                        # REST API endpoint and contract tests
+│   ├── test_canonical_supplier_mapping.py # Canonical supplier resolution and mapping tests
+│   ├── test_client_supplier_scoring.py    # Issue #350 25 synthetic client scoring scenarios
 │   ├── test_evidence_confidence.py        # Milestone 2: Evidence and confidence tests
 │   ├── test_integration.py                # Unmocked slow integration benchmark tests
 │   ├── test_milestone3_config_and_validation.py # Milestone 3: Config, validation, and benchmark tests
 │   ├── test_mongo.py                      # Round 10 Milestone 1: MongoDB storage, deduplication & migration tests
 │   ├── test_predict.py                    # Unit tests for scoring, signals, and deduplication
+│   ├── test_risk_score_api.py             # Canonical risk score API and caching tests
 │   ├── test_transformer_eval.py           # Round 10 Milestone 2 & 3: Transformer eval, MLflow & attention tests
 │   └── test_trend.py                      # Time-series trend and date validation tests
 │
@@ -919,6 +927,72 @@ is the next step.
 - Tracker state is in memory; it resets when the service restarts.
 - With `min_evidence=2`, one very severe article cannot move a tier by itself (in the replay, Glencore's single 98.43 article does not escalate it to
 high). This is the trade-off the evidence rule makes.
+
+---
+
+# Client Supplier Risk Scoring (GitHub Issue #350 — R15-M7)
+
+Supplier risk evaluation is extended to ingest and process client supplier master data and operational incident histories, computing a unified composite risk score grounded in both internal operational performance and external adverse media intelligence.
+
+For the full architectural specification, refer to: [docs/CLIENT_SUPPLIER_RISK_SCORING.md](docs/CLIENT_SUPPLIER_RISK_SCORING.md).
+
+### Core Features:
+1. **Client Supplier Master Ingestion**: Ingests vendor master data with fields `supplier_code` (or `supplier_id`), `legal_name`, `country`, `city`, `category`, and optional `on_time_delivery_pct`.
+2. **Explicit Canonical Mapping**: Strict resolution of `supplier_code` to canonical `supplier_id` via `supplier_mappings` or master record; strictly prohibits fuzzy matching or invented IDs.
+3. **Operational Incident Processing**: Validates and categorizes operational infractions into `Quality`, `Delay`, `Dispute`, and `Other`.
+4. **12-Month Rolling Window & Age Metrics**: Computes rolling 12-month counts and days since last eligible incident relative to an injectable `as_of_date` (defaults to current date).
+5. **Future Incident Exclusion**: Incidents dated in the future (`incident_date > as_of_date`) are strictly excluded.
+6. **Safe Handling of Missing On-Time Delivery**: Missing delivery percentage never incurs a zero-percentage penalty. Clearly marked as `null` with a dedicated integration TODO for Balaji's GitHub Issue #325 endpoint.
+7. **Combining Scores**: The final score is the higher of the client operational score and the FinBERT adverse media score, so neither source can lower the other, while preserving sanctions hard-blocks (85.0 / Critical).
+8. **Top Three Grounded Reasons**: Every risk score produces the top 3 driving reasons grounded strictly in verified input data.
+9. **API Compatibility**: Extends `GET /api/v1/suppliers/{supplier_id}/risk-score` and aliases with additive `top_reasons` and `client_risk_features`, alongside the client-code route `GET /api/v1/supplier-risk/client-suppliers/{supplier_code}/risk-score`.
+10. **MongoDB Caching & Persistence**: Cached assessments persist client features and reasons; old cache records remain fully readable.
+
+### API Example:
+```http
+GET /api/v1/suppliers/SUP-00045/risk-score?as_of_date=2026-11-16
+```
+
+```json
+{
+  "supplier_id": "SUP-00045",
+  "score": 67.5,
+  "tier": "Medium",
+  "top_factors": [
+    {
+      "factor": "delays",
+      "category": "Operational",
+      "weight": 40.0,
+      "description": "4 delay incidents in the last 12 months."
+    },
+    {
+      "factor": "recall",
+      "category": "Operational",
+      "weight": 15.0,
+      "description": "1 quality incident in the last 12 months."
+    }
+  ],
+  "top_evidence_articles": [],
+  "computed_at": "2026-11-16T15:00:00Z",
+  "top_reasons": [
+    "4 delay incidents in 12 months",
+    "1 quality incident in 12 months",
+    "On-time delivery rate is 87.5% (target: 95.0%)"
+  ],
+  "client_risk_features": {
+    "quality_incidents_12m": 1,
+    "delay_incidents_12m": 4,
+    "dispute_incidents_12m": 0,
+    "other_incidents_12m": 0,
+    "days_since_last_incident": 14,
+    "on_time_delivery_pct": 87.5,
+    "on_time_delivery_missing": false,
+    "country": "US",
+    "city": null,
+    "category": null
+  }
+}
+```
 
 ---
 

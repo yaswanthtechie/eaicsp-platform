@@ -225,11 +225,19 @@ class FakeCollection:
 class FakeSupplierStore:
     """Container holding isolated fake collections for a test."""
 
-    def __init__(self, supplier_col: FakeCollection, assessment_col: FakeCollection):
+    def __init__(
+        self,
+        supplier_col: FakeCollection,
+        assessment_col: FakeCollection,
+        client_suppliers_col: Optional[FakeCollection] = None,
+        client_incidents_col: Optional[FakeCollection] = None,
+    ):
         self.suppliers = supplier_col
         self.assessments = assessment_col
         self.supplier_mapping = supplier_col
         self.risk_assessments = assessment_col
+        self.client_suppliers = client_suppliers_col if client_suppliers_col is not None else FakeCollection("client_suppliers")
+        self.client_incidents = client_incidents_col if client_incidents_col is not None else FakeCollection("client_incidents")
 
 
 def _load_sample_suppliers() -> List[Dict[str, Any]]:
@@ -332,11 +340,13 @@ def fake_supplier_store(request, monkeypatch):
 
     supplier_col = FakeCollection("supplier_mappings")
     assessment_col = FakeCollection("risk_assessments")
+    client_suppliers_col = FakeCollection("client_suppliers")
+    client_incidents_col = FakeCollection("client_incidents")
 
     for rec in _load_sample_suppliers():
         supplier_col.insert_one(copy.deepcopy(rec))
 
-    from src import supplier_mapping, db
+    from src import supplier_mapping, db, client_supplier
 
     monkeypatch.setattr(
         supplier_mapping,
@@ -348,9 +358,59 @@ def fake_supplier_store(request, monkeypatch):
         "get_risk_assessments_collection",
         lambda *args, **kwargs: assessment_col,
     )
+    monkeypatch.setattr(
+        db,
+        "get_client_suppliers_collection",
+        lambda *args, **kwargs: client_suppliers_col,
+    )
+    monkeypatch.setattr(
+        db,
+        "get_client_incidents_collection",
+        lambda *args, **kwargs: client_incidents_col,
+    )
+    monkeypatch.setattr(
+        client_supplier,
+        "get_client_suppliers_collection",
+        lambda *args, **kwargs: client_suppliers_col,
+    )
+    monkeypatch.setattr(
+        client_supplier,
+        "get_client_incidents_collection",
+        lambda *args, **kwargs: client_incidents_col,
+    )
 
-    store = FakeSupplierStore(supplier_col, assessment_col)
+    store = FakeSupplierStore(supplier_col, assessment_col, client_suppliers_col, client_incidents_col)
     yield store
+
+
+def _default_sentiment_mock(text: str) -> Dict[str, Any]:
+    lower_text = text.lower()
+    if any(w in lower_text for w in [
+        "bankruptcy", "fraud", "strike", "lawsuit", "sanction",
+        "disruption", "recall", "layoff", "default", "insolvency",
+        "downgrade", "restructuring"
+    ]):
+        return {"label": "negative", "confidence": 0.99}
+    if any(w in lower_text for w in ["positive", "record", "profit", "surging", "expansion", "growth", "bookings", "partnership"]):
+        return {"label": "positive", "confidence": 0.95}
+    return {"label": "neutral", "confidence": 0.99}
+
+
+@pytest.fixture(autouse=True)
+def mock_finbert_model_in_unit_tests(request):
+    """
+    Unit tests avoid initializing the real FinBERT transformer model on application lifespan
+    and avoid external inference calls.
+    Tests marked @pytest.mark.integration or in test_transformer_eval keep real initialization.
+    """
+    if request.node.get_closest_marker("integration") or "transformer" in request.node.nodeid:
+        yield
+        return
+
+    from unittest.mock import patch
+    with patch("src.analyze.init_model"), \
+         patch("src.predict.analyze_sentiment", side_effect=_default_sentiment_mock):
+        yield
 
 
 @pytest.fixture(autouse=True)

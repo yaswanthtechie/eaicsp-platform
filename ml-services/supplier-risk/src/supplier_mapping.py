@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional, Set
 
 import pymongo
 from pymongo.collection import Collection
-from pymongo.errors import DuplicateKeyError
+from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from src.db import get_collection, get_database
 
@@ -112,6 +112,13 @@ def ensure_mapping_indexes(collection: Optional[Collection] = None) -> List[str]
         name="idx_aliases",
     )
     created.append(idx_alias)
+
+    # 4. Explicit supplier codes index (Issue #350)
+    idx_scode = col.create_index(
+        [("supplier_codes", pymongo.ASCENDING)],
+        name="idx_supplier_codes",
+    )
+    created.append(idx_scode)
 
     return created
 
@@ -483,6 +490,35 @@ def resolve_canonical_supplier(
     doc = col.find_one({"aliases": raw}, {"_id": 0})
     if doc:
         return doc
+
+    # 4. Explicit mapped supplier_code in supplier_mappings (Issue #350)
+    doc = col.find_one(
+        {"$or": [{"supplier_codes": raw}, {"supplier_code": raw}]},
+        {"_id": 0},
+    )
+    if doc:
+        return doc
+
+    # 5. Explicit mapping in client_suppliers collection (Issue #350)
+    try:
+        from src.db import get_client_suppliers_collection
+        client_col = get_client_suppliers_collection()
+        client_doc = client_col.find_one(
+            {"supplier_code": raw},
+            {"_id": 0, "supplier_id": 1},
+        )
+        if client_doc and client_doc.get("supplier_id"):
+            canon_id = client_doc["supplier_id"].strip().upper()
+            if CANONICAL_ID_REGEX.match(canon_id):
+                # Only a supplier that exists in the seed mapping resolves.
+                # An ID that appears only in client data stays unresolved.
+                doc = col.find_one({"supplier_id": canon_id}, {"_id": 0})
+                if doc:
+                    return doc
+    except PyMongoError:
+        raise
+    except Exception as exc:
+        logger.debug("Client suppliers mapping lookup skipped: %s", exc)
 
     return None
 

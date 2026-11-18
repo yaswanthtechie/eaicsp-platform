@@ -354,3 +354,205 @@ def fetch_risk_assessment(
     """
     col = collection if collection is not None else get_risk_assessments_collection()
     return col.find_one({"supplier_id": supplier_id}, {"_id": 0})
+
+
+# ------------------------------------------------------------------
+# Client Supplier Master and Incident Collections (Issue #350)
+# ------------------------------------------------------------------
+
+def get_client_suppliers_collection(
+    collection_name: Optional[str] = None,
+    db_name: Optional[str] = None,
+    uri: Optional[str] = None,
+) -> Collection:
+    """Retrieve the client_suppliers MongoDB collection instance."""
+    db = get_database(db_name, uri)
+    target = collection_name or get_settings().mongodb_client_suppliers_collection
+    return db[target]
+
+
+def get_client_incidents_collection(
+    collection_name: Optional[str] = None,
+    db_name: Optional[str] = None,
+    uri: Optional[str] = None,
+) -> Collection:
+    """Retrieve the client_incidents MongoDB collection instance."""
+    db = get_database(db_name, uri)
+    target = collection_name or get_settings().mongodb_client_incidents_collection
+    return db[target]
+
+
+def ensure_client_data_indexes(
+    suppliers_col: Optional[Collection] = None,
+    incidents_col: Optional[Collection] = None,
+) -> Dict[str, List[str]]:
+    """
+    Create required indexes on client supplier master and incident collections:
+    - client_suppliers:
+        1. idx_client_supplier_id: index on supplier_id
+        2. idx_client_supplier_code: index on supplier_code
+    - client_incidents:
+        1. idx_incident_supplier_id: index on supplier_id
+        2. idx_incident_supplier_code: index on supplier_code
+        3. idx_incident_date: index on incident_date
+        4. idx_incident_supplier_date: compound index on (supplier_id, incident_date)
+        5. idx_incident_code_date: compound index on (supplier_code, incident_date)
+    """
+    scol = suppliers_col if suppliers_col is not None else get_client_suppliers_collection()
+    icol = incidents_col if incidents_col is not None else get_client_incidents_collection()
+
+    created_suppliers: List[str] = []
+    created_incidents: List[str] = []
+
+    # Supplier master indexes
+    idx_sid = scol.create_index([("supplier_id", pymongo.ASCENDING)], name="idx_client_supplier_id")
+    created_suppliers.append(idx_sid)
+
+    idx_scode = scol.create_index([("supplier_code", pymongo.ASCENDING)], name="idx_client_supplier_code")
+    created_suppliers.append(idx_scode)
+
+    # Incident indexes
+    idx_isid = icol.create_index([("supplier_id", pymongo.ASCENDING)], name="idx_incident_supplier_id")
+    created_incidents.append(idx_isid)
+
+    idx_iscode = icol.create_index([("supplier_code", pymongo.ASCENDING)], name="idx_incident_supplier_code")
+    created_incidents.append(idx_iscode)
+
+    idx_idate = icol.create_index([("incident_date", pymongo.ASCENDING)], name="idx_incident_date")
+    created_incidents.append(idx_idate)
+
+    idx_icomp = icol.create_index(
+        [("supplier_id", pymongo.ASCENDING), ("incident_date", pymongo.ASCENDING)],
+        name="idx_incident_supplier_date",
+    )
+    created_incidents.append(idx_icomp)
+
+    idx_icode_comp = icol.create_index(
+        [("supplier_code", pymongo.ASCENDING), ("incident_date", pymongo.ASCENDING)],
+        name="idx_incident_code_date",
+    )
+    created_incidents.append(idx_icode_comp)
+
+    return {"suppliers": created_suppliers, "incidents": created_incidents}
+
+
+_client_indexes_ensured: bool = False
+
+
+def ensure_client_data_indexes_once(
+    suppliers_col: Optional[Collection] = None,
+    incidents_col: Optional[Collection] = None,
+) -> Dict[str, List[str]]:
+    """
+    Ensure client data indexes are created once per process lifetime,
+    avoiding unnecessary repeated index creation calls.
+    """
+    global _client_indexes_ensured
+    if not _client_indexes_ensured:
+        res = ensure_client_data_indexes(suppliers_col=suppliers_col, incidents_col=incidents_col)
+        _client_indexes_ensured = True
+        return res
+    return {"suppliers": [], "incidents": []}
+
+
+def fetch_client_supplier(
+    identifier: str,
+    collection: Optional[Collection] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Fetch a client supplier master record by canonical supplier_id or supplier_code.
+    """
+    if not identifier or not isinstance(identifier, str):
+        return None
+    clean = identifier.strip()
+    col = collection if collection is not None else get_client_suppliers_collection()
+    return col.find_one(
+        {"$or": [{"supplier_id": clean.upper()}, {"supplier_code": clean}, {"supplier_code": clean.upper()}]},
+        {"_id": 0},
+    )
+
+
+def fetch_client_incidents(
+    identifier: str,
+    collection: Optional[Collection] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Fetch all incidents for a given supplier by supplier_id or supplier_code.
+    """
+    if not identifier or not isinstance(identifier, str):
+        return []
+    clean = identifier.strip()
+    col = collection if collection is not None else get_client_incidents_collection()
+    cursor = col.find(
+        {"$or": [{"supplier_id": clean.upper()}, {"supplier_code": clean}, {"supplier_code": clean.upper()}]},
+        {"_id": 0},
+    )
+    return list(cursor)
+
+
+def save_client_supplier(
+    doc: Dict[str, Any],
+    collection: Optional[Collection] = None,
+) -> str:
+    """
+    Upsert a client supplier master record into MongoDB.
+    """
+    col = collection if collection is not None else get_client_suppliers_collection()
+    supplier_id = doc.get("supplier_id")
+    supplier_code = doc.get("supplier_code")
+    if not supplier_id and not supplier_code:
+        raise ValueError("Client supplier record must contain 'supplier_id' or 'supplier_code'")
+
+    record = dict(doc)
+    record["updated_at"] = datetime.now(timezone.utc)
+
+    filter_query: Dict[str, Any]
+    if supplier_id and supplier_code:
+        filter_query = {"$or": [{"supplier_id": supplier_id}, {"supplier_code": supplier_code}]}
+    elif supplier_id:
+        filter_query = {"supplier_id": supplier_id}
+    else:
+        filter_query = {"supplier_code": supplier_code}
+
+    col.update_one(
+        filter_query,
+        {"$set": record, "$setOnInsert": {"created_at": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
+    return str(supplier_id or supplier_code)
+
+
+def save_client_incident(
+    doc: Dict[str, Any],
+    collection: Optional[Collection] = None,
+) -> str:
+    """
+    Insert a client supplier incident into MongoDB.
+    """
+    col = collection if collection is not None else get_client_incidents_collection()
+    record = dict(doc)
+    if "created_at" not in record:
+        record["created_at"] = datetime.now(timezone.utc)
+    res = col.insert_one(record)
+    return str(res.inserted_id)
+
+
+def save_client_incidents(
+    docs: List[Dict[str, Any]],
+    collection: Optional[Collection] = None,
+) -> int:
+    """
+    Batch insert client supplier incidents into MongoDB.
+    """
+    if not docs:
+        return 0
+    col = collection if collection is not None else get_client_incidents_collection()
+    now = datetime.now(timezone.utc)
+    records = []
+    for d in docs:
+        rec = dict(d)
+        if "created_at" not in rec:
+            rec["created_at"] = now
+        records.append(rec)
+    res = col.insert_many(records)
+    return len(res.inserted_ids)

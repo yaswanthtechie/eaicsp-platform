@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import secrets
 from fastapi import Depends, FastAPI, HTTPException, Header, Path, Request, status
@@ -21,7 +21,13 @@ from src.config import (
     get_settings,
 )
 from src.data import load_headlines, load_trend_headlines, load_active_trend_headlines
-from src.db import fetch_risk_assessment, get_collection, save_risk_assessment
+from src.db import (
+    fetch_client_incidents,
+    fetch_client_supplier,
+    fetch_risk_assessment,
+    get_collection,
+    save_risk_assessment,
+)
 from src.evaluate import assign_risk_tier
 from src.predict import predict
 from src.sentiment import init_model
@@ -33,6 +39,14 @@ from src.supplier_mapping import (
     validate_canonical_supplier_id,
 )
 from src.trend import calculate_supplier_trend
+from src.client_supplier import (
+    ClientRiskFeatures,
+    calculate_client_risk_features,
+    calculate_client_risk_score,
+    generate_top_reasons,
+    resolve_supplier_code_to_canonical_id,
+    validate_incident_date,
+)
 
 
 # ----------------------------------------------------
@@ -393,6 +407,8 @@ class SupplierRiskScoreResponse(BaseModel):
     top_factors: List[RiskFactor] = Field(default_factory=list)
     top_evidence_articles: List[EvidenceArticle] = Field(default_factory=list)
     computed_at: str
+    top_reasons: List[str] = Field(default_factory=list)
+    client_risk_features: Optional[ClientRiskFeatures] = None
 
 
 # ----------------------------------------------------
@@ -409,6 +425,14 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.exception("Failed to initialize model.")
         raise exc
+
+    # Ensure client data indexes at service startup (idempotent, once per process)
+    try:
+        from src.db import ensure_client_data_indexes_once
+        ensure_client_data_indexes_once()
+        logger.info("Client data MongoDB indexes ensured on startup.")
+    except Exception as exc:
+        logger.debug("Client data indexes creation skipped on startup: %s", exc)
 
     yield
 
@@ -759,7 +783,7 @@ def _save_assessment(
 ) -> None:
     """Persist a computed risk assessment to MongoDB using standard dictionary schema."""
     try:
-        save_risk_assessment({
+        doc: Dict[str, Any] = {
             "supplier_id": supplier_id,
             "supplier_name": supplier_name,
             "score": response.score,
@@ -769,7 +793,12 @@ def _save_assessment(
                 a.model_dump() for a in response.top_evidence_articles
             ],
             "computed_at": response.computed_at,
-        })
+        }
+        if response.top_reasons:
+            doc["top_reasons"] = list(response.top_reasons)
+        if response.client_risk_features is not None:
+            doc["client_risk_features"] = response.client_risk_features.model_dump()
+        save_risk_assessment(doc)
     except PyMongoError as exc:
         logger.warning(
             "Could not persist risk assessment for %s: %s",
@@ -980,30 +1009,149 @@ def require_caller(
 
 
 
+def _incident_dedup_key(inc: Dict[str, Any]) -> Tuple[Any, ...]:
+    """
+    Generate a safe deduplication identity for a supplier incident.
+    Prioritizes MongoDB _id, then explicit non-empty incident_id.
+    If both are missing, uses a structured composite tuple of incident_date,
+    incident_type, normalized description, and severity to ensure distinct
+    incidents on the same date are preserved while genuine duplicates are removed.
+    """
+    if inc.get("_id"):
+        return ("mongo_id", str(inc["_id"]))
+    inc_id = inc.get("incident_id")
+    if inc_id and str(inc_id).strip():
+        return ("incident_id", str(inc_id).strip())
+    return (
+        "content",
+        str(inc.get("incident_date")),
+        str(inc.get("incident_type")),
+        str(inc.get("description") or "").strip().casefold(),
+        str(inc.get("severity") or "").strip().casefold(),
+    )
+
+
 def compute_canonical_supplier_risk_score(
     supplier_rec: Dict[str, Any],
+    as_of_date: Optional[str] = None,
 ) -> SupplierRiskScoreResponse:
     """
     Compute or retrieve canonical risk score response matching the OpenAPI contract.
+    Integrates Client Supplier Master and Incident Risk Scoring (Issue #350).
+
     Returns:
-        SupplierRiskScoreResponse with supplier_id, score, tier, top_factors, top_evidence_articles, and computed_at.
+        SupplierRiskScoreResponse with supplier_id, score, tier, top_factors,
+        top_evidence_articles, computed_at, top_reasons, and client_risk_features.
     """
+    cfg = get_settings()
     supplier_id = supplier_rec["supplier_id"]
     supplier_name = supplier_rec.get("name") or supplier_rec.get("supplier_name", supplier_id)
 
-    # 1. Check if MongoDB has an existing fresh persisted assessment
-    saved_doc = fetch_risk_assessment(supplier_id)
-    if saved_doc and _is_fresh(saved_doc.get("computed_at")):
-        return SupplierRiskScoreResponse(
-            supplier_id=supplier_id,
-            score=saved_doc.get("score"),
-            tier=saved_doc.get("tier"),
-            top_factors=[RiskFactor(**f) for f in saved_doc.get("top_factors", [])],
-            top_evidence_articles=[EvidenceArticle(**a) for a in saved_doc.get("top_evidence_articles", [])],
-            computed_at=saved_doc.get("computed_at"),
-        )
+    # 1. Fetch client data for this supplier (master and incidents)
+    client_master: Optional[Dict[str, Any]] = None
+    client_incidents: List[Dict[str, Any]] = []
+    try:
+        client_master = fetch_client_supplier(supplier_id)
+        raw_incidents = fetch_client_incidents(supplier_id)
+        if client_master and client_master.get("supplier_code"):
+            raw_incidents.extend(fetch_client_incidents(client_master["supplier_code"]))
 
-    # 2. Check if supplier has sanctions designation in master data
+        seen_keys: Set[Tuple[Any, ...]] = set()
+        for inc in raw_incidents:
+            key = _incident_dedup_key(inc)
+            if key not in seen_keys:
+                seen_keys.add(key)
+                client_incidents.append(inc)
+    except PyMongoError:
+        raise
+    except Exception as exc:
+        logger.warning("Error fetching client data for %s: %s", supplier_id, exc)
+
+    has_client_data = bool(client_master or client_incidents)
+
+    # A score for a past as_of_date is never read from or written to the cache:
+    # the cache holds the current score only.
+    use_cache = as_of_date is None
+
+    # 2. Check if MongoDB has an existing fresh persisted assessment
+    saved_doc = fetch_risk_assessment(supplier_id) if use_cache else None
+    if saved_doc and _is_fresh(saved_doc.get("computed_at")):
+        cached_has_client_fields = (
+            "client_risk_features" in saved_doc
+            and saved_doc.get("client_risk_features") is not None
+        )
+        # Cache behavior does not silently return incomplete client risk data
+        if has_client_data and not cached_has_client_fields:
+            logger.debug(
+                "Fresh client data available for %s but cached assessment lacks client fields; recomputing",
+                supplier_id,
+            )
+        else:
+            crf_data = saved_doc.get("client_risk_features")
+            crf = ClientRiskFeatures(**crf_data) if crf_data else None
+            return SupplierRiskScoreResponse(
+                supplier_id=supplier_id,
+                score=saved_doc.get("score"),
+                tier=saved_doc.get("tier"),
+                top_factors=[RiskFactor(**f) for f in saved_doc.get("top_factors", [])],
+                top_evidence_articles=[EvidenceArticle(**a) for a in saved_doc.get("top_evidence_articles", [])],
+                computed_at=saved_doc.get("computed_at"),
+                top_reasons=saved_doc.get("top_reasons", []),
+                client_risk_features=crf,
+            )
+
+    # 3. Calculate client-based risk features and operational score
+    client_features: Optional[ClientRiskFeatures] = None
+    client_score: Optional[float] = None
+    client_factors: List[RiskFactor] = []
+
+    if has_client_data:
+        client_features = calculate_client_risk_features(
+            master=client_master,
+            incidents=client_incidents,
+            scoring_date=as_of_date,
+        )
+        client_score = calculate_client_risk_score(client_features, config=cfg)
+
+        if client_features.delay_incidents_12m > 0:
+            client_factors.append(RiskFactor(
+                factor="delays",
+                category="Operational",
+                weight=min(100.0, float(client_features.delay_incidents_12m * cfg.client_delay_incident_weight)),
+                description=f"{client_features.delay_incidents_12m} delay incident{'s' if client_features.delay_incidents_12m != 1 else ''} in the last 12 months.",
+            ))
+        if client_features.quality_incidents_12m > 0:
+            client_factors.append(RiskFactor(
+                factor="recall",
+                category="Operational",
+                weight=min(100.0, float(client_features.quality_incidents_12m * cfg.client_quality_incident_weight)),
+                description=f"{client_features.quality_incidents_12m} quality incident{'s' if client_features.quality_incidents_12m != 1 else ''} in the last 12 months.",
+            ))
+        if client_features.dispute_incidents_12m > 0:
+            client_factors.append(RiskFactor(
+                factor="lawsuit",
+                category="Reputational",
+                weight=min(100.0, float(client_features.dispute_incidents_12m * cfg.client_dispute_incident_weight)),
+                description=f"{client_features.dispute_incidents_12m} dispute incident{'s' if client_features.dispute_incidents_12m != 1 else ''} in the last 12 months.",
+            ))
+        if client_features.other_incidents_12m > 0:
+            client_factors.append(RiskFactor(
+                factor="disruption",
+                category="Operational",
+                weight=min(100.0, float(client_features.other_incidents_12m * cfg.client_other_incident_weight)),
+                description=f"{client_features.other_incidents_12m} other incident{'s' if client_features.other_incidents_12m != 1 else ''} in the last 12 months.",
+            ))
+        if not client_features.on_time_delivery_missing and client_features.on_time_delivery_pct is not None:
+            if client_features.on_time_delivery_pct < cfg.client_target_on_time_delivery_pct:
+                diff = cfg.client_target_on_time_delivery_pct - client_features.on_time_delivery_pct
+                client_factors.append(RiskFactor(
+                    factor="shortage",
+                    category="Operational",
+                    weight=round(diff * cfg.client_late_delivery_penalty_weight, 1),
+                    description=f"On-time delivery rate at {client_features.on_time_delivery_pct:.1f}% (target: {cfg.client_target_on_time_delivery_pct:.1f}%).",
+                ))
+
+    # 4. Check if supplier has sanctions designation in master data
     is_sanctioned = bool(supplier_rec.get("sanctions_flag", False))
     if is_sanctioned:
         sanctions_list = (supplier_rec.get("sanctions_list") or "").strip() or "a sanctions list"
@@ -1015,20 +1163,31 @@ def compute_canonical_supplier_risk_score(
             weight=85.0,
             description=f"Designated on {sanctions_list} (seed master data).",
         )
+        combined_factors = [factor] + client_factors
+        top_reasons = generate_top_reasons(
+            features=client_features,
+            nlp_signals=[],
+            is_sanctioned=True,
+            sanctions_list=sanctions_list,
+            config=cfg,
+        )
         computed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         response = SupplierRiskScoreResponse(
             supplier_id=supplier_id,
             score=score,
             tier=tier,
-            top_factors=[factor],
+            top_factors=combined_factors[:5],
             top_evidence_articles=[],
             computed_at=computed_at,
+            top_reasons=top_reasons,
+            client_risk_features=client_features,
         )
-        _save_assessment(supplier_id, supplier_name, response)
+        if use_cache:
+            _save_assessment(supplier_id, supplier_name, response)
         return response
 
-    # 3. Adverse news filed under the seed name or any reviewed alias
+    # 5. Adverse news headlines filed under the seed name or any reviewed alias
     trend_data = load_active_trend_headlines()
     known_names = {supplier_name.casefold()}
     known_names.update(alias.casefold() for alias in supplier_rec.get("aliases") or [])
@@ -1040,12 +1199,20 @@ def compute_canonical_supplier_risk_score(
         for record in records
     ]
 
+    nlp_score: Optional[float] = None
+    nlp_tier: Optional[str] = None
+    nlp_factors: List[RiskFactor] = []
+    nlp_evidence: List[EvidenceArticle] = []
+    nlp_signals: List[Dict[str, Any]] = []
+
     if matching_records:
-        trend_result = calculate_supplier_trend(supplier_name, matching_records)
-        score = trend_result.get("current_risk_score")
-        tier = trend_result.get("current_risk_tier")
-        top_factors: List[RiskFactor] = []
-        top_evidence: List[EvidenceArticle] = []
+        trend_result = calculate_supplier_trend(
+            supplier_name,
+            matching_records,
+            as_of_date=as_of_date,
+        )
+        nlp_score = trend_result.get("current_risk_score")
+        nlp_tier = trend_result.get("current_risk_tier")
 
         for item in trend_result.get("top_evidence", [])[:5]:
             signals_list = []
@@ -1054,9 +1221,10 @@ def compute_canonical_supplier_risk_score(
                 kw = sig["keyword"].lower()
                 cat = SIGNAL_CATEGORIES.get(kw, "Operational")
                 desc = FACTOR_DESCRIPTIONS.get(kw, f"{kw.title()}-related adverse media.")
-                top_factors.append(RiskFactor(factor=kw, category=cat, weight=float(sig.get("weight", 10.0)), description=desc))
+                nlp_factors.append(RiskFactor(factor=kw, category=cat, weight=float(sig.get("weight", 10.0)), description=desc))
+                nlp_signals.append({"keyword": kw, "weight": float(sig.get("weight", 10.0))})
 
-            top_evidence.append(
+            nlp_evidence.append(
                 EvidenceArticle(
                     headline=item["headline"],
                     date=item.get("date"),
@@ -1066,36 +1234,73 @@ def compute_canonical_supplier_risk_score(
                 )
             )
 
-        # Deduplicate top_factors by factor keyword
-        dedup_factors: List[RiskFactor] = []
-        seen_factors = set()
-        for f in top_factors:
-            if f.factor not in seen_factors:
-                seen_factors.add(f.factor)
-                dedup_factors.append(f)
+    # 6. Risk Scoring Integration: Combine NLP and Client Data
+    final_score: Optional[float] = None
+    final_tier: Optional[str] = None
 
+    if nlp_score is not None and client_score is not None:
+        # Both sources are evidence of risk; neither may lower the other.
+        if client_score > nlp_score:
+            final_score = client_score
+            final_tier = assign_risk_tier(final_score, cfg)
+        else:
+            # Keep the trend's hysteresis tier when the news score decides.
+            final_score = nlp_score
+            final_tier = nlp_tier
+    elif nlp_score is not None:
+        # Only NLP news headlines available
+        final_score = nlp_score
+        final_tier = nlp_tier
+    elif client_score is not None:
+        # Only Client data available
+        final_score = client_score
+        final_tier = assign_risk_tier(final_score, cfg)
+    else:
+        # 7. No evidence available (neither NLP headlines nor client data)
         computed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        response = SupplierRiskScoreResponse(
+        return SupplierRiskScoreResponse(
             supplier_id=supplier_id,
-            score=score,
-            tier=tier,
-            top_factors=dedup_factors[:5],
-            top_evidence_articles=top_evidence[:5],
+            score=None,
+            tier=None,
+            top_factors=[],
+            top_evidence_articles=[],
             computed_at=computed_at,
+            top_reasons=[],
+            client_risk_features=None,
         )
-        _save_assessment(supplier_id, supplier_name, response)
-        return response
 
-    # 4. No recent evidence available (score and tier are null per contract)
-    computed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return SupplierRiskScoreResponse(
-        supplier_id=supplier_id,
-        score=None,
-        tier=None,
-        top_factors=[],
-        top_evidence_articles=[],
-        computed_at=computed_at,
+    # 8. Deduplicate factors: prioritize highest weights
+    all_factors = nlp_factors + client_factors
+    all_factors.sort(key=lambda f: f.weight, reverse=True)
+    dedup_factors: List[RiskFactor] = []
+    seen_factors = set()
+    for f in all_factors:
+        if f.factor not in seen_factors:
+            seen_factors.add(f.factor)
+            dedup_factors.append(f)
+
+    # 9. Top three grounded reasons
+    top_reasons = generate_top_reasons(
+        features=client_features,
+        nlp_signals=nlp_signals,
+        is_sanctioned=False,
+        config=cfg,
     )
+
+    computed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    response = SupplierRiskScoreResponse(
+        supplier_id=supplier_id,
+        score=final_score,
+        tier=final_tier,
+        top_factors=dedup_factors[:5],
+        top_evidence_articles=nlp_evidence[:5],
+        computed_at=computed_at,
+        top_reasons=top_reasons,
+        client_risk_features=client_features,
+    )
+    if use_cache:
+        _save_assessment(supplier_id, supplier_name, response)
+    return response
 
 
 @app.get(
@@ -1116,12 +1321,19 @@ def compute_canonical_supplier_risk_score(
 )
 def get_supplier_risk_score_endpoint(
     supplier_id: str = Path(..., pattern=r"^SUP-\d{5}$", description="Canonical supplier identifier (e.g. SUP-00045)"),
+    as_of_date: Optional[str] = None,
     caller: str = Depends(require_caller),
 ):
     """
     Retrieve current supplier risk score matching OpenAPI contract:
     contracts/openapi/supplier-risk.yaml
     """
+    if as_of_date is not None:
+        try:
+            validate_incident_date(as_of_date)
+        except ValueError as exc:
+            raise ContractError(422, "INVALID_DATE", str(exc)) from exc
+
     try:
         supplier_rec = resolve_canonical_supplier(supplier_id)
     except PyMongoError as exc:
@@ -1132,9 +1344,59 @@ def get_supplier_risk_score_endpoint(
         raise ContractError(404, "SUPPLIER_NOT_FOUND", f"Supplier {supplier_id} was not found.")
 
     try:
-        return compute_canonical_supplier_risk_score(supplier_rec)
+        return compute_canonical_supplier_risk_score(supplier_rec, as_of_date=as_of_date)
     except (PyMongoError, RuntimeError) as exc:
         logger.error("Database or data loading error calculating risk score for %s: %s", supplier_id, exc)
+        raise ContractError(*RISK_UNAVAILABLE) from exc
+
+
+@app.get(
+    "/api/v1/supplier-risk/client-suppliers/{supplier_code}/risk-score",
+    response_model=SupplierRiskScoreResponse,
+    summary="Get supplier risk score by client supplier code",
+)
+@app.get(
+    "/api/v1/client-suppliers/{supplier_code}/risk-score",
+    response_model=SupplierRiskScoreResponse,
+    summary="Get supplier risk score by client supplier code (alias)",
+)
+def get_client_supplier_risk_score_endpoint(
+    supplier_code: str = Path(..., description="Client supplier code (e.g. SUP-2231)"),
+    as_of_date: Optional[str] = None,
+    caller: str = Depends(require_caller),
+):
+    """
+    Retrieve supplier risk score by client supplier code, resolving to canonical supplier ID.
+    Enforces explicit mapping without guessing or inventing canonical IDs.
+    """
+    if as_of_date is not None:
+        try:
+            validate_incident_date(as_of_date)
+        except ValueError as exc:
+            raise ContractError(422, "INVALID_DATE", str(exc)) from exc
+
+    try:
+        canonical_id = resolve_supplier_code_to_canonical_id(supplier_code)
+    except PyMongoError as exc:
+        logger.error("MongoDB unavailable while resolving supplier code %s: %s", supplier_code, exc)
+        raise ContractError(*RISK_UNAVAILABLE) from exc
+
+    if not canonical_id:
+        raise ContractError(404, "SUPPLIER_NOT_FOUND", f"Supplier code '{supplier_code}' was not found.")
+
+    try:
+        supplier_rec = resolve_canonical_supplier(canonical_id)
+    except PyMongoError as exc:
+        logger.error("MongoDB unavailable while resolving canonical supplier %s: %s", canonical_id, exc)
+        raise ContractError(*RISK_UNAVAILABLE) from exc
+
+    if not supplier_rec:
+        raise ContractError(404, "SUPPLIER_NOT_FOUND", f"Supplier {canonical_id} was not found.")
+
+    try:
+        return compute_canonical_supplier_risk_score(supplier_rec, as_of_date=as_of_date)
+    except (PyMongoError, RuntimeError) as exc:
+        logger.error("Database error calculating risk score for %s: %s", canonical_id, exc)
         raise ContractError(*RISK_UNAVAILABLE) from exc
 
 
