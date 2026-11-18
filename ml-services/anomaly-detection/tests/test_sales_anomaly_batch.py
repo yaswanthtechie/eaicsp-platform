@@ -4,9 +4,13 @@ publishes nothing new.
 """
 
 import json
+import logging
 from pathlib import Path
 import sys
 import types
+from unittest.mock import MagicMock
+
+import numpy as np
 
 import pandas as pd
 import pytest
@@ -26,6 +30,13 @@ from src.sales_anomaly_events import anomaly_key
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 EVENTS_DIR = REPO_ROOT / "contracts" / "events"
+
+@pytest.fixture(autouse=True)
+def no_mlflow_server(monkeypatch):
+    """These tests never talk to MLflow unless a test sets the URI itself."""
+
+    monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
+
 
 START = "2026-06-01"
 SPIKE_DAY = 70
@@ -758,3 +769,233 @@ def test_fan_out_sends_to_every_publisher_in_order():
     FanOutPublisher([a, b]).publish({"x": 1})
 
     assert a.events == b.events == [{"x": 1}]
+
+# ---------------------------------------------------------------------
+# MLflow tracking and the drift check (R15-K6)
+# ---------------------------------------------------------------------
+
+
+def noisy_sales(seed, days=120, mean=50, skus=8, shift_last_days=0, factor=3):
+    """Synthetic sales with day-to-day noise; the last days can be scaled up."""
+
+    rng = np.random.default_rng(seed)
+    rows = []
+
+    for i, day in enumerate(pd.date_range(START, periods=days, freq="D")):
+        for sku in range(skus):
+            quantity = int(rng.poisson(mean))
+
+            if shift_last_days and i >= days - shift_last_days:
+                quantity *= factor
+
+            rows.append((day, f"SKU-{sku + 1:06d}", "WH-BLR-01", quantity))
+
+    return pd.DataFrame(
+        rows, columns=["sale_date", "sku_id", "warehouse_id", "quantity_sold"]
+    )
+
+
+def drift_run(ledger_path, sales, reference, publisher=None, **kwargs):
+
+    publisher = publisher or ListPublisher()
+    ledger = PublishedLedger(ledger_path)
+
+    try:
+        summary = run(sales, publisher, ledger, reference=reference, last_days=30, **kwargs)
+    finally:
+        ledger.close()
+
+    return summary, publisher
+
+
+def test_shifted_load_logs_a_drift_warning_and_the_job_still_publishes(
+    ledger_path, caplog
+):
+
+    reference = noisy_sales(seed=1)
+    shifted = noisy_sales(seed=2, shift_last_days=28)
+
+    with caplog.at_level(logging.INFO):
+        summary, publisher = drift_run(ledger_path, shifted, reference)
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+
+    assert summary["drift"].alert
+    assert any("DATA DRIFT" in r.getMessage() for r in warnings)
+    assert summary["new"] > 0
+    assert len(publisher.events) == summary["new"]
+
+
+def test_the_same_data_gives_no_drift_warning(ledger_path, caplog):
+
+    with caplog.at_level(logging.INFO):
+        summary, _ = drift_run(ledger_path, noisy_sales(seed=2), noisy_sales(seed=1))
+
+    assert not summary["drift"].alert
+    assert not any("DATA DRIFT" in r.getMessage() for r in caplog.records)
+
+
+def test_no_reference_means_no_drift_check(ledger_path):
+
+    summary, _ = run_once(make_sales(), ledger_path, last_days=30)
+
+    assert summary["drift"] is None
+
+
+def test_a_broken_drift_check_does_not_stop_the_job(ledger_path, monkeypatch, caplog):
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("evidently exploded")
+
+    monkeypatch.setattr("src.sales_anomaly_batch.check_drift", broken)
+
+    with caplog.at_level(logging.INFO):
+        summary, publisher = drift_run(ledger_path, make_sales(), noisy_sales(seed=1))
+
+    assert summary["drift"] is None
+    assert len(publisher.events) == 2
+    assert any("Drift check skipped" in r.getMessage() for r in caplog.records)
+
+
+def test_summary_carries_the_data_range_and_severity_counts(ledger_path):
+
+    summary, _ = run_once(make_sales(), ledger_path)
+
+    assert summary["data_start"] == START
+    assert summary["data_end"] == "2026-08-29"
+    assert summary["severity_counts"]["high"] >= 2
+    assert set(summary["severity_counts"]) == {"high", "medium", "low"}
+
+
+def csv_args(tmp_path, *extra):
+
+    csv = tmp_path / "sales.csv"
+    noisy_sales(seed=2, shift_last_days=28).to_csv(csv, index=False)
+
+    return [
+        "--input", str(csv),
+        "--ledger", str(tmp_path / "ledger.jsonl"),
+        "--no-kafka",
+        "--events-log", str(tmp_path / "events.jsonl"),
+        "--last-days", "30",
+        *extra,
+    ]
+
+
+def test_command_line_with_a_reference_reports_the_drift(tmp_path, capsys):
+
+    reference = tmp_path / "setup.csv"
+    noisy_sales(seed=1).to_csv(reference, index=False)
+
+    main(csv_args(tmp_path, "--reference", str(reference)))
+
+    assert "drift: ALERT" in capsys.readouterr().out
+
+
+def test_command_line_without_a_reference_says_not_checked(tmp_path, capsys):
+
+    main(csv_args(tmp_path))
+
+    assert "drift: not checked" in capsys.readouterr().out
+
+
+def test_an_unreadable_reference_does_not_stop_the_job(tmp_path, capsys):
+
+    main(csv_args(tmp_path, "--reference", str(tmp_path / "missing.csv")))
+
+    out = capsys.readouterr().out
+
+    assert "drift: not checked" in out
+    assert len((tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()) > 0
+
+
+@pytest.fixture
+def logged(monkeypatch):
+    """Replace safe_log_run in the batch module and record what it is given."""
+
+    mock = MagicMock()
+    monkeypatch.setattr("src.sales_anomaly_batch.safe_log_run", mock)
+
+    return mock
+
+
+def test_the_run_is_logged_with_drift_and_the_report(tmp_path, logged, monkeypatch):
+
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "http://mlflow.test:5000")
+    monkeypatch.setattr(
+        "src.sales_anomaly_batch.registered_setup",
+        lambda: {"version": 4, "precision": 0.9, "recall": 0.8},
+    )
+
+    reference = tmp_path / "setup.csv"
+    noisy_sales(seed=1).to_csv(reference, index=False)
+
+    main(csv_args(tmp_path, "--reference", str(reference)))
+
+    args, kwargs = logged.call_args
+
+    assert args == ("sales-anomaly-batch",)
+    assert kwargs["tags"]["run_kind"] == "batch"
+    assert kwargs["tags"]["drift_alert"] == "true"
+    assert kwargs["tags"]["setup_model_version"] == "4"
+    assert kwargs["metrics"]["drift_alert"] == 1.0
+    assert kwargs["metrics"]["setup_precision"] == 0.9
+    assert kwargs["metrics"]["setup_recall"] == 0.8
+    assert "drift_report.html" in kwargs["texts"]
+    assert kwargs["data_start"] == START
+    assert set(kwargs["severities"]) == {"high", "medium", "low"}
+    assert kwargs["params"]["reference"] == str(reference)
+
+
+def test_a_setup_that_is_not_registered_is_tagged_so(tmp_path, logged, monkeypatch):
+
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "http://mlflow.test:5000")
+    monkeypatch.setattr("src.sales_anomaly_batch.registered_setup", lambda: None)
+
+    main(csv_args(tmp_path))
+
+    kwargs = logged.call_args.kwargs
+
+    assert kwargs["tags"]["setup_model_version"] == "not registered"
+    assert kwargs["tags"]["drift_alert"] == "not checked"
+    assert kwargs["texts"] is None
+
+
+def test_a_dry_run_is_not_logged(tmp_path, logged):
+
+    csv = tmp_path / "sales.csv"
+    make_sales().to_csv(csv, index=False)
+
+    main(["--input", str(csv), "--ledger", str(tmp_path / "l.jsonl"), "--dry-run"])
+
+    logged.assert_not_called()
+
+
+def test_mlflow_being_down_does_not_stop_the_job(tmp_path, monkeypatch, capsys):
+
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "http://mlflow.test:5000")
+
+    def down(*args, **kwargs):
+        raise ConnectionError("mlflow is down")
+
+    monkeypatch.setattr("mlflow.set_tracking_uri", down)
+    monkeypatch.setattr("src.sales_anomaly_batch.registered_setup", down)
+
+    main(csv_args(tmp_path))
+
+    assert "published:" in capsys.readouterr().out
+    assert len((tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()) > 0
+
+
+def test_a_failed_lookup_is_tagged_as_such_not_as_unregistered(tmp_path, logged, monkeypatch):
+
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "http://mlflow.test:5000")
+
+    def down():
+        raise ConnectionError("mlflow is down")
+
+    monkeypatch.setattr("src.sales_anomaly_batch.registered_setup", down)
+
+    main(csv_args(tmp_path))
+
+    assert logged.call_args.kwargs["tags"]["setup_model_version"] == "lookup failed"
