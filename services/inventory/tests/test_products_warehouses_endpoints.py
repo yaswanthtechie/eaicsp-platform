@@ -129,14 +129,14 @@ def test_warehouses_pagination(client, db_session):
     assert resp1.status_code == 200
     data1 = resp1.json()
     assert data1["total"] == 4
-    assert len(data1["items"]) == 2
+    assert [w["warehouse_id"] for w in data1["items"]] == ["WH-BLR-01", "WH-BOM-01"]
 
     # Page 2
     resp2 = client.get("/api/v1/inventory/warehouses?limit=2&offset=2")
     assert resp2.status_code == 200
     data2 = resp2.json()
     assert data2["total"] == 4
-    assert len(data2["items"]) == 2
+    assert [w["warehouse_id"] for w in data2["items"]] == ["WH-DEL-01", "WH-HYD-01"]
 
 
 # 4. IDs filter
@@ -333,3 +333,26 @@ def test_empty_string_ids_filter(client, db_session):
     assert resp_wh_empty.json()["items"] == []
     assert resp_wh_empty.json()["total"] == 0
 
+
+def test_products_and_warehouses_require_a_token(client_raw):
+    """No Authorization header: 401, not data."""
+    assert client_raw.get("/api/v1/inventory/products").status_code == 401
+    assert client_raw.get("/api/v1/inventory/warehouses").status_code == 401
+
+
+def test_ids_filter_rejects_more_than_1000_ids(client):
+    too_many = ",".join(f"SKU-{i:06d}" for i in range(1, 1002))
+    resp = client.get(f"/api/v1/inventory/products?ids={too_many}")
+    assert resp.status_code == 422
+    assert "at most 1000" in resp.json()["detail"]
+
+
+def test_ids_filter_results_are_still_paged(client, db_session):
+    _seed_products(db_session, count=5)
+    resp = client.get(
+        "/api/v1/inventory/products?ids=SKU-000001,SKU-000002,SKU-000003&limit=2"
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 3
+    assert [p["sku_id"] for p in data["items"]] == ["SKU-000001", "SKU-000002"]

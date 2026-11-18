@@ -18,8 +18,6 @@ from app.core.auth import (
 )
 from app.database import get_db
 from app.models.inventory import Inventory
-from app.models.product import Product
-from app.models.warehouse import Warehouse
 from app.schemas.inventory import (
     BulkUpdateItem,
     BulkUploadResponse,
@@ -65,6 +63,10 @@ from app.services.inventory_service import (
     simulate_demand_spike,
     update_inventory,
     what_if_simulation,
+)
+from app.services.master_data_service import (
+    list_products,
+    list_warehouses,
 )
 from app.services.multi_echelon_service import (
     fulfill_shortage,
@@ -282,12 +284,11 @@ def low_stock_route(
 # Permission: inventory:read
 # =========================================================
 
+
 @router.get(
     "/suppliers/performance",
     response_model=list[SupplierPerformanceResponse],
-    dependencies=[
-        Depends(require_permission("inventory:read"))
-    ],
+    dependencies=[Depends(require_permission("inventory:read"))],
     summary="Get supplier on-time delivery performance",
 )
 def get_all_suppliers_performance_route(
@@ -301,9 +302,7 @@ def get_all_suppliers_performance_route(
     "/suppliers/{supplier_id}/performance",
     response_model=SupplierPerformanceResponse,
     responses={404: {"description": "Supplier not found"}},
-    dependencies=[
-        Depends(require_permission("inventory:read"))
-    ],
+    dependencies=[Depends(require_permission("inventory:read"))],
     summary="Get supplier on-time delivery performance by supplier ID",
 )
 def get_supplier_performance_route(
@@ -349,7 +348,9 @@ def get_supplier_performance_route(
                     }
                 }
             },
-        }
+        },
+        401: {"description": "Missing or invalid token"},
+        403: {"description": "Insufficient permissions"},
     },
 )
 def get_products_route(
@@ -366,20 +367,17 @@ def get_products_route(
     ),
     ids: str | None = Query(
         default=None,
-        description="Optional comma-separated list of canonical SKU IDs",
+        description=(
+            "Optional comma-separated list of canonical SKU IDs, at most 1000. "
+            "Results are still paged by limit and offset."
+        ),
     ),
     db: Session = Depends(get_db),
 ):
-    query = db.query(Product)
-    if ids is not None:
-        id_list = [i.strip() for i in ids.split(",") if i.strip()]
-        if id_list:
-            query = query.filter(Product.sku_id.in_(id_list))
-        else:
-            query = query.filter(False)
-
-    total = query.count()
-    items = query.order_by(Product.sku_id).offset(offset).limit(limit).all()
+    try:
+        items, total = list_products(db, ids=ids, limit=limit, offset=offset)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return ProductListResponse(items=items, total=total)
 
 
@@ -408,7 +406,9 @@ def get_products_route(
                     }
                 }
             },
-        }
+        },
+        401: {"description": "Missing or invalid token"},
+        403: {"description": "Insufficient permissions"},
     },
 )
 def get_warehouses_route(
@@ -425,20 +425,17 @@ def get_warehouses_route(
     ),
     ids: str | None = Query(
         default=None,
-        description="Optional comma-separated list of canonical warehouse IDs",
+        description=(
+            "Optional comma-separated list of canonical warehouse IDs, at most 1000. "
+            "Results are still paged by limit and offset."
+        ),
     ),
     db: Session = Depends(get_db),
 ):
-    query = db.query(Warehouse)
-    if ids is not None:
-        id_list = [i.strip() for i in ids.split(",") if i.strip()]
-        if id_list:
-            query = query.filter(Warehouse.warehouse_id.in_(id_list))
-        else:
-            query = query.filter(False)
-
-    total = query.count()
-    items = query.order_by(Warehouse.warehouse_id).offset(offset).limit(limit).all()
+    try:
+        items, total = list_warehouses(db, ids=ids, limit=limit, offset=offset)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return WarehouseListResponse(items=items, total=total)
 
 

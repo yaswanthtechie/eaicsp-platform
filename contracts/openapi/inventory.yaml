@@ -466,9 +466,11 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
-          description: Optional comma-separated list of canonical SKU IDs
+          description: Optional comma-separated list of canonical SKU IDs, at most
+            1000. Results are still paged by limit and offset.
           title: Ids
-        description: Optional comma-separated list of canonical SKU IDs
+        description: Optional comma-separated list of canonical SKU IDs, at most 1000.
+          Results are still paged by limit and offset.
       responses:
         '200':
           description: List of products with total count
@@ -483,6 +485,10 @@ paths:
                   category: Electronics
                   unit_of_measure: PCS
                 total: 1
+        '401':
+          description: Missing or invalid token
+        '403':
+          description: Insufficient permissions
         '422':
           description: Validation Error
           content:
@@ -528,9 +534,11 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
-          description: Optional comma-separated list of canonical warehouse IDs
+          description: Optional comma-separated list of canonical warehouse IDs, at
+            most 1000. Results are still paged by limit and offset.
           title: Ids
-        description: Optional comma-separated list of canonical warehouse IDs
+        description: Optional comma-separated list of canonical warehouse IDs, at
+          most 1000. Results are still paged by limit and offset.
       responses:
         '200':
           description: List of warehouses with total count
@@ -546,6 +554,10 @@ paths:
                   state: Karnataka
                   country: India
                 total: 1
+        '401':
+          description: Missing or invalid token
+        '403':
+          description: Insufficient permissions
         '422':
           description: Validation Error
           content:
