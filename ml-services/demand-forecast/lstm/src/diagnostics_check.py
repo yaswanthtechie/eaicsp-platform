@@ -5,9 +5,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from config import EPOCHS, HIDDEN_SIZE, HORIZON, LOOKBACK, LOSS_CURVE_PATH, NUM_LAYERS, OUTPUT_DIR, RANDOM_SEED
-from data import generate_data, get_walk_forward_folds
-from model import MultiStepLSTM
+from src.config import EPOCHS, HIDDEN_SIZE, HORIZON, LOOKBACK, LOSS_CURVE_PATH, NUM_LAYERS, OUTPUT_DIR, RANDOM_SEED
+from src.data import generate_data, get_walk_forward_folds
+from src.model import MultiStepLSTM
 
 
 def train_and_track_loss(model, X_train, y_train, epochs=EPOCHS, lr=0.001):

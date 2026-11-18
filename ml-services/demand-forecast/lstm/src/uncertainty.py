@@ -3,7 +3,7 @@ import mlflow
 import numpy as np
 import torch
 
-from config import (
+from src.config import (
     CONFIDENCE_LEVEL,
     HIDDEN_SIZE,
     HORIZON,
@@ -14,8 +14,8 @@ from config import (
     RANDOM_SEED,
     SCALER_PATH,
 )
-from data import create_sequences, generate_data, load_scaler
-from model import MultiStepLSTM
+from src.data import create_sequences, generate_data, load_scaler
+from src.model import MultiStepLSTM
 
 
 def predict_with_uncertainty(

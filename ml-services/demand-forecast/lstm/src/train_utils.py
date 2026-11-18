@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
-from evaluate import calculate_metrics
+from src.evaluate import calculate_metrics
 
 
 def _to_3d_tensor(arr: np.ndarray) -> torch.Tensor:

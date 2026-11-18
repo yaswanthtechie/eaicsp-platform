@@ -11,7 +11,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 
-from config import (
+from src.config import (
     BATCH_SIZE,
     DROPOUT,
     EPOCHS,
@@ -21,9 +21,9 @@ from config import (
     LR,
     NUM_LAYERS,
 )
-from data import generate_data, get_walk_forward_folds
-from evaluate import calculate_metrics, predict_naive_baseline
-from model import MultiStepLSTM
+from src.data import generate_data, get_walk_forward_folds
+from src.evaluate import calculate_metrics, predict_naive_baseline
+from src.model import MultiStepLSTM
 
 torch.manual_seed(42)
 np.random.seed(42)

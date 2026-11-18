@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from config import (
+from src.config import (
     BATCH_SIZE,
     EPOCHS,
     HORIZON,
@@ -21,9 +21,9 @@ from config import (
     N_FOLDS,
     RANDOM_SEED,
 )
-from data import generate_data, get_walk_forward_folds
-from model import MultiStepLSTM
-from train_utils import chronological_train_val_split
+from src.data import generate_data, get_walk_forward_folds
+from src.model import MultiStepLSTM
+from src.train_utils import chronological_train_val_split
 
 
 def set_seed(seed=RANDOM_SEED):
