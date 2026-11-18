@@ -224,7 +224,8 @@ def test_real_kafka_block_event_updates_sqlite_and_commits_offset(
             for future in futures.values():
                 try:
                     future.result(timeout=15)
-                except KafkaException:
+                except (KafkaException, TimeoutError):
+                    # Cleanup must never hide the original test failure.
                     pass
         except KafkaException:
             pass

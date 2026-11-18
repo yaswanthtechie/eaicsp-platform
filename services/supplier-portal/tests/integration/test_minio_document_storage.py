@@ -20,10 +20,12 @@ import pytest
 from dotenv import dotenv_values
 from fastapi import UploadFile
 from minio import Minio
-from minio.error import MinioException
 
 from app.core.config import settings
-from app.services.document_storage_service import DocumentStorageService
+from app.services.document_storage_service import (
+    DocumentStorageError,
+    DocumentStorageService,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -85,7 +87,7 @@ def storage_service():
 
     try:
         service.ensure_bucket()
-    except MinioException as exc:
+    except DocumentStorageError as exc:
         pytest.fail(
             "Real MinIO integration setup failed.\n"
             f"Endpoint: {settings.MINIO_ENDPOINT}\n"
@@ -126,8 +128,7 @@ def cleanup_objects(storage_service):
                 bucket_name=storage_service.bucket_name,
                 object_name=object_key,
             )
-        except MinioException:
-            # Cleanup must never hide the original test failure.
+        except Exception:  # noqa: BLE001, S110 - cleanup must never hide the original test failure
             pass
 
 

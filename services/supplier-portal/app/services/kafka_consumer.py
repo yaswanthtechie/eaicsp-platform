@@ -215,9 +215,11 @@ class SupplierStatusChangedConsumer:
                 offset = message.offset()
 
                 if topic is None or partition is None or offset is None:
-                    raise KafkaConsumerError(
-                        "Kafka message is missing topic, partition, or offset."
+                    # Skip one malformed message instead of stopping the consumer.
+                    logger.error(
+                        "Skipping Kafka message without topic, partition or offset"
                     )
+                    continue
 
                 retry_key = (topic, partition, offset)
 

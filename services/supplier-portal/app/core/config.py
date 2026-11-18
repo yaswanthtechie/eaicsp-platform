@@ -148,5 +148,7 @@ class Settings(BaseSettings):
     )
 
 
+# Required fields are read from the environment / .env by pydantic-settings,
+# which mypy cannot see, so it reports them as missing constructor arguments.
 # IMPORTANT: Do not add a trailing comma here.
 settings = Settings()  # type: ignore[call-arg]

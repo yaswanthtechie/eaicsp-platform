@@ -5,8 +5,8 @@ Revises: 007_shipment_details
 """
 
 import sqlalchemy as sa
-
 from alembic import op
+
 from app.core.config import settings
 
 revision = "008_shipment_eta_events"
