@@ -21,6 +21,7 @@ Run: python -m src.sales_anomaly_eval [--register]
 """
 
 import argparse
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -28,7 +29,12 @@ import pandas as pd
 from eval_framework import precision_recall
 
 from .sales_anomaly import detect
-from .sales_anomaly_tracking import date_range, safe_log_run, severity_counts
+from .sales_anomaly_tracking import (
+    date_range,
+    log_run,
+    safe_log_run,
+    severity_counts,
+)
 
 
 EVAL_SEED = 5151
@@ -189,37 +195,52 @@ def evaluate(
         }
     )
 
+    registration_error = None
+
     if log_mlflow:
 
         start, end = date_range(sales["sale_date"])
 
-        safe_log_run(
-            run_name,
-            params={
-                "eval_seed": EVAL_SEED,
-                "clean_seed": CLEAN_SEED,
-                "dispersion": dispersion,
-                "slow_share": slow_share,
-                "n_series": N_SERIES,
-                "n_days": N_DAYS,
-                "events_per_series": EVENTS_PER_SERIES,
-            },
-            data_start=start,
-            data_end=end,
-            severities=severity_counts(flagged),
-            metrics={
-                "precision": metrics["precision"],
-                "recall": metrics["recall"],
-                "f1": metrics["f1"],
-                "recall_spike": rows[1]["recall"],
-                "recall_drop": rows[2]["recall"],
-                "clean_false_alarms_per_1000": 1000 * clean_scored["is_anomaly"].mean(),
-            },
-            tags={"run_kind": "evaluation"},
-            register=register,
-        )
+        # Routine tracking only warns when MLflow fails. An explicit --register
+        # must not look successful when nothing was registered.
+        track = log_run if register else safe_log_run
 
-    return pd.DataFrame(rows)
+        try:
+            logged = track(
+                run_name,
+                params={
+                    "eval_seed": EVAL_SEED,
+                    "clean_seed": CLEAN_SEED,
+                    "dispersion": dispersion,
+                    "slow_share": slow_share,
+                    "n_series": N_SERIES,
+                    "n_days": N_DAYS,
+                    "events_per_series": EVENTS_PER_SERIES,
+                },
+                data_start=start,
+                data_end=end,
+                severities=severity_counts(flagged),
+                metrics={
+                    "precision": metrics["precision"],
+                    "recall": metrics["recall"],
+                    "f1": metrics["f1"],
+                    "recall_spike": rows[1]["recall"],
+                    "recall_drop": rows[2]["recall"],
+                    "clean_false_alarms_per_1000": 1000 * clean_scored["is_anomaly"].mean(),
+                },
+                tags={"run_kind": "evaluation"},
+                register=register,
+            )
+
+            if register and logged is None:
+                raise RuntimeError("MLFLOW_TRACKING_URI is not set.")
+        except Exception as error:
+            registration_error = error
+
+    result = pd.DataFrame(rows)
+    result.attrs["registration_error"] = registration_error
+
+    return result
 
 
 def main(argv=None):
@@ -253,13 +274,23 @@ def main(argv=None):
         ),
     ]
 
+    registration_error = None
+
     for name, kwargs, filename in runs:
         result = evaluate(**kwargs)
+        registration_error = registration_error or result.attrs.get("registration_error")
 
         print(f"== {name} ==")
         print(result.to_string(index=False))
         result.to_csv(results_dir / filename, index=False)
         print(f"written: results/{filename}\n")
+
+    if registration_error is not None:
+        print(
+            f"REGISTRATION FAILED: nothing was registered in MLflow: {registration_error}",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

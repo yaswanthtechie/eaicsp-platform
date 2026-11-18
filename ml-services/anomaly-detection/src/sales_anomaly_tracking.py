@@ -17,8 +17,9 @@ says so. Tracking never stops a run: safe_log_run() turns any MLflow error
 into a warning.
 
 register_configuration() registers the chosen configuration (thresholds and
-code) in the MLflow model registry as a new version. The same configuration is
-never registered twice: versions carry a config_hash tag.
+code) in the MLflow model registry as a new version. The same thresholds with
+the same detector code are never registered twice: versions carry a config_hash
+tag, a fingerprint of both. A change to either gives a new version.
 
 mlflow is imported inside the functions, so importing this module is cheap and
 tests can replace the mlflow calls.
@@ -44,6 +45,16 @@ MODEL_NAME = "sales-anomaly-detector"
 SEVERITIES = ("high", "medium", "low")
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
+DETECTOR_SOURCE = Path(__file__).resolve().with_name("sales_anomaly.py")
+
+# With MLflow down, the defaults (7 retries with growing waits) kept one call
+# waiting for minutes. These cap it; an environment variable set by the
+# operator wins.
+MLFLOW_WAIT_LIMITS = {
+    "MLFLOW_HTTP_REQUEST_MAX_RETRIES": "1",
+    "MLFLOW_HTTP_REQUEST_BACKOFF_FACTOR": "1",
+    "MLFLOW_HTTP_REQUEST_TIMEOUT": "10",
+}
 
 THRESHOLD_NAMES = (
     "Z_SPIKE",
@@ -71,6 +82,13 @@ DRIFT_NAMES = (
 )
 
 
+def limit_waiting():
+    """Keep an MLflow outage from holding up a run for minutes."""
+
+    for name, value in MLFLOW_WAIT_LIMITS.items():
+        os.environ.setdefault(name, value)
+
+
 def tracking_uri():
     """MLFLOW_TRACKING_URI, or None when it is not set."""
 
@@ -89,10 +107,28 @@ def drift_settings():
     return {name.lower(): getattr(config, name) for name in DRIFT_NAMES}
 
 
-def config_hash(values=None):
-    """Short fingerprint of a configuration; the same thresholds give the same hash."""
+def code_fingerprint():
+    """Fingerprint of the detector code (line endings ignored, so Windows and Linux agree)."""
 
-    text = json.dumps(values if values is not None else thresholds(), sort_keys=True)
+    source = DETECTOR_SOURCE.read_bytes().replace(b"\r\n", b"\n")
+
+    return hashlib.sha256(source).hexdigest()[:16]
+
+
+def config_hash(values=None):
+    """
+    Short fingerprint of a configuration: the thresholds AND the detector code.
+    The same thresholds with the same code give the same hash; a change to
+    either gives a new registered version.
+    """
+
+    text = json.dumps(
+        {
+            "thresholds": values if values is not None else thresholds(),
+            "code": code_fingerprint(),
+        },
+        sort_keys=True,
+    )
 
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
@@ -166,6 +202,8 @@ def log_run(
         )
         return None
 
+    limit_waiting()
+
     import mlflow
 
     mlflow.set_tracking_uri(uri)
@@ -197,11 +235,21 @@ def log_run(
         mlflow.log_params({k: v for k, v in all_params.items() if v is not None})
         mlflow.log_metrics(_finite_metrics(all_metrics))
 
-        for name, text in (texts or {}).items():
-            mlflow.log_text(text, name)
-
+        # Tags before any artifact upload: a failed upload must not lose them.
         if tags:
             mlflow.set_tags(tags)
+
+        for name, text in (texts or {}).items():
+            try:
+                mlflow.log_text(text, name)
+            except Exception as error:
+                mlflow.set_tag("artifact_upload", "failed")
+                log.warning(
+                    "Could not save artifact '%s' for run '%s': %s",
+                    name,
+                    run_name,
+                    error,
+                )
 
         if register:
             model_version = register_configuration()
@@ -292,6 +340,8 @@ def registered_setup(model_name=MODEL_NAME):
     """
 
     from mlflow.tracking import MlflowClient
+
+    limit_waiting()
 
     client = MlflowClient()
     version = _version_with_hash(client, config_hash(), model_name)

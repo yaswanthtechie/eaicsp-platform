@@ -985,3 +985,17 @@ def test_mlflow_being_down_does_not_stop_the_job(tmp_path, monkeypatch, capsys):
 
     assert "published:" in capsys.readouterr().out
     assert len((tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()) > 0
+
+
+def test_a_failed_lookup_is_tagged_as_such_not_as_unregistered(tmp_path, logged, monkeypatch):
+
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "http://mlflow.test:5000")
+
+    def down():
+        raise ConnectionError("mlflow is down")
+
+    monkeypatch.setattr("src.sales_anomaly_batch.registered_setup", down)
+
+    main(csv_args(tmp_path))
+
+    assert logged.call_args.kwargs["tags"]["setup_model_version"] == "lookup failed"

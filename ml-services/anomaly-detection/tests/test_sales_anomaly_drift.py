@@ -206,3 +206,56 @@ def test_no_zero_days_on_either_side_still_works():
 
     assert result.reference_zero_share == 0
     assert result.latest_zero_share == 0
+
+
+# ---------------------------------------------------------------------
+# the threshold means the same on a small reference
+# ---------------------------------------------------------------------
+
+
+def test_a_reference_under_1000_rows_uses_the_same_distance_measures():
+    """Evidently switches to p-value tests under 1,000 rows unless the method is fixed."""
+
+    small = make_scores(seed=1, days=45, series=20)  # 900 rows
+
+    assert len(small) == 900
+
+    # A huge threshold cannot raise an alert on identical data (with a p-value
+    # test, it did).
+    for seed in range(2, 8):
+        result = check_drift(
+            small, make_scores(seed=seed, days=45, series=20), num_threshold=50
+        )
+
+        assert not result.alert, seed
+
+
+def test_identical_distributions_rarely_alert_on_a_small_reference():
+
+    small = make_scores(seed=1, days=45, series=20)
+
+    alerts = sum(
+        check_drift(small, make_scores(seed=seed, days=45, series=20)).alert
+        for seed in range(10, 30)
+    )
+
+    assert alerts <= 2
+
+
+def test_a_shifted_sample_still_alerts_on_a_small_reference():
+
+    small = make_scores(seed=1, days=45, series=20)
+
+    assert check_drift(small, make_scores(seed=3, days=45, series=20, mean=150)).alert
+
+
+def test_a_higher_threshold_never_makes_an_alert_more_likely_on_a_small_reference():
+
+    small = make_scores(seed=1, days=45, series=20)
+    latest = make_scores(seed=3, days=45, series=20, mean=70)
+
+    alerts = [
+        check_drift(small, latest, num_threshold=t).alert for t in (0.05, 0.2, 0.8, 5)
+    ]
+
+    assert alerts == sorted(alerts, reverse=True)

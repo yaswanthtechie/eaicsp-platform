@@ -499,3 +499,195 @@ def test_a_run_is_stored_in_a_real_mlflow_database(tmp_path, monkeypatch):
     assert run.data.metrics["precision"] == 0.8
     assert run.data.tags["run_kind"] == "batch"
     assert [a.path for a in client.list_artifacts(run.info.run_id)] == ["drift_report.html"]
+
+
+# ---------------------------------------------------------------------
+# review fixes: tags survive a failed upload, short waits, code in the hash,
+# --register that fails is a failure
+# ---------------------------------------------------------------------
+
+
+def test_tags_are_set_before_the_artifacts_are_uploaded(mlflow_calls):
+
+    order = MagicMock()
+    order.attach_mock(mlflow_calls.set_tags, "set_tags")
+    order.attach_mock(mlflow_calls.log_text, "log_text")
+
+    log_run("batch", texts={"drift_report.html": "<html/>"}, tags={"drift_alert": "true"})
+
+    names = [call[0] for call in order.mock_calls]
+
+    assert names.index("set_tags") < names.index("log_text")
+
+
+def test_a_failed_artifact_upload_keeps_the_tags_and_only_warns(mlflow_calls, caplog):
+
+    mlflow_calls.log_text.side_effect = RuntimeError("No module named 'boto3'")
+
+    with caplog.at_level(logging.WARNING):
+        result = log_run(
+            "batch",
+            texts={"drift_report.html": "<html/>"},
+            tags={"drift_alert": "true"},
+        )
+
+    assert result["run_id"] == "run-1"
+    mlflow_calls.set_tags.assert_called_once_with({"drift_alert": "true"})
+    mlflow_calls.set_tag.assert_any_call("artifact_upload", "failed")
+    assert "Could not save artifact 'drift_report.html'" in caplog.text
+
+
+def test_waiting_for_mlflow_is_capped_unless_the_operator_says_otherwise(monkeypatch):
+
+    from src.sales_anomaly_tracking import MLFLOW_WAIT_LIMITS, limit_waiting
+
+    for name in MLFLOW_WAIT_LIMITS:
+        monkeypatch.delenv(name, raising=False)
+
+    monkeypatch.setenv("MLFLOW_HTTP_REQUEST_TIMEOUT", "99")
+
+    limit_waiting()
+
+    import os
+
+    assert os.environ["MLFLOW_HTTP_REQUEST_MAX_RETRIES"] == "1"
+    assert os.environ["MLFLOW_HTTP_REQUEST_TIMEOUT"] == "99"
+
+
+def test_an_mlflow_outage_does_not_hold_the_run_up_for_minutes(monkeypatch):
+
+    import time
+
+    from src.sales_anomaly_tracking import MLFLOW_WAIT_LIMITS
+
+    for name in MLFLOW_WAIT_LIMITS:
+        monkeypatch.delenv(name, raising=False)
+
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "http://127.0.0.1:9")
+    monkeypatch.setenv("MLFLOW_DISABLE_TELEMETRY", "true")
+
+    started = time.monotonic()
+    result = safe_log_run("outage")
+
+    assert result is None
+    assert time.monotonic() - started < 60
+
+
+def test_the_hash_follows_the_detector_code_as_well_as_the_thresholds(
+    tmp_path, monkeypatch
+):
+
+    import src.sales_anomaly_tracking as tracking
+
+    source = tmp_path / "detector.py"
+    monkeypatch.setattr(tracking, "DETECTOR_SOURCE", source)
+
+    source.write_bytes(b"def detect():\n    return 1\n")
+    first = config_hash()
+
+    assert first == config_hash()
+
+    # Windows line endings give the same hash.
+    source.write_bytes(b"def detect():\r\n    return 1\r\n")
+    assert config_hash() == first
+
+    # A detector fix gives a new hash, so a new registered version.
+    source.write_bytes(b"def detect():\n    return 2\n")
+    assert config_hash() != first
+
+
+def test_register_that_cannot_log_is_reported_by_the_evaluation(mlflow_calls, registry):
+
+    registry.log_model.side_effect = RuntimeError("No module named 'boto3'")
+
+    result = sales_eval.evaluate(log_mlflow=True, register=True)
+
+    assert "boto3" in str(result.attrs["registration_error"])
+
+
+def test_register_without_a_tracking_uri_is_reported_by_the_evaluation(monkeypatch):
+
+    monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
+
+    result = sales_eval.evaluate(log_mlflow=True, register=True)
+
+    assert "MLFLOW_TRACKING_URI" in str(result.attrs["registration_error"])
+
+
+def test_routine_logging_that_fails_is_still_only_a_warning(mlflow_calls):
+
+    mlflow_calls.log_params.side_effect = RuntimeError("mlflow down")
+
+    result = sales_eval.evaluate(log_mlflow=True)
+
+    assert result.attrs["registration_error"] is None
+
+
+def test_the_evaluation_exits_non_zero_when_register_failed(
+    monkeypatch, tmp_path, capsys
+):
+
+    def failed(**kwargs):
+        frame = pd.DataFrame([{"part": "overall"}])
+        frame.attrs["registration_error"] = RuntimeError("no boto3")
+        return frame
+
+    monkeypatch.setattr(sales_eval, "evaluate", failed)
+    monkeypatch.setattr(sales_eval, "results_dir", tmp_path)
+
+    with pytest.raises(SystemExit) as stop:
+        sales_eval.main(["--register"])
+
+    assert stop.value.code == 1
+    assert "REGISTRATION FAILED" in capsys.readouterr().err
+    # The results are still written before it exits.
+    assert (tmp_path / "sales_anomaly_eval.csv").exists()
+
+
+def test_the_evaluation_exits_zero_when_register_worked(monkeypatch, tmp_path):
+
+    monkeypatch.setattr(
+        sales_eval, "evaluate", lambda **kwargs: pd.DataFrame([{"part": "overall"}])
+    )
+    monkeypatch.setattr(sales_eval, "results_dir", tmp_path)
+
+    sales_eval.main(["--register"])
+
+
+def test_a_real_registration_round_trip_loads_back_and_predicts(tmp_path, monkeypatch):
+
+    import numpy as np
+
+    uri = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", uri)
+    monkeypatch.setenv("MLFLOW_DISABLE_TELEMETRY", "true")
+
+    first = log_run("eval-1", metrics={"precision": 0.8, "recall": 0.5}, register=True)
+    second = log_run("eval-2", metrics={"precision": 0.8, "recall": 0.5}, register=True)
+
+    assert first["model_version"] == 1
+    assert second["model_version"] == 1  # same thresholds and code: no second version
+
+    setup = registered_setup()
+
+    assert setup == {"version": 1, "precision": 0.8, "recall": 0.5}
+
+    model = mlflow.pyfunc.load_model(f"models:/{MODEL_NAME}/1")
+
+    days = pd.date_range("2026-01-01", periods=90, freq="D")
+    quantity = np.full(90, 50)
+    quantity[70] = 400
+    sales = pd.DataFrame(
+        {
+            "sale_date": days,
+            "sku_id": "SKU-000001",
+            "warehouse_id": "WH-BLR-01",
+            "quantity_sold": quantity,
+        }
+    )
+
+    scored = model.predict(sales)
+
+    assert bool(scored["is_anomaly"].any())

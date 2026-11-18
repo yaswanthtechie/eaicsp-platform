@@ -314,13 +314,19 @@ def _log_to_mlflow(args, summary):
         metrics.update(drift.metrics())
 
     if tracking_uri() is not None:
+        lookup_failed = False
+
         try:
             setup = registered_setup()
         except Exception as error:
             log.warning("Could not look up the registered setup: %s", error)
             setup = None
+            lookup_failed = True
 
-        if setup is None:
+        if lookup_failed:
+            # An outage says nothing about whether the setup is registered.
+            tags["setup_model_version"] = "lookup failed"
+        elif setup is None:
             tags["setup_model_version"] = "not registered"
             log.warning(
                 "The thresholds in force are not registered in MLflow; run "

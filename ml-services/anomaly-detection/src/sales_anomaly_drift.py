@@ -38,6 +38,11 @@ log = logging.getLogger("sales_anomaly_drift")
 
 COLUMNS = ("quantity", "zero_sales_day")
 
+# Distance measures, normalised: the score is a distance, so a HIGHER threshold
+# means fewer alerts on every file size.
+NUM_METHOD = "wasserstein"
+CAT_METHOD = "jensenshannon"
+
 _VALUE_DRIFT_TEST = "Value Drift for column "
 _VALUE_DRIFT_METRIC = re.compile(r"^ValueDrift\(column=(?P<column>[^,]+),")
 
@@ -168,6 +173,12 @@ def check_drift(
         [
             DataDriftPreset(
                 columns=list(COLUMNS),
+                # Fixed methods, so the threshold means the same on any file
+                # size. Left unset, Evidently switches to a p-value test for
+                # references of 1,000 rows or fewer, and then a higher
+                # threshold makes an alert MORE likely.
+                num_method=NUM_METHOD,
+                cat_method=CAT_METHOD,
                 num_threshold=num_threshold,
                 cat_threshold=cat_threshold,
                 drift_share=alert_share,
