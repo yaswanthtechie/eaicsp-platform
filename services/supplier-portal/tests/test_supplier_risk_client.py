@@ -1,4 +1,3 @@
-
 import httpx
 import pytest
 
@@ -109,17 +108,14 @@ def valid_risk_response():
 def test_get_supplier_risk_score_success():
     FakeClient.response = FakeResponse(valid_risk_response())
 
-    result = supplier_risk_client.get_supplier_risk_score(
-        "SUP-00045"
-    )
+    result = supplier_risk_client.get_supplier_risk_score("SUP-00045")
 
     assert result["supplier_id"] == "SUP-00045"
     assert result["score"] == 78.5
     assert result["tier"] == "High"
 
     assert FakeClient.request_args["url"] == (
-        "http://localhost:8006/api/v1/suppliers/"
-        "SUP-00045/risk-score"
+        "http://localhost:8006/api/v1/suppliers/SUP-00045/risk-score"
     )
 
     assert FakeClient.request_args["headers"] == {
@@ -138,9 +134,7 @@ def test_null_risk_score_is_valid():
 
     FakeClient.response = FakeResponse(response)
 
-    result = supplier_risk_client.get_supplier_risk_score(
-        "SUP-00045"
-    )
+    result = supplier_risk_client.get_supplier_risk_score("SUP-00045")
 
     assert result["score"] is None
     assert result["tier"] is None
@@ -153,32 +147,20 @@ def test_missing_api_key_raises_unavailable_error(monkeypatch):
         "",
     )
 
-    with pytest.raises(
-        supplier_risk_client.SupplierRiskServiceUnavailableError
-    ):
-        supplier_risk_client.get_supplier_risk_score(
-            "SUP-00045"
-        )
+    with pytest.raises(supplier_risk_client.SupplierRiskServiceUnavailableError):
+        supplier_risk_client.get_supplier_risk_score("SUP-00045")
 
 
 def test_invalid_supplier_id_is_rejected():
     with pytest.raises(ValueError):
-        supplier_risk_client.get_supplier_risk_score(
-            "INVALID-ID"
-        )
+        supplier_risk_client.get_supplier_risk_score("INVALID-ID")
 
 
 def test_transport_error_raises_unavailable_error():
-    FakeClient.transport_error = httpx.ConnectError(
-        "Connection failed"
-    )
+    FakeClient.transport_error = httpx.ConnectError("Connection failed")
 
-    with pytest.raises(
-        supplier_risk_client.SupplierRiskServiceUnavailableError
-    ):
-        supplier_risk_client.get_supplier_risk_score(
-            "SUP-00045"
-        )
+    with pytest.raises(supplier_risk_client.SupplierRiskServiceUnavailableError):
+        supplier_risk_client.get_supplier_risk_score("SUP-00045")
 
 
 def test_server_error_raises_unavailable_error():
@@ -199,12 +181,8 @@ def test_server_error_raises_unavailable_error():
         )
     )
 
-    with pytest.raises(
-        supplier_risk_client.SupplierRiskServiceUnavailableError
-    ):
-        supplier_risk_client.get_supplier_risk_score(
-            "SUP-00045"
-        )
+    with pytest.raises(supplier_risk_client.SupplierRiskServiceUnavailableError):
+        supplier_risk_client.get_supplier_risk_score("SUP-00045")
 
 
 def test_client_error_raises_service_error():
@@ -225,12 +203,8 @@ def test_client_error_raises_service_error():
         )
     )
 
-    with pytest.raises(
-        supplier_risk_client.SupplierRiskServiceError
-    ) as exc:
-        supplier_risk_client.get_supplier_risk_score(
-            "SUP-00045"
-        )
+    with pytest.raises(supplier_risk_client.SupplierRiskServiceError) as exc:
+        supplier_risk_client.get_supplier_risk_score("SUP-00045")
 
     assert not isinstance(
         exc.value,
@@ -239,16 +213,10 @@ def test_client_error_raises_service_error():
 
 
 def test_invalid_json_raises_invalid_response_error():
-    FakeClient.response = FakeResponse(
-        json_error=ValueError("Invalid JSON")
-    )
+    FakeClient.response = FakeResponse(json_error=ValueError("Invalid JSON"))
 
-    with pytest.raises(
-        supplier_risk_client.SupplierRiskInvalidResponseError
-    ):
-        supplier_risk_client.get_supplier_risk_score(
-            "SUP-00045"
-        )
+    with pytest.raises(supplier_risk_client.SupplierRiskInvalidResponseError):
+        supplier_risk_client.get_supplier_risk_score("SUP-00045")
 
 
 def test_wrong_supplier_id_in_response_is_rejected():
@@ -257,12 +225,8 @@ def test_wrong_supplier_id_in_response_is_rejected():
 
     FakeClient.response = FakeResponse(response)
 
-    with pytest.raises(
-        supplier_risk_client.SupplierRiskInvalidResponseError
-    ):
-        supplier_risk_client.get_supplier_risk_score(
-            "SUP-00045"
-        )
+    with pytest.raises(supplier_risk_client.SupplierRiskInvalidResponseError):
+        supplier_risk_client.get_supplier_risk_score("SUP-00045")
 
 
 def test_invalid_tier_is_rejected():
@@ -271,12 +235,8 @@ def test_invalid_tier_is_rejected():
 
     FakeClient.response = FakeResponse(response)
 
-    with pytest.raises(
-        supplier_risk_client.SupplierRiskInvalidResponseError
-    ):
-        supplier_risk_client.get_supplier_risk_score(
-            "SUP-00045"
-        )
+    with pytest.raises(supplier_risk_client.SupplierRiskInvalidResponseError):
+        supplier_risk_client.get_supplier_risk_score("SUP-00045")
 
 
 def test_inconsistent_null_score_and_tier_is_rejected():
@@ -285,9 +245,5 @@ def test_inconsistent_null_score_and_tier_is_rejected():
 
     FakeClient.response = FakeResponse(response)
 
-    with pytest.raises(
-        supplier_risk_client.SupplierRiskInvalidResponseError
-    ):
-        supplier_risk_client.get_supplier_risk_score(
-            "SUP-00045"
-        )
+    with pytest.raises(supplier_risk_client.SupplierRiskInvalidResponseError):
+        supplier_risk_client.get_supplier_risk_score("SUP-00045")

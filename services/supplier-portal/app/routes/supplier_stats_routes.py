@@ -1,18 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+
 from app.core.auth import (
     enforce_not_suspended,
     verify_token,
 )
 from app.schemas.supplier_stats import (
-    SupplierStatsResponse,
     SupplierScorecard,
+    SupplierStatsResponse,
 )
-
 from app.services.supplier_stats_service import (
-    get_supplier_stats,
     calculate_supplier_scorecard,
+    get_supplier_stats,
 )
-
 
 router = APIRouter(
     dependencies=[Depends(enforce_not_suspended)],
@@ -22,6 +21,7 @@ router = APIRouter(
 # ============================================================
 # SUPPLIER ACCESS / SCOPING
 # ============================================================
+
 
 def check_supplier_access(
     supplier_id: str,
@@ -40,7 +40,6 @@ def check_supplier_access(
 
     # Supplier users must be restricted to their own supplier_id.
     if user_role == "supplier":
-
         authenticated_supplier_id = user.get("supplier_id")
 
         if not authenticated_supplier_id:
@@ -61,6 +60,7 @@ def check_supplier_access(
 # ============================================================
 # SUPPLIER STATS
 # ============================================================
+
 
 @router.get(
     "/{supplier_id}/stats",
@@ -104,6 +104,7 @@ def supplier_stats(
 # ============================================================
 # SUPPLIER SCORECARD
 # ============================================================
+
 
 @router.get(
     "/{supplier_id}/scorecard",

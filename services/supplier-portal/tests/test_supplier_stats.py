@@ -1,21 +1,19 @@
 from datetime import date
 
-from fastapi.testclient import TestClient
-
 import pytest
+from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
-from app.main import app
 from app.core.auth import verify_token
+from app.main import app
+from app.schemas.purchase_order import PurchaseOrderStatus
+from app.schemas.supplier_stats import SupplierScorecard, SupplierStatsResponse
+from app.services.goods_receipt_service import goods_receipts
+from app.services.invoice_service import invoices
 from app.services.purchase_order_service import (
     purchase_orders,
     transition_purchase_order,
 )
-from app.services.invoice_service import invoices
-from app.services.goods_receipt_service import goods_receipts
-from pydantic import ValidationError
-from app.schemas.supplier_stats import SupplierStatsResponse
-from app.schemas.supplier_stats import SupplierScorecard
-from app.schemas.purchase_order import PurchaseOrderStatus
 
 client = TestClient(app)
 
@@ -234,9 +232,7 @@ def test_supplier_stats():
 
     create_sample_data()
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/stats"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/stats")
 
     assert response.status_code == 200
 
@@ -247,15 +243,14 @@ def test_supplier_stats():
     assert body["on_time_percentage"] == 100.0
     assert body["average_invoice_cycle_time"] == 3.0
 
+
 def test_supplier_not_found(procurement_client):
     """
     An internal authorized user requesting an unknown supplier
     should receive 404.
     """
 
-    response = procurement_client.get(
-        "/api/v1/suppliers/SUP-00999/stats"
-    )
+    response = procurement_client.get("/api/v1/suppliers/SUP-00999/stats")
 
     assert response.status_code == 404
 
@@ -283,9 +278,7 @@ def test_supplier_stats_supplier_exists_through_invoice():
         "status": "submitted",
     }
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/stats"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/stats")
 
     assert response.status_code == 200
 
@@ -321,9 +314,7 @@ def test_supplier_stats_all_pos_on_time():
         "actual_delivery_date": date(2026, 7, 29),
     }
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/stats"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/stats")
 
     assert response.status_code == 200
 
@@ -357,9 +348,7 @@ def test_supplier_stats_no_po_on_time():
         "actual_delivery_date": date(2026, 8, 2),
     }
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/stats"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/stats")
 
     assert response.status_code == 200
 
@@ -402,9 +391,7 @@ def test_supplier_stats_mixed_delivery():
         "actual_delivery_date": date(2026, 8, 1),
     }
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/stats"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/stats")
 
     assert response.status_code == 200
 
@@ -440,9 +427,7 @@ def test_supplier_stats_unfulfilled_po_not_counted_as_miss():
 
     create_sample_data()
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/stats"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/stats")
 
     assert response.status_code == 200
 
@@ -492,9 +477,7 @@ def test_supplier_stats_past_due_unfulfilled_po_is_miss():
         "actual_delivery_date": None,
     }
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/stats"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/stats")
 
     assert response.status_code == 200
 
@@ -519,9 +502,7 @@ def test_delivery_on_expected_date_is_on_time():
         "actual_delivery_date": date(2026, 7, 29),
     }
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/stats"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/stats")
 
     assert response.status_code == 200
 
@@ -545,9 +526,7 @@ def test_supplier_stats_missing_delivery_date():
         "actual_delivery_date": None,
     }
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/stats"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/stats")
 
     assert response.status_code == 200
 
@@ -565,9 +544,7 @@ def test_supplier_stats_missing_delivery_date():
 def test_supplier_scorecard():
     create_sample_data()
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/scorecard"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/scorecard")
 
     assert response.status_code == 200
 
@@ -575,20 +552,11 @@ def test_supplier_scorecard():
 
     assert body["supplier_id"] == "SUP-00001"
 
-    assert (
-        body["scorecard"]["on_time_delivery_percentage"]
-        == 100.0
-    )
+    assert body["scorecard"]["on_time_delivery_percentage"] == 100.0
 
-    assert (
-        body["scorecard"]["dispute_rate_percentage"]
-        == 0.0
-    )
+    assert body["scorecard"]["dispute_rate_percentage"] == 0.0
 
-    assert (
-        body["scorecard"]["invoice_accuracy_percentage"]
-        == 100.0
-    )
+    assert body["scorecard"]["invoice_accuracy_percentage"] == 100.0
 
     # 100 * 0.40 = 40
     # 100 * 0.40 = 40
@@ -605,9 +573,7 @@ def test_supplier_scorecard():
 def test_supplier_scorecard_rating_and_status():
     create_sample_data()
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/scorecard"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/scorecard")
 
     assert response.status_code == 200
 
@@ -617,10 +583,7 @@ def test_supplier_scorecard_rating_and_status():
 
     assert body["scorecard"]["rating"] == "Excellent"
 
-    assert (
-        body["scorecard"]["performance_status"]
-        == "Healthy"
-    )
+    assert body["scorecard"]["performance_status"] == "Healthy"
 
 
 # ============================================================
@@ -631,9 +594,7 @@ def test_supplier_scorecard_rating_and_status():
 def test_supplier_scorecard_score_breakdown():
     create_sample_data()
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/scorecard"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/scorecard")
 
     assert response.status_code == 200
 
@@ -641,50 +602,23 @@ def test_supplier_scorecard_score_breakdown():
 
     breakdown = body["score_breakdown"]
 
-    assert (
-        breakdown["on_time_delivery"]["score"]
-        == 100.0
-    )
+    assert breakdown["on_time_delivery"]["score"] == 100.0
 
-    assert (
-        breakdown["on_time_delivery"]["weight_percentage"]
-        == 40.0
-    )
+    assert breakdown["on_time_delivery"]["weight_percentage"] == 40.0
 
-    assert (
-        breakdown["on_time_delivery"]["weighted_score"]
-        == 40.0
-    )
+    assert breakdown["on_time_delivery"]["weighted_score"] == 40.0
 
-    assert (
-        breakdown["invoice_accuracy"]["score"]
-        == 100.0
-    )
+    assert breakdown["invoice_accuracy"]["score"] == 100.0
 
-    assert (
-        breakdown["invoice_accuracy"]["weight_percentage"]
-        == 40.0
-    )
+    assert breakdown["invoice_accuracy"]["weight_percentage"] == 40.0
 
-    assert (
-        breakdown["invoice_accuracy"]["weighted_score"]
-        == 40.0
-    )
+    assert breakdown["invoice_accuracy"]["weighted_score"] == 40.0
 
-    assert (
-        breakdown["dispute_performance"]["score"]
-        == 100.0
-    )
+    assert breakdown["dispute_performance"]["score"] == 100.0
 
-    assert (
-        breakdown["dispute_performance"]["weight_percentage"]
-        == 20.0
-    )
+    assert breakdown["dispute_performance"]["weight_percentage"] == 20.0
 
-    assert (
-        breakdown["dispute_performance"]["weighted_score"]
-        == 20.0
-    )
+    assert breakdown["dispute_performance"]["weighted_score"] == 20.0
 
 
 # ============================================================
@@ -695,9 +629,7 @@ def test_supplier_scorecard_score_breakdown():
 def test_supplier_scorecard_details():
     create_sample_data()
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/scorecard"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/scorecard")
 
     assert response.status_code == 200
 
@@ -716,10 +648,7 @@ def test_supplier_scorecard_details():
     assert po_details["late_percentage"] == 0.0
     assert po_details["fulfillment_rate"] == 50.0
     assert po_details["average_delay_days"] == 0.0
-    assert (
-        po_details["average_fulfillment_time_days"]
-        == 7.0
-    )
+    assert po_details["average_fulfillment_time_days"] == 7.0
 
     invoice_details = body["details"]["invoices"]
 
@@ -736,10 +665,7 @@ def test_supplier_scorecard_details():
     assert invoice_details["dispute_rate_percentage"] == 0.0
     assert invoice_details["approval_rate_percentage"] == 100.0
 
-    assert (
-        invoice_details["average_cycle_time_days"]
-        == 3.0
-    )
+    assert invoice_details["average_cycle_time_days"] == 3.0
 
 
 # ============================================================
@@ -787,25 +713,15 @@ def test_supplier_scorecard_invoice_metrics_use_po_number_from_items():
         "dispute": None,
     }
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/scorecard"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/scorecard")
 
     assert response.status_code == 200
 
     body = response.json()
 
-    assert (
-        body["details"]["invoices"]
-        ["average_cycle_time_days"]
-        == 37.0
-    )
+    assert body["details"]["invoices"]["average_cycle_time_days"] == 37.0
 
-    assert (
-        body["scorecard"]
-        ["invoice_accuracy_percentage"]
-        == 100.0
-    )
+    assert body["scorecard"]["invoice_accuracy_percentage"] == 100.0
 
     assert len(body["trend"]) == 1
 
@@ -813,10 +729,9 @@ def test_supplier_scorecard_invoice_metrics_use_po_number_from_items():
 
     assert trend["period"] == "2026-08"
 
-    assert (
-        trend["invoice_accuracy_percentage"]
-        == 100.0
-    )
+    assert trend["invoice_accuracy_percentage"] == 100.0
+
+
 # ============================================================
 # SCORECARD - LATE DELIVERY
 # ============================================================
@@ -832,9 +747,7 @@ def test_supplier_scorecard_late_delivery():
         "actual_delivery_date": date(2026, 8, 2),
     }
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/scorecard"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/scorecard")
 
     assert response.status_code == 200
 
@@ -852,6 +765,7 @@ def test_supplier_scorecard_late_delivery():
 
     # Aug 2 - Jul 29 = 4 days
     assert po_details["average_delay_days"] == 4.0
+
 
 # ============================================================
 # SCORECARD - DELIVERY DATE FROM GOODS RECEIPT
@@ -902,13 +816,9 @@ def test_supplier_scorecard_uses_goods_receipt_date_for_delivery():
         PurchaseOrderStatus.fulfilled,
     )
 
-    assert purchase_orders["PO1001"]["actual_delivery_date"] == date(
-        2026, 7, 20
-    )
+    assert purchase_orders["PO1001"]["actual_delivery_date"] == date(2026, 7, 20)
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/scorecard"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/scorecard")
 
     assert response.status_code == 200
 
@@ -922,6 +832,7 @@ def test_supplier_scorecard_uses_goods_receipt_date_for_delivery():
     assert po_details["late"] == 0
     assert po_details["on_time_percentage"] == 100.0
     assert po_details["average_delay_days"] == 0.0
+
 
 # ============================================================
 # SCORECARD - MIXED DELIVERY
@@ -947,9 +858,7 @@ def test_supplier_scorecard_mixed_delivery():
         "actual_delivery_date": date(2026, 8, 2),
     }
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/scorecard"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/scorecard")
 
     assert response.status_code == 200
 
@@ -968,6 +877,7 @@ def test_supplier_scorecard_mixed_delivery():
     # Only PO1002 is late:
     # Aug 2 - Jul 30 = 3 days
     assert po_details["average_delay_days"] == 3.0
+
 
 # ============================================================
 # SCORECARD - PAST-DUE UNFULFILLED PO IS A MISS
@@ -1010,9 +920,7 @@ def test_supplier_scorecard_past_due_unfulfilled_po_is_miss():
         "actual_delivery_date": None,
     }
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/scorecard"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/scorecard")
 
     assert response.status_code == 200
 
@@ -1048,9 +956,7 @@ def test_supplier_scorecard_cancelled_po():
         "actual_delivery_date": None,
     }
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/scorecard"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/scorecard")
 
     assert response.status_code == 200
 
@@ -1076,27 +982,17 @@ def test_supplier_scorecard_cancelled_po():
 def test_supplier_scorecard_disputed_invoice():
     create_sample_data()
 
-    invoices["INV1001"]["dispute"] = {
-        "reason": "Incorrect price"
-    }
+    invoices["INV1001"]["dispute"] = {"reason": "Incorrect price"}
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/scorecard"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/scorecard")
 
     assert response.status_code == 200
 
     body = response.json()
 
-    assert (
-        body["scorecard"]["dispute_rate_percentage"]
-        == 100.0
-    )
+    assert body["scorecard"]["dispute_rate_percentage"] == 100.0
 
-    assert (
-        body["scorecard"]["invoice_accuracy_percentage"]
-        == 0.0
-    )
+    assert body["scorecard"]["invoice_accuracy_percentage"] == 0.0
 
     invoice_details = body["details"]["invoices"]
 
@@ -1130,9 +1026,7 @@ def test_supplier_scorecard_invoice_status_counts():
         ],
         "invoice_date": "2026-07-24",
         "status": "rejected",
-        "dispute": {
-            "reason": "Incorrect amount"
-        },
+        "dispute": {"reason": "Incorrect amount"},
     }
 
     invoices["INV1003"] = {
@@ -1152,9 +1046,7 @@ def test_supplier_scorecard_invoice_status_counts():
         "dispute": None,
     }
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/scorecard"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/scorecard")
 
     assert response.status_code == 200
 
@@ -1187,9 +1079,7 @@ def test_supplier_scorecard_supplier_not_found(procurement_client):
     scorecard should receive 404.
     """
 
-    response = procurement_client.get(
-        "/api/v1/suppliers/SUP-00999/scorecard"
-    )
+    response = procurement_client.get("/api/v1/suppliers/SUP-00999/scorecard")
 
     assert response.status_code == 404
 
@@ -1217,9 +1107,7 @@ def test_scorecard_supplier_exists_through_invoice():
         "dispute": None,
     }
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/scorecard"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/scorecard")
 
     assert response.status_code == 200
 
@@ -1227,20 +1115,11 @@ def test_scorecard_supplier_exists_through_invoice():
 
     assert body["supplier_id"] == "SUP-00001"
 
-    assert (
-        body["details"]["purchase_orders"]["total"]
-        == 0
-    )
+    assert body["details"]["purchase_orders"]["total"] == 0
 
-    assert (
-        body["details"]["invoices"]["total"]
-        == 1
-    )
+    assert body["details"]["invoices"]["total"] == 1
 
-    assert (
-        body["details"]["invoices"]["accurate"]
-        == 1
-    )
+    assert body["details"]["invoices"]["accurate"] == 1
 
 
 # ============================================================
@@ -1268,9 +1147,7 @@ def test_supplier_scorecard_average_invoice_cycle_time():
         "dispute": None,
     }
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/scorecard"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/scorecard")
 
     assert response.status_code == 200
 
@@ -1284,11 +1161,7 @@ def test_supplier_scorecard_average_invoice_cycle_time():
     #
     # Average = 4 days
 
-    assert (
-        body["details"]["invoices"]
-        ["average_cycle_time_days"]
-        == 4.0
-    )
+    assert body["details"]["invoices"]["average_cycle_time_days"] == 4.0
 
 
 # ============================================================
@@ -1351,7 +1224,6 @@ def test_supplier_stats_schema_validation(
 def test_supplier_scorecard_schema():
     data = {
         "supplier_id": "SUP-00001",
-
         "scorecard": {
             "on_time_delivery_percentage": 50.0,
             "dispute_rate_percentage": 0.0,
@@ -1360,7 +1232,6 @@ def test_supplier_scorecard_schema():
             "rating": "Good",
             "performance_status": "Healthy",
         },
-
         "score_breakdown": {
             "on_time_delivery": {
                 "score": 50.0,
@@ -1378,7 +1249,6 @@ def test_supplier_scorecard_schema():
                 "weighted_score": 20.0,
             },
         },
-
         "details": {
             "purchase_orders": {
                 "total": 2,
@@ -1393,7 +1263,6 @@ def test_supplier_scorecard_schema():
                 "average_delay_days": 0.0,
                 "average_fulfillment_time_days": 8.0,
             },
-
             "invoices": {
                 "total": 1,
                 "disputed": 0,
@@ -1408,7 +1277,6 @@ def test_supplier_scorecard_schema():
                 "average_cycle_time_days": 3.0,
             },
         },
-
         "trend": [
             {
                 "period": "2026-07",
@@ -1424,132 +1292,49 @@ def test_supplier_scorecard_schema():
 
     assert model.supplier_id == "SUP-00001"
 
-    assert (
-        model.scorecard.on_time_delivery_percentage
-        == 50.0
-    )
+    assert model.scorecard.on_time_delivery_percentage == 50.0
 
-    assert (
-        model.scorecard.dispute_rate_percentage
-        == 0.0
-    )
+    assert model.scorecard.dispute_rate_percentage == 0.0
 
-    assert (
-        model.scorecard.invoice_accuracy_percentage
-        == 100.0
-    )
+    assert model.scorecard.invoice_accuracy_percentage == 100.0
 
-    assert (
-        model.scorecard.overall_score
-        == 80.0
-    )
+    assert model.scorecard.overall_score == 80.0
 
-    assert (
-        model.scorecard.rating
-        == "Good"
-    )
+    assert model.scorecard.rating == "Good"
 
-    assert (
-        model.scorecard.performance_status
-        == "Healthy"
-    )
+    assert model.scorecard.performance_status == "Healthy"
 
-    assert (
-        model.score_breakdown
-        .on_time_delivery
-        .weighted_score
-        == 20.0
-    )
+    assert model.score_breakdown.on_time_delivery.weighted_score == 20.0
 
-    assert (
-        model.score_breakdown
-        .invoice_accuracy
-        .weighted_score
-        == 40.0
-    )
+    assert model.score_breakdown.invoice_accuracy.weighted_score == 40.0
 
-    assert (
-        model.score_breakdown
-        .dispute_performance
-        .weighted_score
-        == 20.0
-    )
+    assert model.score_breakdown.dispute_performance.weighted_score == 20.0
 
-    assert (
-        model.details
-        .purchase_orders
-        .pending
-        == 1
-    )
+    assert model.details.purchase_orders.pending == 1
 
-    assert (
-        model.details
-        .purchase_orders
-        .cancelled
-        == 0
-    )
+    assert model.details.purchase_orders.cancelled == 0
 
-    assert (
-        model.details
-        .purchase_orders
-        .fulfillment_rate
-        == 50.0
-    )
+    assert model.details.purchase_orders.fulfillment_rate == 50.0
 
-    assert (
-        model.details
-        .purchase_orders
-        .average_fulfillment_time_days
-        == 8.0
-    )
+    assert model.details.purchase_orders.average_fulfillment_time_days == 8.0
 
-    assert (
-        model.details
-        .invoices
-        .pending
-        == 1
-    )
+    assert model.details.invoices.pending == 1
 
-    assert (
-        model.details
-        .invoices
-        .accuracy_percentage
-        == 100.0
-    )
+    assert model.details.invoices.accuracy_percentage == 100.0
 
-    assert (
-        model.details
-        .invoices
-        .average_cycle_time_days
-        == 3.0
-    )
+    assert model.details.invoices.average_cycle_time_days == 3.0
 
     assert len(model.trend) == 1
 
-    assert (
-        model.trend[0].period
-        == "2026-07"
-    )
+    assert model.trend[0].period == "2026-07"
 
-    assert (
-        model.trend[0].on_time_percentage
-        == 50.0
-    )
+    assert model.trend[0].on_time_percentage == 50.0
 
-    assert (
-        model.trend[0].dispute_rate_percentage
-        == 0.0
-    )
+    assert model.trend[0].dispute_rate_percentage == 0.0
 
-    assert (
-        model.trend[0].invoice_accuracy_percentage
-        == 100.0
-    )
+    assert model.trend[0].invoice_accuracy_percentage == 100.0
 
-    assert (
-        model.trend[0].average_fulfillment_time_days
-        == 8.0
-    )
+    assert model.trend[0].average_fulfillment_time_days == 8.0
 
 
 # ============================================================
@@ -1576,14 +1361,12 @@ def test_scorecard_schema_percentage_validation(
 ):
     data = {
         "supplier_id": "SUP-00001",
-
         "scorecard": {
             "on_time_delivery_percentage": 50.0,
             "dispute_rate_percentage": 0.0,
             "invoice_accuracy_percentage": 100.0,
             "overall_score": 80.0,
         },
-
         "details": {
             "purchase_orders": {
                 "total": 2,
@@ -1591,7 +1374,6 @@ def test_scorecard_schema_percentage_validation(
                 "on_time": 1,
                 "late": 0,
             },
-
             "invoices": {
                 "total": 1,
                 "disputed": 0,
@@ -1631,9 +1413,7 @@ def test_r5_supplier_can_access_own_stats():
     authenticate_as(SUPPLIER_1_USER)
 
     try:
-        response = client.get(
-            "/api/v1/suppliers/SUP-00001/stats"
-        )
+        response = client.get("/api/v1/suppliers/SUP-00001/stats")
 
         assert response.status_code == 200
 
@@ -1664,9 +1444,7 @@ def test_r5_supplier_cannot_access_other_supplier_stats():
     authenticate_as(SUPPLIER_1_USER)
 
     try:
-        response = client.get(
-            "/api/v1/suppliers/SUP-00002/stats"
-        )
+        response = client.get("/api/v1/suppliers/SUP-00002/stats")
 
         assert response.status_code == 403
 
@@ -1697,9 +1475,7 @@ def test_r5_supplier_can_access_own_scorecard():
     authenticate_as(SUPPLIER_1_USER)
 
     try:
-        response = client.get(
-            "/api/v1/suppliers/SUP-00001/scorecard"
-        )
+        response = client.get("/api/v1/suppliers/SUP-00001/scorecard")
 
         assert response.status_code == 200
 
@@ -1730,9 +1506,7 @@ def test_r5_supplier_cannot_access_other_supplier_scorecard():
     authenticate_as(SUPPLIER_1_USER)
 
     try:
-        response = client.get(
-            "/api/v1/suppliers/SUP-00002/scorecard"
-        )
+        response = client.get("/api/v1/suppliers/SUP-00002/scorecard")
 
         assert response.status_code == 403
 
@@ -1763,9 +1537,7 @@ def test_r5_supplier_2_can_access_own_stats():
     authenticate_as(SUPPLIER_2_USER)
 
     try:
-        response = client.get(
-            "/api/v1/suppliers/SUP-00002/stats"
-        )
+        response = client.get("/api/v1/suppliers/SUP-00002/stats")
 
         assert response.status_code == 200
 
@@ -1796,9 +1568,7 @@ def test_r5_supplier_2_cannot_access_supplier_1_stats():
     authenticate_as(SUPPLIER_2_USER)
 
     try:
-        response = client.get(
-            "/api/v1/suppliers/SUP-00001/stats"
-        )
+        response = client.get("/api/v1/suppliers/SUP-00001/stats")
 
         assert response.status_code == 403
 
@@ -1845,18 +1615,15 @@ def test_r5_supplier_missing_supplier_id_cannot_access_stats():
     authenticate_as(supplier_without_id)
 
     try:
-        response = client.get(
-            "/api/v1/suppliers/SUP-00001/stats"
-        )
+        response = client.get("/api/v1/suppliers/SUP-00001/stats")
 
         assert response.status_code == 403
 
-        assert response.json()["detail"] == (
-            "Supplier identity is missing"
-        )
+        assert response.json()["detail"] == ("Supplier identity is missing")
 
     finally:
         app.dependency_overrides.clear()
+
 
 def test_supplier_scorecard_trend_multiple_months():
     """
@@ -1915,9 +1682,7 @@ def test_supplier_scorecard_trend_multiple_months():
         "dispute": None,
     }
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/scorecard"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/scorecard")
 
     assert response.status_code == 200
 
@@ -1932,20 +1697,14 @@ def test_supplier_scorecard_trend_multiple_months():
     assert trend[1]["period"] == "2026-08"
 
     # July data exists.
-    assert (
-        trend[0]["average_fulfillment_time_days"]
-        == 7.0
-    )
+    assert trend[0]["average_fulfillment_time_days"] == 7.0
 
     # --------------------------------------------------------
     # August
     # --------------------------------------------------------
 
     # Aug 5 -> Aug 20 = 15 days
-    assert (
-        trend[1]["average_fulfillment_time_days"]
-        == 15.0
-    )
+    assert trend[1]["average_fulfillment_time_days"] == 15.0
 
     # August delivery was late.
     assert trend[1]["on_time_percentage"] == 0.0
@@ -1953,10 +1712,8 @@ def test_supplier_scorecard_trend_multiple_months():
     # August invoice has no dispute.
     assert trend[1]["dispute_rate_percentage"] == 0.0
 
-    assert (
-        trend[1]["invoice_accuracy_percentage"]
-        == 100.0
-    )
+    assert trend[1]["invoice_accuracy_percentage"] == 100.0
+
 
 def test_supplier_trend_past_due_unfulfilled_po_counts_as_miss():
     purchase_orders["PO1001"] = {
@@ -1977,9 +1734,7 @@ def test_supplier_trend_past_due_unfulfilled_po_counts_as_miss():
         "actual_delivery_date": None,
     }
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/scorecard"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/scorecard")
 
     assert response.status_code == 200
 
@@ -1994,6 +1749,7 @@ def test_supplier_trend_past_due_unfulfilled_po_counts_as_miss():
     # PO1001 is on time.
     # PO1002 is past due and unfulfilled, therefore a miss.
     assert trend["on_time_percentage"] == 50.0
+
 
 def test_supplier_trend_future_due_unfulfilled_po_is_excluded():
     purchase_orders["PO1001"] = {
@@ -2014,9 +1770,7 @@ def test_supplier_trend_future_due_unfulfilled_po_is_excluded():
         "actual_delivery_date": None,
     }
 
-    response = client.get(
-        "/api/v1/suppliers/SUP-00001/scorecard"
-    )
+    response = client.get("/api/v1/suppliers/SUP-00001/scorecard")
 
     assert response.status_code == 200
 
@@ -2031,6 +1785,7 @@ def test_supplier_trend_future_due_unfulfilled_po_is_excluded():
     # Only the fulfilled/on-time PO is eligible.
     assert trend["on_time_percentage"] == 100.0
 
+
 def test_cross_supplier_scorecard_unknown_supplier_returns_403(
     supplier_b_client,
 ):
@@ -2039,11 +1794,10 @@ def test_cross_supplier_scorecard_unknown_supplier_returns_403(
     supplier's scorecard exists.
     """
 
-    response = supplier_b_client.get(
-        "/api/v1/suppliers/SUP-00001/scorecard"
-    )
+    response = supplier_b_client.get("/api/v1/suppliers/SUP-00001/scorecard")
 
     assert response.status_code == 403
+
 
 # ============================================================
 # TASK 5 - SUPPLIER SELF-SERVICE ANALYTICS
@@ -2067,9 +1821,7 @@ def test_task5_supplier_can_view_own_scorecard_metrics():
     authenticate_as(SUPPLIER_1_USER)
 
     try:
-        response = client.get(
-            "/api/v1/suppliers/SUP-00001/scorecard"
-        )
+        response = client.get("/api/v1/suppliers/SUP-00001/scorecard")
 
         assert response.status_code == 200
 
@@ -2079,25 +1831,13 @@ def test_task5_supplier_can_view_own_scorecard_metrics():
 
         scorecard = body["scorecard"]
 
-        assert (
-            "on_time_delivery_percentage"
-            in scorecard
-        )
+        assert "on_time_delivery_percentage" in scorecard
 
-        assert (
-            "dispute_rate_percentage"
-            in scorecard
-        )
+        assert "dispute_rate_percentage" in scorecard
 
-        assert (
-            scorecard["on_time_delivery_percentage"]
-            == 100.0
-        )
+        assert scorecard["on_time_delivery_percentage"] == 100.0
 
-        assert (
-            scorecard["dispute_rate_percentage"]
-            == 0.0
-        )
+        assert scorecard["dispute_rate_percentage"] == 0.0
 
     finally:
         app.dependency_overrides.clear()

@@ -1,15 +1,11 @@
-
 import pytest
-
 from fastapi.testclient import TestClient
 
-from app.main import app
 from app.core.auth import verify_token
-
+from app.main import app
 from app.services.supplier_risk_client import (
     SupplierRiskServiceError,
 )
-
 
 # ============================================================
 # TEST USERS
@@ -94,8 +90,8 @@ VALID_RISK_RESPONSE = {
 # AUTHENTICATED TEST CLIENT
 # ============================================================
 
-class AuthenticatedTestClient:
 
+class AuthenticatedTestClient:
     def __init__(self, client, user):
         self.client = client
         self.user = user
@@ -104,9 +100,7 @@ class AuthenticatedTestClient:
         async def mock_verify_token():
             return self.user
 
-        app.dependency_overrides[verify_token] = (
-            mock_verify_token
-        )
+        app.dependency_overrides[verify_token] = mock_verify_token
 
         return self.client.get(url, **kwargs)
 
@@ -114,6 +108,7 @@ class AuthenticatedTestClient:
 # ============================================================
 # FIXTURES
 # ============================================================
+
 
 @pytest.fixture
 def client():
@@ -153,6 +148,7 @@ def supplier_no_id_client(client):
 # TEST: SUCCESSFUL RISK SCORE
 # ============================================================
 
+
 def test_get_supplier_risk_score_success(
     supplier_client,
     monkeypatch,
@@ -167,9 +163,7 @@ def test_get_supplier_risk_score_success(
         lambda supplier_id: VALID_RISK_RESPONSE,
     )
 
-    response = supplier_client.get(
-        "/api/v1/suppliers/SUP-00001/risk-score"
-    )
+    response = supplier_client.get("/api/v1/suppliers/SUP-00001/risk-score")
 
     assert response.status_code == 200
 
@@ -187,6 +181,7 @@ def test_get_supplier_risk_score_success(
 # TEST: RISK SERVICE UNAVAILABLE
 # ============================================================
 
+
 def test_get_supplier_risk_score_unavailable(
     supplier_client,
     monkeypatch,
@@ -197,18 +192,14 @@ def test_get_supplier_risk_score_unavailable(
     )
 
     def mock_risk_failure(supplier_id):
-        raise SupplierRiskServiceError(
-            "Supplier Risk Service unavailable"
-        )
+        raise SupplierRiskServiceError("Supplier Risk Service unavailable")
 
     monkeypatch.setattr(
         "app.services.supplier_risk_service.get_supplier_risk_score",
         mock_risk_failure,
     )
 
-    response = supplier_client.get(
-        "/api/v1/suppliers/SUP-00001/risk-score"
-    )
+    response = supplier_client.get("/api/v1/suppliers/SUP-00001/risk-score")
 
     assert response.status_code == 200
 
@@ -227,12 +218,11 @@ def test_get_supplier_risk_score_unavailable(
 # TEST: SUPPLIER CANNOT ACCESS ANOTHER SUPPLIER
 # ============================================================
 
+
 def test_supplier_cannot_access_another_supplier_risk(
     supplier_client,
 ):
-    response = supplier_client.get(
-        "/api/v1/suppliers/SUP-00002/risk-score"
-    )
+    response = supplier_client.get("/api/v1/suppliers/SUP-00002/risk-score")
 
     assert response.status_code == 403
 
@@ -241,12 +231,11 @@ def test_supplier_cannot_access_another_supplier_risk(
 # TEST: SUPPLIER TOKEN WITHOUT SUPPLIER ID
 # ============================================================
 
+
 def test_supplier_without_supplier_id_is_forbidden(
     supplier_no_id_client,
 ):
-    response = supplier_no_id_client.get(
-        "/api/v1/suppliers/SUP-00001/risk-score"
-    )
+    response = supplier_no_id_client.get("/api/v1/suppliers/SUP-00001/risk-score")
 
     assert response.status_code == 403
 
@@ -254,6 +243,7 @@ def test_supplier_without_supplier_id_is_forbidden(
 # ============================================================
 # TEST: UNKNOWN SUPPLIER
 # ============================================================
+
 
 def test_unknown_supplier_returns_404(
     supplier_client,
@@ -267,9 +257,7 @@ def test_unknown_supplier_returns_404(
         mock_supplier_not_found,
     )
 
-    response = supplier_client.get(
-        "/api/v1/suppliers/SUP-00001/risk-score"
-    )
+    response = supplier_client.get("/api/v1/suppliers/SUP-00001/risk-score")
 
     assert response.status_code == 404
 
@@ -298,9 +286,7 @@ def test_legacy_supplier_id_returns_422_not_500(
         lambda supplier_id: object(),
     )
 
-    response = legacy_client.get(
-        "/api/v1/suppliers/SUP001/risk-score"
-    )
+    response = legacy_client.get("/api/v1/suppliers/SUP001/risk-score")
 
     assert response.status_code == 422
 
@@ -308,6 +294,7 @@ def test_legacy_supplier_id_returns_422_not_500(
 # ============================================================
 # TEST: INTERNAL AUTHORIZED ROLES CAN ACCESS RISK SCORE
 # ============================================================
+
 
 @pytest.mark.parametrize(
     "user",
@@ -340,9 +327,7 @@ def test_internal_authorized_roles_can_access_risk_score(
         lambda supplier_id: VALID_RISK_RESPONSE,
     )
 
-    response = internal_client.get(
-        "/api/v1/suppliers/SUP-00001/risk-score"
-    )
+    response = internal_client.get("/api/v1/suppliers/SUP-00001/risk-score")
 
     assert response.status_code == 200
     assert response.json()["supplier_id"] == "SUP-00001"
@@ -352,6 +337,7 @@ def test_internal_authorized_roles_can_access_risk_score(
 # TEST: UNAUTHORIZED ROLE CANNOT ACCESS RISK SCORE
 # ============================================================
 
+
 def test_warehouse_manager_cannot_access_risk_score(
     client,
 ):
@@ -360,8 +346,6 @@ def test_warehouse_manager_cannot_access_risk_score(
         WAREHOUSE_MANAGER_USER,
     )
 
-    response = warehouse_client.get(
-        "/api/v1/suppliers/SUP-00001/risk-score"
-    )
+    response = warehouse_client.get("/api/v1/suppliers/SUP-00001/risk-score")
 
     assert response.status_code == 403

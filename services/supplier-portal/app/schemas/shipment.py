@@ -4,10 +4,10 @@ from typing import List
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-
 # ============================================================
 # SHIPMENT STATUS
 # ============================================================
+
 
 class ShipmentStatus(str, Enum):
     created = "created"
@@ -16,6 +16,7 @@ class ShipmentStatus(str, Enum):
 # ============================================================
 # SHIPMENT ITEM
 # ============================================================
+
 
 class ShipmentItem(BaseModel):
     """
@@ -41,17 +42,16 @@ class ShipmentItem(BaseModel):
     @model_validator(mode="after")
     def validate_item_identifier(self):
         if not self.item_code and not self.sku_id:
-            raise ValueError(
-                "Either item_code or sku_id must be provided."
-            )
+            raise ValueError("Either item_code or sku_id must be provided.")
         return self
+
 
 # ============================================================
 # CREATE SHIPMENT NOTICE
 # ============================================================
 
-class ShipmentCreate(BaseModel):
 
+class ShipmentCreate(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -76,9 +76,7 @@ class ShipmentCreate(BaseModel):
         }
     )
 
-    po_number: str = Field(
-        pattern=r"^[A-Za-z0-9_-]+$"
-    )
+    po_number: str = Field(pattern=r"^[A-Za-z0-9_-]+$")
 
     shipment_date: date
 
@@ -99,9 +97,7 @@ class ShipmentCreate(BaseModel):
         max_length=255,
     )
 
-    destination_warehouse: str = Field(
-        pattern=r"^WH-[A-Z]{3}-[0-9]{2}$"
-    )
+    destination_warehouse: str = Field(pattern=r"^WH-[A-Z]{3}-[0-9]{2}$")
 
     items: List[ShipmentItem] = Field(
         min_length=1,
@@ -112,8 +108,8 @@ class ShipmentCreate(BaseModel):
 # SHIPMENT RESPONSE
 # ============================================================
 
-class ShipmentResponse(BaseModel):
 
+class ShipmentResponse(BaseModel):
     shipment_id: str
 
     po_number: str

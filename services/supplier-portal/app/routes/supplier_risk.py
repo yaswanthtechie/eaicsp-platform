@@ -1,4 +1,3 @@
-
 from fastapi import (
     APIRouter,
     Depends,
@@ -10,24 +9,19 @@ from app.core.auth import (
     enforce_not_suspended,
     require_roles,
 )
-
+from app.routes.supplier_onboarding import (
+    check_supplier_access,
+    validate_supplier_identity,
+)
 from app.schemas.supplier_risk import (
     SupplierRiskScoreResponse,
 )
-
-from app.routes.supplier_onboarding import (
-    validate_supplier_identity,
-    check_supplier_access,
-)
-
 from app.services.supplier_onboarding_service import (
     get_supplier,
 )
-
 from app.services.supplier_risk_service import (
     get_supplier_risk_score_response,
 )
-
 
 router = APIRouter(
     prefix="/suppliers",
@@ -39,6 +33,7 @@ router = APIRouter(
 # ============================================================
 # GET SUPPLIER RISK SCORE
 # ============================================================
+
 
 @router.get(
     "/{supplier_id}/risk-score",

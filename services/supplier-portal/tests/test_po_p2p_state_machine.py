@@ -1,20 +1,20 @@
 import pytest
 
 from app.services.po_p2p_state_machine import (
-    P2PState,
     P2P_TRANSITIONS,
-    p2p_states,
-    initialize_p2p_state,
-    get_p2p_state,
+    P2PState,
     can_transition_p2p,
-    transition_p2p,
+    get_p2p_state,
+    initialize_p2p_state,
+    p2p_states,
     remove_p2p_state,
+    transition_p2p,
 )
-
 
 # ============================================================
 # TEST CLEANUP
 # ============================================================
+
 
 @pytest.fixture(autouse=True)
 def clear_p2p_states():
@@ -69,10 +69,13 @@ def test_acknowledged_to_shipped_is_legal():
         P2PState.acknowledged,
     )
 
-    assert can_transition_p2p(
-        "PO1001",
-        P2PState.shipped,
-    ) is True
+    assert (
+        can_transition_p2p(
+            "PO1001",
+            P2PState.shipped,
+        )
+        is True
+    )
 
     result = transition_p2p(
         "PO1001",
@@ -89,10 +92,13 @@ def test_shipped_to_received_is_legal():
         P2PState.shipped,
     )
 
-    assert can_transition_p2p(
-        "PO1001",
-        P2PState.received,
-    ) is True
+    assert (
+        can_transition_p2p(
+            "PO1001",
+            P2PState.received,
+        )
+        is True
+    )
 
     result = transition_p2p(
         "PO1001",
@@ -109,10 +115,13 @@ def test_received_to_invoiced_is_legal():
         P2PState.received,
     )
 
-    assert can_transition_p2p(
-        "PO1001",
-        P2PState.invoiced,
-    ) is True
+    assert (
+        can_transition_p2p(
+            "PO1001",
+            P2PState.invoiced,
+        )
+        is True
+    )
 
     result = transition_p2p(
         "PO1001",
@@ -129,10 +138,13 @@ def test_invoiced_to_matched_is_legal():
         P2PState.invoiced,
     )
 
-    assert can_transition_p2p(
-        "PO1001",
-        P2PState.matched,
-    ) is True
+    assert (
+        can_transition_p2p(
+            "PO1001",
+            P2PState.matched,
+        )
+        is True
+    )
 
     result = transition_p2p(
         "PO1001",
@@ -149,10 +161,13 @@ def test_invoiced_to_discrepancy_is_legal():
         P2PState.invoiced,
     )
 
-    assert can_transition_p2p(
-        "PO1001",
-        P2PState.discrepancy,
-    ) is True
+    assert (
+        can_transition_p2p(
+            "PO1001",
+            P2PState.discrepancy,
+        )
+        is True
+    )
 
     result = transition_p2p(
         "PO1001",
@@ -169,10 +184,13 @@ def test_discrepancy_to_matched_is_legal():
         P2PState.discrepancy,
     )
 
-    assert can_transition_p2p(
-        "PO1001",
-        P2PState.matched,
-    ) is True
+    assert (
+        can_transition_p2p(
+            "PO1001",
+            P2PState.matched,
+        )
+        is True
+    )
 
     result = transition_p2p(
         "PO1001",
@@ -189,10 +207,13 @@ def test_matched_to_payment_approved_is_legal():
         P2PState.matched,
     )
 
-    assert can_transition_p2p(
-        "PO1001",
-        P2PState.payment_approved,
-    ) is True
+    assert (
+        can_transition_p2p(
+            "PO1001",
+            P2PState.payment_approved,
+        )
+        is True
+    )
 
     result = transition_p2p(
         "PO1001",
@@ -214,10 +235,13 @@ def test_acknowledged_to_received_is_illegal():
         P2PState.acknowledged,
     )
 
-    assert can_transition_p2p(
-        "PO1001",
-        P2PState.received,
-    ) is False
+    assert (
+        can_transition_p2p(
+            "PO1001",
+            P2PState.received,
+        )
+        is False
+    )
 
     with pytest.raises(ValueError, match="Cannot move"):
         transition_p2p(
@@ -232,10 +256,13 @@ def test_acknowledged_to_invoiced_is_illegal():
         P2PState.acknowledged,
     )
 
-    assert can_transition_p2p(
-        "PO1001",
-        P2PState.invoiced,
-    ) is False
+    assert (
+        can_transition_p2p(
+            "PO1001",
+            P2PState.invoiced,
+        )
+        is False
+    )
 
     with pytest.raises(ValueError, match="Cannot move"):
         transition_p2p(
@@ -250,10 +277,13 @@ def test_acknowledged_to_matched_is_illegal():
         P2PState.acknowledged,
     )
 
-    assert can_transition_p2p(
-        "PO1001",
-        P2PState.matched,
-    ) is False
+    assert (
+        can_transition_p2p(
+            "PO1001",
+            P2PState.matched,
+        )
+        is False
+    )
 
     with pytest.raises(ValueError, match="Cannot move"):
         transition_p2p(
@@ -268,10 +298,13 @@ def test_acknowledged_to_payment_approved_is_illegal():
         P2PState.acknowledged,
     )
 
-    assert can_transition_p2p(
-        "PO1001",
-        P2PState.payment_approved,
-    ) is False
+    assert (
+        can_transition_p2p(
+            "PO1001",
+            P2PState.payment_approved,
+        )
+        is False
+    )
 
     with pytest.raises(ValueError, match="Cannot move"):
         transition_p2p(
@@ -286,10 +319,13 @@ def test_shipped_to_invoiced_is_illegal():
         P2PState.shipped,
     )
 
-    assert can_transition_p2p(
-        "PO1001",
-        P2PState.invoiced,
-    ) is False
+    assert (
+        can_transition_p2p(
+            "PO1001",
+            P2PState.invoiced,
+        )
+        is False
+    )
 
     with pytest.raises(ValueError, match="Cannot move"):
         transition_p2p(
@@ -304,10 +340,13 @@ def test_shipped_to_matched_is_illegal():
         P2PState.shipped,
     )
 
-    assert can_transition_p2p(
-        "PO1001",
-        P2PState.matched,
-    ) is False
+    assert (
+        can_transition_p2p(
+            "PO1001",
+            P2PState.matched,
+        )
+        is False
+    )
 
     with pytest.raises(ValueError, match="Cannot move"):
         transition_p2p(
@@ -322,10 +361,13 @@ def test_shipped_to_payment_approved_is_illegal():
         P2PState.shipped,
     )
 
-    assert can_transition_p2p(
-        "PO1001",
-        P2PState.payment_approved,
-    ) is False
+    assert (
+        can_transition_p2p(
+            "PO1001",
+            P2PState.payment_approved,
+        )
+        is False
+    )
 
     with pytest.raises(ValueError, match="Cannot move"):
         transition_p2p(
@@ -340,10 +382,13 @@ def test_received_to_matched_is_illegal():
         P2PState.received,
     )
 
-    assert can_transition_p2p(
-        "PO1001",
-        P2PState.matched,
-    ) is False
+    assert (
+        can_transition_p2p(
+            "PO1001",
+            P2PState.matched,
+        )
+        is False
+    )
 
     with pytest.raises(ValueError, match="Cannot move"):
         transition_p2p(
@@ -358,10 +403,13 @@ def test_received_to_payment_approved_is_illegal():
         P2PState.received,
     )
 
-    assert can_transition_p2p(
-        "PO1001",
-        P2PState.payment_approved,
-    ) is False
+    assert (
+        can_transition_p2p(
+            "PO1001",
+            P2PState.payment_approved,
+        )
+        is False
+    )
 
     with pytest.raises(ValueError, match="Cannot move"):
         transition_p2p(
@@ -376,10 +424,13 @@ def test_invoiced_to_payment_approved_is_illegal():
         P2PState.invoiced,
     )
 
-    assert can_transition_p2p(
-        "PO1001",
-        P2PState.payment_approved,
-    ) is False
+    assert (
+        can_transition_p2p(
+            "PO1001",
+            P2PState.payment_approved,
+        )
+        is False
+    )
 
     with pytest.raises(ValueError, match="Cannot move"):
         transition_p2p(
@@ -398,10 +449,13 @@ def test_discrepancy_to_payment_approved_is_illegal():
         P2PState.discrepancy,
     )
 
-    assert can_transition_p2p(
-        "PO1001",
-        P2PState.payment_approved,
-    ) is False
+    assert (
+        can_transition_p2p(
+            "PO1001",
+            P2PState.payment_approved,
+        )
+        is False
+    )
 
     with pytest.raises(ValueError, match="Cannot move"):
         transition_p2p(
@@ -421,11 +475,13 @@ def test_payment_approved_to_any_state_is_illegal():
     )
 
     for target_state in P2PState:
-
-        assert can_transition_p2p(
-            "PO1001",
-            target_state,
-        ) is False
+        assert (
+            can_transition_p2p(
+                "PO1001",
+                target_state,
+            )
+            is False
+        )
 
         with pytest.raises(ValueError, match="Cannot move"):
             transition_p2p(
@@ -444,10 +500,13 @@ def test_uninitialized_po_cannot_transition():
     A PO without a P2P workflow state cannot transition.
     """
 
-    assert can_transition_p2p(
-        "PO9999",
-        P2PState.shipped,
-    ) is False
+    assert (
+        can_transition_p2p(
+            "PO9999",
+            P2PState.shipped,
+        )
+        is False
+    )
 
     with pytest.raises(
         ValueError,
@@ -525,9 +584,7 @@ def test_complete_p2p_happy_path():
         P2PState.payment_approved,
     )
 
-    assert get_p2p_state(
-        "PO1001"
-    ) == P2PState.payment_approved
+    assert get_p2p_state("PO1001") == P2PState.payment_approved
 
 
 # ============================================================
@@ -574,10 +631,13 @@ def test_complete_p2p_discrepancy_resolution_flow():
     )
 
     # Payment must remain blocked.
-    assert can_transition_p2p(
-        "PO1001",
-        P2PState.payment_approved,
-    ) is False
+    assert (
+        can_transition_p2p(
+            "PO1001",
+            P2PState.payment_approved,
+        )
+        is False
+    )
 
     # Human resolution moves discrepancy -> matched.
     transition_p2p(
@@ -591,9 +651,7 @@ def test_complete_p2p_discrepancy_resolution_flow():
         P2PState.payment_approved,
     )
 
-    assert get_p2p_state(
-        "PO1001"
-    ) == P2PState.payment_approved
+    assert get_p2p_state("PO1001") == P2PState.payment_approved
 
 
 # ============================================================

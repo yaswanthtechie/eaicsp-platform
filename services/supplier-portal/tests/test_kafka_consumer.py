@@ -1,7 +1,6 @@
-
 import json
 import sqlite3
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -137,7 +136,6 @@ def clear_supplier_state(monkeypatch, tmp_path):
     suppliers.clear()
 
 
-
 @pytest.fixture
 def consumer():
     with (
@@ -261,9 +259,7 @@ def test_out_of_order_event_is_ignored(consumer):
 
 def test_invalid_json_raises_validation_error(consumer):
     with pytest.raises(KafkaMessageValidationError):
-        consumer.process_message(
-            make_message('{"this-is": "not-a-valid-event"}')
-        )
+        consumer.process_message(make_message('{"this-is": "not-a-valid-event"}'))
 
 
 def test_invalid_json_syntax_raises_validation_error(consumer):
@@ -308,9 +304,7 @@ def test_offset_committed_only_after_db_write(consumer, monkeypatch):
         tracked_write,
     )
 
-    consumer.consumer.commit.side_effect = (
-        lambda **kwargs: order.append("commit")
-    )
+    consumer.consumer.commit.side_effect = lambda **kwargs: order.append("commit")
 
     message = make_message(
         make_event(event_id="e-order"),
@@ -341,9 +335,7 @@ def test_pre_onboarding_event_is_persisted_without_committing(consumer):
     assert "SUP-00999" not in suppliers
     assert consumer.process_message(message) is True
 
-    assert supplier_compliance_service.is_event_processed(
-        "event-pre-onboarding-001"
-    )
+    assert supplier_compliance_service.is_event_processed("event-pre-onboarding-001")
 
     # Processing a message directly must not commit its Kafka offset.
     consumer.consumer.commit.assert_not_called()
@@ -367,6 +359,7 @@ def test_process_message_never_commits_by_itself(consumer):
 
     assert consumer.process_message(message) is True
     consumer.consumer.commit.assert_not_called()
+
 
 def test_dlq_contains_original_message(consumer):
     message = make_message(
@@ -394,13 +387,10 @@ def test_dlq_contains_original_message(consumer):
     assert dlq_payload["source_offset"] == 42
 
 
-
 def test_dlq_failure_raises_error(consumer):
     consumer._dlq_producer.flush.return_value = 1
 
-    message = make_message(
-        make_event(event_id="event-dlq-failure-001")
-    )
+    message = make_message(make_event(event_id="event-dlq-failure-001"))
 
     with pytest.raises(KafkaDeadLetterError):
         consumer._publish_to_dlq(
@@ -410,9 +400,7 @@ def test_dlq_failure_raises_error(consumer):
 
 
 def test_successful_dlq_processing_allows_commit(consumer):
-    message = make_message(
-        make_event(event_id="event-dlq-commit-001")
-    )
+    message = make_message(make_event(event_id="event-dlq-commit-001"))
 
     consumer._publish_to_dlq(
         message=message,
@@ -428,9 +416,7 @@ def test_successful_dlq_processing_allows_commit(consumer):
 
 
 def test_dlq_failure_does_not_commit_original_message(consumer):
-    message = make_message(
-        make_event(event_id="event-dlq-no-commit-001")
-    )
+    message = make_message(make_event(event_id="event-dlq-no-commit-001"))
 
     consumer._publish_to_dlq = MagicMock(
         side_effect=KafkaDeadLetterError("DLQ unavailable")
@@ -464,9 +450,7 @@ def test_audit_is_created_for_accepted_event(consumer):
 def test_commit_failure_is_not_silently_ignored(consumer):
     message = make_message(make_event())
 
-    consumer.consumer.commit.side_effect = RuntimeError(
-        "Kafka commit failed"
-    )
+    consumer.consumer.commit.side_effect = RuntimeError("Kafka commit failed")
 
     with pytest.raises(RuntimeError, match="Kafka commit failed"):
         consumer._commit(message)
@@ -487,18 +471,13 @@ def test_dlq_flush_exception_raises_error(consumer):
 
 
 def _offsets(mock_commit):
-    return [
-        call.kwargs["message"].offset()
-        for call in mock_commit.call_args_list
-    ]
+    return [call.kwargs["message"].offset() for call in mock_commit.call_args_list]
 
 
 def test_crash_before_commit_redelivery_is_idempotent(tmp_path):
     db = tmp_path / "crash.db"
 
-    event = SupplierStatusChangedEvent.model_validate(
-        make_event(event_id="e-crash")
-    )
+    event = SupplierStatusChangedEvent.model_validate(make_event(event_id="e-crash"))
 
     suppliers["SUP-00001"] = {
         "supplier_id": "SUP-00001",
@@ -519,9 +498,7 @@ def test_crash_before_commit_redelivery_is_idempotent(tmp_path):
 
 
 def test_naive_occurred_at_is_rejected(consumer):
-    message = make_message(
-        make_event(occurred_at="2026-10-08T09:00:00")
-    )
+    message = make_message(make_event(occurred_at="2026-10-08T09:00:00"))
 
     with pytest.raises(KafkaMessageValidationError):
         consumer.process_message(message)
@@ -554,6 +531,7 @@ def test_same_timestamp_keeps_more_restrictive_status(consumer):
         supplier_compliance_service.get_access_status("SUP-00001")
         == SupplierComplianceStatus.suspended
     )
+
 
 def test_event_for_supplier_not_yet_onboarded_applies_when_they_onboard(
     consumer,
@@ -592,17 +570,14 @@ def test_suspension_survives_restart(tmp_path):
 
     service = SupplierComplianceService(db_path=db)
 
-    event = SupplierStatusChangedEvent.model_validate(
-        make_event(event_id="e-restart")
-    )
+    event = SupplierStatusChangedEvent.model_validate(make_event(event_id="e-restart"))
 
     assert service.apply_status_changed_event(event) is True
 
     restarted = SupplierComplianceService(db_path=db)
 
     assert (
-        restarted.get_access_status("SUP-00001")
-        == SupplierComplianceStatus.suspended
+        restarted.get_access_status("SUP-00001") == SupplierComplianceStatus.suspended
     )
 
 
@@ -678,6 +653,7 @@ def test_dlq_failure_does_not_kill_the_loop(consumer, monkeypatch):
 
     assert consumer.consumer.seek.call_count == 1
     assert _offsets(consumer.consumer.commit) == [5, 6]
+
 
 def test_real_producer_event_suspends_onboarded_supplier(consumer):
     """Exactly what services/compliance publishes: key=supplier_name, no supplier_id."""

@@ -1,4 +1,3 @@
-
 import argparse
 from pathlib import Path
 
@@ -6,18 +5,14 @@ from app.database import SessionLocal
 from app.services.supplier_seed_loader import seed_suppliers
 
 DEFAULT_SEED_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "data"
-    / "seed"
-    / "suppliers.csv"
+    Path(__file__).resolve().parents[2] / "data" / "seed" / "suppliers.csv"
 )
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Load the canonical supplier seed into "
-            "supplier_portal.suppliers."
+            "Load the canonical supplier seed into supplier_portal.suppliers."
         ),
     )
     parser.add_argument(

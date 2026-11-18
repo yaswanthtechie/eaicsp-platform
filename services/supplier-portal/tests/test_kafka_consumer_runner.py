@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import logging
@@ -7,10 +6,7 @@ from unittest.mock import Mock, patch
 
 from app.services.kafka_consumer_runner import KafkaConsumerRunner
 
-
-CONSUMER_FACTORY = (
-    "app.services.kafka_consumer_runner.SupplierStatusChangedConsumer"
-)
+CONSUMER_FACTORY = "app.services.kafka_consumer_runner.SupplierStatusChangedConsumer"
 
 
 def test_runner_restarts_after_consumer_crashes():

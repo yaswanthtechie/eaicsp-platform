@@ -18,7 +18,6 @@ from app.services.purchase_order_service import (
     purchase_orders,
 )
 
-
 router = APIRouter(
     dependencies=[Depends(enforce_not_suspended)],
 )
@@ -27,6 +26,7 @@ router = APIRouter(
 # ============================================================
 # CREATE GOODS RECEIPT
 # ============================================================
+
 
 @router.post(
     "/goods-receipts",
@@ -89,6 +89,7 @@ def create_goods_receipt_endpoint(
 # GET GOODS RECEIPT BY ID
 # ============================================================
 
+
 @router.get(
     "/goods-receipts/{receipt_id}",
     response_model=GoodsReceiptResponse,
@@ -122,7 +123,6 @@ def get_goods_receipt_endpoint(
     # --------------------------------------------------------
 
     if role == "supplier":
-
         supplier_id = user.get("supplier_id")
 
         # Supplier identity is mandatory.
@@ -169,6 +169,7 @@ def get_goods_receipt_endpoint(
 # GET GOODS RECEIPTS FOR PURCHASE ORDER
 # ============================================================
 
+
 @router.get(
     "/purchase-orders/{po_number}/goods-receipts",
     response_model=list[GoodsReceiptResponse],
@@ -211,7 +212,6 @@ def get_goods_receipts_for_po(
     # --------------------------------------------------------
 
     if role == "supplier":
-
         supplier_id = user.get("supplier_id")
 
         if not supplier_id:
@@ -238,9 +238,7 @@ def get_goods_receipts_for_po(
 
     if role == "supplier":
         return [
-            receipt
-            for receipt in receipts
-            if receipt.get("supplier_id") == supplier_id
+            receipt for receipt in receipts if receipt.get("supplier_id") == supplier_id
         ]
 
     # --------------------------------------------------------
@@ -253,6 +251,7 @@ def get_goods_receipts_for_po(
 # ============================================================
 # GET ALL GOODS RECEIPTS
 # ============================================================
+
 
 @router.get(
     "/goods-receipts",
@@ -279,7 +278,6 @@ def get_goods_receipts(
     # --------------------------------------------------------
 
     if role == "supplier":
-
         supplier_id = user.get("supplier_id")
 
         if not supplier_id:
@@ -289,9 +287,7 @@ def get_goods_receipts(
             )
 
         return [
-            receipt
-            for receipt in receipts
-            if receipt.get("supplier_id") == supplier_id
+            receipt for receipt in receipts if receipt.get("supplier_id") == supplier_id
         ]
 
     # --------------------------------------------------------

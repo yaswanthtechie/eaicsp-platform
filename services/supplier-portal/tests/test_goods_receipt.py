@@ -2,7 +2,6 @@ import pytest
 
 from app.schemas.goods_receipt import GoodsReceiptCreate
 from app.schemas.purchase_order import PurchaseOrderStatus
-
 from app.services.goods_receipt_service import (
     create_goods_receipt,
     get_all_goods_receipts,
@@ -10,17 +9,14 @@ from app.services.goods_receipt_service import (
     get_goods_receipts_by_po,
     goods_receipts,
 )
-
 from app.services.po_p2p_state_machine import (
     P2PState,
     initialize_p2p_state,
     p2p_states,
 )
-
 from app.services.purchase_order_service import (
     purchase_orders,
 )
-
 
 # ============================================================
 # TEST FIXTURE
@@ -175,10 +171,7 @@ def test_create_goods_receipt_successfully():
     assert receipt["supplier_id"] == "SUP-00001"
 
     assert receipt["warehouse"] == "WH-HYD-01"
-    assert (
-        receipt["received_by"]
-        == "warehouse.user@company.com"
-    )
+    assert receipt["received_by"] == "warehouse.user@company.com"
     assert receipt["status"] == "received"
 
 
@@ -190,10 +183,7 @@ def test_goods_receipt_gets_supplier_id_from_purchase_order():
         created_by="warehouse.user@company.com",
     )
 
-    assert (
-        receipt["supplier_id"]
-        == purchase_orders["PO1001"]["supplier_id"]
-    )
+    assert receipt["supplier_id"] == purchase_orders["PO1001"]["supplier_id"]
 
 
 def test_goods_receipt_created_by_warehouse_manager():
@@ -204,10 +194,7 @@ def test_goods_receipt_created_by_warehouse_manager():
         created_by="warehouse.manager@company.com",
     )
 
-    assert (
-        receipt["created_by"]
-        == "warehouse.manager@company.com"
-    )
+    assert receipt["created_by"] == "warehouse.manager@company.com"
 
 
 def test_goods_receipt_moves_p2p_state_to_received():
@@ -218,10 +205,7 @@ def test_goods_receipt_moves_p2p_state_to_received():
         created_by="warehouse.user@company.com",
     )
 
-    assert (
-        p2p_states["PO1001"]
-        == P2PState.received
-    )
+    assert p2p_states["PO1001"] == P2PState.received
 
 
 def test_goods_receipt_fulfills_purchase_order():
@@ -232,10 +216,7 @@ def test_goods_receipt_fulfills_purchase_order():
         created_by="warehouse.user@company.com",
     )
 
-    assert (
-        purchase_orders["PO1001"]["status"]
-        == PurchaseOrderStatus.fulfilled
-    )
+    assert purchase_orders["PO1001"]["status"] == PurchaseOrderStatus.fulfilled
 
 
 def test_goods_receipt_sets_actual_delivery_date():
@@ -246,10 +227,7 @@ def test_goods_receipt_sets_actual_delivery_date():
         created_by="warehouse.user@company.com",
     )
 
-    assert (
-        purchase_orders["PO1001"]["actual_delivery_date"]
-        is not None
-    )
+    assert purchase_orders["PO1001"]["actual_delivery_date"] is not None
 
 
 def test_goods_receipt_creates_fulfillment_history_event():
@@ -269,20 +247,11 @@ def test_goods_receipt_creates_fulfillment_history_event():
     assert event["po_number"] == "PO1001"
     assert event["supplier_id"] == "SUP-00001"
 
-    assert (
-        event["actor"]
-        == "warehouse.user@company.com"
-    )
+    assert event["actor"] == "warehouse.user@company.com"
 
-    assert (
-        event["from_status"]
-        == PurchaseOrderStatus.acknowledged
-    )
+    assert event["from_status"] == PurchaseOrderStatus.acknowledged
 
-    assert (
-        event["to_status"]
-        == PurchaseOrderStatus.fulfilled
-    )
+    assert event["to_status"] == PurchaseOrderStatus.fulfilled
 
 
 def test_goods_receipt_is_stored():
@@ -305,9 +274,7 @@ def test_get_goods_receipt_by_id():
         created_by="warehouse.user@company.com",
     )
 
-    result = get_goods_receipt_by_id(
-        receipt["receipt_id"]
-    )
+    result = get_goods_receipt_by_id(receipt["receipt_id"])
 
     assert result == receipt
 
@@ -324,10 +291,7 @@ def test_get_goods_receipts_by_po():
 
     assert len(result) == 1
 
-    assert (
-        result[0]["receipt_id"]
-        == receipt["receipt_id"]
-    )
+    assert result[0]["receipt_id"] == receipt["receipt_id"]
 
 
 def test_get_all_goods_receipts():
@@ -342,10 +306,7 @@ def test_get_all_goods_receipts():
 
     assert len(result) == 1
 
-    assert (
-        result[0]["receipt_id"]
-        == receipt["receipt_id"]
-    )
+    assert result[0]["receipt_id"] == receipt["receipt_id"]
 
 
 # ============================================================
@@ -382,15 +343,9 @@ def test_goods_receipt_before_shipment_is_rejected():
             created_by="warehouse.user@company.com",
         )
 
-    assert (
-        p2p_states["PO1001"]
-        == P2PState.acknowledged
-    )
+    assert p2p_states["PO1001"] == P2PState.acknowledged
 
-    assert (
-        purchase_orders["PO1001"]["status"]
-        == PurchaseOrderStatus.acknowledged
-    )
+    assert purchase_orders["PO1001"]["status"] == PurchaseOrderStatus.acknowledged
 
 
 def test_goods_receipt_after_receipt_is_rejected():
@@ -416,15 +371,9 @@ def test_goods_receipt_after_receipt_is_rejected():
             created_by="warehouse.user@company.com",
         )
 
-    assert (
-        p2p_states["PO1001"]
-        == P2PState.received
-    )
+    assert p2p_states["PO1001"] == P2PState.received
 
-    assert (
-        purchase_orders["PO1001"]["status"]
-        == PurchaseOrderStatus.fulfilled
-    )
+    assert purchase_orders["PO1001"]["status"] == PurchaseOrderStatus.fulfilled
 
 
 def test_goods_receipt_requires_shipped_p2p_state():
@@ -440,7 +389,6 @@ def test_goods_receipt_requires_shipped_p2p_state():
     ]
 
     for state in invalid_states:
-
         p2p_states["PO1001"] = state
 
         with pytest.raises(
@@ -452,10 +400,7 @@ def test_goods_receipt_requires_shipped_p2p_state():
                 created_by="warehouse.user@company.com",
             )
 
-        assert (
-            p2p_states["PO1001"]
-            == state
-        )
+        assert p2p_states["PO1001"] == state
 
 
 def test_goods_receipt_with_unknown_item_is_rejected():
@@ -493,15 +438,9 @@ def test_goods_receipt_with_unknown_item_is_rejected():
 
     assert goods_receipts == {}
 
-    assert (
-        p2p_states["PO1001"]
-        == P2PState.shipped
-    )
+    assert p2p_states["PO1001"] == P2PState.shipped
 
-    assert (
-        purchase_orders["PO1001"]["status"]
-        == PurchaseOrderStatus.acknowledged
-    )
+    assert purchase_orders["PO1001"]["status"] == PurchaseOrderStatus.acknowledged
 
 
 def test_goods_receipt_quantity_cannot_exceed_po_quantity():
@@ -535,10 +474,7 @@ def test_goods_receipt_quantity_cannot_exceed_po_quantity():
 
     assert goods_receipts == {}
 
-    assert (
-        p2p_states["PO1001"]
-        == P2PState.shipped
-    )
+    assert p2p_states["PO1001"] == P2PState.shipped
 
 
 def test_goods_receipt_allows_partial_quantity():
@@ -575,15 +511,9 @@ def test_goods_receipt_allows_partial_quantity():
 
     assert result["receipt_id"] in goods_receipts
 
-    assert (
-        p2p_states["PO1001"]
-        == P2PState.received
-    )
+    assert p2p_states["PO1001"] == P2PState.received
 
-    assert (
-        purchase_orders["PO1001"]["status"]
-        == PurchaseOrderStatus.fulfilled
-    )
+    assert purchase_orders["PO1001"]["status"] == PurchaseOrderStatus.fulfilled
 
 
 def test_goods_receipt_allows_missing_po_item_for_partial_receipt():
@@ -617,15 +547,9 @@ def test_goods_receipt_allows_missing_po_item_for_partial_receipt():
 
     assert result["receipt_id"] in goods_receipts
 
-    assert (
-        p2p_states["PO1001"]
-        == P2PState.received
-    )
+    assert p2p_states["PO1001"] == P2PState.received
 
-    assert (
-        purchase_orders["PO1001"]["status"]
-        == PurchaseOrderStatus.fulfilled
-    )
+    assert purchase_orders["PO1001"]["status"] == PurchaseOrderStatus.fulfilled
 
 
 def test_duplicate_goods_receipt_item_is_rejected():
@@ -659,10 +583,7 @@ def test_duplicate_goods_receipt_item_is_rejected():
 
     assert goods_receipts == {}
 
-    assert (
-        p2p_states["PO1001"]
-        == P2PState.shipped
-    )
+    assert p2p_states["PO1001"] == P2PState.shipped
 
 
 # ============================================================
@@ -684,15 +605,9 @@ def test_goods_receipt_does_not_allow_direct_acknowledged_to_received():
             created_by="warehouse.user@company.com",
         )
 
-    assert (
-        p2p_states["PO1001"]
-        == P2PState.acknowledged
-    )
+    assert p2p_states["PO1001"] == P2PState.acknowledged
 
-    assert (
-        purchase_orders["PO1001"]["status"]
-        == PurchaseOrderStatus.acknowledged
-    )
+    assert purchase_orders["PO1001"]["status"] == PurchaseOrderStatus.acknowledged
 
     assert goods_receipts == {}
 
@@ -700,35 +615,20 @@ def test_goods_receipt_does_not_allow_direct_acknowledged_to_received():
 def test_goods_receipt_transition_is_exactly_shipped_to_received():
     create_shipped_po()
 
-    assert (
-        p2p_states["PO1001"]
-        == P2PState.shipped
-    )
+    assert p2p_states["PO1001"] == P2PState.shipped
 
     create_goods_receipt(
         valid_goods_receipt(),
         created_by="warehouse.user@company.com",
     )
 
-    assert (
-        p2p_states["PO1001"]
-        == P2PState.received
-    )
+    assert p2p_states["PO1001"] == P2PState.received
 
-    assert (
-        p2p_states["PO1001"]
-        != P2PState.invoiced
-    )
+    assert p2p_states["PO1001"] != P2PState.invoiced
 
-    assert (
-        p2p_states["PO1001"]
-        != P2PState.matched
-    )
+    assert p2p_states["PO1001"] != P2PState.matched
 
-    assert (
-        p2p_states["PO1001"]
-        != P2PState.payment_approved
-    )
+    assert p2p_states["PO1001"] != P2PState.payment_approved
 
 
 def test_goods_receipt_failure_does_not_store_receipt():
@@ -755,15 +655,9 @@ def test_goods_receipt_failure_does_not_store_receipt():
 
     assert goods_receipts == {}
 
-    assert (
-        p2p_states["PO1001"]
-        == P2PState.shipped
-    )
+    assert p2p_states["PO1001"] == P2PState.shipped
 
-    assert (
-        purchase_orders["PO1001"]["status"]
-        == PurchaseOrderStatus.acknowledged
-    )
+    assert purchase_orders["PO1001"]["status"] == PurchaseOrderStatus.acknowledged
 
 
 # ============================================================
@@ -833,9 +727,7 @@ def test_goods_receipt_po_number_format_is_validated():
 def test_goods_receipt_requires_acknowledged_purchase_order():
     create_shipped_po()
 
-    purchase_orders["PO1001"]["status"] = (
-        PurchaseOrderStatus.draft
-    )
+    purchase_orders["PO1001"]["status"] = PurchaseOrderStatus.draft
 
     with pytest.raises(
         ValueError,
@@ -848,15 +740,9 @@ def test_goods_receipt_requires_acknowledged_purchase_order():
 
     assert goods_receipts == {}
 
-    assert (
-        p2p_states["PO1001"]
-        == P2PState.shipped
-    )
+    assert p2p_states["PO1001"] == P2PState.shipped
 
-    assert (
-        purchase_orders["PO1001"]["status"]
-        == PurchaseOrderStatus.draft
-    )
+    assert purchase_orders["PO1001"]["status"] == PurchaseOrderStatus.draft
 
 
 def test_goods_receipt_with_extra_item_is_rejected():
@@ -894,15 +780,9 @@ def test_goods_receipt_with_extra_item_is_rejected():
 
     assert goods_receipts == {}
 
-    assert (
-        p2p_states["PO1001"]
-        == P2PState.shipped
-    )
+    assert p2p_states["PO1001"] == P2PState.shipped
 
-    assert (
-        purchase_orders["PO1001"]["status"]
-        == PurchaseOrderStatus.acknowledged
-    )
+    assert purchase_orders["PO1001"]["status"] == PurchaseOrderStatus.acknowledged
 
 
 # ============================================================
@@ -921,9 +801,7 @@ def test_supplier_can_view_own_goods_receipt(
         supplier_id="SUP-00001",
     )
 
-    response = supplier_client.get(
-        f"/api/v1/goods-receipts/{receipt['receipt_id']}"
-    )
+    response = supplier_client.get(f"/api/v1/goods-receipts/{receipt['receipt_id']}")
 
     assert response.status_code == 200
 
@@ -946,16 +824,11 @@ def test_supplier_cannot_view_another_suppliers_goods_receipt(
         po_number="PO2001",
     )
 
-    response = supplier_client.get(
-        f"/api/v1/goods-receipts/{receipt['receipt_id']}"
-    )
+    response = supplier_client.get(f"/api/v1/goods-receipts/{receipt['receipt_id']}")
 
     assert response.status_code == 403
 
-    assert (
-        "forbidden"
-        in response.json()["detail"].lower()
-    )
+    assert "forbidden" in response.json()["detail"].lower()
 
 
 def test_supplier_cannot_determine_unknown_goods_receipt_existence(
@@ -969,16 +842,11 @@ def test_supplier_cannot_determine_unknown_goods_receipt_existence(
     another supplier's receipt exists.
     """
 
-    response = supplier_client.get(
-        "/api/v1/goods-receipts/GR-DOES-NOT-EXIST"
-    )
+    response = supplier_client.get("/api/v1/goods-receipts/GR-DOES-NOT-EXIST")
 
     assert response.status_code == 403
 
-    assert (
-        "goods receipt is not accessible"
-        in response.json()["detail"].lower()
-    )
+    assert "goods receipt is not accessible" in response.json()["detail"].lower()
 
 
 def test_supplier_gets_same_forbidden_response_for_existing_and_unknown_receipts(
@@ -1000,9 +868,7 @@ def test_supplier_gets_same_forbidden_response_for_existing_and_unknown_receipts
         f"/api/v1/goods-receipts/{receipt['receipt_id']}"
     )
 
-    unknown_response = supplier_client.get(
-        "/api/v1/goods-receipts/GR-UNKNOWN"
-    )
+    unknown_response = supplier_client.get("/api/v1/goods-receipts/GR-UNKNOWN")
 
     assert existing_response.status_code == 403
     assert unknown_response.status_code == 403
@@ -1015,16 +881,11 @@ def test_supplier_without_supplier_id_cannot_view_goods_receipt(
     A supplier without supplier_id cannot access Goods Receipt data.
     """
 
-    response = supplier_no_id_client.get(
-        "/api/v1/goods-receipts/GR-DOES-NOT-EXIST"
-    )
+    response = supplier_no_id_client.get("/api/v1/goods-receipts/GR-DOES-NOT-EXIST")
 
     assert response.status_code == 403
 
-    assert (
-        "supplier identity is missing"
-        in response.json()["detail"].lower()
-    )
+    assert "supplier identity is missing" in response.json()["detail"].lower()
 
 
 def test_internal_user_gets_404_for_unknown_goods_receipt(
@@ -1035,16 +896,11 @@ def test_internal_user_gets_404_for_unknown_goods_receipt(
     unknown Goods Receipt.
     """
 
-    response = procurement_client.get(
-        "/api/v1/goods-receipts/GR-DOES-NOT-EXIST"
-    )
+    response = procurement_client.get("/api/v1/goods-receipts/GR-DOES-NOT-EXIST")
 
     assert response.status_code == 404
 
-    assert (
-        "goods receipt not found"
-        in response.json()["detail"].lower()
-    )
+    assert "goods receipt not found" in response.json()["detail"].lower()
 
 
 def test_internal_user_can_view_existing_supplier_goods_receipt(
@@ -1060,9 +916,7 @@ def test_internal_user_can_view_existing_supplier_goods_receipt(
         po_number="PO2003",
     )
 
-    response = procurement_client.get(
-        f"/api/v1/goods-receipts/{receipt['receipt_id']}"
-    )
+    response = procurement_client.get(f"/api/v1/goods-receipts/{receipt['receipt_id']}")
 
     assert response.status_code == 200
 
@@ -1070,4 +924,3 @@ def test_internal_user_can_view_existing_supplier_goods_receipt(
 
     assert body["receipt_id"] == receipt["receipt_id"]
     assert body["supplier_id"] == "SUP-00002"
-

@@ -17,9 +17,7 @@ from app.services.inventory_goods_received_consumer import (
 
 CONTRACTS = Path(__file__).resolve().parents[3] / "contracts" / "events"
 GOODS_RECEIVED_CONTRACT = CONTRACTS / "inventory.goods.received.v1.json"
-GOODS_RECEIVED_EXAMPLE = (
-    CONTRACTS / "examples" / "inventory.goods.received.v1.json"
-)
+GOODS_RECEIVED_EXAMPLE = CONTRACTS / "examples" / "inventory.goods.received.v1.json"
 
 
 def load_json(path):
@@ -65,15 +63,12 @@ def valid_event():
         },
     }
 
+
 @pytest.fixture
 def consumer():
     with (
-        patch(
-            "app.services.inventory_goods_received_consumer.Consumer"
-        ),
-        patch(
-            "app.services.inventory_goods_received_consumer.Producer"
-        ),
+        patch("app.services.inventory_goods_received_consumer.Consumer"),
+        patch("app.services.inventory_goods_received_consumer.Producer"),
     ):
         instance = InventoryGoodsReceivedConsumer()
 
@@ -99,9 +94,7 @@ def test_valid_event_passes_validation(valid_event):
         ({"payload": None}, "payload must be an object"),
     ],
 )
-def test_invalid_event_metadata_is_rejected(
-    valid_event, change, expected_error
-):
+def test_invalid_event_metadata_is_rejected(valid_event, change, expected_error):
     event = {**valid_event, **change}
 
     with pytest.raises(ValueError, match=expected_error):
@@ -153,9 +146,7 @@ def test_missing_required_payload_field_is_rejected(valid_event):
         InventoryGoodsReceivedConsumer._validate_event(event)
 
 
-def test_valid_event_is_persisted_and_committed(
-    consumer, valid_event
-):
+def test_valid_event_is_persisted_and_committed(consumer, valid_event):
     db = MagicMock()
 
     with patch(
@@ -177,9 +168,7 @@ def test_valid_event_is_persisted_and_committed(
     assert saved_record.payload == valid_event
 
 
-def test_duplicate_event_is_not_persisted_twice(
-    consumer, valid_event
-):
+def test_duplicate_event_is_not_persisted_twice(consumer, valid_event):
     db = MagicMock()
     db.commit.side_effect = IntegrityError(
         "duplicate event", {}, Exception("duplicate key")
@@ -199,9 +188,7 @@ def test_duplicate_event_is_not_persisted_twice(
     db.close.assert_called_once()
 
 
-def test_database_failure_is_propagated_and_session_closed(
-    consumer, valid_event
-):
+def test_database_failure_is_propagated_and_session_closed(consumer, valid_event):
     db = MagicMock()
     db.commit.side_effect = RuntimeError("database unavailable")
 
@@ -241,6 +228,8 @@ def test_invalid_event_is_sent_to_dlq(consumer):
     assert dlq_payload["original_value"] == '{"invalid": true}'
 
     consumer.producer.flush.assert_called_once_with(10)
+
+
 def test_id_patterns_match_the_contract():
     """If Inventory changes an ID format, this test must fail."""
     payload = load_json(GOODS_RECEIVED_CONTRACT)["properties"]["payload"]
@@ -269,9 +258,7 @@ def test_contract_example_passes_validation():
         ("warehouse_id", "WH1"),
     ],
 )
-def test_non_canonical_payload_ids_are_rejected(
-    valid_event, field, legacy_value
-):
+def test_non_canonical_payload_ids_are_rejected(valid_event, field, legacy_value):
     event = {
         **valid_event,
         "payload": {**valid_event["payload"], field: legacy_value},
@@ -316,9 +303,7 @@ def test_contract_example_is_stored_and_committed(consumer, po_db):
     assert record.payload == event
 
 
-def test_same_receipt_resent_with_new_event_id_is_stored_once(
-    consumer, po_db
-):
+def test_same_receipt_resent_with_new_event_id_is_stored_once(consumer, po_db):
     first = load_json(GOODS_RECEIVED_EXAMPLE)
     resent = load_json(GOODS_RECEIVED_EXAMPLE)
     resent["event_id"] = "c1c1c1c1-0000-4000-8000-000000000002"
@@ -348,9 +333,7 @@ def test_conflicting_receipt_goes_to_dlq_without_retry(consumer, po_db):
 
     mock_sleep.assert_not_called()
     consumer.producer.produce.assert_called_once()
-    dlq_payload = json.loads(
-        consumer.producer.produce.call_args.kwargs["value"]
-    )
+    dlq_payload = json.loads(consumer.producer.produce.call_args.kwargs["value"])
     assert "Conflicting goods receipt event" in dlq_payload["reason"]
     assert dlq_payload["source_offset"] == 2
 
@@ -368,12 +351,9 @@ def test_database_failure_is_retried_then_sent_to_dlq(consumer, valid_event):
             "_persist_event",
             side_effect=RuntimeError("database unavailable"),
         ) as persist,
+        patch("app.services.inventory_goods_received_consumer.time.sleep"),
         patch(
-            "app.services.inventory_goods_received_consumer.time.sleep"
-        ),
-        patch(
-            "app.services.inventory_goods_received_consumer.settings."
-            "KAFKA_MAX_RETRIES",
+            "app.services.inventory_goods_received_consumer.settings.KAFKA_MAX_RETRIES",
             3,
         ),
     ):
@@ -381,9 +361,7 @@ def test_database_failure_is_retried_then_sent_to_dlq(consumer, valid_event):
 
     assert persist.call_count == 3
     consumer.producer.produce.assert_called_once()
-    dlq_payload = json.loads(
-        consumer.producer.produce.call_args.kwargs["value"]
-    )
+    dlq_payload = json.loads(consumer.producer.produce.call_args.kwargs["value"])
     assert dlq_payload["reason"] == "Persistence failed after 3 attempts"
     consumer.consumer.commit.assert_called_once_with(
         message=message,
@@ -391,9 +369,7 @@ def test_database_failure_is_retried_then_sent_to_dlq(consumer, valid_event):
     )
 
 
-def test_database_recovering_on_retry_is_committed_without_dlq(
-    consumer, valid_event
-):
+def test_database_recovering_on_retry_is_committed_without_dlq(consumer, valid_event):
     message = make_message(valid_event)
 
     with (
@@ -402,9 +378,7 @@ def test_database_recovering_on_retry_is_committed_without_dlq(
             "_persist_event",
             side_effect=[RuntimeError("database unavailable"), True],
         ) as persist,
-        patch(
-            "app.services.inventory_goods_received_consumer.time.sleep"
-        ),
+        patch("app.services.inventory_goods_received_consumer.time.sleep"),
     ):
         consumer._process_message(message)
 
@@ -413,9 +387,7 @@ def test_database_recovering_on_retry_is_committed_without_dlq(
     consumer.consumer.commit.assert_called_once()
 
 
-def test_failed_message_is_never_skipped_by_the_next_one(
-    consumer, valid_event
-):
+def test_failed_message_is_never_skipped_by_the_next_one(consumer, valid_event):
     """Before the fix, offset 11 was committed while offset 10 was lost."""
     second = {
         **valid_event,
@@ -439,9 +411,7 @@ def test_failed_message_is_never_skipped_by_the_next_one(
             "_persist_event",
             side_effect=RuntimeError("database unavailable"),
         ),
-        patch(
-            "app.services.inventory_goods_received_consumer.time.sleep"
-        ),
+        patch("app.services.inventory_goods_received_consumer.time.sleep"),
         pytest.raises(RuntimeError, match="DLQ delivery not confirmed"),
     ):
         consumer.run()

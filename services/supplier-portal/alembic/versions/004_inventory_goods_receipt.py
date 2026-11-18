@@ -1,6 +1,6 @@
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 from app.core.config import settings
 
 revision = "004_inventory_goods_receipt"

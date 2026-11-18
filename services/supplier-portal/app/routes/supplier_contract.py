@@ -11,7 +11,6 @@ from app.core.auth import (
     require_roles,
     verify_token,
 )
-
 from app.schemas.supplier_contract import (
     ContractStatus,
     SupplierContractCreate,
@@ -22,7 +21,6 @@ from app.schemas.supplier_contract import (
     SupplierContractResponse,
     SupplierContractUpdate,
 )
-
 from app.services.supplier_contract_service import (
     activate_contract,
     create_contract,
@@ -34,7 +32,6 @@ from app.services.supplier_contract_service import (
     update_contract,
 )
 
-
 router = APIRouter(
     prefix="/supplier-contracts",
     dependencies=[Depends(enforce_not_suspended)],
@@ -44,6 +41,7 @@ router = APIRouter(
 # ============================================================
 # COMMON SUPPLIER IDENTITY VALIDATION
 # ============================================================
+
 
 def validate_supplier_identity(
     user: dict,
@@ -57,22 +55,19 @@ def validate_supplier_identity(
     if user.get("role") != "supplier":
         return
 
-    authenticated_supplier_id = user.get(
-        "supplier_id"
-    )
+    authenticated_supplier_id = user.get("supplier_id")
 
     if not authenticated_supplier_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "Supplier identity could not be resolved"
-            ),
+            detail=("Supplier identity could not be resolved"),
         )
 
 
 # ============================================================
 # COMMON SUPPLIER SCOPING
 # ============================================================
+
 
 def check_supplier_access(
     supplier_id: str,
@@ -89,34 +84,25 @@ def check_supplier_access(
     if user.get("role") != "supplier":
         return
 
-    authenticated_supplier_id = user.get(
-        "supplier_id"
-    )
+    authenticated_supplier_id = user.get("supplier_id")
 
     if not authenticated_supplier_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "Supplier identity could not be resolved"
-            ),
+            detail=("Supplier identity could not be resolved"),
         )
 
-    if (
-        authenticated_supplier_id
-        != supplier_id
-    ):
+    if authenticated_supplier_id != supplier_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "Supplier access is restricted "
-                "to own data"
-            ),
+            detail=("Supplier access is restricted to own data"),
         )
 
 
 # ============================================================
 # COMMON ACTOR VALIDATION
 # ============================================================
+
 
 def get_actor_details(
     user: dict,
@@ -126,30 +112,20 @@ def get_actor_details(
     Platform authentication.
     """
 
-    actor_id = user.get(
-        "user_id"
-    )
-    actor_name = user.get(
-        "full_name"
-    )
-    role = user.get(
-        "role"
-    )
+    actor_id = user.get("user_id")
+    actor_name = user.get("full_name")
+    role = user.get("role")
 
     if actor_id is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "Authenticated user ID is required."
-            ),
+            detail=("Authenticated user ID is required."),
         )
 
     if not actor_name:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "Authenticated user name is required."
-            ),
+            detail=("Authenticated user name is required."),
         )
 
     return (
@@ -163,6 +139,7 @@ def get_actor_details(
 # 1. CREATE CONTRACT
 # ============================================================
 
+
 @router.post(
     "",
     response_model=SupplierContractResponse,
@@ -170,11 +147,7 @@ def get_actor_details(
 )
 def create_contract_endpoint(
     contract_data: SupplierContractCreate,
-    user=Depends(
-        require_roles(
-            "procurement_manager"
-        )
-    ),
+    user=Depends(require_roles("procurement_manager")),
 ):
     """
     Create a supplier contract.
@@ -182,9 +155,7 @@ def create_contract_endpoint(
     Only Procurement Managers can create contracts.
     """
 
-    actor_id, actor_name, role = (
-        get_actor_details(user)
-    )
+    actor_id, actor_name, role = get_actor_details(user)
 
     try:
         return create_contract(
@@ -197,10 +168,7 @@ def create_contract_endpoint(
     except ValueError as exc:
         message = str(exc)
 
-        if (
-            "supplier not found"
-            in message.lower()
-        ):
+        if "supplier not found" in message.lower():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=message,
@@ -216,11 +184,10 @@ def create_contract_endpoint(
 # 2. LIST EXPIRING CONTRACTS
 # ============================================================
 
+
 @router.get(
     "/expiring",
-    response_model=list[
-        SupplierContractExpiryResponse
-    ],
+    response_model=list[SupplierContractExpiryResponse],
 )
 def list_expiring_contracts_endpoint(
     within_days: int | None = Query(
@@ -248,33 +215,21 @@ def list_expiring_contracts_endpoint(
 
     validate_supplier_identity(user)
 
-    authenticated_supplier_id = user.get(
-        "supplier_id"
-    )
+    authenticated_supplier_id = user.get("supplier_id")
 
     # --------------------------------------------------------
     # SUPPLIER SCOPING
     # --------------------------------------------------------
 
     if user.get("role") == "supplier":
-
-        if (
-            supplier_id is not None
-            and supplier_id
-            != authenticated_supplier_id
-        ):
+        if supplier_id is not None and supplier_id != authenticated_supplier_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    "Supplier access is restricted "
-                    "to own data"
-                ),
+                detail=("Supplier access is restricted to own data"),
             )
 
         # Token-derived supplier_id is authoritative.
-        supplier_id = (
-            authenticated_supplier_id
-        )
+        supplier_id = authenticated_supplier_id
 
     try:
         return list_expiring_contracts(
@@ -293,11 +248,10 @@ def list_expiring_contracts_endpoint(
 # 3. LIST CONTRACTS
 # ============================================================
 
+
 @router.get(
     "",
-    response_model=list[
-        SupplierContractResponse
-    ],
+    response_model=list[SupplierContractResponse],
 )
 def list_contracts_endpoint(
     supplier_id: str | None = Query(
@@ -324,34 +278,22 @@ def list_contracts_endpoint(
 
     validate_supplier_identity(user)
 
-    authenticated_supplier_id = user.get(
-        "supplier_id"
-    )
+    authenticated_supplier_id = user.get("supplier_id")
 
     # --------------------------------------------------------
     # SUPPLIER SCOPING
     # --------------------------------------------------------
 
     if user.get("role") == "supplier":
-
-        if (
-            supplier_id is not None
-            and supplier_id
-            != authenticated_supplier_id
-        ):
+        if supplier_id is not None and supplier_id != authenticated_supplier_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    "Supplier access is restricted "
-                    "to own data"
-                ),
+                detail=("Supplier access is restricted to own data"),
             )
 
         # Never trust a supplier_id supplied by
         # the client.
-        supplier_id = (
-            authenticated_supplier_id
-        )
+        supplier_id = authenticated_supplier_id
 
     return list_contracts(
         supplier_id=supplier_id,
@@ -362,6 +304,7 @@ def list_contracts_endpoint(
 # ============================================================
 # 4. GET CONTRACT DETAILS
 # ============================================================
+
 
 @router.get(
     "/{contract_id}",
@@ -382,9 +325,7 @@ def get_contract_endpoint(
     validate_supplier_identity(user)
 
     try:
-        contract = get_contract(
-            contract_id
-        )
+        contract = get_contract(contract_id)
 
     except ValueError as exc:
         raise HTTPException(
@@ -404,6 +345,7 @@ def get_contract_endpoint(
 # 5. UPDATE CONTRACT
 # ============================================================
 
+
 @router.put(
     "/{contract_id}",
     response_model=SupplierContractResponse,
@@ -411,11 +353,7 @@ def get_contract_endpoint(
 def update_contract_endpoint(
     contract_id: str,
     contract_data: SupplierContractUpdate,
-    user=Depends(
-        require_roles(
-            "procurement_manager"
-        )
-    ),
+    user=Depends(require_roles("procurement_manager")),
 ):
     """
     Update editable contract terms.
@@ -431,9 +369,7 @@ def update_contract_endpoint(
     # Get authenticated actor details
     # --------------------------------------------------------
 
-    actor_id, actor_name, role = (
-        get_actor_details(user)
-    )
+    actor_id, actor_name, role = get_actor_details(user)
 
     try:
         return update_contract(
@@ -447,10 +383,7 @@ def update_contract_endpoint(
     except ValueError as exc:
         message = str(exc)
 
-        if (
-            "contract not found"
-            in message.lower()
-        ):
+        if "contract not found" in message.lower():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=message,
@@ -466,6 +399,7 @@ def update_contract_endpoint(
 # 6. ACTIVATE CONTRACT
 # ============================================================
 
+
 @router.post(
     "/{contract_id}/activate",
     response_model=SupplierContractResponse,
@@ -473,11 +407,7 @@ def update_contract_endpoint(
 )
 def activate_contract_endpoint(
     contract_id: str,
-    user=Depends(
-        require_roles(
-            "procurement_manager"
-        )
-    ),
+    user=Depends(require_roles("procurement_manager")),
 ):
     """
     Move a contract from DRAFT to ACTIVE.
@@ -485,9 +415,7 @@ def activate_contract_endpoint(
     Only Procurement Managers can activate contracts.
     """
 
-    actor_id, actor_name, role = (
-        get_actor_details(user)
-    )
+    actor_id, actor_name, role = get_actor_details(user)
 
     try:
         return activate_contract(
@@ -500,10 +428,7 @@ def activate_contract_endpoint(
     except ValueError as exc:
         message = str(exc)
 
-        if (
-            "contract not found"
-            in message.lower()
-        ):
+        if "contract not found" in message.lower():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=message,
@@ -519,6 +444,7 @@ def activate_contract_endpoint(
 # 7. RENEW CONTRACT
 # ============================================================
 
+
 @router.post(
     "/{contract_id}/renew",
     response_model=SupplierContractRenewalResponse,
@@ -527,11 +453,7 @@ def activate_contract_endpoint(
 def renew_contract_endpoint(
     contract_id: str,
     renewal_data: SupplierContractRenewalRequest,
-    user=Depends(
-        require_roles(
-            "procurement_manager"
-        )
-    ),
+    user=Depends(require_roles("procurement_manager")),
 ):
     """
     Renew a supplier contract.
@@ -539,9 +461,7 @@ def renew_contract_endpoint(
     Only Procurement Managers can renew contracts.
     """
 
-    actor_id, actor_name, role = (
-        get_actor_details(user)
-    )
+    actor_id, actor_name, role = get_actor_details(user)
 
     try:
         return renew_contract(
@@ -555,10 +475,7 @@ def renew_contract_endpoint(
     except ValueError as exc:
         message = str(exc)
 
-        if (
-            "contract not found"
-            in message.lower()
-        ):
+        if "contract not found" in message.lower():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=message,
@@ -574,11 +491,10 @@ def renew_contract_endpoint(
 # 8. GET CONTRACT HISTORY
 # ============================================================
 
+
 @router.get(
     "/{contract_id}/history",
-    response_model=list[
-        SupplierContractHistory
-    ],
+    response_model=list[SupplierContractHistory],
 )
 def contract_history_endpoint(
     contract_id: str,
@@ -598,9 +514,7 @@ def contract_history_endpoint(
     # --------------------------------------------------------
 
     try:
-        contract = get_contract(
-            contract_id
-        )
+        contract = get_contract(contract_id)
 
     except ValueError as exc:
         raise HTTPException(
@@ -622,9 +536,7 @@ def contract_history_endpoint(
     # --------------------------------------------------------
 
     try:
-        return get_contract_history(
-            contract_id
-        )
+        return get_contract_history(contract_id)
 
     except ValueError as exc:
         raise HTTPException(

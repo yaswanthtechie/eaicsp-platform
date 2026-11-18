@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import logging
@@ -12,7 +12,6 @@ from confluent_kafka import (
     KafkaException,
     Producer,
 )
-
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -34,16 +33,20 @@ class ShipmentETAConsumer:
         self.max_retries = settings.KAFKA_MAX_RETRIES
         self.retry_backoff = settings.KAFKA_RETRY_BACKOFF_SECONDS
 
-        self.consumer = Consumer({
-            "bootstrap.servers": settings.KAFKA_BOOTSTRAP_SERVERS,
-            "group.id": settings.ETA_CONSUMER_GROUP,
-            "auto.offset.reset": "earliest",
-            "enable.auto.commit": False,
-        })
+        self.consumer = Consumer(
+            {
+                "bootstrap.servers": settings.KAFKA_BOOTSTRAP_SERVERS,
+                "group.id": settings.ETA_CONSUMER_GROUP,
+                "auto.offset.reset": "earliest",
+                "enable.auto.commit": False,
+            }
+        )
 
-        self.producer = Producer({
-            "bootstrap.servers": settings.KAFKA_BOOTSTRAP_SERVERS,
-        })
+        self.producer = Producer(
+            {
+                "bootstrap.servers": settings.KAFKA_BOOTSTRAP_SERVERS,
+            }
+        )
 
         self.running = False
 
@@ -166,14 +169,10 @@ class ShipmentETAConsumer:
             ).scalar_one_or_none()
 
             if shipment is None:
-                raise ValueError(
-                    f"Unknown shipment: {payload.shipment_id}"
-                )
+                raise ValueError(f"Unknown shipment: {payload.shipment_id}")
 
             if shipment.po_number != payload.po_number:
-                raise ValueError(
-                    "ETA event PO number does not match shipment."
-                )
+                raise ValueError("ETA event PO number does not match shipment.")
 
             # Check event ID before inserting.
             existing_event = db.get(
@@ -197,11 +196,9 @@ class ShipmentETAConsumer:
             )
 
             # Apply only newer predictions.
-            if (
-                shipment.predicted_at is None
-                or self._as_utc(payload.predicted_at)
-                > self._as_utc(shipment.predicted_at)
-            ):
+            if shipment.predicted_at is None or self._as_utc(
+                payload.predicted_at
+            ) > self._as_utc(shipment.predicted_at):
                 shipment.eta_days = payload.eta_days
                 shipment.confidence_low = payload.confidence_low
                 shipment.confidence_high = payload.confidence_high
@@ -286,9 +283,7 @@ class ShipmentETAConsumer:
             return event
 
         except Exception as exc:
-            raise ValueError(
-                "Invalid eta.shipment.predicted event."
-            ) from exc
+            raise ValueError("Invalid eta.shipment.predicted event.") from exc
 
     @staticmethod
     def _as_utc(value):

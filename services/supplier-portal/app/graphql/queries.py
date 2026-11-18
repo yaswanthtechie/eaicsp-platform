@@ -1,14 +1,17 @@
 import base64
 import binascii
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Callable
 
 import strawberry
 from strawberry.types import Info
 
+from app.database import SessionLocal
 from app.graphql.context import require_graphql_view_access
-
 from app.graphql.types import (
+    ApprovedPOLineType,
+    ApprovedPurchaseOrderType,
     GraphQLPurchaseOrderStatus,
     InvoiceAdjustmentAuditType,
     InvoiceConnectionType,
@@ -26,31 +29,21 @@ from app.graphql.types import (
     SupplierDocumentConnectionType,
     SupplierDocumentEdgeType,
     SupplierDocumentType,
-    ApprovedPOLineType,
-    ApprovedPurchaseOrderType,
 )
-
+from app.models.po_mirror import POMirror
 from app.schemas.invoice import InvoiceStatus
-
 from app.services.invoice_service import (
     get_all_invoices,
     get_invoice_by_number,
 )
-
 from app.services.purchase_order_service import (
     get_all_purchase_orders,
     get_purchase_order_by_id,
 )
-
 from app.services.supplier_onboarding_service import (
     list_supplier_documents,
     supplier_documents,
 )
-from decimal import Decimal
-
-from app.database import SessionLocal
-from app.models.po_mirror import POMirror
-
 
 # ============================================================
 # CURSOR HELPERS
@@ -102,14 +95,10 @@ def _paginate(
     """
 
     if first < 1:
-        raise ValueError(
-            "The 'first' argument must be greater than 0."
-        )
+        raise ValueError("The 'first' argument must be greater than 0.")
 
     if first > 100:
-        raise ValueError(
-            "The 'first' argument cannot be greater than 100."
-        )
+        raise ValueError("The 'first' argument cannot be greater than 100.")
 
     start_index = 0
 
@@ -121,9 +110,7 @@ def _paginate(
 
         start_index = cursor_index + 1
 
-    page_items = items[
-        start_index:start_index + first
-    ]
+    page_items = items[start_index : start_index + first]
 
     edges = []
 
@@ -138,15 +125,9 @@ def _paginate(
             )
         )
 
-    end_cursor = (
-        edges[-1].cursor
-        if edges
-        else None
-    )
+    end_cursor = edges[-1].cursor if edges else None
 
-    has_next_page = (
-        start_index + first < len(items)
-    )
+    has_next_page = start_index + first < len(items)
 
     return edges, PageInfoType(
         has_next_page=has_next_page,
@@ -196,12 +177,8 @@ def _to_purchase_order_type(
                 po_number=event["po_number"],
                 supplier_id=event["supplier_id"],
                 actor=event.get("actor"),
-                from_status=GraphQLPurchaseOrderStatus(
-                    from_status
-                ),
-                to_status=GraphQLPurchaseOrderStatus(
-                    to_status
-                ),
+                from_status=GraphQLPurchaseOrderStatus(from_status),
+                to_status=GraphQLPurchaseOrderStatus(to_status),
                 timestamp=timestamp,
             )
         )
@@ -219,9 +196,7 @@ def _to_purchase_order_type(
         status=GraphQLPurchaseOrderStatus(status),
         created_at=purchase_order["created_at"],
         expected_delivery=purchase_order["expected_delivery"],
-        actual_delivery_date=purchase_order.get(
-            "actual_delivery_date"
-        ),
+        actual_delivery_date=purchase_order.get("actual_delivery_date"),
         history=history,
     )
 
@@ -245,9 +220,7 @@ def _is_supplier_authorized(
         return True
 
     user_supplier_id = user.get("supplier_id")
-    resource_supplier_id = purchase_order.get(
-        "supplier_id"
-    )
+    resource_supplier_id = purchase_order.get("supplier_id")
 
     if not user_supplier_id:
         return False
@@ -391,9 +364,7 @@ def _to_invoice_type(
         items=items,
         amount=invoice["amount"],
         invoice_date=invoice["invoice_date"],
-        status=_normalize_invoice_status(
-            invoice["status"]
-        ),
+        status=_normalize_invoice_status(invoice["status"]),
         dispute=dispute,
         adjustment=adjustment,
         document_url=invoice.get("document_url"),
@@ -418,9 +389,7 @@ def _is_invoice_authorized(
         return True
 
     user_supplier_id = user.get("supplier_id")
-    resource_supplier_id = invoice.get(
-        "supplier_id"
-    )
+    resource_supplier_id = invoice.get("supplier_id")
 
     if not user_supplier_id:
         return False
@@ -478,21 +447,16 @@ def _get_authorized_documents(
             return []
 
         try:
-            return list(
-                list_supplier_documents(
-                    supplier_id
-                )
-            )
+            return list(list_supplier_documents(supplier_id))
         except ValueError:
             # Do not expose information when the supplier
             # referenced by the token does not exist.
             return []
 
     return [
-        document
-        for documents in supplier_documents.values()
-        for document in documents
+        document for documents in supplier_documents.values() for document in documents
     ]
+
 
 def _to_approved_purchase_order_type(
     po: POMirror,
@@ -527,6 +491,8 @@ def _to_approved_purchase_order_type(
         status=po.status,
         acknowledged_at=po.acknowledged_at,
     )
+
+
 # ============================================================
 # GRAPHQL QUERY ROOT
 # ============================================================
@@ -534,7 +500,6 @@ def _to_approved_purchase_order_type(
 
 @strawberry.type
 class Query:
-
     # ========================================================
     # SINGLE PURCHASE ORDER
     # ========================================================
@@ -556,28 +521,14 @@ class Query:
             if user.get("role") == "supplier":
                 supplier_id = user.get("supplier_id")
 
-                if (
-                    not isinstance(supplier_id, str)
-                    or not supplier_id.strip()
-                ):
-                    raise PermissionError(
-                        "Supplier identity is missing"
-                    )
+                if not isinstance(supplier_id, str) or not supplier_id.strip():
+                    raise PermissionError("Supplier identity is missing")
 
-                query = query.filter(
-                    POMirror.supplier_id == supplier_id.strip()
-                )
+                query = query.filter(POMirror.supplier_id == supplier_id.strip())
 
-            records = (
-                query
-                .order_by(POMirror.approved_at.desc())
-                .all()
-            )
+            records = query.order_by(POMirror.approved_at.desc()).all()
 
-            return [
-                _to_approved_purchase_order_type(po)
-                for po in records
-            ]
+            return [_to_approved_purchase_order_type(po) for po in records]
         finally:
             db.close()
 
@@ -604,9 +555,7 @@ class Query:
         # cannot probe another supplier's resource.
         require_graphql_view_access(user)
 
-        purchase_order = get_purchase_order_by_id(
-            po_number
-        )
+        purchase_order = get_purchase_order_by_id(po_number)
 
         # Existing GraphQL contract:
         # unknown PO -> null without an error.
@@ -621,9 +570,7 @@ class Query:
         ):
             return None
 
-        return _to_purchase_order_type(
-            purchase_order
-        )
+        return _to_purchase_order_type(purchase_order)
 
     # ========================================================
     # PURCHASE ORDERS
@@ -654,22 +601,17 @@ class Query:
                 all_purchase_orders = [
                     purchase_order
                     for purchase_order in all_purchase_orders
-                    if purchase_order.get(
-                        "supplier_id"
-                    ) == supplier_id
+                    if purchase_order.get("supplier_id") == supplier_id
                 ]
 
         edges, page_info = _paginate(
             all_purchase_orders,
             first,
             after,
-            lambda cursor, purchase_order:
-                PurchaseOrderEdgeType(
-                    cursor=cursor,
-                    node=_to_purchase_order_type(
-                        purchase_order
-                    ),
-                ),
+            lambda cursor, purchase_order: PurchaseOrderEdgeType(
+                cursor=cursor,
+                node=_to_purchase_order_type(purchase_order),
+            ),
         )
 
         return PurchaseOrderConnectionType(
@@ -719,16 +661,12 @@ class Query:
             #   - cleared -> view allowed
             require_graphql_view_access(user)
 
-            authenticated_supplier_id = user.get(
-                "supplier_id"
-            )
+            authenticated_supplier_id = user.get("supplier_id")
 
             # require_graphql_view_access already validates
             # supplier identity, but keep this guard defensive.
             if not authenticated_supplier_id:
-                raise PermissionError(
-                    "Supplier identity is missing"
-                )
+                raise PermissionError("Supplier identity is missing")
 
             try:
                 invoice = get_invoice_by_number(
@@ -754,9 +692,7 @@ class Query:
         # ----------------------------------------------------
 
         if not supplier_id:
-            raise ValueError(
-                "supplierId is required for internal users."
-            )
+            raise ValueError("supplierId is required for internal users.")
 
         try:
             invoice = get_invoice_by_number(
@@ -797,22 +733,17 @@ class Query:
                 all_invoices = [
                     invoice
                     for invoice in all_invoices
-                    if invoice.get(
-                        "supplier_id"
-                    ) == supplier_id
+                    if invoice.get("supplier_id") == supplier_id
                 ]
 
         edges, page_info = _paginate(
             all_invoices,
             first,
             after,
-            lambda cursor, invoice:
-                InvoiceEdgeType(
-                    cursor=cursor,
-                    node=_to_invoice_type(
-                        invoice
-                    ),
-                ),
+            lambda cursor, invoice: InvoiceEdgeType(
+                cursor=cursor,
+                node=_to_invoice_type(invoice),
+            ),
         )
 
         return InvoiceConnectionType(
@@ -852,13 +783,10 @@ class Query:
             documents,
             first,
             after,
-            lambda cursor, document:
-                SupplierDocumentEdgeType(
-                    cursor=cursor,
-                    node=_to_supplier_document_type(
-                        document
-                    ),
-                ),
+            lambda cursor, document: SupplierDocumentEdgeType(
+                cursor=cursor,
+                node=_to_supplier_document_type(document),
+            ),
         )
 
         return SupplierDocumentConnectionType(

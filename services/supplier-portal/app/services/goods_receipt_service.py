@@ -5,20 +5,16 @@ from app.schemas.goods_receipt import (
     GoodsReceiptCreate,
     GoodsReceiptStatus,
 )
-
 from app.schemas.purchase_order import PurchaseOrderStatus
-
 from app.services.po_p2p_state_machine import (
     P2PState,
     get_p2p_state,
     transition_p2p,
 )
-
 from app.services.purchase_order_service import (
     get_purchase_order_by_id,
     transition_purchase_order,
 )
-
 
 goods_receipts: dict[str, dict] = {}
 
@@ -53,14 +49,10 @@ def create_goods_receipt(
     # 1. Verify Purchase Order exists
     # ---------------------------------------------------------
 
-    purchase_order = get_purchase_order_by_id(
-        receipt.po_number
-    )
+    purchase_order = get_purchase_order_by_id(receipt.po_number)
 
     if not purchase_order:
-        raise ValueError(
-            "Purchase Order not found."
-        )
+        raise ValueError("Purchase Order not found.")
 
     # ---------------------------------------------------------
     # 2. Get supplier from the Purchase Order
@@ -85,8 +77,7 @@ def create_goods_receipt(
 
     if purchase_order["status"] != PurchaseOrderStatus.acknowledged:
         raise ValueError(
-            "Goods Receipt can be created only for an "
-            "acknowledged Purchase Order."
+            "Goods Receipt can be created only for an acknowledged Purchase Order."
         )
 
     # ---------------------------------------------------------
@@ -99,9 +90,7 @@ def create_goods_receipt(
     # is allowed.
     # ---------------------------------------------------------
 
-    current_p2p_state = get_p2p_state(
-        receipt.po_number
-    )
+    current_p2p_state = get_p2p_state(receipt.po_number)
 
     if current_p2p_state != P2PState.shipped:
         raise ValueError(
@@ -113,24 +102,16 @@ def create_goods_receipt(
     # 5. Validate received items against PO items
     # ---------------------------------------------------------
 
-    po_items = {
-        item["item_code"]: item["quantity"]
-        for item in purchase_order["items"]
-    }
+    po_items = {item["item_code"]: item["quantity"] for item in purchase_order["items"]}
 
-    receipt_items = {
-        item.item_code: item.quantity
-        for item in receipt.items
-    }
+    receipt_items = {item.item_code: item.quantity for item in receipt.items}
 
     # ---------------------------------------------------------
     # 6. Validate duplicate receipt item codes
     # ---------------------------------------------------------
 
     if len(receipt_items) != len(receipt.items):
-        raise ValueError(
-            "Duplicate goods receipt item."
-        )
+        raise ValueError("Duplicate goods receipt item.")
 
     # ---------------------------------------------------------
     # 7. Validate no extra items are present
@@ -160,13 +141,11 @@ def create_goods_receipt(
     # ---------------------------------------------------------
 
     for item_code, received_quantity in receipt_items.items():
-
         ordered_quantity = po_items[item_code]
 
         if received_quantity <= 0:
             raise ValueError(
-                f"Received quantity for item "
-                f"'{item_code}' must be greater than zero."
+                f"Received quantity for item '{item_code}' must be greater than zero."
             )
 
         if received_quantity > ordered_quantity:
@@ -181,9 +160,7 @@ def create_goods_receipt(
     # 9. Generate receipt ID
     # ---------------------------------------------------------
 
-    receipt_id = (
-        f"GR-{uuid4().hex[:12].upper()}"
-    )
+    receipt_id = f"GR-{uuid4().hex[:12].upper()}"
 
     # ---------------------------------------------------------
     # 10. Build Goods Receipt record
@@ -196,10 +173,7 @@ def create_goods_receipt(
         "receipt_date": receipt.receipt_date,
         "warehouse": receipt.warehouse,
         "received_by": receipt.received_by,
-        "items": [
-            item.model_dump()
-            for item in receipt.items
-        ],
+        "items": [item.model_dump() for item in receipt.items],
         "status": GoodsReceiptStatus.received,
         "created_at": datetime.now(timezone.utc),
         "created_by": created_by,
@@ -218,14 +192,12 @@ def create_goods_receipt(
     # ---------------------------------------------------------
 
     try:
-
         transition_p2p(
             receipt.po_number,
             P2PState.received,
         )
 
     except ValueError:
-
         # Roll back Goods Receipt if P2P transition fails
         del goods_receipts[receipt_id]
 
@@ -242,7 +214,6 @@ def create_goods_receipt(
     # ---------------------------------------------------------
 
     try:
-
         transition_purchase_order(
             po_number=receipt.po_number,
             actor=created_by,
@@ -250,7 +221,6 @@ def create_goods_receipt(
         )
 
     except ValueError:
-
         # Roll back P2P state
         # received -> shipped
         #
@@ -260,9 +230,7 @@ def create_goods_receipt(
 
         from app.services.po_p2p_state_machine import p2p_states
 
-        p2p_states[receipt.po_number] = (
-            P2PState.shipped
-        )
+        p2p_states[receipt.po_number] = P2PState.shipped
 
         # Roll back Goods Receipt
         del goods_receipts[receipt_id]
@@ -298,4 +266,3 @@ def get_all_goods_receipts():
     """
 
     return list(goods_receipts.values())
-

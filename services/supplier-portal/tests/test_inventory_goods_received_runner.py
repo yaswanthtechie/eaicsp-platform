@@ -1,7 +1,5 @@
-from threading import Event, Thread
+from threading import Thread
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from app.services.inventory_goods_received_runner import (
     InventoryGoodsReceivedRunner,
@@ -15,9 +13,7 @@ def test_start_creates_and_starts_background_thread():
         runner.start()
 
     assert runner._thread is not None
-    assert runner._thread.name == (
-        "supplier-portal-goods-received-consumer"
-    )
+    assert runner._thread.name == ("supplier-portal-goods-received-consumer")
     assert runner._thread.daemon is True
     start_thread.assert_called_once()
 
@@ -55,8 +51,7 @@ def test_run_starts_consumer_and_clears_reference_after_exit():
     consumer = MagicMock()
 
     with patch(
-        "app.services.inventory_goods_received_runner."
-        "InventoryGoodsReceivedConsumer",
+        "app.services.inventory_goods_received_runner.InventoryGoodsReceivedConsumer",
         return_value=consumer,
     ):
         runner._run()

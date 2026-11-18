@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import logging
@@ -104,13 +104,9 @@ class ShipmentOutboxPublisherRunner:
                 try:
                     self.publisher.publish_pending()
                 except Exception:
-                    logger.exception(
-                        "Shipment outbox publish failed; will retry"
-                    )
+                    logger.exception("Shipment outbox publish failed; will retry")
 
-                self._stopping.wait(
-                    settings.SHIPMENT_OUTBOX_POLL_SECONDS
-                )
+                self._stopping.wait(settings.SHIPMENT_OUTBOX_POLL_SECONDS)
 
         self._thread = Thread(
             target=run_publisher,

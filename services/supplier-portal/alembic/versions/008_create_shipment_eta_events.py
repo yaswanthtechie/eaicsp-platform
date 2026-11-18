@@ -4,11 +4,10 @@ Revision ID: 008_shipment_eta_events
 Revises: 007_shipment_details
 """
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 from app.core.config import settings
-
 
 revision = "008_shipment_eta_events"
 down_revision = "007_shipment_details"

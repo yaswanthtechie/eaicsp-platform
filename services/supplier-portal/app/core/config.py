@@ -1,8 +1,6 @@
-
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
 
 # ============================================================
 # BASE DIRECTORY
@@ -29,8 +27,8 @@ PRICE_TOLERANCE_PERCENT = 5.0
 # APPLICATION SETTINGS
 # ============================================================
 
-class Settings(BaseSettings):
 
+class Settings(BaseSettings):
     # --------------------------------------------------------
     # Platform Service / Authentication
     # --------------------------------------------------------
@@ -73,12 +71,8 @@ class Settings(BaseSettings):
 
     KAFKA_BOOTSTRAP_SERVERS: str = "localhost:9092"
     KAFKA_CONSUMER_GROUP: str = "supplier-portal-service"
-    KAFKA_STATUS_CHANGED_TOPIC: str = (
-        "compliance.supplier.status_changed"
-    )
-    KAFKA_DLQ_TOPIC: str = (
-        "compliance.supplier.status_changed.dlq"
-    )
+    KAFKA_STATUS_CHANGED_TOPIC: str = "compliance.supplier.status_changed"
+    KAFKA_DLQ_TOPIC: str = "compliance.supplier.status_changed.dlq"
     KAFKA_AUTO_OFFSET_RESET: str = "earliest"
 
     KAFKA_ENABLED: bool = True
@@ -106,9 +100,7 @@ class Settings(BaseSettings):
     PO_CONSUMER_GROUP: str = "supplier-portal-po-approved-v1"
     PO_DLQ_TOPIC: str = "inventory.po.approved.dlq"
 
-    PO_ACKNOWLEDGED_TOPIC: str = (
-        "supplierportal.po.acknowledged"
-    )
+    PO_ACKNOWLEDGED_TOPIC: str = "supplierportal.po.acknowledged"
 
     PO_AUTO_OFFSET_RESET: str = "earliest"
     PO_RETRY_BACKOFF_SECONDS: float = 1.0
@@ -130,23 +122,15 @@ class Settings(BaseSettings):
     SHIPMENT_OUTBOX_POLL_SECONDS: float = 2.0
     SHIPMENT_OUTBOX_BATCH_SIZE: int = 50
 
-    SHIPMENT_DISPATCHED_TOPIC: str = (
-        "supplierportal.shipment.dispatched"
-    )
+    SHIPMENT_DISPATCHED_TOPIC: str = "supplierportal.shipment.dispatched"
     # Separate flag from the Compliance consumer's KAFKA_ENABLED.
     ETA_KAFKA_ENABLED: bool = True
 
-    ETA_PREDICTED_TOPIC: str = (
-        "eta.shipment.predicted"
-    )
+    ETA_PREDICTED_TOPIC: str = "eta.shipment.predicted"
 
-    ETA_CONSUMER_GROUP: str = (
-        "supplier-portal-eta-predicted-v1"
-    )
+    ETA_CONSUMER_GROUP: str = "supplier-portal-eta-predicted-v1"
 
-    ETA_DLQ_TOPIC: str = (
-        "eta.shipment.predicted.dlq"
-    )
+    ETA_DLQ_TOPIC: str = "eta.shipment.predicted.dlq"
 
     # --------------------------------------------------------
     # PostgreSQL

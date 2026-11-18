@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import logging
@@ -32,9 +31,7 @@ class KafkaConsumerRunner:
         )
         self._thread.start()
 
-        logger.info(
-            "Supplier Portal Kafka consumer background thread started."
-        )
+        logger.info("Supplier Portal Kafka consumer background thread started.")
 
     def _run(self) -> None:
         """Run the consumer and retry after initialization or runtime errors."""
@@ -51,9 +48,7 @@ class KafkaConsumerRunner:
                     try:
                         consumer.stop()
                     except Exception:
-                        logger.exception(
-                            "Error while stopping the Kafka consumer."
-                        )
+                        logger.exception("Error while stopping the Kafka consumer.")
                     return
 
                 consumer.run()
@@ -65,9 +60,7 @@ class KafkaConsumerRunner:
                 if self._stopping.is_set():
                     return
 
-                logger.exception(
-                    "Kafka consumer crashed; restarting in 5 seconds."
-                )
+                logger.exception("Kafka consumer crashed; restarting in 5 seconds.")
 
             finally:
                 if consumer is not None and self.consumer is consumer:
@@ -96,13 +89,9 @@ class KafkaConsumerRunner:
             thread.join(timeout=10)
 
             if thread.is_alive():
-                logger.warning(
-                    "Kafka consumer thread did not stop within timeout."
-                )
+                logger.warning("Kafka consumer thread did not stop within timeout.")
             else:
-                logger.info(
-                    "Supplier Portal Kafka consumer background thread stopped."
-                )
+                logger.info("Supplier Portal Kafka consumer background thread stopped.")
 
         if thread is None or not thread.is_alive():
             self._thread = None

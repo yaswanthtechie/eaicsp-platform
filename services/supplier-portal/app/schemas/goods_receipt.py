@@ -138,4 +138,3 @@ class GoodsReceiptResponse(BaseModel):
     created_by: str = Field(
         description="Authenticated user who created the Goods Receipt.",
     )
-

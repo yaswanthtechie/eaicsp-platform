@@ -1,6 +1,6 @@
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 from app.core.config import settings
 
 revision = "003_po_ack_outbox"
@@ -30,8 +30,12 @@ def upgrade() -> None:
             nullable=False,
             server_default="0",
         ),
-        sa.Column("created_at", sa.DateTime(timezone=True),
-                  server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.Column("published_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("last_error", sa.String(1000), nullable=True),
         schema=schema,

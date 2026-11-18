@@ -1,9 +1,6 @@
-
 import logging
 import threading
-import time
 
-from app.core.config import settings
 from app.services.shipment_eta_consumer import ShipmentETAConsumer
 
 logger = logging.getLogger(__name__)
@@ -50,8 +47,7 @@ class ShipmentETAConsumerRunner:
             except Exception:
                 if not self._stop_event.is_set():
                     logger.exception(
-                        "ETA consumer stopped unexpectedly. "
-                        "Restarting after 5 seconds."
+                        "ETA consumer stopped unexpectedly. Restarting after 5 seconds."
                     )
 
             finally:

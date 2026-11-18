@@ -1,32 +1,29 @@
 import strawberry
 from strawberry.types import Info
 
-from app.services.purchase_order_service import (
-    get_purchase_order_by_id,
-    acknowledge_purchase_order,
-)
-
-from app.graphql.context import require_graphql_write_access
-from app.graphql.queries import _to_purchase_order_type
-from app.graphql.types import PurchaseOrderType
 from app.database import SessionLocal
-from app.models.po_mirror import POMirror
-
-from app.graphql.types import (
-    ApprovedPurchaseOrderType,
-)
+from app.graphql.context import require_graphql_write_access
 from app.graphql.queries import (
     _to_approved_purchase_order_type,
+    _to_purchase_order_type,
 )
+from app.graphql.types import (
+    ApprovedPurchaseOrderType,
+    PurchaseOrderType,
+)
+from app.models.po_mirror import POMirror
 from app.services.po_acknowledgement_service import (
     POAcknowledgementError,
     acknowledge_approved_po,
+)
+from app.services.purchase_order_service import (
+    acknowledge_purchase_order,
+    get_purchase_order_by_id,
 )
 
 
 @strawberry.type
 class Mutation:
-
     @strawberry.mutation
     def acknowledge_approved_purchase_order(
         self,
@@ -37,9 +34,7 @@ class Mutation:
 
         # Only the owning supplier can acknowledge approved POs.
         if user.get("role") != "supplier":
-            raise PermissionError(
-                "Only suppliers can acknowledge approved POs"
-            )
+            raise PermissionError("Only suppliers can acknowledge approved POs")
 
         supplier_id = user.get("supplier_id")
         if not isinstance(supplier_id, str) or not supplier_id.strip():
@@ -111,9 +106,7 @@ class Mutation:
         # ====================================================
 
         if user.get("role") != "supplier":
-            raise PermissionError(
-                "Forbidden: supplier access required"
-            )
+            raise PermissionError("Forbidden: supplier access required")
 
         # ====================================================
         # STEP 2: Supplier identity is mandatory
@@ -122,9 +115,7 @@ class Mutation:
         supplier_id = user.get("supplier_id")
 
         if not supplier_id:
-            raise PermissionError(
-                "Supplier identity is missing"
-            )
+            raise PermissionError("Supplier identity is missing")
 
         # ====================================================
         # STEP 3: Fetch PO without changing its state
@@ -141,9 +132,7 @@ class Mutation:
         # It also prevents a compliance lookup from turning an
         # unknown/cross-supplier resource into a different error.
 
-        purchase_order = get_purchase_order_by_id(
-            po_number
-        )
+        purchase_order = get_purchase_order_by_id(po_number)
 
         if purchase_order is None:
             return None
@@ -172,9 +161,7 @@ class Mutation:
         # STEP 6: Execute existing business logic
         # ====================================================
 
-        acknowledged_po = acknowledge_purchase_order(
-            po_number
-        )
+        acknowledged_po = acknowledge_purchase_order(po_number)
 
         if acknowledged_po is None:
             return None
@@ -183,6 +170,4 @@ class Mutation:
         # STEP 7: Convert service result to GraphQL type
         # ====================================================
 
-        return _to_purchase_order_type(
-            acknowledged_po
-        )
+        return _to_purchase_order_type(acknowledged_po)

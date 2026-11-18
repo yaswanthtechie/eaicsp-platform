@@ -1,21 +1,22 @@
 import re
-
 from datetime import datetime, timezone
 
 from fastapi import UploadFile
 
-from app.services.purchase_order_service import purchase_orders
-from app.schemas.purchase_order import PurchaseOrderStatus
-from app.services.document_storage_service import (
-    DocumentUploadError,
-    DocumentStorageError,
-    document_storage_service,
-)
-
 from app.schemas.invoice import (
+    InvoiceAdjustment,
     InvoiceCreate,
     InvoiceStatus,
-    InvoiceAdjustment,
+)
+from app.schemas.purchase_order import PurchaseOrderStatus
+from app.services.canonical_po_service import (
+    get_canonical_po,
+    has_inventory_receipt,
+)
+from app.services.document_storage_service import (
+    DocumentStorageError,
+    DocumentUploadError,
+    document_storage_service,
 )
 from app.services.po_p2p_state_machine import (
     P2PState,
@@ -24,11 +25,7 @@ from app.services.po_p2p_state_machine import (
     p2p_states,
     transition_p2p,
 )
-from app.services.canonical_po_service import (
-    get_canonical_po,
-    has_inventory_receipt,
-)
-
+from app.services.purchase_order_service import purchase_orders
 
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
@@ -39,13 +36,11 @@ invoices = {}
 invoice_events = {}
 
 
-
 def get_all_invoices():
     """
     Return all invoices.
     """
     return list(invoices.values())
-
 
 
 def get_invoice_by_number(
@@ -64,18 +59,14 @@ def get_invoice_by_number(
     # ---------------------------------------------------------
 
     if not supplier_id or not supplier_id.strip():
-        raise ValueError(
-            "Supplier ID is required."
-        )
+        raise ValueError("Supplier ID is required.")
 
     # ---------------------------------------------------------
     # 2. Validate invoice number
     # ---------------------------------------------------------
 
     if not invoice_number or not invoice_number.strip():
-        raise ValueError(
-            "Invoice number is required."
-        )
+        raise ValueError("Invoice number is required.")
 
     # ---------------------------------------------------------
     # 3. Validate invoice number format
@@ -85,9 +76,7 @@ def get_invoice_by_number(
         r"[A-Za-z0-9_-]+",
         invoice_number,
     ):
-        raise ValueError(
-            "Invalid invoice number."
-        )
+        raise ValueError("Invalid invoice number.")
 
     # ---------------------------------------------------------
     # 4. Build supplier-scoped key
@@ -105,15 +94,14 @@ def get_invoice_by_number(
     if invoice_key not in invoices:
         # IMPORTANT:
         # Keep this exact message because your tests expect it.
-        raise ValueError(
-            "Invoice not found."
-        )
+        raise ValueError("Invoice not found.")
 
     # ---------------------------------------------------------
     # 6. Return invoice
     # ---------------------------------------------------------
 
     return invoices[invoice_key]
+
 
 def _get_invoice_po(
     po_number: str,
@@ -134,6 +122,7 @@ def _get_invoice_po(
 def _line_id(item: dict) -> str | None:
     """Inventory lines are identified by sku_id, legacy lines by item_code."""
     return item.get("sku_id") or item.get("item_code")
+
 
 def _get_invoice_key(
     supplier_id: str,
@@ -174,10 +163,7 @@ def _get_existing_invoiced_quantity(
     total_quantity = 0
 
     for invoice_key, existing_invoice in invoices.items():
-
-        existing_supplier_id, existing_invoice_number = (
-            invoice_key
-        )
+        existing_supplier_id, existing_invoice_number = invoice_key
 
         # -----------------------------------------------------
         # 1. Only count invoices belonging to this supplier
@@ -192,8 +178,7 @@ def _get_existing_invoiced_quantity(
 
         if (
             exclude_invoice_number is not None
-            and existing_invoice_number
-            == exclude_invoice_number
+            and existing_invoice_number == exclude_invoice_number
         ):
             continue
 
@@ -218,11 +203,7 @@ def _get_existing_invoiced_quantity(
         # -----------------------------------------------------
 
         for item in existing_invoice.get("items", []):
-
-            if (
-                item["po_number"] == po_number
-                and _line_id(item) == item_code
-            ):
+            if item["po_number"] == po_number and _line_id(item) == item_code:
                 total_quantity += item["quantity"]
 
     return total_quantity
@@ -237,9 +218,7 @@ def _find_po_item(
     """
 
     for item in purchase_order.get("items", []):
-
         if isinstance(item, dict):
-
             if _line_id(item) == item_code:
                 return item
 
@@ -263,9 +242,7 @@ def _validate_invoice_line_item(
     item_code = _line_id(invoice_item)
 
     if not item_code:
-        raise ValueError(
-            "Invoice line must contain either sku_id or item_code."
-        )
+        raise ValueError("Invoice line must contain either sku_id or item_code.")
 
     invoice_quantity = invoice_item["quantity"]
     invoice_unit_price = invoice_item["unit_price"]
@@ -277,25 +254,18 @@ def _validate_invoice_line_item(
     )
 
     if purchase_order is None:
-        raise ValueError(
-            f"Purchase Order '{po_number}' not found."
-        )
+        raise ValueError(f"Purchase Order '{po_number}' not found.")
 
     # 2. Validate supplier ownership.
     if purchase_order.get("supplier_id") != supplier_id:
         raise ValueError(
-            f"Purchase Order '{po_number}' does not belong "
-            f"to supplier '{supplier_id}'."
+            f"Purchase Order '{po_number}' does not belong to supplier '{supplier_id}'."
         )
 
     # 3. Validate PO status.
     status = purchase_order.get("status")
 
-    status_value = (
-        status.value
-        if isinstance(status, PurchaseOrderStatus)
-        else status
-    )
+    status_value = status.value if isinstance(status, PurchaseOrderStatus) else status
 
     allowed_statuses = {
         PurchaseOrderStatus.acknowledged.value,
@@ -312,8 +282,7 @@ def _validate_invoice_line_item(
     # 4. Validate invoice quantity.
     if invoice_quantity <= 0:
         raise ValueError(
-            f"Invoice quantity for item '{item_code}' "
-            "must be greater than zero."
+            f"Invoice quantity for item '{item_code}' must be greater than zero."
         )
 
     # 5. Find matching PO line.
@@ -324,8 +293,7 @@ def _validate_invoice_line_item(
 
     if po_item is None:
         raise ValueError(
-            f"Item '{item_code}' does not exist "
-            f"in Purchase Order '{po_number}'."
+            f"Item '{item_code}' does not exist in Purchase Order '{po_number}'."
         )
 
     # 6. Validate remaining quantity.
@@ -333,22 +301,17 @@ def _validate_invoice_line_item(
 
     if ordered_quantity is None:
         raise ValueError(
-            f"Purchase Order line '{item_code}' "
-            "does not contain a quantity."
+            f"Purchase Order line '{item_code}' does not contain a quantity."
         )
 
-    already_invoiced_quantity = (
-        _get_existing_invoiced_quantity(
-            supplier_id=supplier_id,
-            po_number=po_number,
-            item_code=item_code,
-            exclude_invoice_number=exclude_invoice_number,
-        )
+    already_invoiced_quantity = _get_existing_invoiced_quantity(
+        supplier_id=supplier_id,
+        po_number=po_number,
+        item_code=item_code,
+        exclude_invoice_number=exclude_invoice_number,
     )
 
-    remaining_quantity = (
-        ordered_quantity - already_invoiced_quantity
-    )
+    remaining_quantity = ordered_quantity - already_invoiced_quantity
 
     if invoice_quantity > remaining_quantity:
         raise ValueError(
@@ -392,17 +355,14 @@ def _validate_invoice_line_item(
         "invoice_unit_price": invoice_unit_price,
     }
 
+
 def _get_unique_invoice_po_numbers(invoice: InvoiceCreate) -> list[str]:
     """
     Return unique Purchase Orders referenced by the invoice,
     preserving the original order.
     """
-    return list(
-        dict.fromkeys(
-            item.po_number
-            for item in invoice.items
-        )
-    )
+    return list(dict.fromkeys(item.po_number for item in invoice.items))
+
 
 def _validate_p2p_invoice_state(
     invoice: InvoiceCreate,
@@ -423,9 +383,7 @@ def _validate_p2p_invoice_state(
         )
 
         if purchase_order is None:
-            raise ValueError(
-                f"Purchase Order '{po_number}' not found."
-            )
+            raise ValueError(f"Purchase Order '{po_number}' not found.")
 
         if purchase_order.get("supplier_id") != invoice.supplier_id:
             raise ValueError(
@@ -436,9 +394,7 @@ def _validate_p2p_invoice_state(
         po_status = purchase_order.get("status")
 
         po_status_value = (
-            po_status.value
-            if isinstance(po_status, PurchaseOrderStatus)
-            else po_status
+            po_status.value if isinstance(po_status, PurchaseOrderStatus) else po_status
         )
 
         allowed_statuses = {
@@ -485,6 +441,7 @@ def _validate_p2p_invoice_state(
 
     return po_numbers
 
+
 def create_invoice(invoice: InvoiceCreate):
     """
     Create and submit an invoice for legacy or Inventory POs.
@@ -515,18 +472,13 @@ def create_invoice(invoice: InvoiceCreate):
 
     # 4. Require at least one invoice line.
     if not invoice.items:
-        raise ValueError(
-            "Invoice must contain at least one item."
-        )
+        raise ValueError("Invoice must contain at least one item.")
 
     # 5. Prevent duplicate PO/item lines.
     seen_items = set()
 
     for invoice_item in invoice.items:
-        line_id = (
-            invoice_item.sku_id
-            or invoice_item.item_code
-        )
+        line_id = invoice_item.sku_id or invoice_item.item_code
 
         key = (
             invoice_item.po_number,
@@ -555,9 +507,7 @@ def create_invoice(invoice: InvoiceCreate):
         )
 
         if purchase_order is None:
-            raise ValueError(
-                f"Purchase Order '{po_number}' not found."
-            )
+            raise ValueError(f"Purchase Order '{po_number}' not found.")
 
         if purchase_order.get("supplier_id") != invoice.supplier_id:
             raise ValueError(
@@ -573,10 +523,7 @@ def create_invoice(invoice: InvoiceCreate):
 
     # 8. Calculate invoice amount.
     calculated_amount = round(
-        sum(
-            item.quantity * item.unit_price
-            for item in invoice.items
-        ),
+        sum(item.quantity * item.unit_price for item in invoice.items),
         2,
     )
 
@@ -601,10 +548,7 @@ def create_invoice(invoice: InvoiceCreate):
 
     # 10. Capture original P2P states.
 
-    original_states = {
-        po_number: get_p2p_state(po_number)
-        for po_number in po_numbers
-    }
+    original_states = {po_number: get_p2p_state(po_number) for po_number in po_numbers}
 
     # 11. Initialize missing Inventory P2P states and transition.
     try:
@@ -615,10 +559,7 @@ def create_invoice(invoice: InvoiceCreate):
                     invoice.supplier_id,
                 )
 
-                if (
-                    purchase_order is None
-                    or not purchase_order.get("is_inventory_po")
-                ):
+                if purchase_order is None or not purchase_order.get("is_inventory_po"):
                     raise ValueError(
                         f"P2P workflow state is not initialized "
                         f"for Purchase Order '{po_number}'."
@@ -653,6 +594,7 @@ def create_invoice(invoice: InvoiceCreate):
 
     return invoices[invoice_key]
 
+
 # ---------------------------------------------------------
 # Transition validation and state machine
 # ---------------------------------------------------------
@@ -667,7 +609,6 @@ VALID_INVOICE_TRANSITIONS = {
         InvoiceStatus.disputed,
         InvoiceStatus.rejected,
     ],
-
     # A disputed invoice can be resolved by:
     # - approving it
     # - adjusting it
@@ -677,7 +618,6 @@ VALID_INVOICE_TRANSITIONS = {
         InvoiceStatus.adjusted,
         InvoiceStatus.rejected,
     ],
-
     # An adjusted invoice can still be:
     # - approved
     # - rejected if the adjustment is found to be incorrect
@@ -685,7 +625,6 @@ VALID_INVOICE_TRANSITIONS = {
         InvoiceStatus.approved,
         InvoiceStatus.rejected,
     ],
-
     # Terminal states
     InvoiceStatus.approved: [],
     InvoiceStatus.rejected: [],
@@ -706,18 +645,10 @@ def add_invoice_history(
     Add an invoice status-change event to history.
     """
 
-    timestamp = (
-        datetime.now(timezone.utc)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
+    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
     event = {
-        "from_status": (
-            from_status.value
-            if from_status is not None
-            else None
-        ),
+        "from_status": (from_status.value if from_status is not None else None),
         "to_status": to_status.value,
         "actor_id": actor_id,
         "actor_name": actor_name,
@@ -774,18 +705,14 @@ def transition_invoice(
     # ---------------------------------------------------------
 
     if not supplier_id or not supplier_id.strip():
-        raise ValueError(
-            "Supplier ID is required."
-        )
+        raise ValueError("Supplier ID is required.")
 
     # ---------------------------------------------------------
     # 2. Validate invoice number
     # ---------------------------------------------------------
 
     if not invoice_number or not invoice_number.strip():
-        raise ValueError(
-            "Invoice number is required."
-        )
+        raise ValueError("Invoice number is required.")
 
     # ---------------------------------------------------------
     # 3. Validate invoice number format
@@ -795,9 +722,7 @@ def transition_invoice(
         r"[A-Za-z0-9_-]+",
         invoice_number,
     ):
-        raise ValueError(
-            "Invalid invoice number."
-        )
+        raise ValueError("Invalid invoice number.")
 
     # ---------------------------------------------------------
     # 4. Build supplier-scoped invoice key
@@ -814,9 +739,7 @@ def transition_invoice(
 
     if invoice_key not in invoices:
         raise ValueError(
-            f"Invoice '{invoice_number}' "
-            f"not found for supplier "
-            f"'{supplier_id}'."
+            f"Invoice '{invoice_number}' not found for supplier '{supplier_id}'."
         )
 
     invoice = invoices[invoice_key]
@@ -828,9 +751,7 @@ def transition_invoice(
     current_state = invoice["status"]
 
     if isinstance(current_state, str):
-        current_state = InvoiceStatus(
-            current_state
-        )
+        current_state = InvoiceStatus(current_state)
 
     # ---------------------------------------------------------
     # 7. Get allowed transitions
@@ -846,11 +767,7 @@ def transition_invoice(
     # ---------------------------------------------------------
 
     if target_state not in allowed_states:
-
-        allowed = ", ".join(
-            state.value
-            for state in allowed_states
-        )
+        allowed = ", ".join(state.value for state in allowed_states)
 
         if not allowed:
             allowed = "none"
@@ -866,23 +783,15 @@ def transition_invoice(
     # 9. Generate UTC timestamp
     # ---------------------------------------------------------
 
-    timestamp = (
-        datetime.now(timezone.utc)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
+    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
     # ---------------------------------------------------------
     # 10. Handle new dispute
     # ---------------------------------------------------------
 
     if target_state == InvoiceStatus.disputed:
-
         if not reason or not reason.strip():
-            raise ValueError(
-                "Reason is required when "
-                "an invoice is disputed."
-            )
+            raise ValueError("Reason is required when an invoice is disputed.")
 
         invoice["dispute"] = {
             "reason": reason,
@@ -899,28 +808,17 @@ def transition_invoice(
     # 11. Resolve existing dispute
     # ---------------------------------------------------------
 
-    if (
-        current_state == InvoiceStatus.disputed
-        and target_state in [
-            InvoiceStatus.approved,
-            InvoiceStatus.adjusted,
-            InvoiceStatus.rejected,
-        ]
-    ):
-
+    if current_state == InvoiceStatus.disputed and target_state in [
+        InvoiceStatus.approved,
+        InvoiceStatus.adjusted,
+        InvoiceStatus.rejected,
+    ]:
         if invoice.get("dispute"):
+            invoice["dispute"]["resolution"] = target_state.value
 
-            invoice["dispute"]["resolution"] = (
-                target_state.value
-            )
+            invoice["dispute"]["resolved_by"] = actor_id
 
-            invoice["dispute"]["resolved_by"] = (
-                actor_id
-            )
-
-            invoice["dispute"]["resolved_at"] = (
-                timestamp
-            )
+            invoice["dispute"]["resolved_at"] = timestamp
 
     # ---------------------------------------------------------
     # 12. Handle adjusted -> rejected
@@ -930,7 +828,6 @@ def transition_invoice(
         current_state == InvoiceStatus.adjusted
         and target_state == InvoiceStatus.rejected
     ):
-
         invoice["adjustment_rejection"] = {
             "actor_id": actor_id,
             "actor_name": actor_name,
@@ -1022,18 +919,14 @@ def adjust_invoice(
     # ========================================================
 
     if not supplier_id or not supplier_id.strip():
-        raise ValueError(
-            "Supplier ID is required."
-        )
+        raise ValueError("Supplier ID is required.")
 
     # ========================================================
     # 2. Validate invoice number
     # ========================================================
 
     if not invoice_number or not invoice_number.strip():
-        raise ValueError(
-            "Invoice number is required."
-        )
+        raise ValueError("Invoice number is required.")
 
     # ========================================================
     # 3. Validate invoice number format
@@ -1043,28 +936,20 @@ def adjust_invoice(
         r"[A-Za-z0-9_-]+",
         invoice_number,
     ):
-        raise ValueError(
-            "Invalid invoice number."
-        )
+        raise ValueError("Invalid invoice number.")
 
     # ========================================================
     # 4. Validate authenticated audit identity
     # ========================================================
 
     if actor_id is None or not str(actor_id).strip():
-        raise ValueError(
-            "Authenticated user ID is required."
-        )
+        raise ValueError("Authenticated user ID is required.")
 
     if not actor_name or not actor_name.strip():
-        raise ValueError(
-            "Authenticated user name is required."
-        )
+        raise ValueError("Authenticated user name is required.")
 
     if not role or not role.strip():
-        raise ValueError(
-            "Authenticated user role is required."
-        )
+        raise ValueError("Authenticated user role is required.")
 
     # ========================================================
     # 5. Build supplier-scoped invoice key
@@ -1081,9 +966,7 @@ def adjust_invoice(
 
     if invoice_key not in invoices:
         raise ValueError(
-            f"Invoice '{invoice_number}' "
-            f"not found for supplier "
-            f"'{supplier_id}'."
+            f"Invoice '{invoice_number}' not found for supplier '{supplier_id}'."
         )
 
     invoice = invoices[invoice_key]
@@ -1095,35 +978,24 @@ def adjust_invoice(
     current_status = invoice["status"]
 
     if isinstance(current_status, str):
-        current_status = InvoiceStatus(
-            current_status
-        )
+        current_status = InvoiceStatus(current_status)
 
     if current_status != InvoiceStatus.disputed:
-        raise ValueError(
-            "Only disputed invoices can be adjusted."
-        )
+        raise ValueError("Only disputed invoices can be adjusted.")
 
     # ========================================================
     # 8. Validate adjustment reason
     # ========================================================
 
-    if (
-        not adjustment.reason
-        or not adjustment.reason.strip()
-    ):
-        raise ValueError(
-            "Reason is required when adjusting an invoice."
-        )
+    if not adjustment.reason or not adjustment.reason.strip():
+        raise ValueError("Reason is required when adjusting an invoice.")
 
     # ========================================================
     # 9. Validate adjusted items
     # ========================================================
 
     if not adjustment.items:
-        raise ValueError(
-            "Adjusted invoice must contain at least one item."
-        )
+        raise ValueError("Adjusted invoice must contain at least one item.")
 
     # ========================================================
     # 10. Prevent duplicate PO/item lines
@@ -1132,7 +1004,6 @@ def adjust_invoice(
     seen_items = set()
 
     for item in adjustment.items:
-
         key = (
             item.po_number,
             item.item_code,
@@ -1157,7 +1028,6 @@ def adjust_invoice(
     adjusted_items = []
 
     for item in adjustment.items:
-
         item_data = item.model_dump()
 
         # ----------------------------------------------------
@@ -1167,9 +1037,7 @@ def adjust_invoice(
         po_number = item_data["po_number"]
 
         if po_number not in purchase_orders:
-            raise ValueError(
-                f"Purchase Order '{po_number}' not found."
-            )
+            raise ValueError(f"Purchase Order '{po_number}' not found.")
 
         purchase_order = purchase_orders[po_number]
 
@@ -1177,10 +1045,7 @@ def adjust_invoice(
         # 11.2 Validate PO belongs to supplier
         # ----------------------------------------------------
 
-        if (
-            purchase_order["supplier_id"]
-            != supplier_id
-        ):
+        if purchase_order["supplier_id"] != supplier_id:
             raise ValueError(
                 f"Purchase Order '{po_number}' "
                 f"does not belong to supplier "
@@ -1206,11 +1071,7 @@ def adjust_invoice(
     calculated_amount = 0.0
 
     for item in adjustment.items:
-
-        calculated_amount += (
-            item.quantity
-            * item.unit_price
-        )
+        calculated_amount += item.quantity * item.unit_price
 
     calculated_amount = round(
         calculated_amount,
@@ -1223,20 +1084,13 @@ def adjust_invoice(
 
     old_amount = invoice["amount"]
 
-    old_items = [
-        dict(item)
-        for item in invoice["items"]
-    ]
+    old_items = [dict(item) for item in invoice["items"]]
 
     # ========================================================
     # 14. Generate UTC timestamp
     # ========================================================
 
-    timestamp = (
-        datetime.now(timezone.utc)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
+    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
     # ========================================================
     # 15. Store adjustment audit information
@@ -1304,7 +1158,6 @@ def adjust_invoice(
 
     return invoice
 
- 
 
 # ---------------------------------------------------------
 # upload_invoice_document
@@ -1328,18 +1181,14 @@ def upload_invoice_document(
     # ---------------------------------------------------------
 
     if not supplier_id or not supplier_id.strip():
-        raise ValueError(
-            "Supplier ID is required."
-        )
+        raise ValueError("Supplier ID is required.")
 
     # ---------------------------------------------------------
     # 2. Validate invoice number
     # ---------------------------------------------------------
 
     if not invoice_number or not invoice_number.strip():
-        raise ValueError(
-            "Invoice number is required."
-        )
+        raise ValueError("Invoice number is required.")
 
     # ---------------------------------------------------------
     # 3. Validate invoice number format
@@ -1349,9 +1198,7 @@ def upload_invoice_document(
         r"[A-Za-z0-9_-]+",
         invoice_number,
     ):
-        raise ValueError(
-            "Invalid invoice number."
-        )
+        raise ValueError("Invalid invoice number.")
 
     # ---------------------------------------------------------
     # 4. Build supplier-scoped invoice key
@@ -1368,9 +1215,7 @@ def upload_invoice_document(
 
     if invoice_key not in invoices:
         raise ValueError(
-            f"Invoice '{invoice_number}' "
-            f"not found for supplier "
-            f"'{supplier_id}'."
+            f"Invoice '{invoice_number}' not found for supplier '{supplier_id}'."
         )
 
     invoice = invoices[invoice_key]
@@ -1380,9 +1225,7 @@ def upload_invoice_document(
     # ---------------------------------------------------------
 
     if file.content_type != "application/pdf":
-        raise ValueError(
-            "Only PDF files are allowed."
-        )
+        raise ValueError("Only PDF files are allowed.")
 
     # ---------------------------------------------------------
     # 7. Validate declared size
@@ -1390,9 +1233,7 @@ def upload_invoice_document(
 
     if getattr(file, "size", None) is not None:
         if file.size > MAX_FILE_SIZE:
-            raise ValueError(
-                "Maximum file size is 10 MB."
-            )
+            raise ValueError("Maximum file size is 10 MB.")
 
     # ---------------------------------------------------------
     # 8. Read contents for validation
@@ -1405,18 +1246,14 @@ def upload_invoice_document(
     # ---------------------------------------------------------
 
     if len(contents) > MAX_FILE_SIZE:
-        raise ValueError(
-            "Maximum file size is 10 MB."
-        )
+        raise ValueError("Maximum file size is 10 MB.")
 
     # ---------------------------------------------------------
     # 10. Validate PDF signature
     # ---------------------------------------------------------
 
     if contents[:5] != b"%PDF-":
-        raise ValueError(
-            "Invalid PDF signature."
-        )
+        raise ValueError("Invalid PDF signature.")
 
     # Reset pointer because MinIO upload reads from the file.
     file.file.seek(0)
@@ -1426,12 +1263,10 @@ def upload_invoice_document(
     # ---------------------------------------------------------
 
     try:
-        object_key = (
-            document_storage_service.upload_invoice_document(
-                supplier_id=supplier_id,
-                invoice_number=invoice_number,
-                file=file,
-            )
+        object_key = document_storage_service.upload_invoice_document(
+            supplier_id=supplier_id,
+            invoice_number=invoice_number,
+            file=file,
         )
 
     except DocumentUploadError:
@@ -1448,9 +1283,7 @@ def upload_invoice_document(
     # This remains the stable API endpoint.
     # It is NOT a permanent MinIO URL.
     invoice["document_url"] = (
-        f"/api/v1/invoices/"
-        f"{supplier_id}/"
-        f"{invoice_number}/document"
+        f"/api/v1/invoices/{supplier_id}/{invoice_number}/document"
     )
 
     invoices[invoice_key] = invoice
@@ -1460,6 +1293,7 @@ def upload_invoice_document(
     # ---------------------------------------------------------
 
     return invoice
+
 
 def get_invoice_document(
     supplier_id: str,
@@ -1477,18 +1311,14 @@ def get_invoice_document(
     # ---------------------------------------------------------
 
     if not supplier_id or not supplier_id.strip():
-        raise ValueError(
-            "Supplier ID is required."
-        )
+        raise ValueError("Supplier ID is required.")
 
     # ---------------------------------------------------------
     # 2. Validate invoice number
     # ---------------------------------------------------------
 
     if not invoice_number or not invoice_number.strip():
-        raise ValueError(
-            "Invoice number is required."
-        )
+        raise ValueError("Invoice number is required.")
 
     # ---------------------------------------------------------
     # 3. Validate invoice number format
@@ -1498,9 +1328,7 @@ def get_invoice_document(
         r"[A-Za-z0-9_-]+",
         invoice_number,
     ):
-        raise ValueError(
-            "Invalid invoice number."
-        )
+        raise ValueError("Invalid invoice number.")
 
     # ---------------------------------------------------------
     # 4. Build supplier-scoped invoice key
@@ -1517,20 +1345,14 @@ def get_invoice_document(
 
     if invoice_key not in invoices:
         raise ValueError(
-            f"Invoice '{invoice_number}' "
-            f"not found for supplier "
-            f"'{supplier_id}'."
+            f"Invoice '{invoice_number}' not found for supplier '{supplier_id}'."
         )
 
     # ---------------------------------------------------------
     # 6. Get MinIO object key
     # ---------------------------------------------------------
 
-    document_path = invoices[
-        invoice_key
-    ].get(
-        "document_path"
-    )
+    document_path = invoices[invoice_key].get("document_path")
 
     if not document_path:
         raise ValueError(
@@ -1544,6 +1366,7 @@ def get_invoice_document(
     # ---------------------------------------------------------
 
     return document_path
+
 
 def find_orphaned_invoice_files(
     older_than_days: int = 1,
@@ -1592,34 +1415,20 @@ def find_orphaned_invoice_files(
     # =========================================================
 
     if older_than_days < 0:
-        raise ValueError(
-            "older_than_days must be greater than "
-            "or equal to zero."
-        )
+        raise ValueError("older_than_days must be greater than or equal to zero.")
 
     orphaned_files = []
 
-    now = datetime.now(
-        timezone.utc
-    )
+    now = datetime.now(timezone.utc)
 
-    threshold_seconds = (
-        older_than_days
-        * 24
-        * 60
-        * 60
-    )
+    threshold_seconds = older_than_days * 24 * 60 * 60
 
     # =========================================================
     # 2. List invoice objects from MinIO
     # =========================================================
 
     try:
-        objects = (
-            document_storage_service.list_objects(
-                prefix="suppliers/"
-            )
-        )
+        objects = document_storage_service.list_objects(prefix="suppliers/")
 
     except DocumentStorageError:
         # Storage outage, not a bad request: the route maps it to 502.
@@ -1630,7 +1439,6 @@ def find_orphaned_invoice_files(
     # =========================================================
 
     for obj in objects:
-
         object_key = obj.object_name
 
         # -----------------------------------------------------
@@ -1658,9 +1466,7 @@ def find_orphaned_invoice_files(
         # Only PDF invoice documents
         # -----------------------------------------------------
 
-        if not file_name.lower().endswith(
-            ".pdf"
-        ):
+        if not file_name.lower().endswith(".pdf"):
             continue
 
         supplier_id = parts[1]
@@ -1671,9 +1477,7 @@ def find_orphaned_invoice_files(
         # INV1001.pdf -> INV1001
         # -----------------------------------------------------
 
-        invoice_number = file_name[
-            :-len(".pdf")
-        ]
+        invoice_number = file_name[: -len(".pdf")]
 
         if not invoice_number:
             continue
@@ -1688,21 +1492,11 @@ def find_orphaned_invoice_files(
             continue
 
         if last_modified.tzinfo is None:
-            last_modified = (
-                last_modified.replace(
-                    tzinfo=timezone.utc
-                )
-            )
+            last_modified = last_modified.replace(tzinfo=timezone.utc)
         else:
-            last_modified = (
-                last_modified.astimezone(
-                    timezone.utc
-                )
-            )
+            last_modified = last_modified.astimezone(timezone.utc)
 
-        file_age_seconds = (
-            now - last_modified
-        ).total_seconds()
+        file_age_seconds = (now - last_modified).total_seconds()
 
         # -----------------------------------------------------
         # Protect recent files
@@ -1712,8 +1506,7 @@ def find_orphaned_invoice_files(
             continue
 
         file_age_days = round(
-            file_age_seconds
-            / (24 * 60 * 60),
+            file_age_seconds / (24 * 60 * 60),
             2,
         )
 
@@ -1732,9 +1525,7 @@ def find_orphaned_invoice_files(
             invoice_number,
         )
 
-        invoice = invoices.get(
-            invoice_key
-        )
+        invoice = invoices.get(invoice_key)
 
         base_data = {
             "invoice_number": invoice_number,
@@ -1752,14 +1543,11 @@ def find_orphaned_invoice_files(
         # =====================================================
 
         if invoice is None:
-
             orphaned_files.append(
                 {
                     **base_data,
                     "invoice_status": None,
-                    "reason": (
-                        "No matching invoice record exists."
-                    ),
+                    "reason": ("No matching invoice record exists."),
                 }
             )
 
@@ -1769,18 +1557,14 @@ def find_orphaned_invoice_files(
         # 6. Normalize invoice status
         # =====================================================
 
-        status = invoice.get(
-            "status"
-        )
+        status = invoice.get("status")
 
         if isinstance(
             status,
             str,
         ):
             try:
-                status = InvoiceStatus(
-                    status
-                )
+                status = InvoiceStatus(status)
 
             except ValueError:
                 status = None
@@ -1804,9 +1588,7 @@ def find_orphaned_invoice_files(
         # 8. Get registered MinIO object key
         # =====================================================
 
-        document_path = invoice.get(
-            "document_path"
-        )
+        document_path = invoice.get("document_path")
 
         # =====================================================
         # CASE B
@@ -1815,15 +1597,10 @@ def find_orphaned_invoice_files(
         # =====================================================
 
         if not document_path:
-
             orphaned_files.append(
                 {
                     **base_data,
-                    "invoice_status": (
-                        status.value
-                        if status is not None
-                        else None
-                    ),
+                    "invoice_status": (status.value if status is not None else None),
                     "reason": (
                         "Invoice is not in a terminal "
                         "state and the file is not "
@@ -1842,19 +1619,11 @@ def find_orphaned_invoice_files(
         # =====================================================
 
         if document_path != object_key:
-
             orphaned_files.append(
                 {
                     **base_data,
-                    "invoice_status": (
-                        status.value
-                        if status is not None
-                        else None
-                    ),
-                    "reason": (
-                        "File object key does not match "
-                        "the invoice document."
-                    ),
+                    "invoice_status": (status.value if status is not None else None),
+                    "reason": ("File object key does not match the invoice document."),
                 }
             )
 
@@ -1870,11 +1639,7 @@ def find_orphaned_invoice_files(
         orphaned_files.append(
             {
                 **base_data,
-                "invoice_status": (
-                    status.value
-                    if status is not None
-                    else None
-                ),
+                "invoice_status": (status.value if status is not None else None),
                 "reason": (
                     "Invoice is not in a terminal "
                     "state and has remained incomplete "
@@ -1884,6 +1649,7 @@ def find_orphaned_invoice_files(
         )
 
     return orphaned_files
+
 
 def purge_orphaned_invoice_files(
     older_than_days: int = 1,
@@ -1903,10 +1669,8 @@ def purge_orphaned_invoice_files(
     # 1. Find orphaned MinIO objects
     # =========================================================
 
-    orphaned_files = (
-        find_orphaned_invoice_files(
-            older_than_days=older_than_days,
-        )
+    orphaned_files = find_orphaned_invoice_files(
+        older_than_days=older_than_days,
     )
 
     deleted_files = []
@@ -1916,20 +1680,14 @@ def purge_orphaned_invoice_files(
     # =========================================================
 
     for orphan in orphaned_files:
-
-        object_key = orphan[
-            "file_path"
-        ]
+        object_key = orphan["file_path"]
 
         try:
-
             document_storage_service.delete_object(
                 object_key=object_key,
             )
 
-            deleted_files.append(
-                orphan
-            )
+            deleted_files.append(orphan)
 
         except DocumentStorageError:
             # One object failing to delete must not prevent
@@ -1941,12 +1699,8 @@ def purge_orphaned_invoice_files(
     # =========================================================
 
     return {
-        "total": len(
-            orphaned_files
-        ),
-        "deleted": len(
-            deleted_files
-        ),
+        "total": len(orphaned_files),
+        "deleted": len(deleted_files),
         "files": deleted_files,
         "older_than_days": older_than_days,
     }

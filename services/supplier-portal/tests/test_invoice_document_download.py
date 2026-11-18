@@ -17,14 +17,14 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app
 from app.core.auth import verify_token
+from app.main import app
 from app.services import invoice_service
-from app.services.invoice_service import invoices
 from app.services.document_storage_service import (
     DocumentDownloadError,
     DocumentStorageError,
 )
+from app.services.invoice_service import invoices
 from app.services.supplier_onboarding_service import suppliers
 
 client = TestClient(app)
@@ -32,6 +32,7 @@ client = TestClient(app)
 # ============================================================================
 # ROUND-14 SUPPLIER REGISTRY SETUP
 # ============================================================================
+
 
 @pytest.fixture(autouse=True)
 def seed_suppliers():
@@ -66,7 +67,8 @@ def seed_suppliers():
     yield
 
     suppliers.clear()
-    
+
+
 # ============================================================================
 # AUTHENTICATED TEST USERS
 # ============================================================================
@@ -123,10 +125,7 @@ def invoice_object_key(
     Build the expected supplier-scoped MinIO invoice object key.
     """
 
-    return (
-        f"suppliers/{supplier_id}/"
-        f"invoices/{invoice_number}.pdf"
-    )
+    return f"suppliers/{supplier_id}/invoices/{invoice_number}.pdf"
 
 
 def register_invoice_document(
@@ -151,11 +150,7 @@ def register_invoice_document(
         "invoice_number": invoice_number,
         "supplier_id": supplier_id,
         "document_path": document_path,
-        "document_url": (
-            f"/api/v1/invoices/"
-            f"{supplier_id}/"
-            f"{invoice_number}/document"
-        ),
+        "document_url": (f"/api/v1/invoices/{supplier_id}/{invoice_number}/document"),
         "status": "submitted",
     }
 
@@ -199,9 +194,7 @@ def test_invoice_document_download_success():
         supplier_id="SUP-00001",
     )
 
-    expected_key = (
-        "suppliers/SUP-00001/invoices/INV1001.pdf"
-    )
+    expected_key = "suppliers/SUP-00001/invoices/INV1001.pdf"
 
     with patch.object(
         invoice_service.document_storage_service,
@@ -218,10 +211,7 @@ def test_invoice_document_download_success():
                 "?X-Amz-Signature=test"
             ),
         ) as mock_download:
-
-            response = client.get(
-                "/api/v1/invoices/SUP-00001/INV1001/document"
-            )
+            response = client.get("/api/v1/invoices/SUP-00001/INV1001/document")
 
     assert response.status_code == 200, response.text
 
@@ -230,9 +220,7 @@ def test_invoice_document_download_success():
     assert data["invoice_number"] == "INV1001"
     assert data["supplier_id"] == "SUP-00001"
     assert data["file_name"] == "INV1001.pdf"
-    assert data["download_url"].startswith(
-        "http://127.0.0.1:9000/"
-    )
+    assert data["download_url"].startswith("http://127.0.0.1:9000/")
     assert data["expires_in_seconds"] == 300
 
     mock_exists.assert_called_once_with(
@@ -257,9 +245,7 @@ def test_invoice_document_download_uses_registered_document_path():
 
     authenticate_as(SUPPLIER_1_USER)
 
-    registered_path = (
-        "suppliers/SUP-00001/invoices/custom-invoice-object.pdf"
-    )
+    registered_path = "suppliers/SUP-00001/invoices/custom-invoice-object.pdf"
 
     register_invoice_document(
         invoice_number="INV1002",
@@ -277,10 +263,7 @@ def test_invoice_document_download_uses_registered_document_path():
             "generate_download_url",
             return_value="https://minio.example/download",
         ) as mock_download:
-
-            response = client.get(
-                "/api/v1/invoices/SUP-00001/INV1002/document"
-            )
+            response = client.get("/api/v1/invoices/SUP-00001/INV1002/document")
 
     assert response.status_code == 200, response.text
 
@@ -318,17 +301,11 @@ def test_supplier_cannot_download_other_supplier_invoice_document():
             invoice_service.document_storage_service,
             "generate_download_url",
         ) as mock_download:
-
-            response = client.get(
-                "/api/v1/invoices/SUP-00002/INV2001/document"
-            )
+            response = client.get("/api/v1/invoices/SUP-00002/INV2001/document")
 
     assert response.status_code == 403, response.text
 
-    assert (
-        response.json()["detail"]
-        == "Forbidden: supplier does not own this invoice"
-    )
+    assert response.json()["detail"] == "Forbidden: supplier does not own this invoice"
 
     mock_exists.assert_not_called()
     mock_download.assert_not_called()
@@ -359,10 +336,7 @@ def test_cross_supplier_download_does_not_call_minio():
             invoice_service.document_storage_service,
             "generate_download_url",
         ) as mock_download:
-
-            response = client.get(
-                "/api/v1/invoices/SUP-00002/INV2002/document"
-            )
+            response = client.get("/api/v1/invoices/SUP-00002/INV2002/document")
 
     assert response.status_code == 403
 
@@ -390,10 +364,7 @@ def test_invoice_document_download_unknown_invoice_returns_404():
             invoice_service.document_storage_service,
             "generate_download_url",
         ) as mock_download:
-
-            response = client.get(
-                "/api/v1/invoices/SUP-00001/UNKNOWN/document"
-            )
+            response = client.get("/api/v1/invoices/SUP-00001/UNKNOWN/document")
 
     assert response.status_code == 404, response.text
     assert response.json()["detail"] == "Invoice not found."
@@ -430,10 +401,7 @@ def test_invoice_document_download_without_document_returns_404():
             invoice_service.document_storage_service,
             "generate_download_url",
         ) as mock_download:
-
-            response = client.get(
-                "/api/v1/invoices/SUP-00001/INV3001/document"
-            )
+            response = client.get("/api/v1/invoices/SUP-00001/INV3001/document")
 
     assert response.status_code == 404, response.text
     assert response.json()["detail"] == "Document not found."
@@ -469,10 +437,7 @@ def test_invoice_document_download_missing_minio_object_returns_404():
             invoice_service.document_storage_service,
             "generate_download_url",
         ) as mock_download:
-
-            response = client.get(
-                "/api/v1/invoices/SUP-00001/INV3002/document"
-            )
+            response = client.get("/api/v1/invoices/SUP-00001/INV3002/document")
 
     assert response.status_code == 404, response.text
     assert response.json()["detail"] == "File does not exist."
@@ -508,10 +473,7 @@ def test_missing_minio_object_does_not_generate_download_url():
             invoice_service.document_storage_service,
             "generate_download_url",
         ) as mock_download:
-
-            response = client.get(
-                "/api/v1/invoices/SUP-00001/INV3003/document"
-            )
+            response = client.get("/api/v1/invoices/SUP-00001/INV3003/document")
 
     assert response.status_code == 404
 
@@ -539,24 +501,16 @@ def test_invoice_document_download_object_exists_failure_returns_502():
     with patch.object(
         invoice_service.document_storage_service,
         "object_exists",
-        side_effect=DocumentStorageError(
-            "Unable to check document existence."
-        ),
+        side_effect=DocumentStorageError("Unable to check document existence."),
     ) as mock_exists:
         with patch.object(
             invoice_service.document_storage_service,
             "generate_download_url",
         ) as mock_download:
-
-            response = client.get(
-                "/api/v1/invoices/SUP-00001/INV4001/document"
-            )
+            response = client.get("/api/v1/invoices/SUP-00001/INV4001/document")
 
     assert response.status_code == 502, response.text
-    assert (
-        response.json()["detail"]
-        == "Unable to check document existence."
-    )
+    assert response.json()["detail"] == "Unable to check document existence."
 
     mock_exists.assert_called_once()
     mock_download.assert_not_called()
@@ -592,16 +546,10 @@ def test_invoice_document_download_presign_failure_returns_502():
                 "Unable to generate document download URL."
             ),
         ) as mock_download:
-
-            response = client.get(
-                "/api/v1/invoices/SUP-00001/INV4002/document"
-            )
+            response = client.get("/api/v1/invoices/SUP-00001/INV4002/document")
 
     assert response.status_code == 502, response.text
-    assert (
-        response.json()["detail"]
-        == "Unable to generate document download URL."
-    )
+    assert response.json()["detail"] == "Unable to generate document download URL."
 
     mock_exists.assert_called_once()
     mock_download.assert_called_once()
@@ -617,9 +565,7 @@ def test_invoice_document_download_requires_authentication():
     Missing authentication must be rejected.
     """
 
-    response = client.get(
-        "/api/v1/invoices/SUP-00001/INV5001/document"
-    )
+    response = client.get("/api/v1/invoices/SUP-00001/INV5001/document")
 
     assert response.status_code == 401, response.text
 
@@ -642,9 +588,7 @@ def test_procurement_manager_can_download_invoice_document():
         supplier_id="SUP-00001",
     )
 
-    expected_key = (
-        "suppliers/SUP-00001/invoices/INV5002.pdf"
-    )
+    expected_key = "suppliers/SUP-00001/invoices/INV5002.pdf"
 
     with patch.object(
         invoice_service.document_storage_service,
@@ -656,10 +600,7 @@ def test_procurement_manager_can_download_invoice_document():
             "generate_download_url",
             return_value="https://minio.example/invoice",
         ) as mock_download:
-
-            response = client.get(
-                "/api/v1/invoices/SUP-00001/INV5002/document"
-            )
+            response = client.get("/api/v1/invoices/SUP-00001/INV5002/document")
 
     assert response.status_code == 200, response.text
 
@@ -703,16 +644,10 @@ def test_supplier_without_supplier_id_cannot_download_invoice_document():
             invoice_service.document_storage_service,
             "generate_download_url",
         ) as mock_download:
-
-            response = client.get(
-                "/api/v1/invoices/SUP-00001/INV5003/document"
-            )
+            response = client.get("/api/v1/invoices/SUP-00001/INV5003/document")
 
     assert response.status_code == 403, response.text
-    assert (
-        response.json()["detail"]
-        == "Supplier identity is missing"
-    )
+    assert response.json()["detail"] == "Supplier identity is missing"
 
     mock_exists.assert_not_called()
     mock_download.assert_not_called()
@@ -745,10 +680,7 @@ def test_supplier_can_download_own_invoice_document():
             "generate_download_url",
             return_value="https://minio.example/own-invoice",
         ) as mock_download:
-
-            response = client.get(
-                "/api/v1/invoices/SUP-00001/INV6001/document"
-            )
+            response = client.get("/api/v1/invoices/SUP-00001/INV6001/document")
 
     assert response.status_code == 200, response.text
 
@@ -786,16 +718,10 @@ def test_supplier_b_cannot_download_supplier_a_document():
             invoice_service.document_storage_service,
             "generate_download_url",
         ) as mock_download:
-
-            response = client.get(
-                "/api/v1/invoices/SUP-00001/INV6002/document"
-            )
+            response = client.get("/api/v1/invoices/SUP-00001/INV6002/document")
 
     assert response.status_code == 403, response.text
-    assert (
-        response.json()["detail"]
-        == "Forbidden: supplier does not own this invoice"
-    )
+    assert response.json()["detail"] == "Forbidden: supplier does not own this invoice"
 
     mock_exists.assert_not_called()
     mock_download.assert_not_called()
@@ -821,9 +747,7 @@ def test_invoice_document_download_uses_supplier_scoped_registered_key():
         supplier_id="SUP-00001",
     )
 
-    expected_key = (
-        "suppliers/SUP-00001/invoices/INV7001.pdf"
-    )
+    expected_key = "suppliers/SUP-00001/invoices/INV7001.pdf"
 
     with patch.object(
         invoice_service.document_storage_service,
@@ -835,10 +759,7 @@ def test_invoice_document_download_uses_supplier_scoped_registered_key():
             "generate_download_url",
             return_value="https://minio.example/scoped",
         ) as mock_download:
-
-            response = client.get(
-                "/api/v1/invoices/SUP-00001/INV7001/document"
-            )
+            response = client.get("/api/v1/invoices/SUP-00001/INV7001/document")
 
     assert response.status_code == 200, response.text
 
@@ -874,17 +795,10 @@ def test_invoice_document_download_invalid_invoice_number_returns_400():
             invoice_service.document_storage_service,
             "generate_download_url",
         ) as mock_download:
-
-            response = client.get(
-                "/api/v1/invoices/SUP-00001/INVALID@INVOICE/document"
-            )
+            response = client.get("/api/v1/invoices/SUP-00001/INVALID@INVOICE/document")
 
     assert response.status_code == 400, response.text
-    assert (
-        response.json()["detail"]
-        == "Invalid invoice number."
-    )
+    assert response.json()["detail"] == "Invalid invoice number."
 
     mock_exists.assert_not_called()
     mock_download.assert_not_called()
-

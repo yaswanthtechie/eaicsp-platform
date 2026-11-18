@@ -6,8 +6,8 @@ import pytest
 from jsonschema import Draft202012Validator, FormatChecker
 
 from app.models.po_mirror import POMirror
+from app.models.shipment import Shipment
 from app.models.shipment_outbox import ShipmentOutbox
-
 from app.schemas.purchase_order import PurchaseOrderStatus
 from app.schemas.shipment import ShipmentCreate
 from app.services.po_p2p_state_machine import (
@@ -17,15 +17,14 @@ from app.services.po_p2p_state_machine import (
 )
 from app.services.purchase_order_service import purchase_orders
 from app.services.shipment_service import (
-    shipments,
     create_shipment,
-    get_shipment_by_id,
-    get_shipments_by_po,
     get_all_shipments,
+    get_shipments_by_po,
+    shipments,
 )
-from app.models.shipment import Shipment
 
 pytestmark = pytest.mark.usefixtures("po_db")
+
 
 @pytest.fixture(autouse=True)
 def clear_storage():
@@ -437,6 +436,7 @@ def test_shipment_is_stored(po_db):
     finally:
         db.close()
 
+
 def test_get_shipments_by_po():
     """
     Shipments can be retrieved using the Purchase Order number.
@@ -450,6 +450,7 @@ def test_get_shipments_by_po():
     assert len(results) == 1
     assert results[0].shipment_id == result["shipment_id"]
     assert results[0].po_number == result["po_number"]
+
 
 def test_get_all_shipments():
     """
@@ -558,9 +559,7 @@ def test_supplier_can_view_own_shipment(
         supplier_id="SUP-00001",
     )
 
-    response = supplier_client.get(
-        f"/api/v1/shipments/{result['shipment_id']}"
-    )
+    response = supplier_client.get(f"/api/v1/shipments/{result['shipment_id']}")
 
     assert response.status_code == 200
 
@@ -589,16 +588,11 @@ def test_supplier_cannot_view_another_suppliers_shipment(
         created_by="supplierb@example.com",
     )
 
-    response = supplier_client.get(
-        f"/api/v1/shipments/{result['shipment_id']}"
-    )
+    response = supplier_client.get(f"/api/v1/shipments/{result['shipment_id']}")
 
     assert response.status_code == 403
 
-    assert (
-        "forbidden"
-        in response.json()["detail"].lower()
-    )
+    assert "forbidden" in response.json()["detail"].lower()
 
 
 def test_supplier_cannot_determine_unknown_shipment_existence(
@@ -612,16 +606,11 @@ def test_supplier_cannot_determine_unknown_shipment_existence(
     supplier's shipment exists.
     """
 
-    response = supplier_client.get(
-        "/api/v1/shipments/SHIP-DOES-NOT-EXIST"
-    )
+    response = supplier_client.get("/api/v1/shipments/SHIP-DOES-NOT-EXIST")
 
     assert response.status_code == 403
 
-    assert (
-        "shipment is not accessible"
-        in response.json()["detail"].lower()
-    )
+    assert "shipment is not accessible" in response.json()["detail"].lower()
 
 
 def test_supplier_without_supplier_id_cannot_view_shipment(
@@ -631,16 +620,11 @@ def test_supplier_without_supplier_id_cannot_view_shipment(
     A supplier without supplier_id must not access shipment data.
     """
 
-    response = supplier_no_id_client.get(
-        "/api/v1/shipments/SHIP-DOES-NOT-EXIST"
-    )
+    response = supplier_no_id_client.get("/api/v1/shipments/SHIP-DOES-NOT-EXIST")
 
     assert response.status_code == 403
 
-    assert (
-        "supplier identity is missing"
-        in response.json()["detail"].lower()
-    )
+    assert "supplier identity is missing" in response.json()["detail"].lower()
 
 
 def test_internal_user_gets_404_for_unknown_shipment(
@@ -652,16 +636,11 @@ def test_internal_user_gets_404_for_unknown_shipment(
     existence protection.
     """
 
-    response = procurement_client.get(
-        "/api/v1/shipments/SHIP-DOES-NOT-EXIST"
-    )
+    response = procurement_client.get("/api/v1/shipments/SHIP-DOES-NOT-EXIST")
 
     assert response.status_code == 404
 
-    assert (
-        "shipment not found"
-        in response.json()["detail"].lower()
-    )
+    assert "shipment not found" in response.json()["detail"].lower()
 
 
 def test_internal_user_can_view_existing_supplier_shipment(
@@ -683,9 +662,7 @@ def test_internal_user_can_view_existing_supplier_shipment(
         created_by="supplierb@example.com",
     )
 
-    response = procurement_client.get(
-        f"/api/v1/shipments/{result['shipment_id']}"
-    )
+    response = procurement_client.get(f"/api/v1/shipments/{result['shipment_id']}")
 
     assert response.status_code == 200
 
@@ -730,9 +707,7 @@ def test_supplier_list_shipments_returns_only_own_shipments(
         created_by="supplierb@example.com",
     )
 
-    response = supplier_client.get(
-        "/api/v1/shipments"
-    )
+    response = supplier_client.get("/api/v1/shipments")
 
     assert response.status_code == 200
 
@@ -772,9 +747,7 @@ def test_internal_user_can_list_all_shipments(
         created_by="supplierb@example.com",
     )
 
-    response = procurement_client.get(
-        "/api/v1/shipments"
-    )
+    response = procurement_client.get("/api/v1/shipments")
 
     assert response.status_code == 200
 
@@ -782,15 +755,13 @@ def test_internal_user_can_list_all_shipments(
 
     assert len(body) == 2
 
-    supplier_ids = {
-        shipment["supplier_id"]
-        for shipment in body
-    }
+    supplier_ids = {shipment["supplier_id"] for shipment in body}
 
     assert supplier_ids == {
         "SUP-00001",
         "SUP-00002",
     }
+
 
 def test_shipment_is_persisted_in_database(po_db):
     create_acknowledged_po()
@@ -811,6 +782,7 @@ def test_shipment_is_persisted_in_database(po_db):
         assert record.status == "created"
     finally:
         db.close()
+
 
 # ============================================================
 # R15: SHIPMENT IDS, DISPATCH CONTRACT, INVENTORY POs
@@ -956,9 +928,7 @@ def test_other_supplier_cannot_dispatch_inventory_po(po_db):
         ("SKU-000123", 101, "exceeds"),
     ],
 )
-def test_inventory_po_items_are_checked_by_sku(
-    po_db, sku_id, quantity, expected_error
-):
+def test_inventory_po_items_are_checked_by_sku(po_db, sku_id, quantity, expected_error):
     add_inventory_po(po_db)
 
     with pytest.raises(ValueError, match=expected_error):

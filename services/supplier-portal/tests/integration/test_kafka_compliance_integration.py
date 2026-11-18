@@ -31,12 +31,8 @@ def test_real_kafka_block_event_updates_sqlite_and_commits_offset(
     supplier_id = f"TEST-{suffix.upper()}"
     supplier_name = "Kafka Integration Test Supplier"
 
-    admin = AdminClient(
-        {"bootstrap.servers": bootstrap_servers}
-    )
-    producer = Producer(
-        {"bootstrap.servers": bootstrap_servers}
-    )
+    admin = AdminClient({"bootstrap.servers": bootstrap_servers})
+    producer = Producer({"bootstrap.servers": bootstrap_servers})
 
     isolated_service = SupplierComplianceService(
         db_path=tmp_path / "compliance_state.db"
@@ -110,9 +106,7 @@ def test_real_kafka_block_event_updates_sqlite_and_commits_offset(
             if error is not None:
                 delivery_error.append(error)
             else:
-                delivery_result.append(
-                    (message.partition(), message.offset())
-                )
+                delivery_result.append((message.partition(), message.offset()))
 
         # Match the real producer: key by supplier_name.
         producer.produce(
@@ -125,12 +119,8 @@ def test_real_kafka_block_event_updates_sqlite_and_commits_offset(
         assert producer.flush(timeout=15) == 0, (
             "Kafka producer still had messages pending after flush"
         )
-        assert not delivery_error, (
-            f"Kafka publish failed: {delivery_error}"
-        )
-        assert delivery_result, (
-            "Kafka did not confirm message delivery"
-        )
+        assert not delivery_error, f"Kafka publish failed: {delivery_error}"
+        assert delivery_result, "Kafka did not confirm message delivery"
 
         produced_partition, produced_offset = delivery_result[0]
 
@@ -160,23 +150,17 @@ def test_real_kafka_block_event_updates_sqlite_and_commits_offset(
 
         while time.monotonic() < deadline:
             if thread_errors:
-                pytest.fail(
-                    f"Kafka consumer failed: {thread_errors[0]}"
-                )
+                pytest.fail(f"Kafka consumer failed: {thread_errors[0]}")
 
             status = isolated_service.get_access_status(supplier_id)
 
-            if (
-                status is not None
-                and getattr(status, "value", status) == "suspended"
-            ):
+            if status is not None and getattr(status, "value", status) == "suspended":
                 break
 
             time.sleep(0.1)
 
         assert getattr(status, "value", status) == "suspended", (
-            f"Expected supplier {supplier_id} to be suspended; "
-            f"got {status!r}"
+            f"Expected supplier {supplier_id} to be suspended; got {status!r}"
         )
 
         # Stop only after processing the event. The consumer run loop
@@ -184,12 +168,8 @@ def test_real_kafka_block_event_updates_sqlite_and_commits_offset(
         consumer_instance.stop()
         consumer_thread.join(timeout=10)
 
-        assert not consumer_thread.is_alive(), (
-            "Kafka consumer did not stop"
-        )
-        assert not thread_errors, (
-            f"Kafka consumer failed: {thread_errors}"
-        )
+        assert not consumer_thread.is_alive(), "Kafka consumer did not stop"
+        assert not thread_errors, f"Kafka consumer failed: {thread_errors}"
 
         # Verify the consumer group's committed offset using Kafka.
         observer = Consumer(
@@ -212,9 +192,7 @@ def test_real_kafka_block_event_updates_sqlite_and_commits_offset(
 
         committed_offset = committed[0].offset
 
-        assert committed_offset >= 0, (
-            "Kafka offset was not committed"
-        )
+        assert committed_offset >= 0, "Kafka offset was not committed"
         assert committed_offset > produced_offset, (
             "Expected committed offset to be greater than the "
             f"message offset ({committed_offset=} {produced_offset=})"
