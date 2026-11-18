@@ -63,17 +63,13 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install ruff==0.17.4 mypy==1.14.0 bandit==1.8.2 pip-audit==2.7.3 pytest-cov==6.0.0 types-xmltodict==1.0.1.20260518
 
-      # Report-only until Compliance owner (Rashida) resolves outstanding issues.
       - name: Ruff lint
-        continue-on-error: true
         run: python -m ruff check --output-format=github .
 
       - name: Ruff format check
-        continue-on-error: true
         run: python -m ruff format --check .
 
       - name: Mypy
-        continue-on-error: true
         run: python -m mypy app
 
       - name: Python syntax check
