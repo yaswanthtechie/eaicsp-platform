@@ -915,3 +915,18 @@ def test_purchase_order_dates_before_order_date_rejected(db_session, dates, fiel
         ClientImportValidationError, match=f"{field} .* is before order_date"
     ):
         import_staging_dataset(db_session, dataset, dry_run=True)
+
+
+def test_csv_row_with_extra_cells_is_rejected(tmp_path):
+    from app.services.client_import_service import (
+        ClientImportValidationError,
+        _read_csv_records,
+    )
+
+    path = tmp_path / "inventory_snapshots.csv"
+    path.write_text(
+        "sku_id,warehouse_id,quantity_on_hand\nSKU-000001,WH-BLR-01,5,999\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ClientImportValidationError, match="line 2"):
+        _read_csv_records(path, "inventory_snapshots")

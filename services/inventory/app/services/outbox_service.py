@@ -28,7 +28,7 @@ def record_event(
     The caller commits so that the business mutation and event are committed atomically.
     If the transaction rolls back, the event is also rolled back and never published.
     """
-    if occurred_at is not None:
+    if occurred_at:
         envelope = EventEnvelope(
             event_type=event_type,
             payload=payload,

@@ -1571,12 +1571,15 @@ def _read_csv_records(path: Path, dataset: str) -> list[dict[str, str]]:
             raise ClientImportValidationError(f"{dataset}: CSV file has no header row")
         cleaned_records: list[dict[str, str]] = []
         for row in reader:
+            if None in row:
+                raise ClientImportValidationError(
+                    f"{dataset}: line {reader.line_num} has more cells than the header"
+                )
             cleaned_row: dict[str, str] = {
                 k.strip(): (
                     v.strip() if isinstance(v, str) else ("" if v is None else str(v))
                 )
                 for k, v in row.items()
-                if k is not None
             }
             cleaned_records.append(cleaned_row)
         return cleaned_records

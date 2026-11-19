@@ -37,7 +37,9 @@ from app.schemas.inventory import (
 )
 from app.schemas.master_data import (
     ProductListResponse,
+    ProductResponse,
     WarehouseListResponse,
+    WarehouseResponse,
 )
 from app.schemas.supplier_performance import (
     SupplierPerformanceResponse,
@@ -392,7 +394,10 @@ def get_products_route(
     except ValueError as exc:
         raise _ids_validation_error(exc) from exc
     items, total = list_products(db, ids=id_list, limit=limit, offset=offset)
-    return ProductListResponse(items=items, total=total)
+    return ProductListResponse(
+        items=[ProductResponse.model_validate(item) for item in items],
+        total=total,
+    )
 
 
 @router.get(
@@ -452,7 +457,10 @@ def get_warehouses_route(
     except ValueError as exc:
         raise _ids_validation_error(exc) from exc
     items, total = list_warehouses(db, ids=id_list, limit=limit, offset=offset)
-    return WarehouseListResponse(items=items, total=total)
+    return WarehouseListResponse(
+        items=[WarehouseResponse.model_validate(item) for item in items],
+        total=total,
+    )
 
 
 # =========================================================
@@ -701,7 +709,7 @@ def decrement_inventory_route(
         # Every stock change is a new version. Optimistic locking (a PUT
         # based on a pre-sale read must get 409) and the cache's version
         # fence both depend on this.
-        item.version = int(item.version or 0) + 1
+        item.version += 1
 
         # Same transaction as the stock change: both commit, or neither does.
         check_and_record_low_stock(db=db, item=item, previous_quantity=old_quantity)
@@ -711,7 +719,7 @@ def decrement_inventory_route(
         invalidate_inventory_cache(
             sku_id,
             warehouse_id,
-            version=int(item.version) if item.version is not None else None,
+            version=item.version,
         )
 
         # -----------------------------------------------------
