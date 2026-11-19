@@ -8,8 +8,8 @@
   "rounds": 5,
   "runs_per_round": 40,
   "model_size_bytes": {
-    "fp32": 235286,
-    "int8": 71746
+    "fp32": 235254,
+    "int8": 71738
   },
   "graph": {
     "fp32": {
@@ -57,19 +57,19 @@
   },
   "accuracy_original_sales_units": {
     "fp32": {
-      "MAE": 9.241326174828531,
-      "RMSE": 12.800183728535151,
-      "MAPE": 14.29218110836258
+      "MAE": 9.55255168918159,
+      "RMSE": 13.183152160975869,
+      "MAPE": 15.169244380534375
     },
     "int8": {
-      "MAE": 9.23552355690608,
-      "RMSE": 12.797692392395215,
-      "MAPE": 14.257531579740359
+      "MAE": 9.54258616681242,
+      "RMSE": 13.164913662478655,
+      "MAPE": 15.120939474625308
     },
     "int8_vs_fp32_prediction_difference": {
-      "MAE": 0.19251866904095577,
-      "RMSE": 0.2436061305769122,
-      "MAPE": 0.32912354163061136
+      "MAE": 0.1825285849327343,
+      "RMSE": 0.23891124582422987,
+      "MAPE": 0.28870045999558425
     }
   },
   "benchmark": {
@@ -79,41 +79,41 @@
         "rounds": 5,
         "runs_per_round": 40,
         "total_measured_calls": 200,
-        "mean_batch_latency_ms": 1.011626000031356,
-        "std_batch_latency_ms": 2.7902699176265857,
-        "min_batch_latency_ms": 0.43590000041149324,
-        "max_batch_latency_ms": 37.165799999456794,
-        "p50_batch_latency_ms": 0.6283000002440531,
-        "p95_batch_latency_ms": 1.5003199995589964,
+        "mean_batch_latency_ms": 0.4787285000747943,
+        "std_batch_latency_ms": 0.4437080640617557,
+        "min_batch_latency_ms": 0.2882000007957686,
+        "max_batch_latency_ms": 4.970900001353584,
+        "p50_batch_latency_ms": 0.30655000045953784,
+        "p95_batch_latency_ms": 0.9651150008721715,
         "round_mean_latency_ms": [
-          1.6518425000185744,
-          0.9355675000051633,
-          0.9613949999902616,
-          0.9297750000087035,
-          0.579550000134077
+          0.7842600000003586,
+          0.4437474999576807,
+          0.40651750005054055,
+          0.3715025001838512,
+          0.3876150001815404
         ],
-        "throughput_samples_per_sec": 988.507610489454
+        "throughput_samples_per_sec": 2088.8666537374834
       },
       "int8": {
         "batch_size": 1,
         "rounds": 5,
         "runs_per_round": 40,
         "total_measured_calls": 200,
-        "mean_batch_latency_ms": 0.9111980000443509,
-        "std_batch_latency_ms": 1.2685740115788626,
-        "min_batch_latency_ms": 0.4389000005176058,
-        "max_batch_latency_ms": 12.4470000000656,
-        "p50_batch_latency_ms": 0.6100000000515138,
-        "p95_batch_latency_ms": 1.9813800005067579,
+        "mean_batch_latency_ms": 0.4271304999383574,
+        "std_batch_latency_ms": 0.3106502306530063,
+        "min_batch_latency_ms": 0.2423999976599589,
+        "max_batch_latency_ms": 2.8228000010130927,
+        "p50_batch_latency_ms": 0.27144999876327347,
+        "p95_batch_latency_ms": 1.0420349999549217,
         "round_mean_latency_ms": [
-          0.6643675000304938,
-          0.9117725000578503,
-          1.0194600000204446,
-          0.9785549999378418,
-          0.9818350001751242
+          0.4364800002804259,
+          0.3071649995035841,
+          0.5461900000227615,
+          0.3738925001016469,
+          0.47192499978336855
         ],
-        "throughput_samples_per_sec": 1097.4563156979348,
-        "throughput_speedup_vs_fp32": 1.1102153428586508
+        "throughput_samples_per_sec": 2341.204854592023,
+        "throughput_speedup_vs_fp32": 1.120801488406666
       }
     },
     "32": {
@@ -122,41 +122,41 @@
         "rounds": 5,
         "runs_per_round": 40,
         "total_measured_calls": 200,
-        "mean_batch_latency_ms": 17.909568000022773,
-        "std_batch_latency_ms": 23.31240736175237,
-        "min_batch_latency_ms": 6.416199999875971,
-        "max_batch_latency_ms": 231.6579999996975,
-        "p50_batch_latency_ms": 10.253299999931187,
-        "p95_batch_latency_ms": 54.34754999982931,
+        "mean_batch_latency_ms": 5.160677999883774,
+        "std_batch_latency_ms": 1.6973723276365835,
+        "min_batch_latency_ms": 3.2529999989492353,
+        "max_batch_latency_ms": 11.787999999796739,
+        "p50_batch_latency_ms": 4.992199999833247,
+        "p95_batch_latency_ms": 8.664359998874714,
         "round_mean_latency_ms": [
-          12.68800249999913,
-          25.088675000051808,
-          15.177160000007461,
-          23.28411250005047,
-          13.309890000004998
+          5.31717999947432,
+          4.665712500263908,
+          4.573217500092142,
+          5.49575749964788,
+          5.75152249994062
         ],
-        "throughput_samples_per_sec": 1786.7544320420968
+        "throughput_samples_per_sec": 6200.735639914114
       },
       "int8": {
         "batch_size": 32,
         "rounds": 5,
         "runs_per_round": 40,
         "total_measured_calls": 200,
-        "mean_batch_latency_ms": 15.668524500001695,
-        "std_batch_latency_ms": 15.782443448287406,
-        "min_batch_latency_ms": 6.125699999756762,
-        "max_batch_latency_ms": 146.46449999963806,
-        "p50_batch_latency_ms": 10.230849999970815,
-        "p95_batch_latency_ms": 38.22819499964673,
+        "mean_batch_latency_ms": 6.905100499952823,
+        "std_batch_latency_ms": 6.709743526945162,
+        "min_batch_latency_ms": 3.260299999965355,
+        "max_batch_latency_ms": 84.60070000000997,
+        "p50_batch_latency_ms": 5.304249998516752,
+        "p95_batch_latency_ms": 13.427715000761953,
         "round_mean_latency_ms": [
-          12.25460499995279,
-          16.280732499990336,
-          11.362542500160089,
-          16.63324749988533,
-          21.81149500001993
+          5.590687499989144,
+          6.410147499718732,
+          12.81184999998004,
+          5.96542249995764,
+          3.7473950001185585
         ],
-        "throughput_samples_per_sec": 2042.3110038214854,
-        "throughput_speedup_vs_fp32": 1.1430283687542393
+        "throughput_samples_per_sec": 4634.2555043505345,
+        "throughput_speedup_vs_fp32": 0.7473718883481901
       }
     },
     "256": {
@@ -165,43 +165,43 @@
         "rounds": 5,
         "runs_per_round": 40,
         "total_measured_calls": 200,
-        "mean_batch_latency_ms": 124.44851849998031,
-        "std_batch_latency_ms": 72.0267351297132,
-        "min_batch_latency_ms": 61.22429999959422,
-        "max_batch_latency_ms": 607.065700000021,
-        "p50_batch_latency_ms": 102.69759999982853,
-        "p95_batch_latency_ms": 255.45231000078266,
+        "mean_batch_latency_ms": 35.35927350008933,
+        "std_batch_latency_ms": 7.634788327681366,
+        "min_batch_latency_ms": 28.52750000238302,
+        "max_batch_latency_ms": 82.126999997854,
+        "p50_batch_latency_ms": 32.328000001143664,
+        "p95_batch_latency_ms": 50.95885000009727,
         "round_mean_latency_ms": [
-          100.37428999994518,
-          94.56793750000543,
-          124.26348499996038,
-          126.71978999997009,
-          176.31709000002047
+          34.92761250008698,
+          36.422952500015526,
+          35.5188275004366,
+          36.24744750031823,
+          33.67952749958931
         ],
-        "throughput_samples_per_sec": 2057.075512715248
+        "throughput_samples_per_sec": 7239.967755540941
       },
       "int8": {
         "batch_size": 256,
         "rounds": 5,
         "runs_per_round": 40,
         "total_measured_calls": 200,
-        "mean_batch_latency_ms": 99.90102250005293,
-        "std_batch_latency_ms": 75.06278605977613,
-        "min_batch_latency_ms": 51.72190000030241,
-        "max_batch_latency_ms": 737.5838000007207,
-        "p50_batch_latency_ms": 71.9173000002229,
-        "p95_batch_latency_ms": 251.75993000011638,
+        "mean_batch_latency_ms": 34.838733000033244,
+        "std_batch_latency_ms": 9.211425201464406,
+        "min_batch_latency_ms": 26.946800000587245,
+        "max_batch_latency_ms": 83.8069000019459,
+        "p50_batch_latency_ms": 30.913950002286583,
+        "p95_batch_latency_ms": 55.45861499977036,
         "round_mean_latency_ms": [
-          109.8876550000341,
-          101.30060250005499,
-          134.93620000001556,
-          81.3948800000162,
-          71.9857750001438
+          33.32181000014316,
+          35.2489400000195,
+          34.10841499980961,
+          34.916455000256974,
+          36.598044999936974
         ],
-        "throughput_samples_per_sec": 2562.5363343990234,
-        "throughput_speedup_vs_fp32": 1.245718165696596
+        "throughput_samples_per_sec": 7348.143228967475,
+        "throughput_speedup_vs_fp32": 1.014941430276916
       }
     }
   },
-  "size_reduction_percent": 69.5068979879806
+  "size_reduction_percent": 69.50615079871118
 }

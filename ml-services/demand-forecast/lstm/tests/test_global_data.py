@@ -1,4 +1,4 @@
-﻿
+
 import numpy as np
 import pandas as pd
 import torch
@@ -92,7 +92,7 @@ def test_gap_raises(small_df, tmp_path):
 def test_sku_without_train_windows_maps_to_unk(small_df, tmp_path):
     # Base SKUs cover the full 40 days. LATE_SKU starts on day 26,
     # after the training cutoff, but has enough rows for later windows.
-    dates = pd.date_range("2026-01-30", periods=11, freq="D")
+    dates = pd.date_range("2026-01-26", periods=15, freq="D")
 
     late_rows = pd.DataFrame(
         {
@@ -100,7 +100,7 @@ def test_sku_without_train_windows_maps_to_unk(small_df, tmp_path):
             "sku_id": "LATE_SKU",
             "category": "CAT_LATE",
             "warehouse_id": "WH_2",
-            "sales": np.arange(200.0, 211.0),
+            "sales": np.arange(200.0, 215.0),
             "promotion": 0,
             "day_of_week": [int(d.dayofweek) for d in dates],
         }

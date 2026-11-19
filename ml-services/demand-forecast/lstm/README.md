@@ -781,6 +781,7 @@ Ensemble (unconstrained)   2.4004   weights 1.00 / 0.00 / 0.00
 
 
 Round 12-13 (Track B): status
+- Not re-run after the S2/S3 fixes (19/11): global vs per-SKU common-window comparison, five-fold walk-forward, multi-series stacking. These results come from the 18/11 code. Single-series stacking, global evaluation and the global ONNX benchmark were re-run on the current checkpoint.
 - M1 Global vs per-SKU: Completed. Five-fold expanding-window walk-forward evaluation: global LSTM mean common-SKU MAE 10.1780 vs per-SKU MAE 11.0448. Global training took longer on average (104.44 s vs 87.06 s per fold).
 - M2 Stacked ensemble: Completed. Ridge meta-learner trained on time-ordered OOF predictions. Single-seed results and five-seed robustness results are documented below.
 - M3 ONNX + INT8: Completed for both the single-series model and the global SKU model. The global model was benchmarked using 1,296 held-out test windows, including dynamic INT8 quantization.
@@ -837,13 +838,13 @@ The global model was trained using data/global_sku_demand_synthetic.csv, which c
 
 |---|---:|
 
-| Best validation MSE | 0.104453 |
+| Best validation MSE | 0.105116 |
 
-| Best epoch | 32 |
+| Best epoch | 34 |
 
-| Epochs completed | 40 |
+| Epochs completed | 42 |
 
-| Training time | 169.97 seconds |
+| Training time | 353.77 seconds |
 
 | Device | CPU |
 
@@ -851,7 +852,7 @@ The global model was trained using data/global_sku_demand_synthetic.csv, which c
 
 | Scaler | Stored inside checkpoint |
 
-The model completed 40 epochs and recorded its best validation MSE at epoch 32.
+The model completed 42 epochs and recorded its best validation MSE at epoch 34.
 Global SKU LSTM  Walk-Forward Evaluation
 Evaluation setup
 The global demand forecasting model was compared against individual per-SKU LSTM models using five-fold expanding-window walk-forward validation.
@@ -872,7 +873,7 @@ The following aggregate metrics are from the latest output/walk_forward_summary.
 | RMSE | 13.8194 | 15.1516 |
 | MAPE | 12.7128% | 13.6397% |
 
-For additional context, the latest global-model evaluation across all test SKUs recorded MAE 10.4242, RMSE 14.3003, and MAPE 14.1180%. This all-SKU result is reported separately from the common-eligible-SKU comparison.
+For additional context, the latest global-model evaluation across all test SKUs recorded MAE 9.5526, RMSE 13.1832, and MAPE 15.1692%. This all-SKU result is reported separately from the common-eligible-SKU comparison.
 Fold-level MAE
 | Fold | Global LSTM MAE | Global MAPE | Per-SKU LSTM MAE | Per-SKU MAPE | Eligible SKUs |
 |---|---:|---:|---:|---:|---:|
@@ -1047,41 +1048,47 @@ Results artifact: output/onnx_benchmark_report.json
 Track B — 11C: Global SKU LSTM ONNX Runtime Benchmark
 Objective
 Export the trained global SKU LSTM checkpoint to ONNX and benchmark FP32 against dynamically quantized INT8 using actual preprocessed held-out test windows.
-Export and validation
-Item	Result
-PyTorch checkpoint	output/global_best_model.pt
-ONNX model	output/global_best_model.onnx
-Input windows	1,296
-Input shape	(1296, 45, 4)
-Output shape	(1296, 7)
-Maximum PyTorch/ONNX difference	1.19209290e-06
-FP32 ONNX model size	229.77 KB
-Dynamic INT8 ONNX model size	70.06 KB
-File-size reduction	Approximately 69.5%
-Quantized operators	4
 
+### Export and validation
 
-Accuracy
-Metric	FP32	INT8
-MAE	9.29038	9.28119
-RMSE	12.83631	12.83088
-MAPE	14.55043%	14.50006%
+| Item | Result |
+|---|---:|
+| PyTorch checkpoint | output/global_best_model.pt |
+| ONNX model | output/global_best_model.onnx |
+| Input windows | 1,296 |
+| Input shape | (1296, 45, 4) |
+| Output shape | (1296, 7) |
+| Maximum PyTorch/ONNX difference | 5.00679016e-06 |
+| FP32 ONNX model size | 229.74 KB |
+| Dynamic INT8 ONNX model size | 70.06 KB |
+| File-size reduction | Approximately 69.5% |
+| Quantized operators | 4 |
 
+### Accuracy
 
-FP32-to-INT8 prediction difference: MAE 0.19342, RMSE 0.24483, and MAPE 0.32981%.
-Latency and throughput
-Batch size	Runtime	Mean latency (ms)	p50 (ms)	p95 (ms)	Throughput (samples/s)
-1      FP32    0.376   0.179   0.303   0.758   2,660.92
-1      INT8    0.287   0.135   0.243   0.509   3,485.07
-32     FP32    5.532   2.643   4.431   11.890  5,784.95
-32     INT8    5.441   5.336   4.111   8.274   5,881.78
-256    FP32    39.571  14.718  34.761  61.142  6,469.40
-256    INT8    36.581  10.885  31.960  58.919  6,998.13
+| Metric | FP32 | INT8 |
+|---|---:|---:|
+| MAE | 9.55255 | 9.54259 |
+| RMSE | 13.18315 | 13.16491 |
+| MAPE | 15.16924% | 15.12094% |
+
+FP32-to-INT8 prediction difference: MAE 0.18253, RMSE 0.23891, and MAPE 0.28870%.
+
+### Latency and throughput
+
+| Batch size | Runtime | Mean latency (ms) | p50 (ms) | p95 (ms) | Throughput (samples/s) |
+|---:|---|---:|---:|---:|---:|
+| 1 | FP32 | 0.479 | 0.307 | 0.965 | 2,088.87 |
+| 1 | INT8 | 0.427 | 0.271 | 1.042 | 2,341.20 |
+| 32 | FP32 | 5.161 | 4.992 | 8.664 | 6,200.74 |
+| 32 | INT8 | 6.905 | 5.304 | 13.428 | 4,634.26 |
+| 256 | FP32 | 35.359 | 32.328 | 50.959 | 7,239.97 |
+| 256 | INT8 | 34.839 | 30.914 | 55.459 | 7,348.14 |
 
 
 ### Production decision
 
-Decision: keep FP32 ONNX for the global SKU model. Across three benchmark runs on 1,296 held-out windows, dynamic INT8 reduced model size by 69.5% (229.77 KB to 70.06 KB) with no accuracy loss (MAE 9.29038 to 9.28119). However, INT8 did not show consistent throughput improvement across batch sizes. It was faster at batch 1 in all three runs, but results varied at batch 32 and batch 256. Therefore, retain FP32 until INT8 performance is more consistent.
+Decision: keep FP32 ONNX for the global SKU model. On 1,296 held-out windows, dynamic INT8 reduced model size by approximately 69.5% (229.74 KB to 70.06 KB). FP32 and INT8 achieved MAE values of 9.55255 and 9.54259 respectively. However, INT8 did not show consistent throughput improvement across batch sizes. INT8 was faster at batch 1 and batch 256 in this run, but slower at batch 32. Therefore, retain FP32 until INT8 performance is more consistent.
 
 The single-series model also stays on FP32 because INT8 showed no consistent speedup.
 

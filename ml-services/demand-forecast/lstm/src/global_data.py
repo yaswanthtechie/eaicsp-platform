@@ -1,4 +1,4 @@
-﻿
+
 """Leakage-aware dataset preparation for the global SKU LSTM."""
 
 from dataclasses import dataclass
@@ -207,6 +207,10 @@ def load_global_data(
     # Build category/warehouse IDs from training rows only.
     # Values first seen after train_cut map to UNK (0), the same as untrained SKUs.
     train_rows = df[df["date"] <= train_cut]
+    # Keep only SKUs with enough rows for at least one training window,
+    # so every category/warehouse ID gets a trained embedding.
+    rows_per_sku = train_rows.groupby("sku_id")["date"].transform("size")
+    train_rows = train_rows[rows_per_sku >= lookback + horizon]
 
     category_mapping = {
         value: idx + 1
