@@ -1,12 +1,12 @@
 from datetime import UTC, datetime
 
 from sqlalchemy import (
-    Column,
     DateTime,
     Float,
     Integer,
     String,
 )
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 
@@ -14,71 +14,71 @@ from app.database import Base
 class Warehouse(Base):
     __tablename__ = "warehouses"
 
-    warehouse_id = Column(
+    warehouse_id: Mapped[str] = mapped_column(
         String(16),
         primary_key=True,
         index=True,
     )
 
-    name = Column(
+    name: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
     )
 
-    city = Column(
+    city: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
     )
 
-    state = Column(
+    state: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
     )
 
-    country = Column(
+    country: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
         default="India",
     )
 
-    pincode = Column(
+    pincode: Mapped[str | None] = mapped_column(
         String(16),
         nullable=True,
     )
 
-    lat = Column(
+    lat: Mapped[float | None] = mapped_column(
         Float,
         nullable=True,
     )
 
-    lng = Column(
+    lng: Mapped[float | None] = mapped_column(
         Float,
         nullable=True,
     )
 
-    capacity_units = Column(
+    capacity_units: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
     )
 
-    demand_weight = Column(
+    demand_weight: Mapped[float] = mapped_column(
         Float,
         nullable=False,
         default=1.0,
     )
 
-    warehouse_type = Column(
+    warehouse_type: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
         default="central",
     )
 
-    parent_warehouse_id = Column(
+    parent_warehouse_id: Mapped[str | None] = mapped_column(
         String(16),
         nullable=True,
     )
 
-    created_at = Column(
+    created_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
         default=lambda: datetime.now(UTC),

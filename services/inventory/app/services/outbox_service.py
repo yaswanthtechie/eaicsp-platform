@@ -28,13 +28,19 @@ def record_event(
     The caller commits so that the business mutation and event are committed atomically.
     If the transaction rolls back, the event is also rolled back and never published.
     """
-    envelope_kwargs = {"occurred_at": occurred_at} if occurred_at else {}
-    envelope = EventEnvelope(
-        event_type=event_type,
-        payload=payload,
-        trace_id=trace_id,
-        **envelope_kwargs,
-    )
+    if occurred_at:
+        envelope = EventEnvelope(
+            event_type=event_type,
+            payload=payload,
+            trace_id=trace_id,
+            occurred_at=occurred_at,
+        )
+    else:
+        envelope = EventEnvelope(
+            event_type=event_type,
+            payload=payload,
+            trace_id=trace_id,
+        )
 
     serialized_payload = envelope.model_dump_json()
 

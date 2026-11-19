@@ -71,5 +71,7 @@ class Settings(BaseSettings):
         return v
 
 
-settings = Settings()
+# DATABASE_URL has no default on purpose; pydantic-settings reads it from the
+# environment or .env at runtime, which mypy cannot see.
+settings = Settings()  # type: ignore[call-arg]
 DEFAULT_SAFETY_STOCK = settings.DEFAULT_SAFETY_STOCK

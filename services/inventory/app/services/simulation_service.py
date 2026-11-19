@@ -49,15 +49,15 @@ def simulate_demand_growth(
         simulated_demand = current_demand * (1 + growth_percent / 100)
 
         simulated_reorder_point = int(
-            simulated_demand * inventory.lead_time_days + adjusted_safety_stock
+            simulated_demand * int(inventory.lead_time_days) + adjusted_safety_stock
         )
 
         current_reorder_point = calculation["reorder_point"]
 
-        needs_reorder = inventory.quantity_on_hand < simulated_reorder_point
+        needs_reorder = int(inventory.quantity_on_hand) < simulated_reorder_point
 
         suggested_order_qty = max(
-            simulated_reorder_point - inventory.quantity_on_hand,
+            simulated_reorder_point - int(inventory.quantity_on_hand),
             0,
         )
 
@@ -66,8 +66,8 @@ def simulate_demand_growth(
 
         result.append(
             {
-                "sku_id": inventory.sku_id,
-                "warehouse_id": inventory.warehouse_id,
+                "sku_id": str(inventory.sku_id),
+                "warehouse_id": str(inventory.warehouse_id),
                 "current_quantity": (inventory.quantity_on_hand),
                 "current_demand": current_demand,
                 "simulated_demand": simulated_demand,

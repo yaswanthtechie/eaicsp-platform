@@ -9,7 +9,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from sqlalchemy import MetaData, Table, inspect, select
 from sqlalchemy.orm import Session
@@ -51,7 +51,10 @@ STAGING_CSV_CANDIDATES = {
     "warehouses": ("stg_warehouse_master.csv", "warehouse_master.csv"),
     "supplier_lead_times": ("stg_supplier_lead_times.csv", "supplier_lead_times.csv"),
     "inventory_snapshots": ("stg_inventory_snapshot.csv", "inventory_snapshot.csv"),
-    "purchase_order_history": ("stg_purchase_order_history.csv", "purchase_order_history.csv"),
+    "purchase_order_history": (
+        "stg_purchase_order_history.csv",
+        "purchase_order_history.csv",
+    ),
 }
 
 VALID_WAREHOUSE_TYPES = frozenset({"central", "regional", "local"})
@@ -136,7 +139,9 @@ class ClientImportSummary:
     warehouses: EntityImportCounts = field(default_factory=EntityImportCounts)
     supplier_lead_times: EntityImportCounts = field(default_factory=EntityImportCounts)
     inventory_snapshots: EntityImportCounts = field(default_factory=EntityImportCounts)
-    purchase_order_history: EntityImportCounts = field(default_factory=EntityImportCounts)
+    purchase_order_history: EntityImportCounts = field(
+        default_factory=EntityImportCounts
+    )
     snapshot_records: list[SnapshotImportRecord] = field(default_factory=list)
     supplier_performance: list[SupplierPerformanceSummary] = field(default_factory=list)
     reorder_recommendations: list[ReorderSummaryItem] = field(default_factory=list)
@@ -172,18 +177,22 @@ class ClientImportSummary:
             or self.inventory_snapshots.unchanged
             or self.snapshot_records
         ):
-            lines.extend([
-                "",
-                "Inventory snapshots:",
-                f"  Added: {self.inventory_snapshots.added}",
-                f"  Updated: {self.inventory_snapshots.updated}",
-                f"  Unchanged: {self.inventory_snapshots.unchanged}",
-            ])
+            lines.extend(
+                [
+                    "",
+                    "Inventory snapshots:",
+                    f"  Added: {self.inventory_snapshots.added}",
+                    f"  Updated: {self.inventory_snapshots.updated}",
+                    f"  Unchanged: {self.inventory_snapshots.unchanged}",
+                ]
+            )
             imp_rop = sum(
                 1 for r in self.snapshot_records if r.reorder_point_source == "imported"
             )
             calc_rop = sum(
-                1 for r in self.snapshot_records if r.reorder_point_source == "calculated"
+                1
+                for r in self.snapshot_records
+                if r.reorder_point_source == "calculated"
             )
             imp_ss = sum(
                 1 for r in self.snapshot_records if r.safety_stock_source == "imported"
@@ -191,23 +200,27 @@ class ClientImportSummary:
             default_ss = sum(
                 1 for r in self.snapshot_records if r.safety_stock_source == "default"
             )
-            lines.extend([
-                f"  Reorder points: imported={imp_rop}, calculated_fallback={calc_rop}",
-                f"  Safety stocks: imported={imp_ss}, default_fallback={default_ss}",
-            ])
+            lines.extend(
+                [
+                    f"  Reorder points: imported={imp_rop}, calculated_fallback={calc_rop}",
+                    f"  Safety stocks: imported={imp_ss}, default_fallback={default_ss}",
+                ]
+            )
 
         if (
             self.purchase_order_history.added
             or self.purchase_order_history.updated
             or self.purchase_order_history.unchanged
         ):
-            lines.extend([
-                "",
-                "Purchase orders:",
-                f"  Added: {self.purchase_order_history.added}",
-                f"  Updated: {self.purchase_order_history.updated}",
-                f"  Unchanged: {self.purchase_order_history.unchanged}",
-            ])
+            lines.extend(
+                [
+                    "",
+                    "Purchase orders:",
+                    f"  Added: {self.purchase_order_history.added}",
+                    f"  Updated: {self.purchase_order_history.updated}",
+                    f"  Unchanged: {self.purchase_order_history.unchanged}",
+                ]
+            )
 
         if self.supplier_performance:
             lines.extend(["", "Supplier on-time delivery performance:"])
@@ -243,11 +256,11 @@ class ClientImportSummary:
 class StagingDataset:
     """In-memory staging payload aligned with #322 staging contract."""
 
-    products: list[Mapping[str, Any]] = field(default_factory=list)
-    warehouses: list[Mapping[str, Any]] = field(default_factory=list)
-    supplier_lead_times: list[Mapping[str, Any]] = field(default_factory=list)
-    inventory_snapshots: list[Mapping[str, Any]] = field(default_factory=list)
-    purchase_order_history: list[Mapping[str, Any]] = field(default_factory=list)
+    products: Sequence[Mapping[str, Any]] = field(default_factory=list)
+    warehouses: Sequence[Mapping[str, Any]] = field(default_factory=list)
+    supplier_lead_times: Sequence[Mapping[str, Any]] = field(default_factory=list)
+    inventory_snapshots: Sequence[Mapping[str, Any]] = field(default_factory=list)
+    purchase_order_history: Sequence[Mapping[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -388,7 +401,9 @@ def _require_canonical_id(
 
 
 def _resolve_sku_id(row: Mapping[str, Any], dataset: str, row_num: int) -> str:
-    return _require_canonical_id(row, ("sku_id",), SKU_ID_RE, dataset, row_num, "sku_id")
+    return _require_canonical_id(
+        row, ("sku_id",), SKU_ID_RE, dataset, row_num, "sku_id"
+    )
 
 
 def _resolve_warehouse_id(row: Mapping[str, Any], dataset: str, row_num: int) -> str:
@@ -881,14 +896,18 @@ def _parse_purchase_order_history(
             raise ClientImportValidationError(
                 f"purchase_order_history[row {row_num}]: missing required field 'order_date'"
             )
-        order_date = _parse_iso_date(raw_od, "purchase_order_history", row_num, "order_date")
+        order_date = _parse_iso_date(
+            raw_od, "purchase_order_history", row_num, "order_date"
+        )
 
         has_ed, raw_ed = _pick_present(row, ("expected_date",))
         if not has_ed:
             raise ClientImportValidationError(
                 f"purchase_order_history[row {row_num}]: missing required field 'expected_date'"
             )
-        expected_date = _parse_iso_date(raw_ed, "purchase_order_history", row_num, "expected_date")
+        expected_date = _parse_iso_date(
+            raw_ed, "purchase_order_history", row_num, "expected_date"
+        )
 
         raw_status = _require_non_empty_str(
             row, ("po_status", "status"), "purchase_order_history", row_num, "po_status"
@@ -935,10 +954,14 @@ def _parse_purchase_order_history(
                 raise ClientImportValidationError(
                     f"purchase_order_history[row {row_num}]: missing received_date for Received PO '{po_id}'"
                 )
-            received_date = _parse_iso_date(raw_rd, "purchase_order_history", row_num, "received_date")
+            received_date = _parse_iso_date(
+                raw_rd, "purchase_order_history", row_num, "received_date"
+            )
         else:
             if has_rd:
-                received_date = _parse_iso_date(raw_rd, "purchase_order_history", row_num, "received_date")
+                received_date = _parse_iso_date(
+                    raw_rd, "purchase_order_history", row_num, "received_date"
+                )
 
         if expected_date < order_date:
             raise ClientImportValidationError(
@@ -1131,13 +1154,11 @@ def _apply_inventory_snapshots(
             )
 
     existing = {
-        (row.sku_id, row.warehouse_id): row
-        for row in db.query(Inventory).all()
+        (row.sku_id, row.warehouse_id): row for row in db.query(Inventory).all()
     }
     warehouses_by_id = {w.warehouse_id: w for w in db.query(Warehouse).all()}
     lead_times_by_sku = {
-        lt.sku_id: lt.average_lead_time_days
-        for lt in db.query(SupplierLeadTime).all()
+        lt.sku_id: lt.average_lead_time_days for lt in db.query(SupplierLeadTime).all()
     }
 
     counts = EntityImportCounts()
@@ -1148,7 +1169,9 @@ def _apply_inventory_snapshots(
         key = (item.sku_id, item.warehouse_id)
         existing_obj = existing.get(key)
         wh_obj = warehouses_by_id.get(item.warehouse_id)
-        wh_type = wh_obj.warehouse_type if (wh_obj and wh_obj.warehouse_type) else "local"
+        wh_type = (
+            wh_obj.warehouse_type if (wh_obj and wh_obj.warehouse_type) else "local"
+        )
 
         # 1. Resolve safety stock (provided vs default fallback)
         if item.safety_stock is not None:
@@ -1229,7 +1252,7 @@ def _apply_inventory_snapshots(
                 db.add(new_inv)
                 existing[key] = new_inv
         else:
-            changed = {}
+            changed: dict[str, Any] = {}
             if existing_obj.quantity_on_hand != item.quantity_on_hand:
                 changed["quantity_on_hand"] = item.quantity_on_hand
             if existing_obj.safety_stock != ss_val:
@@ -1298,7 +1321,7 @@ def _apply_purchase_order_history(
                 db.add(new_po)
                 existing[item.po_id] = new_po
         else:
-            changed = {}
+            changed: dict[str, Any] = {}
             if existing_obj.sku_id != item.sku_id:
                 changed["sku_id"] = item.sku_id
             if existing_obj.warehouse_id != item.warehouse_id:
@@ -1307,9 +1330,13 @@ def _apply_purchase_order_history(
                 changed["supplier_id"] = item.supplier_id
             if existing_obj.quantity != item.quantity_ordered:
                 changed["quantity"] = item.quantity_ordered
-            if not math.isclose(existing_obj.unit_cost, item.unit_cost, rel_tol=0.0, abs_tol=1e-9):
+            if not math.isclose(
+                existing_obj.unit_cost, item.unit_cost, rel_tol=0.0, abs_tol=1e-9
+            ):
                 changed["unit_cost"] = item.unit_cost
-            if not math.isclose(existing_obj.expected_cost, expected_cost, rel_tol=0.0, abs_tol=1e-9):
+            if not math.isclose(
+                existing_obj.expected_cost, expected_cost, rel_tol=0.0, abs_tol=1e-9
+            ):
                 changed["expected_cost"] = expected_cost
             if existing_obj.status != norm_status:
                 changed["status"] = norm_status
@@ -1348,7 +1375,9 @@ def import_staging_dataset(
     existing_products = {row.sku_id: row for row in db.query(Product).all()}
     valid_sku_ids = set(existing_products) | {p.sku_id for p in parsed_products}
     existing_warehouses = {row.warehouse_id: row for row in db.query(Warehouse).all()}
-    valid_warehouse_ids = set(existing_warehouses) | {w.warehouse_id for w in parsed_warehouses}
+    valid_warehouse_ids = set(existing_warehouses) | {
+        w.warehouse_id for w in parsed_warehouses
+    }
 
     for idx, item in enumerate(parsed_products, start=1):
         supplier_id = item.values.get("supplier_id")
@@ -1425,8 +1454,7 @@ def import_staging_dataset(
     if parsed_snapshots:
         reorder_context = build_reorder_context(db)
         inv_map = {
-            (inv.sku_id, inv.warehouse_id): inv
-            for inv in db.query(Inventory).all()
+            (inv.sku_id, inv.warehouse_id): inv for inv in db.query(Inventory).all()
         }
         for snap_rec in snapshot_records:
             key = (snap_rec.sku_id, snap_rec.warehouse_id)
@@ -1540,13 +1568,17 @@ def _read_csv_records(path: Path, dataset: str) -> list[dict[str, str]]:
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
         if reader.fieldnames is None:
-            raise ClientImportValidationError(
-                f"{dataset}: CSV file has no header row"
-            )
+            raise ClientImportValidationError(f"{dataset}: CSV file has no header row")
         cleaned_records: list[dict[str, str]] = []
         for row in reader:
-            cleaned_row = {
-                (k.strip() if k is not None else k): (v.strip() if isinstance(v, str) else v)
+            if None in row:
+                raise ClientImportValidationError(
+                    f"{dataset}: line {reader.line_num} has more cells than the header"
+                )
+            cleaned_row: dict[str, str] = {
+                k.strip(): (
+                    v.strip() if isinstance(v, str) else ("" if v is None else str(v))
+                )
                 for k, v in row.items()
             }
             cleaned_records.append(cleaned_row)
@@ -1577,9 +1609,15 @@ def load_staging_dataset_from_dir(staging_dir: Path | str) -> StagingDataset:
     return StagingDataset(
         products=_read_csv_records(prod_path, "products") if prod_path else [],
         warehouses=_read_csv_records(wh_path, "warehouses") if wh_path else [],
-        supplier_lead_times=_read_csv_records(lt_path, "supplier_lead_times") if lt_path else [],
-        inventory_snapshots=_read_csv_records(snap_path, "inventory_snapshots") if snap_path else [],
-        purchase_order_history=_read_csv_records(po_path, "purchase_order_history") if po_path else [],
+        supplier_lead_times=_read_csv_records(lt_path, "supplier_lead_times")
+        if lt_path
+        else [],
+        inventory_snapshots=_read_csv_records(snap_path, "inventory_snapshots")
+        if snap_path
+        else [],
+        purchase_order_history=_read_csv_records(po_path, "purchase_order_history")
+        if po_path
+        else [],
     )
 
 

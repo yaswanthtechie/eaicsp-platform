@@ -232,7 +232,9 @@ def invalidate_receipt_cache(db: Session, receipt: GoodsReceipt) -> None:
         )
         if inventory is not None:
             invalidate_inventory_cache(
-                inventory.sku_id,
-                inventory.warehouse_id,
-                version=inventory.version,
+                str(inventory.sku_id),
+                str(inventory.warehouse_id),
+                version=int(inventory.version)
+                if inventory.version is not None
+                else None,
             )

@@ -32,8 +32,7 @@ def calculate_all_suppliers_performance(
 ) -> list[SupplierPerformanceResponse]:
     """Compute on-time delivery performance for all suppliers or a single supplier."""
     supplier_names: dict[str, str] = {
-        s.supplier_id: s.supplier_name
-        for s in db.query(Supplier).all()
+        str(s.supplier_id): str(s.supplier_name or "") for s in db.query(Supplier).all()
     }
 
     po_query = db.query(PurchaseOrder)
@@ -54,11 +53,11 @@ def calculate_all_suppliers_performance(
     all_suppliers: set[str] = set(supplier_names.keys())
 
     for po in pos:
-        s_id = po.supplier_id
+        s_id = str(po.supplier_id)
         all_suppliers.add(s_id)
         total_counts[s_id] += 1
 
-        norm_status = (po.status or "").strip().lower()
+        norm_status = str(po.status or "").strip().lower()
 
         if norm_status in RECEIVED_STATUS_SET:
             received_counts[s_id] += 1
@@ -76,8 +75,8 @@ def calculate_all_suppliers_performance(
         else:
             logger.warning(
                 "PO %s has unrecognised status %r; left out of on-time metrics",
-                po.po_id,
-                po.status,
+                str(po.po_id),
+                str(po.status),
             )
             open_counts[s_id] += 1
 
@@ -95,9 +94,7 @@ def calculate_all_suppliers_performance(
         ontime = on_time_counts[s_id]
         verified_recv = ontime + late_counts[s_id]
         percent = (
-            round((ontime / verified_recv) * 100.0, 2)
-            if verified_recv > 0
-            else None
+            round((ontime / verified_recv) * 100.0, 2) if verified_recv > 0 else None
         )
 
         results.append(

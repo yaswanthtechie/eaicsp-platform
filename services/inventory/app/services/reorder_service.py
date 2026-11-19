@@ -16,7 +16,7 @@ def build_reorder_context(
 ):
     inventories = db.query(Inventory).all()
 
-    inventory_by_sku = {}
+    inventory_by_sku: dict[str, list[Inventory]] = {}
 
     for item in inventories:
         inventory_by_sku.setdefault(
@@ -146,9 +146,7 @@ def calculate_reorder_point(
     if stored_rop is not None:
         reorder_point = int(stored_rop)
     else:
-        reorder_point = int(
-            rolling_avg_demand * lead_time_days + adjusted_safety_stock
-        )
+        reorder_point = int(rolling_avg_demand * lead_time_days + adjusted_safety_stock)
 
     return {
         "reorder_point": reorder_point,

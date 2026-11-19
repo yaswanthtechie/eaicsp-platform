@@ -37,7 +37,9 @@ from app.schemas.inventory import (
 )
 from app.schemas.master_data import (
     ProductListResponse,
+    ProductResponse,
     WarehouseListResponse,
+    WarehouseResponse,
 )
 from app.schemas.supplier_performance import (
     SupplierPerformanceResponse,
@@ -216,7 +218,7 @@ def reorder_plan(
             avg_demand = calculation["rolling_avg_demand"]
 
             urgency_score = calculate_urgency_score(
-                quantity_on_hand=inventory.quantity_on_hand,
+                quantity_on_hand=int(inventory.quantity_on_hand),
                 reorder_point=reorder_point,
                 avg_daily_demand=avg_demand,
             )
@@ -392,7 +394,10 @@ def get_products_route(
     except ValueError as exc:
         raise _ids_validation_error(exc) from exc
     items, total = list_products(db, ids=id_list, limit=limit, offset=offset)
-    return ProductListResponse(items=items, total=total)
+    return ProductListResponse(
+        items=[ProductResponse.model_validate(item) for item in items],
+        total=total,
+    )
 
 
 @router.get(
@@ -452,7 +457,10 @@ def get_warehouses_route(
     except ValueError as exc:
         raise _ids_validation_error(exc) from exc
     items, total = list_warehouses(db, ids=id_list, limit=limit, offset=offset)
-    return WarehouseListResponse(items=items, total=total)
+    return WarehouseListResponse(
+        items=[WarehouseResponse.model_validate(item) for item in items],
+        total=total,
+    )
 
 
 # =========================================================
@@ -695,8 +703,8 @@ def decrement_inventory_route(
                 uncosted_quantity,
             )
 
-        old_quantity = item.quantity_on_hand
-        item.quantity_on_hand -= quantity
+        old_quantity = int(item.quantity_on_hand)
+        item.quantity_on_hand = int(item.quantity_on_hand) - quantity
 
         # Every stock change is a new version. Optimistic locking (a PUT
         # based on a pre-sale read must get 409) and the cache's version
@@ -708,7 +716,11 @@ def decrement_inventory_route(
 
         db.commit()
         db.refresh(item)
-        invalidate_inventory_cache(sku_id, warehouse_id, version=item.version)
+        invalidate_inventory_cache(
+            sku_id,
+            warehouse_id,
+            version=item.version,
+        )
 
         # -----------------------------------------------------
         # MILESTONE 2:
