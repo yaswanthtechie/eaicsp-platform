@@ -1,25 +1,28 @@
+x-airflow-env: &airflow-env
+  AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow_user:${AIRFLOW_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+  AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow_user:${AIRFLOW_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+  AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/1
+  AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:?Set AIRFLOW_FERNET_KEY in .env}
+  AIRFLOW__API__SECRET_KEY: ${AIRFLOW_API_SECRET_KEY:?Set AIRFLOW_API_SECRET_KEY in .env}
+  AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_WEBSERVER_SECRET_KEY:?Set AIRFLOW_WEBSERVER_SECRET_KEY in .env}
+  AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+
 x-airflow-common: &airflow-common
   image: eaicsp-airflow:2.10.5
   build:
     context: ../data-platform/etl
   environment:
-    AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+    <<: *airflow-env
     AIRFLOW__WEBSERVER__WORKERS: "1"
     AIRFLOW__CELERY__WORKER_CONCURRENCY: "2"
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow_user:${AIRFLOW_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
-    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow_user:${AIRFLOW_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
-    AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
-    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:?Set AIRFLOW_FERNET_KEY in .env}
-    AIRFLOW__API__SECRET_KEY: ${AIRFLOW_API_SECRET_KEY:?Set AIRFLOW_API_SECRET_KEY in .env}
-    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_WEBSERVER_SECRET_KEY:?Set AIRFLOW_WEBSERVER_SECRET_KEY in .env}
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
-    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
     DB_HOST: postgres
     DB_PORT: "5432"
     DB_NAME: ${POSTGRES_DB}
-    DB_USER: platform_user
-    DB_PASSWORD: ${PLATFORM_DB_PASSWORD}
+    DB_USER: etl_user
+    DB_PASSWORD: ${ETL_DB_PASSWORD}
     CLICKHOUSE_HOST: clickhouse
     CLICKHOUSE_PORT: "8123"
     CLICKHOUSE_DATABASE: ${CLICKHOUSE_DB}
@@ -82,6 +85,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       AIRFLOW_DB_PASSWORD: ${AIRFLOW_DB_PASSWORD}
       CLIENT_INGEST_DB_PASSWORD: ${CLIENT_INGEST_DB_PASSWORD}
+      ETL_DB_PASSWORD: ${ETL_DB_PASSWORD}
     volumes:
       - ./postgres/bootstrap-airflow-client.sh:/scripts/bootstrap-airflow-client.sh:ro
       - ../data-platform/etl/sql/client_ingest_schema.sql:/sql/client_ingest_schema.sql:ro
@@ -94,14 +98,7 @@ services:
   airflow-init:
     <<: *airflow-common
     environment:
-      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow_user:${AIRFLOW_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow_user:${AIRFLOW_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
-      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:?Set AIRFLOW_FERNET_KEY in .env}
-      AIRFLOW__API__SECRET_KEY: ${AIRFLOW_API_SECRET_KEY:?Set AIRFLOW_API_SECRET_KEY in .env}
-      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_WEBSERVER_SECRET_KEY:?Set AIRFLOW_WEBSERVER_SECRET_KEY in .env}
-      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      <<: *airflow-env
       _AIRFLOW_DB_MIGRATE: "true"
       _AIRFLOW_WWW_USER_CREATE: "true"
       _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_ADMIN_USERNAME:-airflow}

@@ -6,8 +6,9 @@ set -euo pipefail
 : "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
 : "${AIRFLOW_DB_PASSWORD:?AIRFLOW_DB_PASSWORD is required}"
 : "${CLIENT_INGEST_DB_PASSWORD:?CLIENT_INGEST_DB_PASSWORD is required}"
+: "${ETL_DB_PASSWORD:?ETL_DB_PASSWORD is required}"
 
-echo "Creating Airflow and client-ingestion database roles..."
+echo "Creating Airflow, ETL and client-ingestion database roles..."
 
 PGPASSWORD="$POSTGRES_PASSWORD" psql \
   --host postgres \
@@ -16,7 +17,8 @@ PGPASSWORD="$POSTGRES_PASSWORD" psql \
   -v ON_ERROR_STOP=1 \
   -v dbname="$POSTGRES_DB" \
   -v airflow_password="$AIRFLOW_DB_PASSWORD" \
-  -v client_ingest_password="$CLIENT_INGEST_DB_PASSWORD" <<'SQL'
+  -v client_ingest_password="$CLIENT_INGEST_DB_PASSWORD" \
+  -v etl_password="$ETL_DB_PASSWORD" <<'SQL'
 
 SELECT format(
     'CREATE ROLE airflow_user LOGIN PASSWORD %L',
@@ -54,12 +56,27 @@ CREATE SCHEMA IF NOT EXISTS client_ingest
 ALTER SCHEMA client_ingest OWNER TO client_ingest_user;
 ALTER ROLE client_ingest_user SET search_path TO client_ingest;
 
--- dbt uses analytics; retain platform as the default schema.
-CREATE SCHEMA IF NOT EXISTS analytics AUTHORIZATION platform_user;
-GRANT USAGE, CREATE ON SCHEMA analytics TO platform_user;
-ALTER ROLE platform_user SET search_path TO platform, analytics;
+SELECT format(
+    'CREATE ROLE etl_user LOGIN PASSWORD %L',
+    :'etl_password'
+)
+WHERE NOT EXISTS (
+    SELECT FROM pg_roles WHERE rolname = 'etl_user'
+)
+\gexec
+
+ALTER ROLE etl_user
+    WITH LOGIN PASSWORD :'etl_password';
+
+-- ETL and dbt write to analytics, owned by etl_user.
+CREATE SCHEMA IF NOT EXISTS analytics
+    AUTHORIZATION etl_user;
+
+ALTER SCHEMA analytics OWNER TO etl_user;
+ALTER ROLE etl_user SET search_path TO analytics;
+
 GRANT CONNECT ON DATABASE :"dbname"
-    TO airflow_user, client_ingest_user;
+    TO airflow_user, client_ingest_user, etl_user;
 
 SQL
 
