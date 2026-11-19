@@ -267,4 +267,3 @@ def test_shipment_rejects_invalid_planned_delivery_date():
 
     with pytest.raises(ValidationError):
         validator.validate(invalid_event)
-
