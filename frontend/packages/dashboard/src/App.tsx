@@ -202,15 +202,30 @@ function DashboardApp({
 
   useEffect(() => {
     let cancelled = false;
+    let retryTimer: number | undefined;
 
+    const loadNames = (attempt: number) => {
     void fetchInventoryNames().then((names) => {
       if (!cancelled) {
-        setInventoryNames(names);
+        return;
       }
-    });
+      setInventoryNames(names);
+
+      const nothingFound =
+          Object.keys(names.products).length === 0 &&
+          Object.keys(names.warehouses).length === 0;
+
+        // One retry after 30 s, in case Inventory was restarting.
+        if (nothingFound && attempt === 0) {
+          retryTimer = window.setTimeout(() => loadNames(1), 30_000);
+        }
+      });
+    };
+    loadNames(0);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(retryTimer);
     };
   }, []);
 

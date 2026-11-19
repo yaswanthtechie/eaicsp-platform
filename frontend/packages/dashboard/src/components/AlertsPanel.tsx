@@ -8,6 +8,10 @@ import {
   CheckCircle2,
   X,
 } from "lucide-react";
+import {
+  formatProductLabel,
+  formatWarehouseLabel,
+} from "../api/inventory";
 import { useEffect, useRef, useState } from "react";
 import { colors, radius, space } from "../tokens";
 import type { AlertMessage } from "../types/forecast";
@@ -147,13 +151,16 @@ function formatAlertMessage(
   const warehouseId = payload.warehouse_id;
 
   if (typeof skuId === "string" && productNames[skuId]) {
-    message = message.replaceAll(skuId, `${productNames[skuId]} (${skuId})`);
+    message = message.replaceAll(
+      skuId,
+      formatProductLabel(skuId, productNames),
+    );
   }
 
   if (typeof warehouseId === "string" && warehouseNames[warehouseId]) {
     message = message.replaceAll(
       warehouseId,
-      `${warehouseNames[warehouseId]} (${warehouseId})`,
+      formatWarehouseLabel(warehouseId, warehouseNames),
     );
   }
 
@@ -235,13 +242,9 @@ function AlertPayloadDetails({
             }}
           >
             {key === "sku_id" && typeof value === "string"
-              ? productNames[value]
-                ? `${productNames[value]} (${value})`
-                : value
+              ? formatProductLabel(value, productNames)
               : key === "warehouse_id" && typeof value === "string"
-                ? warehouseNames[value]
-                  ? `${warehouseNames[value]} (${value})`
-                  : value
+                ? formatWarehouseLabel(value, warehouseNames)
                 : formatFieldValue(value)}
           </pre>
         </div>

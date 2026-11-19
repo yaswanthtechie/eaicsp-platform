@@ -7,6 +7,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { formatWarehouseLabel } from "../api/inventory";
 import { useMemo } from "react";
 import type { InventoryItem } from "../types/forecast";
 
@@ -109,9 +110,7 @@ function DashboardFilters({
             {(value: string) =>
               value === "All"
                 ? "All Warehouses"
-                : warehouseNames[value]
-                  ? `${warehouseNames[value]} (${value})`
-                  :value
+                : formatWarehouseLabel(value, warehouseNames)
             }
           </SelectValue>
         </SelectTrigger>
@@ -126,9 +125,7 @@ function DashboardFilters({
               key={warehouseId}
               value={warehouseId}
             >
-              {warehouseNames[warehouseId]
-                ? `${warehouseNames[warehouseId]} (${warehouseId})`
-                : warehouseId}
+              {formatWarehouseLabel(warehouseId, warehouseNames)}
             </SelectItem>
           ))}
         </SelectContent>

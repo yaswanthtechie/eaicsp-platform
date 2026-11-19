@@ -3,6 +3,10 @@ import type {
     SupplierRiskItem,
     ShipmentStatus,
 } from "../types/dashboard";
+import {
+    formatProductLabel,
+    formatWarehouseLabel,
+} from "../api/inventory";
 
 export type CsvExportView =
     | "inventory"
@@ -111,13 +115,9 @@ export function exportDashboardCsv(
 
         const rows = inventory.map((item) => [
             item.sku_id,
-            names?.productNames[item.sku_id]
-                ? `${names.productNames[item.sku_id]} (${item.sku_id})`
-                : item.sku_id,
+            formatProductLabel(item.sku_id, names?.productNames ?? {}),
             item.category,
-            names?.warehouseNames[item.warehouse_id]
-                ? `${names.warehouseNames[item.warehouse_id]} (${item.warehouse_id})`
-                : item.warehouse_id,
+            formatWarehouseLabel(item.warehouse_id, names?.warehouseNames ?? {}),
             item.quantity_on_hand,
             item.reorder_point,
             item.needs_reorder,

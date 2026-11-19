@@ -1232,11 +1232,11 @@ npm run test:e2e
 
 Test verification completed successfully.
 
-* Vitest: 26 test files, 250/250 tests passed
+* Vitest: 26 test files, 252/252 tests passed
 * Playwright Dashboard E2E: 4/4 tests passed
 * Authentication E2E: 14/14 passed with valid credentials.
 * Live Alerts WebSocket: 1/1 test  passed.
-* Total: 269 tests passed across the three reported test groups.
+* Total: 271 tests passed across the three reported test groups.
 
 The authentication tests are run separately using
 npm run test:e2e:auth.

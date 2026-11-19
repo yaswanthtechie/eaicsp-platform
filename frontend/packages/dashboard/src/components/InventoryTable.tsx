@@ -1,4 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  formatProductLabel,
+  formatWarehouseLabel,
+} from "../api/inventory";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
@@ -200,22 +204,20 @@ function InventoryTable({
           ...style,
           display: "grid",
           gridTemplateColumns:
-            "100px 260px 120px 300px 100px 120px 130px 160px 120px",
+            "100px 400px 120px 300px 100px 120px 130px 160px 120px",
           color: colors.text,
         }}
       >
         <div  role="cell" style={cellStyle}>{item.sku_id}</div>
 
         <div  role="cell" style={cellStyle}>
-          {productNames[item.sku_id] || item.sku_id}
+          {formatProductLabel(item.sku_id, productNames)}
         </div>
 
         <div  role="cell" style={cellStyle}>{item.category}</div>
 
         <div  role="cell" style={cellStyle}>
-          {warehouseNames[item.warehouse_id]
-            ? `${warehouseNames[item.warehouse_id]} (${item.warehouse_id})`
-            : item.warehouse_id}
+          {formatWarehouseLabel(item.warehouse_id, warehouseNames)}
         </div>
 
         <div  role="cell" style={cellStyle}>{item.quantity_on_hand}</div>
@@ -313,7 +315,7 @@ function InventoryTable({
             style={{
               display: "grid",
               gridTemplateColumns:
-                "100px 260px 120px 300px 100px 120px 130px 160px 120px",
+                "100px 400px 120px 300px 100px 120px 130px 160px 120px",
             }}
           >
             <div role="columnheader" style={headerStyle}>SKU</div>

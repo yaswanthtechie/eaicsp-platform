@@ -1,5 +1,6 @@
 import type { InventoryItem } from "../types/forecast";
 import type { SupplierRiskItem, ShipmentStatus } from "../types/dashboard";
+import { formatWarehouseLabel } from "../api/inventory";
 
 export function generateInventoryInsight(
   inventory: InventoryItem[],
@@ -28,9 +29,7 @@ export function generateWarehouseInsight(
   }
 
   const getWarehouseLabel = (warehouseId: string) =>
-    warehouseNames[warehouseId]
-      ? `${warehouseNames[warehouseId]} (${warehouseId})`
-      : warehouseId;
+    formatWarehouseLabel(warehouseId, warehouseNames);
 
   const warehouseCounts = new Map<string, number>();
 

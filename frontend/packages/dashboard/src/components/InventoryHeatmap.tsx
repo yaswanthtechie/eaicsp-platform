@@ -1,6 +1,10 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  formatProductLabel,
+  formatWarehouseLabel,
+} from "../api/inventory";
 import { memo, useCallback, useMemo, useState, type KeyboardEvent } from "react";
 import { List, type RowComponentProps } from "react-window";
 import { colors, radius, space } from "../tokens";
@@ -98,20 +102,17 @@ function InventoryItemRow({
       }}
       role="button"
       tabIndex={0}
-      aria-label={`Product ${
-        productNames[item.sku_id]
-          ? `${productNames[item.sku_id]} (${item.sku_id})`
-          : item.sku_id
-      }, stock ${item.quantity_on_hand}, reorder point ${item.reorder_point}`}
+      aria-label={`Product ${formatProductLabel(
+        item.sku_id,
+        productNames,
+      )}, stock ${item.quantity_on_hand}, reorder point ${item.reorder_point}`}
       onMouseEnter={() => setHovered(item.sku_id)}
       onMouseLeave={() => setHovered(null)}
       onFocus={() => setHovered(item.sku_id)}
       onKeyDown={handleKeyDown}
     >
       <span>
-        {productNames[item.sku_id]
-          ? `${productNames[item.sku_id]} (${item.sku_id})`
-          : item.sku_id}
+        {formatProductLabel(item.sku_id, productNames)}
       </span>
 
       <span
@@ -399,9 +400,7 @@ function InventoryHeatmap({
                       color: colors.text,
                     }}
                   >
-                    {warehouseNames[warehouse]
-                      ? `${warehouseNames[warehouse]} (${warehouse})`
-                      : warehouse}
+                    {formatWarehouseLabel(warehouse, warehouseNames)}
                   </strong>
 
                   {reorderCount > 0 ? (
@@ -579,9 +578,7 @@ function InventoryHeatmap({
 
                             <div>
                               Product:{" "}
-                              {productNames[hoveredItem.sku_id]
-                                ? `${productNames[hoveredItem.sku_id]} (${hoveredItem.sku_id})`
-                                : hoveredItem.sku_id}
+                              {formatProductLabel(hoveredItem.sku_id, productNames)}
                             </div>
 
                             <div>

@@ -106,7 +106,7 @@ describe("C7 Inventory name lookups", () => {
         mockResponse({
           items: [
             {
-              sku_id: "SKU-OTHER",
+              sku_id: "SKU-000999",
               name: "Other Product",
             },
           ],
@@ -117,7 +117,7 @@ describe("C7 Inventory name lookups", () => {
         mockResponse({
           items: [
             {
-              warehouse_id: "WH-OTHER",
+              warehouse_id: "WH-DEL-01",
               name: "Other Warehouse",
             },
           ],
@@ -155,5 +155,56 @@ describe("C7 Inventory name lookups", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  describe("C7 Inventory name lookups, mock mode and retry", () => {
+    beforeEach(() => {
+      vi.resetModules();
+      vi.clearAllMocks();
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    });
+
+    it("returns mock names with mock auth (no session)", async () => {
+      vi.stubEnv("VITE_USE_MOCK_INVENTORY_NAMES", "true");
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      const auth = await import("../api/auth");
+      vi.mocked(auth.getAuthSession).mockReturnValue(null);
+      const { fetchInventoryNames } = await import("../api/inventory");
+
+      const names = await fetchInventoryNames();
+
+      expect(names.products["SKU-000001"]).toBeDefined();
+      expect(names.warehouses["WH-BLR-01"]).toBeDefined();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("fetches again after a failed lookup", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(mockResponse({}, 503))
+        .mockResolvedValueOnce(mockResponse({}, 503))
+        .mockResolvedValueOnce(
+          mockResponse({
+            items: [{ sku_id: "SKU-000123", name: "Steel Fastener Set 50pc" }],
+            total: 1,
+          }),
+        )
+        .mockResolvedValueOnce(mockResponse({ items: [], total: 0 }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const { fetchInventoryNames } = await loadInventoryModule();
+
+      await fetchInventoryNames();
+      const names = await fetchInventoryNames();
+
+      expect(names.products["SKU-000123"]).toBe("Steel Fastener Set 50pc");
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    });
   });
 });

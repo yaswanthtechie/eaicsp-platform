@@ -106,7 +106,30 @@ async function fetchInventoryPages<T>(
   return items;
 }
 
+function mockNameMaps(): InventoryNameMaps {
+  return {
+    products: Object.fromEntries(
+      mockProductsResponse.items.map((product) => [
+        product.sku_id,
+        product.name,
+      ]),
+    ),
+    warehouses: Object.fromEntries(
+      mockWarehousesResponse.items.map((warehouse) => [
+        warehouse.warehouse_id,
+        warehouse.name,
+      ]),
+    ),
+  };
+}
+
 export async function fetchInventoryNames(): Promise<InventoryNameMaps> {
+  // Development-only mock data. Checked before the session so it also
+  // works with VITE_USE_MOCK_AUTH=true, where there is no session.
+  if (USE_MOCK_INVENTORY_NAMES) {
+    return mockNameMaps();
+  }
+
   const session = getAuthSession();
 
   if (!session) {
@@ -125,24 +148,6 @@ export async function fetchInventoryNames(): Promise<InventoryNameMaps> {
   cachedAccessToken = accessToken;
 
   cachedInventoryNames = (async () => {
-    // Development-only mock data. Do not call real endpoints in mock mode.
-    if (USE_MOCK_INVENTORY_NAMES) {
-      return {
-        products: Object.fromEntries(
-          mockProductsResponse.items.map((product) => [
-            product.sku_id,
-            product.name,
-          ]),
-        ),
-        warehouses: Object.fromEntries(
-          mockWarehousesResponse.items.map((warehouse) => [
-            warehouse.warehouse_id,
-            warehouse.name,
-          ]),
-        ),
-      };
-    }
-
     const [productsResult, warehousesResult] =
       await Promise.allSettled([
         fetchInventoryPages<InventoryProduct>(
@@ -154,6 +159,14 @@ export async function fetchInventoryNames(): Promise<InventoryNameMaps> {
           accessToken,
         ),
       ]);
+
+    // Keep a failed lookup only until the next call, not for the session.
+    if (
+      productsResult.status === "rejected" ||
+      warehousesResult.status === "rejected"
+    ) {
+      cachedAccessToken = null;
+    }
 
     return {
       products:

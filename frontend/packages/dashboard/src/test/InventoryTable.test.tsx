@@ -205,7 +205,7 @@ describe("InventoryTable", () => {
     );
 
     expect(
-      screen.getByText("Steel Fastener Set 50pc"),
+      screen.getByText(`Steel Fastener Set 50pc (${item.sku_id})`),
     ).toBeInTheDocument();
 
     expect(

@@ -1,6 +1,10 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  formatProductLabel,
+  formatWarehouseLabel,
+} from "../api/inventory";
 import type { InventoryItem } from "../types/forecast";
 import { colors, radius, space } from "../tokens";
 
@@ -253,9 +257,7 @@ function InventoryHealth({
                         fontWeight: 600,
                       }}
                     >
-                      {productNames[item.sku_id]
-                        ? `${productNames[item.sku_id]} (${item.sku_id})`
-                        : item.sku_id}
+                      {formatProductLabel(item.sku_id, productNames)}
                     </div>
                     <div
                       style={{
@@ -264,9 +266,7 @@ function InventoryHealth({
                       }}
                     >
                       {item.warehouse_id
-                        ? `${warehouseNames[item.warehouse_id]
-                          ? `${warehouseNames[item.warehouse_id]} (${item.warehouse_id})`
-                          : item.warehouse_id}`
+                        ? formatWarehouseLabel(item.warehouse_id, warehouseNames)
                         : ""}
                     </div>
                   </div>
