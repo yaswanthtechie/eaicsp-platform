@@ -427,6 +427,145 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inventory/products:
+    get:
+      tags:
+      - Inventory
+      summary: Get list of products
+      description: Retrieve a paginated list of products with optional canonical ID
+        filtering.
+      operationId: get_products_route_api_v1_inventory_products_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1000
+          minimum: 1
+          description: Maximum number of products to return
+          default: 500
+          title: Limit
+        description: Maximum number of products to return
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          description: Number of products to skip
+          default: 0
+          title: Offset
+        description: Number of products to skip
+      - name: ids
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Optional comma-separated list of canonical SKU IDs, at most
+            1000. Results are still paged by limit and offset.
+          title: Ids
+        description: Optional comma-separated list of canonical SKU IDs, at most 1000.
+          Results are still paged by limit and offset.
+      responses:
+        '200':
+          description: List of products with total count
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductListResponse'
+              example:
+                items:
+                - sku_id: SKU-000001
+                  name: Product 1
+                  category: Electronics
+                  unit_of_measure: PCS
+                total: 1
+        '401':
+          description: Missing or invalid token
+        '403':
+          description: Insufficient permissions
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inventory/warehouses:
+    get:
+      tags:
+      - Inventory
+      summary: Get list of warehouses
+      description: Retrieve a paginated list of warehouses with optional canonical
+        ID filtering.
+      operationId: get_warehouses_route_api_v1_inventory_warehouses_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1000
+          minimum: 1
+          description: Maximum number of warehouses to return
+          default: 500
+          title: Limit
+        description: Maximum number of warehouses to return
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          description: Number of warehouses to skip
+          default: 0
+          title: Offset
+        description: Number of warehouses to skip
+      - name: ids
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Optional comma-separated list of canonical warehouse IDs, at
+            most 1000. Results are still paged by limit and offset.
+          title: Ids
+        description: Optional comma-separated list of canonical warehouse IDs, at
+          most 1000. Results are still paged by limit and offset.
+      responses:
+        '200':
+          description: List of warehouses with total count
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WarehouseListResponse'
+              example:
+                items:
+                - warehouse_id: WH-BLR-01
+                  name: Bangalore Warehouse
+                  city: Bangalore
+                  state: Karnataka
+                  country: India
+                total: 1
+        '401':
+          description: Missing or invalid token
+        '403':
+          description: Insufficient permissions
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/inventory/bulk-upload:
     post:
       tags:
@@ -1320,6 +1459,69 @@ components:
       - recommendations
       - total_recommended_spend
       title: OptimizationRecommendationsResponse
+    ProductListResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/ProductResponse'
+          type: array
+          title: Items
+        total:
+          type: integer
+          minimum: 0.0
+          title: Total
+          description: Total matching records before pagination
+      type: object
+      required:
+      - items
+      - total
+      title: ProductListResponse
+      example:
+        items:
+        - category: Electronics
+          name: Product 1
+          sku_id: SKU-000001
+          unit_of_measure: PCS
+        total: 1
+    ProductResponse:
+      properties:
+        sku_id:
+          type: string
+          title: Sku Id
+          description: Canonical SKU identifier
+          examples:
+          - SKU-000001
+        name:
+          type: string
+          title: Name
+          description: Product name
+          examples:
+          - Product 1
+        category:
+          type: string
+          title: Category
+          description: Product category
+          examples:
+          - Electronics
+        unit_of_measure:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Unit Of Measure
+          description: Unit of measure
+          examples:
+          - PCS
+      type: object
+      required:
+      - sku_id
+      - name
+      - category
+      title: ProductResponse
+      example:
+        category: Electronics
+        name: Product 1
+        sku_id: SKU-000001
+        unit_of_measure: PCS
     PurchaseOrderRequest:
       properties:
         sku_id:
@@ -1669,6 +1871,77 @@ components:
       - msg
       - type
       title: ValidationError
+    WarehouseListResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/WarehouseResponse'
+          type: array
+          title: Items
+        total:
+          type: integer
+          minimum: 0.0
+          title: Total
+          description: Total matching records before pagination
+      type: object
+      required:
+      - items
+      - total
+      title: WarehouseListResponse
+      example:
+        items:
+        - city: Bangalore
+          country: India
+          name: Bangalore Warehouse
+          state: Karnataka
+          warehouse_id: WH-BLR-01
+        total: 1
+    WarehouseResponse:
+      properties:
+        warehouse_id:
+          type: string
+          title: Warehouse Id
+          description: Canonical warehouse identifier
+          examples:
+          - WH-BLR-01
+        name:
+          type: string
+          title: Name
+          description: Warehouse name
+          examples:
+          - Bangalore Warehouse
+        city:
+          type: string
+          title: City
+          description: City
+          examples:
+          - Bangalore
+        state:
+          type: string
+          title: State
+          description: State
+          examples:
+          - Karnataka
+        country:
+          type: string
+          title: Country
+          description: Country
+          examples:
+          - India
+      type: object
+      required:
+      - warehouse_id
+      - name
+      - city
+      - state
+      - country
+      title: WarehouseResponse
+      example:
+        city: Bangalore
+        country: India
+        name: Bangalore Warehouse
+        state: Karnataka
+        warehouse_id: WH-BLR-01
     WhatIfItem:
       properties:
         sku_id:
