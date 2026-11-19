@@ -67,3 +67,5 @@ app/data/archive/
 
 .DS_Store
 Thumbs.db
+.venv/
+.venv-*/

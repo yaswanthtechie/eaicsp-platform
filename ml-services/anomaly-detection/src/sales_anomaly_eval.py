@@ -11,16 +11,30 @@ on results. Precision and recall come from eval_framework.precision_recall
 Two runs are reported: the realistic run (default) and the old pure Poisson
 run (dispersion=None, slow_share=0.0).
 
-Run: python -m src.sales_anomaly_eval
+Each run is logged to MLflow (see src/sales_anomaly_tracking.py): parameters,
+thresholds, data range, precision and recall, anomaly count by severity. The
+tracking URI comes from MLFLOW_TRACKING_URI; without it nothing is logged.
+--register also registers the thresholds in force in the MLflow model registry
+(one version per configuration, from the realistic run only).
+
+Run: python -m src.sales_anomaly_eval [--register]
 """
 
+import argparse
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from eval_framework import precision_recall
 
-from .sales_anomaly import DROP_LOW, DROP_MIN_EXPECTED, Z_SPIKE, detect
+from .sales_anomaly import detect
+from .sales_anomaly_tracking import (
+    date_range,
+    log_run,
+    safe_log_run,
+    severity_counts,
+)
 
 
 EVAL_SEED = 5151
@@ -124,6 +138,7 @@ def evaluate(
     slow_share=SLOW_SHARE,
     log_mlflow=False,
     run_name="sales-anomaly-eval",
+    register=False,
 ):
 
     sales, labels = make_data(
@@ -180,44 +195,73 @@ def evaluate(
         }
     )
 
+    registration_error = None
+
     if log_mlflow:
-        import mlflow
 
-        mlflow.set_tracking_uri("sqlite:///mlflow.db")
-        mlflow.set_experiment("anomaly-detection-r15-sales")
+        start, end = date_range(sales["sale_date"])
 
-        with mlflow.start_run(run_name=run_name):
-            mlflow.log_params(
-                {
+        # Routine tracking only warns when MLflow fails. An explicit --register
+        # must not look successful when nothing was registered.
+        track = log_run if register else safe_log_run
+
+        try:
+            logged = track(
+                run_name,
+                params={
                     "eval_seed": EVAL_SEED,
                     "clean_seed": CLEAN_SEED,
                     "dispersion": dispersion,
                     "slow_share": slow_share,
-                    "z_spike": Z_SPIKE,
-                    "drop_low": DROP_LOW,
-                    "drop_min_expected": DROP_MIN_EXPECTED,
-                }
-            )
-            mlflow.log_metrics(
-                {
+                    "n_series": N_SERIES,
+                    "n_days": N_DAYS,
+                    "events_per_series": EVENTS_PER_SERIES,
+                },
+                data_start=start,
+                data_end=end,
+                severities=severity_counts(flagged),
+                metrics={
                     "precision": metrics["precision"],
                     "recall": metrics["recall"],
                     "f1": metrics["f1"],
-                    "clean_false_alarms_per_1000": float(
-                        1000 * clean_scored["is_anomaly"].mean()
-                    ),
-                }
+                    "recall_spike": rows[1]["recall"],
+                    "recall_drop": rows[2]["recall"],
+                    "clean_false_alarms_per_1000": 1000 * clean_scored["is_anomaly"].mean(),
+                },
+                tags={"run_kind": "evaluation"},
+                register=register,
             )
 
-    return pd.DataFrame(rows)
+            if register and logged is None:
+                raise RuntimeError("MLFLOW_TRACKING_URI is not set.")
+        except Exception as error:
+            registration_error = error
+
+    result = pd.DataFrame(rows)
+    result.attrs["registration_error"] = registration_error
+
+    return result
 
 
-def main():
+def main(argv=None):
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--register",
+        action="store_true",
+        help="Register the thresholds in force in the MLflow model registry "
+        "(realistic run only; needs MLFLOW_TRACKING_URI).",
+    )
+    args = parser.parse_args(argv)
 
     results_dir.mkdir(parents=True, exist_ok=True)
 
     runs = [
-        ("realistic", dict(log_mlflow=True), "sales_anomaly_eval.csv"),
+        (
+            "realistic",
+            dict(log_mlflow=True, register=args.register),
+            "sales_anomaly_eval.csv",
+        ),
         (
             "poisson (dispersion=None, slow_share=0.0)",
             dict(
@@ -230,13 +274,23 @@ def main():
         ),
     ]
 
+    registration_error = None
+
     for name, kwargs, filename in runs:
         result = evaluate(**kwargs)
+        registration_error = registration_error or result.attrs.get("registration_error")
 
         print(f"== {name} ==")
         print(result.to_string(index=False))
         result.to_csv(results_dir / filename, index=False)
         print(f"written: results/{filename}\n")
+
+    if registration_error is not None:
+        print(
+            f"REGISTRATION FAILED: nothing was registered in MLflow: {registration_error}",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

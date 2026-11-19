@@ -42,3 +42,24 @@ RUN_GAP_DAYS = 7
 
 # Calibration needs at least this many days of clean data (three months).
 MIN_CALIBRATION_DAYS = 90
+
+
+# Data drift check (R15-K6)
+# The latest load (last DRIFT_LATEST_DAYS days of the input) is compared with the
+# setup window (the clean data the thresholds were calibrated on). Both sides
+# are two columns: the daily quantity and the zero-sales flag.
+
+# Four full weeks, so every weekday counts the same on both sides.
+DRIFT_LATEST_DAYS = 28
+
+# Rows per side given to Evidently (seeded random sample), to keep the report fast.
+DRIFT_SAMPLE_ROWS = 50_000
+
+# Per-column drift thresholds (Evidently defaults): normalised Wasserstein
+# distance for the quantity, Jensen-Shannon distance for the zero-sales flag.
+DRIFT_NUM_THRESHOLD = 0.1
+DRIFT_CAT_THRESHOLD = 0.1
+
+# A warning is logged when at least this share of the two columns drifted
+# (0.5 = either one).
+DRIFT_ALERT_SHARE = 0.5

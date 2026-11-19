@@ -14,7 +14,5 @@ async def graphql_context(request: Request):
 graphql_router = GraphQLRouter(
     schema,
     context_getter=graphql_context,
-    dependencies=[
-        Depends(require_roles("compliance_officer"))
-    ],
+    dependencies=[Depends(require_roles("compliance_officer"))],
 )

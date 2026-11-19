@@ -11,7 +11,6 @@ from app.models.audit import ComplianceAudit
 from app.models.compliance_case import ComplianceCase
 from app.services.audit_service import compute_decision
 
-
 # ============================================================
 # GRAPHQL ENUMS
 # ============================================================
@@ -103,10 +102,7 @@ _EFFECTIVE_DECISION = func.coalesce(
     case(
         (
             ComplianceAudit.matched.is_(True)
-            & (
-                ComplianceAudit.match_score
-                >= INTERNAL_BLOCK_MATCH_SCORE
-            ),
+            & (ComplianceAudit.match_score >= INTERNAL_BLOCK_MATCH_SCORE),
             "BLOCK",
         ),
         (
@@ -131,9 +127,7 @@ def _screening_status(
     if not decision:
         decision = compute_decision(
             matched=bool(audit.matched),
-            match_score=float(
-                audit.match_score or 0
-            ),
+            match_score=float(audit.match_score or 0),
         )
 
     return ScreeningStatus(decision)
@@ -199,7 +193,6 @@ def _to_case(
 
 @strawberry.type
 class Query:
-
     # ========================================================
     # SCREENINGS
     # ========================================================
@@ -228,34 +221,25 @@ class Query:
         db = SessionLocal()
 
         try:
-            query = db.query(
-                ComplianceAudit
-            )
+            query = db.query(ComplianceAudit)
 
             # ------------------------------------------------
             # Status filter
             # ------------------------------------------------
 
             if status is not None:
-                query = query.filter(
-                    _EFFECTIVE_DECISION
-                    == status.value
-                )
+                query = query.filter(_EFFECTIVE_DECISION == status.value)
 
             # ------------------------------------------------
             # Jurisdiction filter
             # ------------------------------------------------
 
             if jurisdiction is not None:
-                normalized_jurisdiction = (
-                    jurisdiction.strip()
-                )
+                normalized_jurisdiction = jurisdiction.strip()
 
                 if normalized_jurisdiction:
                     query = query.filter(
-                        func.lower(
-                            ComplianceAudit.country
-                        )
+                        func.lower(ComplianceAudit.country)
                         == normalized_jurisdiction.lower()
                     )
 
@@ -264,16 +248,10 @@ class Query:
             # ------------------------------------------------
 
             if date_from is not None:
-                query = query.filter(
-                    ComplianceAudit.created_at
-                    >= date_from
-                )
+                query = query.filter(ComplianceAudit.created_at >= date_from)
 
             if date_to is not None:
-                query = query.filter(
-                    ComplianceAudit.created_at
-                    <= date_to
-                )
+                query = query.filter(ComplianceAudit.created_at <= date_to)
 
             # ------------------------------------------------
             # Total matching records
@@ -286,10 +264,7 @@ class Query:
             # ------------------------------------------------
 
             records = (
-                query
-                .order_by(
-                    ComplianceAudit.created_at.desc()
-                )
+                query.order_by(ComplianceAudit.created_at.desc())
                 .offset(offset)
                 .limit(limit)
                 .all()
@@ -299,10 +274,7 @@ class Query:
             # Convert records
             # ------------------------------------------------
 
-            items = [
-                _to_screening(record)
-                for record in records
-            ]
+            items = [_to_screening(record) for record in records]
 
             return ScreeningPage(
                 items=items,
@@ -342,34 +314,25 @@ class Query:
         db = SessionLocal()
 
         try:
-            query = db.query(
-                ComplianceCase
-            )
+            query = db.query(ComplianceCase)
 
             # ------------------------------------------------
             # Status filter
             # ------------------------------------------------
 
             if status is not None:
-                query = query.filter(
-                    ComplianceCase.status
-                    == status.value
-                )
+                query = query.filter(ComplianceCase.status == status.value)
 
             # ------------------------------------------------
             # Jurisdiction filter
             # ------------------------------------------------
 
             if jurisdiction is not None:
-                normalized_jurisdiction = (
-                    jurisdiction.strip()
-                )
+                normalized_jurisdiction = jurisdiction.strip()
 
                 if normalized_jurisdiction:
                     query = query.filter(
-                        func.lower(
-                            ComplianceCase.country
-                        )
+                        func.lower(ComplianceCase.country)
                         == normalized_jurisdiction.lower()
                     )
 
@@ -378,16 +341,10 @@ class Query:
             # ------------------------------------------------
 
             if date_from is not None:
-                query = query.filter(
-                    ComplianceCase.created_at
-                    >= date_from
-                )
+                query = query.filter(ComplianceCase.created_at >= date_from)
 
             if date_to is not None:
-                query = query.filter(
-                    ComplianceCase.created_at
-                    <= date_to
-                )
+                query = query.filter(ComplianceCase.created_at <= date_to)
 
             # ------------------------------------------------
             # Total matching records
@@ -400,10 +357,7 @@ class Query:
             # ------------------------------------------------
 
             records = (
-                query
-                .order_by(
-                    ComplianceCase.created_at.desc()
-                )
+                query.order_by(ComplianceCase.created_at.desc())
                 .offset(offset)
                 .limit(limit)
                 .all()
@@ -413,10 +367,7 @@ class Query:
             # Convert records
             # ------------------------------------------------
 
-            items = [
-                _to_case(record)
-                for record in records
-            ]
+            items = [_to_case(record) for record in records]
 
             return CasePage(
                 items=items,

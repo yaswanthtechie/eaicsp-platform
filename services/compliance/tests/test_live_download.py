@@ -1,12 +1,12 @@
-import pytest
 from pathlib import Path
 
+import pytest
+
 from app.core.config import (
+    EU_XML_PATH,
     OFAC_CSV_PATH,
     UN_XML_PATH,
-    EU_XML_PATH,
 )
-
 from app.services.downloader_service import (
     download_all_lists,
 )

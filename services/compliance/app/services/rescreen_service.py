@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import inspect
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -29,9 +29,7 @@ from app.services.sanctions_service import (
 
 
 def generate_screening_run_id() -> str:
-    return datetime.now(timezone.utc).strftime(
-        "%Y-%m-%dT%H-%M-%SZ"
-    )
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
 
 
 def get_latest_audits(
@@ -66,11 +64,7 @@ def get_previously_cleared_entities(
 ) -> list[ComplianceAudit]:
     latest_records = get_latest_audits(db)
 
-    return [
-        record
-        for record in latest_records.values()
-        if record.matched is False
-    ]
+    return [record for record in latest_records.values() if record.matched is False]
 
 
 def get_previous_cleared_entities(
@@ -84,9 +78,7 @@ def _screen_entity_for_rescreen(
     country: str | None,
     db,
 ) -> dict[str, Any]:
-    parameters = inspect.signature(
-        screen_entity
-    ).parameters
+    parameters = inspect.signature(screen_entity).parameters
 
     kwargs: dict[str, Any] = {}
 
@@ -105,13 +97,9 @@ def _screen_entity_for_rescreen(
 def _build_status_change_reason(
     result: dict[str, Any],
 ) -> str:
-    matched_lists = result.get(
-        "matched_lists"
-    ) or []
+    matched_lists = result.get("matched_lists") or []
 
-    matched_name = result.get(
-        "matched_name"
-    )
+    matched_name = result.get("matched_name")
 
     if matched_name and matched_lists:
         return (
@@ -126,10 +114,7 @@ def _build_status_change_reason(
         )
 
     if matched_name:
-        return (
-            f"Compliance match found for "
-            f"{matched_name}"
-        )
+        return f"Compliance match found for {matched_name}"
 
     return "Compliance screening match found"
 
@@ -153,9 +138,7 @@ def rescreen_entity(
         db=db,
     )
 
-    duration_ms = (
-        time.perf_counter() - start
-    ) * 1000
+    duration_ms = (time.perf_counter() - start) * 1000
 
     result = apply_override(
         db=db,
@@ -181,17 +164,14 @@ def rescreen_entity(
         or 0
     )
 
-    old_status = (
-        getattr(entity, "decision", None)
-        or (
-            "BLOCK"
-            if getattr(
-                entity,
-                "matched",
-                False,
-            )
-            else "CLEAR"
+    old_status = getattr(entity, "decision", None) or (
+        "BLOCK"
+        if getattr(
+            entity,
+            "matched",
+            False,
         )
+        else "CLEAR"
     )
 
     new_status = compute_decision(
@@ -243,13 +223,8 @@ def rescreen_entity(
             "country": country,
             "old_status": old_status,
             "new_status": new_status,
-            "matched_list": (
-                result.get("matched_lists")
-                or []
-            ),
-            "reason": _build_status_change_reason(
-                result
-            ),
+            "matched_list": (result.get("matched_lists") or []),
+            "reason": _build_status_change_reason(result),
             "screening_run_id": screening_run_id,
         }
 
@@ -257,9 +232,7 @@ def rescreen_entity(
         "entity_name": entity_name,
         "previous_status": old_status,
         "new_status": new_status,
-        "previously_cleared": (
-            old_status == "CLEAR"
-        ),
+        "previously_cleared": (old_status == "CLEAR"),
         "newly_flagged": newly_flagged,
         "screening_type": "RESCREEN",
         "screening_run_id": screening_run_id,
@@ -277,29 +250,18 @@ def rescreen_entity(
 def rescreen_cleared_entities() -> dict[str, Any]:
     job_start = time.perf_counter()
 
-    screening_run_id = (
-        generate_screening_run_id()
-    )
+    screening_run_id = generate_screening_run_id()
 
     db = SessionLocal()
 
     try:
         refresh_sanctions_data()
 
-        cleared_entities = (
-            get_previously_cleared_entities(
-                db
-            )
-        )
+        cleared_entities = get_previously_cleared_entities(db)
 
-        total_checked = len(
-            cleared_entities
-        )
+        total_checked = len(cleared_entities)
 
-        print(
-            "Previously-cleared entities: "
-            f"{total_checked}"
-        )
+        print(f"Previously-cleared entities: {total_checked}")
 
         newly_flagged = 0
         still_clean = 0
@@ -320,44 +282,25 @@ def rescreen_cleared_entities() -> dict[str, Any]:
             else:
                 still_clean += 1
 
-     
         db.commit()
 
         events_published = 0
         events_failed = 0
 
         for result in results:
-            status_change = result.get(
-                "status_change"
-            )
+            status_change = result.get("status_change")
 
             if not status_change:
                 continue
 
-            published = (
-                publish_supplier_status_changed(
-                    supplier_name=status_change[
-                        "supplier_name"
-                    ],
-                    country=status_change[
-                        "country"
-                    ],
-                    old_status=status_change[
-                        "old_status"
-                    ],
-                    new_status=status_change[
-                        "new_status"
-                    ],
-                    matched_list=status_change[
-                        "matched_list"
-                    ],
-                    reason=status_change[
-                        "reason"
-                    ],
-                    screening_run_id=status_change[
-                        "screening_run_id"
-                    ],
-                )
+            published = publish_supplier_status_changed(
+                supplier_name=status_change["supplier_name"],
+                country=status_change["country"],
+                old_status=status_change["old_status"],
+                new_status=status_change["new_status"],
+                matched_list=status_change["matched_list"],
+                reason=status_change["reason"],
+                screening_run_id=status_change["screening_run_id"],
             )
 
             if published:
@@ -365,10 +308,7 @@ def rescreen_cleared_entities() -> dict[str, Any]:
             else:
                 events_failed += 1
 
-        total_duration_ms = (
-            time.perf_counter()
-            - job_start
-        ) * 1000
+        total_duration_ms = (time.perf_counter() - job_start) * 1000
 
         return {
             "screening_run_id": screening_run_id,
@@ -395,14 +335,9 @@ def rescreen_cleared_entities() -> dict[str, Any]:
 
 def authenticate_rescreen_job() -> dict[str, Any]:
     if not PLATFORM_SERVICE_API_KEY:
-        raise RuntimeError(
-            "PLATFORM_SERVICE_API_KEY is not configured"
-        )
+        raise RuntimeError("PLATFORM_SERVICE_API_KEY is not configured")
 
-    verify_url = (
-        f"{PLATFORM_AUTH_URL.rstrip('/')}"
-        "/api/v1/auth/service-verify"
-    )
+    verify_url = f"{PLATFORM_AUTH_URL.rstrip('/')}/api/v1/auth/service-verify"
 
     try:
         response = httpx.post(
@@ -414,35 +349,25 @@ def authenticate_rescreen_job() -> dict[str, Any]:
         )
 
     except httpx.RequestError as exc:
-        raise RuntimeError(
-            "Unable to connect to Platform/Auth service"
-        ) from exc
+        raise RuntimeError("Unable to connect to Platform/Auth service") from exc
 
     if response.status_code != 200:
-        raise RuntimeError(
-            "Platform service authentication failed"
-        )
+        raise RuntimeError("Platform service authentication failed")
 
     try:
         data = response.json()
 
     except ValueError as exc:
-        raise RuntimeError(
-            "Platform/Auth returned an invalid response"
-        ) from exc
+        raise RuntimeError("Platform/Auth returned an invalid response") from exc
 
     if data.get("authenticated") is not True:
-        raise RuntimeError(
-            "Platform service authentication was not successful"
-        )
+        raise RuntimeError("Platform service authentication was not successful")
 
     return data
 
 
 def nightly_rescreen_job() -> dict[str, Any]:
-    print(
-        "Starting nightly re-screen..."
-    )
+    print("Starting nightly re-screen...")
 
     authenticate_rescreen_job()
 

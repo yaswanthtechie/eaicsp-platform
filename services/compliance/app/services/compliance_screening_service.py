@@ -1,16 +1,16 @@
 from sqlalchemy.orm import Session
 
+from app.services.case_service import create_case
+from app.services.risk_score_service import calculate_country_risk
 from app.services.sanctions_service import (
-    screen_entity,
     screen_bulk,
+    screen_entity,
 )
 from app.services.screening_tier_service import (
     calculate_screening_tier,
     get_match_threshold,
     get_screening_action,
 )
-from app.services.risk_score_service import calculate_country_risk
-from app.services.case_service import create_case
 
 
 def screen_and_open_case(
@@ -55,20 +55,14 @@ def screen_and_open_case(
         [],
     )
 
-    result["country_risk_score"] = (
-        country_risk_score
-    )
+    result["country_risk_score"] = country_risk_score
 
     result["screening_tier"] = screening_tier
 
-    result["enhanced_review_required"] = (
-        screening_tier == "HIGH"
-    )
+    result["enhanced_review_required"] = screening_tier == "HIGH"
 
-    result["screening_action"] = (
-        get_screening_action(
-            screening_tier,
-        )
+    result["screening_action"] = get_screening_action(
+        screening_tier,
     )
 
     if result.get("is_flagged"):
@@ -85,6 +79,7 @@ def screen_and_open_case(
         result["case_status"] = case.status
 
     return result
+
 
 def screen_bulk_and_open_cases(
     db: Session,
@@ -125,36 +120,24 @@ def screen_bulk_and_open_cases(
     processed_results = []
 
     for result in bulk_result["results"]:
-        entity_name = result.get(
-            "entity_name"
-        )
+        entity_name = result.get("entity_name")
 
         result["entity_type"] = entity_type
         result["country"] = country
-        result["transaction_value"] = (
-            transaction_value
-        )
+        result["transaction_value"] = transaction_value
 
         result["source"] = result.get(
             "matched_lists",
             [],
         )
 
-        result["country_risk_score"] = (
-            country_risk_score
-        )
+        result["country_risk_score"] = country_risk_score
 
-        result["screening_tier"] = (
-            screening_tier
-        )
+        result["screening_tier"] = screening_tier
 
-        result["enhanced_review_required"] = (
-            screening_tier == "HIGH"
-        )
+        result["enhanced_review_required"] = screening_tier == "HIGH"
 
-        result["screening_action"] = (
-            screening_action
-        )
+        result["screening_action"] = screening_action
 
         if result.get("is_flagged"):
             case = create_case(
@@ -166,9 +149,7 @@ def screen_bulk_and_open_cases(
             )
 
             result["case_id"] = case.id
-            result["case_number"] = (
-                case.case_number
-            )
+            result["case_number"] = case.case_number
             result["case_status"] = case.status
 
         processed_results.append(result)
@@ -178,7 +159,5 @@ def screen_bulk_and_open_cases(
         "country": country,
         "results": processed_results,
         "count": bulk_result["count"],
-        "total_duration_ms": bulk_result[
-            "total_duration_ms"
-        ],
+        "total_duration_ms": bulk_result["total_duration_ms"],
     }

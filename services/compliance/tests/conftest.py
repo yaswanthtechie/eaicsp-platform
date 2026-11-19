@@ -37,8 +37,7 @@ def clean_test_database(db):
         ):
             db.execute(
                 text(
-                    "SELECT setval("
-                    f"pg_get_serial_sequence('{table}', 'id'), 1, false)"
+                    f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), 1, false)"
                 )
             )
         db.commit()
@@ -96,9 +95,7 @@ def mock_compliance_officer_auth():
             "email": "test@example.com",
         }
 
-    app.dependency_overrides[
-        verify_token
-    ] = mock_verify_token
+    app.dependency_overrides[verify_token] = mock_verify_token
 
     yield
 
@@ -106,6 +103,7 @@ def mock_compliance_officer_auth():
         verify_token,
         None,
     )
+
 
 @pytest.fixture
 def fake_platform(monkeypatch):

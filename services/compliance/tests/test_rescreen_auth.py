@@ -15,13 +15,13 @@ def test_authenticate_rescreen_job_success():
         "auth_type": "api_key",
     }
 
-    with patch(
-        "app.services.rescreen_service.PLATFORM_SERVICE_API_KEY",
-        "test-api-key",
-    ), patch(
-        "app.services.rescreen_service.httpx.post"
-    ) as mock_post:
-
+    with (
+        patch(
+            "app.services.rescreen_service.PLATFORM_SERVICE_API_KEY",
+            "test-api-key",
+        ),
+        patch("app.services.rescreen_service.httpx.post") as mock_post,
+    ):
         mock_post.return_value.status_code = 200
         mock_post.return_value.json.return_value = response_data
 
@@ -37,15 +37,16 @@ def test_authenticate_rescreen_job_success():
 
     assert request.kwargs["headers"]["X-API-Key"] == "test-api-key"
 
+
 def test_authenticate_rescreen_job_invalid_key():
 
-    with patch(
-        "app.services.rescreen_service.PLATFORM_SERVICE_API_KEY",
-        "test-api-key",
-    ), patch(
-        "app.services.rescreen_service.httpx.post"
-    ) as mock_post:
-
+    with (
+        patch(
+            "app.services.rescreen_service.PLATFORM_SERVICE_API_KEY",
+            "test-api-key",
+        ),
+        patch("app.services.rescreen_service.httpx.post") as mock_post,
+    ):
         mock_post.return_value.status_code = 401
 
         with pytest.raises(
@@ -54,13 +55,13 @@ def test_authenticate_rescreen_job_invalid_key():
         ):
             authenticate_rescreen_job()
 
+
 def test_authenticate_rescreen_job_missing_key():
 
     with patch(
         "app.services.rescreen_service.PLATFORM_SERVICE_API_KEY",
         None,
     ):
-
         with pytest.raises(
             RuntimeError,
             match="PLATFORM_SERVICE_API_KEY is not configured",
@@ -70,15 +71,13 @@ def test_authenticate_rescreen_job_missing_key():
 
 def test_nightly_rescreen_stops_when_authentication_fails():
 
-    with patch(
-        "app.services.rescreen_service.authenticate_rescreen_job"
-    ) as mock_auth, patch(
-        "app.services.rescreen_service.rescreen_cleared_entities"
-    ) as mock_rescreen:
-
-        mock_auth.side_effect = RuntimeError(
-            "Platform service authentication failed"
-        )
+    with (
+        patch("app.services.rescreen_service.authenticate_rescreen_job") as mock_auth,
+        patch(
+            "app.services.rescreen_service.rescreen_cleared_entities"
+        ) as mock_rescreen,
+    ):
+        mock_auth.side_effect = RuntimeError("Platform service authentication failed")
 
         with pytest.raises(
             RuntimeError,

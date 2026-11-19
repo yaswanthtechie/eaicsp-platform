@@ -1,5 +1,5 @@
-from app.services.sanctions_service import screen_entity
 from app.services.risk_score_service import calculate_risk_score
+from app.services.sanctions_service import screen_entity
 
 
 def test_internal_watchlist_exact_match():
@@ -70,5 +70,3 @@ def test_pep_case_insensitive():
     assert result["is_flagged"] is True
     assert result["matched_name"] == "MARIA GARCIA"
     assert "PEP" in result["matched_lists"]
-
-

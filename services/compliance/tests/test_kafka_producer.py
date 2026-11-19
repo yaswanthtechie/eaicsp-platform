@@ -4,7 +4,6 @@ from datetime import datetime
 from app.core.config import SERVICE_NAME
 from app.services import kafka_producer
 
-
 FIELDS = {
     "supplier_name": "ACME LTD",
     "country": "India",
@@ -52,10 +51,7 @@ def test_event_uses_standard_envelope(monkeypatch):
         lambda: producer,
     )
 
-    assert (
-        kafka_producer.publish_supplier_status_changed(**FIELDS)
-        is True
-    )
+    assert kafka_producer.publish_supplier_status_changed(**FIELDS) is True
     assert len(producer.sent) == 1
 
     topic, key, value = producer.sent[0]
@@ -69,17 +65,11 @@ def test_event_uses_standard_envelope(monkeypatch):
         "producer",
         "payload",
     }
-    assert (
-        topic
-        == event["event_type"]
-        == "compliance.supplier.status_changed"
-    )
+    assert topic == event["event_type"] == "compliance.supplier.status_changed"
     assert event["event_version"] == 1
     assert event["producer"] == SERVICE_NAME
 
-    occurred_at = datetime.fromisoformat(
-        event["occurred_at"]
-    )
+    occurred_at = datetime.fromisoformat(event["occurred_at"])
     assert occurred_at.utcoffset().total_seconds() == 0
 
     assert event["payload"] == FIELDS
@@ -93,10 +83,7 @@ def test_kafka_down_returns_false_instead_of_raising(monkeypatch):
         lambda: _DownProducer(),
     )
 
-    assert (
-        kafka_producer.publish_supplier_status_changed(**FIELDS)
-        is False
-    )
+    assert kafka_producer.publish_supplier_status_changed(**FIELDS) is False
 
 
 def test_unacknowledged_message_returns_false(monkeypatch):
@@ -106,10 +93,7 @@ def test_unacknowledged_message_returns_false(monkeypatch):
         lambda: _UnacknowledgedProducer(),
     )
 
-    assert (
-        kafka_producer.publish_supplier_status_changed(**FIELDS)
-        is False
-    )
+    assert kafka_producer.publish_supplier_status_changed(**FIELDS) is False
 
 
 def test_kafka_producer_enables_idempotence(monkeypatch):

@@ -14,11 +14,9 @@ def load_internal_watchlist(
         encoding="utf-8",
         newline="",
     ) as file:
-
         reader = csv.DictReader(file)
 
         for row in reader:
-
             name = (row.get("name") or "").strip()
 
             if not name:

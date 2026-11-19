@@ -1,5 +1,5 @@
-from unittest.mock import AsyncMock, patch
 import inspect
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -7,7 +7,6 @@ import pytest
 from app.core import config
 from app.routes.compliance import internal_compliance_check
 from app.services import internal_compliance_service as ics
-
 
 URL = "/api/v1/compliance/internal-check"
 
@@ -51,6 +50,7 @@ def internal_service_auth(fake_platform):
 # ==========================================================
 # INTERNAL SERVICE AUTHENTICATION
 # ==========================================================
+
 
 def test_supplier_name_body_is_accepted(client):
     response = client.post(
@@ -109,6 +109,8 @@ def test_supplier_portal_key_is_accepted(client, fake_platform):
     )
 
     assert response.status_code == 200
+
+
 def test_valid_key_from_other_service_returns_403(client, fake_platform):
     fake_platform(
         status_code=200,
@@ -119,9 +121,7 @@ def test_valid_key_from_other_service_returns_403(client, fake_platform):
         },
     )
 
-    with patch(
-        "app.routes.compliance.perform_internal_compliance_check"
-    ) as mock_check:
+    with patch("app.routes.compliance.perform_internal_compliance_check") as mock_check:
         response = client.post(
             URL,
             headers={"X-API-Key": "test-gateway-key"},
@@ -130,11 +130,10 @@ def test_valid_key_from_other_service_returns_403(client, fake_platform):
 
     assert response.status_code == 403
     mock_check.assert_not_called()
-    
+
+
 def test_non_ascii_service_api_key_is_401_not_500(client):
-    with patch(
-        "app.routes.compliance.perform_internal_compliance_check"
-    ) as mock_check:
+    with patch("app.routes.compliance.perform_internal_compliance_check") as mock_check:
         response = client.post(
             URL,
             headers={"X-API-Key": "k\xe9y".encode("latin-1")},
@@ -144,10 +143,9 @@ def test_non_ascii_service_api_key_is_401_not_500(client):
     assert response.status_code == 401
     mock_check.assert_not_called()
 
+
 def test_missing_service_api_key_returns_401(client):
-    with patch(
-        "app.routes.compliance.perform_internal_compliance_check"
-    ) as mock_check:
+    with patch("app.routes.compliance.perform_internal_compliance_check") as mock_check:
         response = client.post(
             URL,
             headers={},
@@ -166,9 +164,7 @@ def test_invalid_service_api_key_returns_401(client, fake_platform):
         },
     )
 
-    with patch(
-        "app.routes.compliance.perform_internal_compliance_check"
-    ) as mock_check:
+    with patch("app.routes.compliance.perform_internal_compliance_check") as mock_check:
         response = client.post(
             URL,
             headers={
@@ -189,9 +185,7 @@ def test_revoked_service_api_key_returns_401(client, fake_platform):
         },
     )
 
-    with patch(
-        "app.routes.compliance.perform_internal_compliance_check"
-    ) as mock_check:
+    with patch("app.routes.compliance.perform_internal_compliance_check") as mock_check:
         response = client.post(
             URL,
             headers=INVENTORY_HEADERS,
@@ -205,6 +199,7 @@ def test_revoked_service_api_key_returns_401(client, fake_platform):
 # ==========================================================
 # REQUEST VALIDATION
 # ==========================================================
+
 
 @pytest.mark.parametrize(
     "body",
@@ -239,6 +234,7 @@ def test_invalid_supplier_name_is_rejected(client, body):
 # ==========================================================
 # COMPLIANCE SCREENING DECISIONS
 # ==========================================================
+
 
 def test_strong_match_returns_block(client):
     screening_result = {
@@ -314,14 +310,13 @@ def test_screening_failure_returns_503(client):
         )
 
     assert response.status_code == 503
-    assert response.json()["detail"] == (
-        "Compliance service unavailable"
-    )
+    assert response.json()["detail"] == ("Compliance service unavailable")
 
 
 # ==========================================================
 # INTERNAL CACHE
 # ==========================================================
+
 
 def test_repeated_http_calls_use_cache(client):
     screening_result = {
@@ -577,10 +572,9 @@ def test_result_is_not_cached_if_cache_was_cleared_during_screening(
 # ROUTE AND SLA TESTS
 # ==========================================================
 
+
 def test_route_is_not_async_so_it_runs_in_the_thread_pool():
-    assert not inspect.iscoroutinefunction(
-        internal_compliance_check
-    )
+    assert not inspect.iscoroutinefunction(internal_compliance_check)
 
 
 def test_sla_alerts_are_rate_limited(monkeypatch):
@@ -598,7 +592,7 @@ def test_sla_alerts_are_rate_limited(monkeypatch):
     with patch.object(
         ics,
         "send_sla_alert",
-    ) as mock_send:
+    ):
         first = ics._alert_sla_degraded(
             "inventory-service",
             "SUP001",
@@ -618,6 +612,7 @@ def test_sla_alerts_are_rate_limited(monkeypatch):
 # ==========================================================
 # REAL SANCTIONS MATCH TESTS
 # ==========================================================
+
 
 def test_near_match_returns_review_without_mocking(client):
     # "HAMAZ" fuzzy-matches the OFAC fixture "HAMAS" at score 80:
@@ -695,6 +690,8 @@ def test_sanctions_reload_clears_internal_cache(client):
     sanctions_service.load_all_sanctions()
 
     assert ics._INTERNAL_CHECK_CACHE == {}
+
+
 def test_platform_service_verification_uses_configured_timeout(
     client,
 ):
@@ -711,14 +708,10 @@ def test_platform_service_verification_uses_configured_timeout(
         ),
     )
 
-    with patch(
-        "app.core.dependency.httpx.AsyncClient"
-    ) as mock_client:
+    with patch("app.core.dependency.httpx.AsyncClient") as mock_client:
         mock_instance = mock_client.return_value.__aenter__.return_value
 
-        mock_instance.post = AsyncMock(
-            return_value=mock_response
-        )
+        mock_instance.post = AsyncMock(return_value=mock_response)
 
         response = client.post(
             URL,
@@ -728,8 +721,6 @@ def test_platform_service_verification_uses_configured_timeout(
 
     assert response.status_code == 200
 
-    mock_client.assert_called_once_with(
-        timeout=config.PLATFORM_VERIFY_TIMEOUT_SECONDS
-    )
+    mock_client.assert_called_once_with(timeout=config.PLATFORM_VERIFY_TIMEOUT_SECONDS)
 
     assert config.PLATFORM_VERIFY_TIMEOUT_SECONDS == 2.0
