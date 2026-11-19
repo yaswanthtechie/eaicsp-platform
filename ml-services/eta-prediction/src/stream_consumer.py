@@ -144,9 +144,8 @@ def validate_event(event):
 
     _parse_aware_datetime(payload["dispatched_at"], "dispatched_at")
 
-    planned = payload.get("planned_delivery_date")
-
-    if planned is not None:
+    if "planned_delivery_date" in payload:
+        planned = payload["planned_delivery_date"]
         if not isinstance(planned, str) or not re.fullmatch(
             r"\d{4}-\d{2}-\d{2}", planned
         ):
@@ -334,7 +333,12 @@ def run(settings):
                     event["payload"],
                     routes,
                 )
-            except (ValueError, KeyError) as exc:
+                prediction_event = build_prediction_event(
+                    event,
+                    prediction,
+                    settings["model_version"],
+                )
+            except (ValueError, KeyError, OverflowError) as exc:
                 log.warning(
                     "Cannot predict ETA for event_id=%s: %s",
                     event_id,
@@ -345,12 +349,6 @@ def run(settings):
                     f"Prediction failed: {exc}",
                 )
                 continue
-
-            prediction_event = build_prediction_event(
-                event,
-                prediction,
-                settings["model_version"],
-            )
 
             # 3. Publish. Broker failure raises and prevents offset commit.
             publish_prediction(
