@@ -1392,6 +1392,50 @@ Parity: PASS (rows, quantity sum and price sum identical). Input: ~10.05M genera
 
 - After the review fixes, the DAG was triggered again for 2024-02: dag_run id 8 succeeded, all 263,613 rows carry run_id 8 (the Airflow run id), and the quantity sum (13,173,901) was unchanged, so the re-run was idempotent.
 
+## R15 Nightly Forecast Batch
+
+DAG `forecast_nightly_batch` runs daily at 01:00 UTC (`max_active_runs=1`, 2 retries). It loads the Production model `demand_forecast` from MLflow, forecasts 30 days for every SKU/warehouse pair in the seed sales file, writes ClickHouse `demand_forecast_history`, caches each pair in Redis, and publishes `forecast.batch.completed` (contract `contracts/events/forecast.batch.completed.v1.json`).
+
+**Before the first run**, generate the seed sales file from `data-platform/`:
+
+```bash
+python -m seed.generate --out out/
+```
+
+**Run standalone** (ETL stack only, no MLflow, so the batch itself cannot load a model):
+
+```bash
+docker compose up -d
+```
+
+**Run on the shared stack** (after `make up` in `infra/`):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.shared.yml up -d
+```
+
+In `.env`, point the batch at the infra services by their aliases:
+
+```env
+CLICKHOUSE_HOST=infra-clickhouse
+FORECAST_REDIS_URL=redis://infra-redis:6379/1
+MLFLOW_TRACKING_URI=http://infra-mlflow:5000
+MLFLOW_S3_ENDPOINT_URL=http://infra-minio:9000
+```
+
+Kafka has no infra alias yet, so `forecast.batch.completed` goes to the ETL stack's own Kafka until infra adds an `infra-kafka` alias and listener (#230). The Kafka alias and listener are a follow-up for Ajith, not for this PR.
+
+**Redis cache (owned by this batch, see the integration blueprint):**
+
+- Key: `forecast_cache:{batch_date}:{sku_id}:{warehouse_id}`, for example `forecast_cache:2026-11-16:SKU-000123:WH-BLR-01`.
+- Value: JSON with `run_id`, `batch_date`, `sku_id`, `warehouse_id`, `model_version`, `granularity`, `horizon`, `interval_level`, `generated_at` and `forecast` (a list of `date`, `predicted`, `lower_bound`, `upper_bound`).
+- Latest batch pointer: `forecast_cache:latest_batch_date` holds the newest batch date as `YYYY-MM-DD`.
+- TTL: `FORECAST_CACHE_TTL_SECONDS`, default `172800` (48 hours), for both the entries and the pointer.
+
+**Reruns:** each run gets a new UUID v4 `event_id`. ClickHouse rows are replaced through `ReplacingMergeTree(version)`, so read with `FINAL`. Pairs that fail on a rerun keep the previous run's rows for that `batch_date`; check `model_version` and `generated_at`.
+
+**Tests:** `pytest tests/test_forecast_nightly_batch.py -q` runs without Docker.
+
 ## V4 Dashboard KPI Views
 
 The four dashboard KPIs are implemented as ClickHouse views under

@@ -5,33 +5,31 @@ from app.core.auth import (
     require_roles,
     verify_token,
 )
-
 from app.schemas.three_way_match import (
-    ThreeWayMatchResponse,
-    ThreeWayMatchResolution,
     DisputeResolutionSuggestionResponse,
     PaymentApprovalResponse,
-)
-from app.services.three_way_match_service import (
-    execute_three_way_match,
-    get_three_way_match,
-    resolve_three_way_discrepancy,
-    approve_payment,
+    ThreeWayMatchResolution,
+    ThreeWayMatchResponse,
 )
 from app.services.dispute_resolution_service import (
     get_dispute_resolution_suggestions,
 )
+from app.services.three_way_match_service import (
+    approve_payment,
+    execute_three_way_match,
+    get_three_way_match,
+    resolve_three_way_discrepancy,
+)
 
 router = APIRouter(
-    dependencies=[
-        Depends(enforce_not_suspended_with_supplier_id_required)
-    ],
+    dependencies=[Depends(enforce_not_suspended_with_supplier_id_required)],
 )
 
 
 # ============================================================
 # SUPPLIER IDENTITY VALIDATION
 # ============================================================
+
 
 def validate_supplier_identity(user: dict) -> None:
     """
@@ -47,10 +45,12 @@ def validate_supplier_identity(user: dict) -> None:
             status_code=403,
             detail="Supplier ID is required.",
         )
-    
+
+
 # ============================================================
 # SUPPLIER ACCESS VALIDATION
 # ============================================================
+
 
 def check_supplier_access(
     supplier_id: str,
@@ -66,7 +66,6 @@ def check_supplier_access(
     authenticated_supplier_id = user.get("supplier_id")
 
     if role == "supplier":
-
         if not authenticated_supplier_id:
             raise HTTPException(
                 status_code=403,
@@ -83,6 +82,7 @@ def check_supplier_access(
 # ============================================================
 # AUTHENTICATED USER EMAIL
 # ============================================================
+
 
 def get_authenticated_email(
     user: dict,
@@ -106,6 +106,7 @@ def get_authenticated_email(
 # Requires: procurement_manager
 # ============================================================
 
+
 @router.post(
     "/three-way-matches/{supplier_id}/{invoice_number}",
     response_model=ThreeWayMatchResponse,
@@ -113,9 +114,7 @@ def get_authenticated_email(
 def execute_match(
     supplier_id: str,
     invoice_number: str,
-    user=Depends(
-        require_roles("procurement_manager")
-    ),
+    user=Depends(require_roles("procurement_manager")),
 ):
     """
     Execute three-way match.
@@ -154,7 +153,6 @@ def execute_match(
         )
 
     except ValueError as exc:
-
         message = str(exc)
         lower_message = message.lower()
 
@@ -162,21 +160,20 @@ def execute_match(
             raise HTTPException(
                 status_code=404,
                 detail=message,
-            )
+            ) from exc
 
         if "purchase order" in lower_message:
-
             if "not found" in lower_message:
                 raise HTTPException(
                     status_code=404,
                     detail=message,
-                )
+                ) from exc
 
             if "does not own" in lower_message:
                 raise HTTPException(
                     status_code=403,
                     detail=message,
-                )
+                ) from exc
 
         if (
             "must be fulfilled" in lower_message
@@ -188,17 +185,18 @@ def execute_match(
             raise HTTPException(
                 status_code=400,
                 detail=message,
-            )
+            ) from exc
 
         raise HTTPException(
             status_code=400,
             detail=message,
-        )
+        ) from exc
 
 
 # ============================================================
 # GET THREE-WAY MATCH
 # ============================================================
+
 
 @router.get(
     "/three-way-matches/{supplier_id}/{invoice_number}",
@@ -269,6 +267,7 @@ def get_match(
 # Requires: compliance_officer
 # ============================================================
 
+
 @router.post(
     "/three-way-matches/{supplier_id}/{invoice_number}/resolve",
     response_model=ThreeWayMatchResponse,
@@ -277,9 +276,7 @@ def resolve_match(
     supplier_id: str,
     invoice_number: str,
     resolution: ThreeWayMatchResolution,
-    user=Depends(
-        require_roles("compliance_officer")
-    ),
+    user=Depends(require_roles("compliance_officer")),
 ):
     """
     Resolve a three-way-match discrepancy.
@@ -312,7 +309,6 @@ def resolve_match(
         )
 
     except ValueError as exc:
-
         message = str(exc)
         lower_message = message.lower()
 
@@ -320,13 +316,13 @@ def resolve_match(
             raise HTTPException(
                 status_code=404,
                 detail=message,
-            )
+            ) from exc
 
         raise HTTPException(
             status_code=400,
             detail=message,
-        )
-    
+        ) from exc
+
 
 @router.get(
     "/three-way-matches/{supplier_id}/{invoice_number}/resolution-suggestion",
@@ -370,19 +366,20 @@ def get_resolution_suggestion(
         raise HTTPException(
             status_code=404,
             detail=str(exc),
-        )
+        ) from exc
 
     except ValueError as exc:
         raise HTTPException(
             status_code=400,
             detail=str(exc),
-        )
+        ) from exc
 
 
 # ============================================================
 # PAYMENT APPROVAL
 # Requires: procurement_manager
 # ============================================================
+
 
 @router.post(
     "/three-way-matches/{supplier_id}/{invoice_number}/payment-approve",
@@ -391,9 +388,7 @@ def get_resolution_suggestion(
 def approve_payment_endpoint(
     supplier_id: str,
     invoice_number: str,
-    user=Depends(
-        require_roles("procurement_manager")
-    ),
+    user=Depends(require_roles("procurement_manager")),
 ):
     """
     Approve payment only after successful three-way matching.
@@ -424,7 +419,6 @@ def approve_payment_endpoint(
         )
 
     except ValueError as exc:
-
         message = str(exc)
         lower_message = message.lower()
 
@@ -432,10 +426,9 @@ def approve_payment_endpoint(
             raise HTTPException(
                 status_code=404,
                 detail=message,
-            )
+            ) from exc
 
         raise HTTPException(
             status_code=400,
             detail=message,
-        )
-
+        ) from exc

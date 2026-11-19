@@ -7,9 +7,7 @@ class ComplianceServiceError(Exception):
     """Base error for Compliance Service integration."""
 
 
-class ComplianceServiceUnavailableError(
-    ComplianceServiceError
-):
+class ComplianceServiceUnavailableError(ComplianceServiceError):
     """Raised when Compliance Service cannot be reached."""
 
 
@@ -84,9 +82,7 @@ def check_supplier_compliance(
         ) from exc
 
     except httpx.HTTPStatusError as exc:
-        raise ComplianceServiceError(
-            "Compliance Service returned an error."
-        ) from exc
+        raise ComplianceServiceError("Compliance Service returned an error.") from exc
 
     try:
         result = response.json()
@@ -96,9 +92,7 @@ def check_supplier_compliance(
         ) from exc
 
     if not isinstance(result, dict):
-        raise ComplianceServiceError(
-            "Compliance Service returned an invalid response."
-        )
+        raise ComplianceServiceError("Compliance Service returned an invalid response.")
 
     decision = result.get("decision")
     cleared = result.get("cleared")
@@ -108,9 +102,7 @@ def check_supplier_compliance(
         "BLOCK",
         "REVIEW",
     }:
-        raise ComplianceServiceError(
-            "Compliance Service returned an invalid decision."
-        )
+        raise ComplianceServiceError("Compliance Service returned an invalid decision.")
 
     if not isinstance(cleared, bool):
         raise ComplianceServiceError(

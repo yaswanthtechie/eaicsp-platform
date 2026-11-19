@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 
 from app.models.supplier import Supplier
 
-
 CANONICAL_SUPPLIER_ID = re.compile(r"^SUP-\d{5}$")
 
 REQUIRED_COLUMNS = {
@@ -40,14 +39,11 @@ def _parse_finite_float(value: Any, field: str, line_number: int) -> float:
         number = float(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(
-            f"CSV line {line_number}: invalid numeric value "
-            f"for {field}: {value!r}"
+            f"CSV line {line_number}: invalid numeric value for {field}: {value!r}"
         ) from exc
 
     if not math.isfinite(number):
-        raise ValueError(
-            f"CSV line {line_number}: {field} must be a finite number"
-        )
+        raise ValueError(f"CSV line {line_number}: {field} must be a finite number")
 
     return number
 
@@ -59,8 +55,7 @@ def validate_supplier(
     missing = [
         column
         for column in REQUIRED_COLUMNS
-        if column != "sanctions_list"
-        and not str(row.get(column) or "").strip()
+        if column != "sanctions_list" and not str(row.get(column) or "").strip()
     ]
 
     if missing:
@@ -95,14 +90,11 @@ def validate_supplier(
         )
 
     for field in INTEGER_FIELDS:
-        number = _parse_finite_float(
-            normalized[field], field, line_number
-        )
+        number = _parse_finite_float(normalized[field], field, line_number)
 
         if number < 0 or not number.is_integer():
             raise ValueError(
-                f"CSV line {line_number}: {field} must be a "
-                "non-negative integer"
+                f"CSV line {line_number}: {field} must be a non-negative integer"
             )
 
         normalized[field] = int(number)
@@ -119,9 +111,7 @@ def validate_supplier(
         if value is None or not str(value).strip():
             normalized[field] = None
         else:
-            normalized[field] = _parse_finite_float(
-                value, field, line_number
-            )
+            normalized[field] = _parse_finite_float(value, field, line_number)
 
     normalized["supplier_id"] = supplier_id
 
@@ -135,17 +125,13 @@ def load_supplier_csv(
     path = Path(csv_path)
 
     if not path.is_file():
-        raise FileNotFoundError(
-            f"Supplier seed CSV not found: {path}"
-        )
+        raise FileNotFoundError(f"Supplier seed CSV not found: {path}")
 
     with path.open("r", encoding="utf-8-sig", newline="") as file:
         reader = csv.DictReader(file)
 
         if not reader.fieldnames:
-            raise ValueError(
-                "Supplier seed CSV is empty or has no header"
-            )
+            raise ValueError("Supplier seed CSV is empty or has no header")
 
         missing_columns = REQUIRED_COLUMNS - set(reader.fieldnames)
 
@@ -159,9 +145,7 @@ def load_supplier_csv(
         seen_ids: set[str] = set()
 
         for line_number, row in enumerate(reader, start=2):
-            if not row or not any(
-                str(value or "").strip() for value in row.values()
-            ):
+            if not row or not any(str(value or "").strip() for value in row.values()):
                 continue
 
             supplier = validate_supplier(row, line_number)
@@ -169,17 +153,14 @@ def load_supplier_csv(
 
             if supplier_id in seen_ids:
                 raise ValueError(
-                    f"CSV line {line_number}: duplicate supplier ID "
-                    f"{supplier_id}"
+                    f"CSV line {line_number}: duplicate supplier ID {supplier_id}"
                 )
 
             seen_ids.add(supplier_id)
             suppliers.append(supplier)
 
     if not suppliers:
-        raise ValueError(
-            "Supplier seed CSV contains no supplier records"
-        )
+        raise ValueError("Supplier seed CSV contains no supplier records")
 
     return suppliers
 
@@ -215,9 +196,7 @@ def persist_suppliers(
         supplier = session.get(Supplier, supplier_id)
 
         if supplier is None:
-            session.add(
-                Supplier(supplier_id=supplier_id, **values)
-            )
+            session.add(Supplier(supplier_id=supplier_id, **values))
             inserted += 1
         else:
             for field, value in values.items():

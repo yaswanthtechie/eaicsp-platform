@@ -1,5 +1,5 @@
-from datetime import date, datetime, timezone
 import uuid
+from datetime import date, datetime, timezone
 
 from app.schemas.supplier_contract import (
     ContractStatus,
@@ -7,7 +7,6 @@ from app.schemas.supplier_contract import (
     SupplierContractRenewalRequest,
     SupplierContractUpdate,
 )
-
 
 # ============================================================
 # STORAGE
@@ -37,6 +36,7 @@ CONTRACT_TRANSITIONS = {
 # ============================================================
 # HELPERS
 # ============================================================
+
 
 def _utc_now() -> datetime:
     """
@@ -88,14 +88,9 @@ def _is_expiring_soon(
     remaining lifetime is inside the configured renewal
     notification window.
     """
-    days_until_expiry = _calculate_days_until_expiry(
-        end_date
-    )
+    days_until_expiry = _calculate_days_until_expiry(end_date)
 
-    return (
-        days_until_expiry >= 0
-        and days_until_expiry <= renewal_notice_days
-    )
+    return days_until_expiry >= 0 and days_until_expiry <= renewal_notice_days
 
 
 def _effective_status(
@@ -107,14 +102,10 @@ def _effective_status(
     Expiration is derived dynamically from end_date rather
     than requiring a background scheduler.
     """
-    if _is_expired(
-        contract["end_date"]
-    ):
+    if _is_expired(contract["end_date"]):
         return ContractStatus.expired
 
-    return ContractStatus(
-        contract["status"]
-    )
+    return ContractStatus(contract["status"])
 
 
 def _add_history(
@@ -139,9 +130,7 @@ def _add_history(
     """
 
     history = {
-        "history_id": str(
-            uuid.uuid4()
-        ),
+        "history_id": str(uuid.uuid4()),
         "contract_id": contract_id,
         "supplier_id": supplier_id,
         "from_status": from_status,
@@ -173,18 +162,12 @@ def _transition(
     Perform a controlled contract lifecycle transition.
     """
 
-    contract = supplier_contracts.get(
-        contract_id
-    )
+    contract = supplier_contracts.get(contract_id)
 
     if contract is None:
-        raise ValueError(
-            "Contract not found."
-        )
+        raise ValueError("Contract not found.")
 
-    current_status = _effective_status(
-        contract
-    )
+    current_status = _effective_status(contract)
 
     allowed_states = CONTRACT_TRANSITIONS.get(
         current_status,
@@ -192,10 +175,7 @@ def _transition(
     )
 
     if target_status not in allowed_states:
-        allowed = ", ".join(
-            state.value
-            for state in allowed_states
-        )
+        allowed = ", ".join(state.value for state in allowed_states)
 
         if not allowed:
             allowed = "none"
@@ -232,6 +212,7 @@ def _transition(
 # SUPPLIER VALIDATION
 # ============================================================
 
+
 def _validate_supplier_active(
     supplier_id: str,
 ):
@@ -248,25 +229,18 @@ def _validate_supplier_active(
     )
 
     try:
-        get_supplier(
-            supplier_id
-        )
-    except ValueError:
-        raise ValueError(
-            "Supplier not found."
-        )
+        get_supplier(supplier_id)
+    except ValueError as exc:
+        raise ValueError("Supplier not found.") from exc
 
-    if not is_supplier_active(
-        supplier_id
-    ):
-        raise ValueError(
-            "Contract can only be created for an active supplier."
-        )
+    if not is_supplier_active(supplier_id):
+        raise ValueError("Contract can only be created for an active supplier.")
 
 
 # ============================================================
 # CONTRACT VALIDATION
 # ============================================================
+
 
 def _validate_contract_dates(
     start_date: date,
@@ -282,9 +256,7 @@ def _validate_contract_dates(
     start date.
     """
     if end_date < start_date:
-        raise ValueError(
-            "Contract end_date must be on or after start_date."
-        )
+        raise ValueError("Contract end_date must be on or after start_date.")
 
 
 def _validate_renewal_dates(
@@ -301,20 +273,15 @@ def _validate_renewal_dates(
     The new contract may start on the previous contract's
     end date or later.
     """
-    current_end_date = current_contract[
-        "end_date"
-    ]
+    current_end_date = current_contract["end_date"]
 
     if new_start_date < current_end_date:
         raise ValueError(
-            "Renewal start date cannot be before "
-            "the current contract end date."
+            "Renewal start date cannot be before the current contract end date."
         )
 
     if new_end_date <= new_start_date:
-        raise ValueError(
-            "Renewal end date must be after renewal start date."
-        )
+        raise ValueError("Renewal end date must be after renewal start date.")
 
 
 def _find_contract_by_number(
@@ -325,16 +292,10 @@ def _find_contract_by_number(
 
     Contract numbers are treated case-insensitively.
     """
-    normalized_number = (
-        contract_number.strip().lower()
-    )
+    normalized_number = contract_number.strip().lower()
 
     for contract in supplier_contracts.values():
-        existing_number = (
-            contract["contract_number"]
-            .strip()
-            .lower()
-        )
+        existing_number = contract["contract_number"].strip().lower()
 
         if existing_number == normalized_number:
             return contract
@@ -346,6 +307,7 @@ def _find_contract_by_number(
 # RESPONSE BUILDING
 # ============================================================
 
+
 def _build_contract_response(
     contract: dict,
 ) -> dict:
@@ -354,20 +316,13 @@ def _build_contract_response(
 
     Expiry-related fields are always calculated dynamically.
     """
-    days_until_expiry = _calculate_days_until_expiry(
-        contract["end_date"]
-    )
+    days_until_expiry = _calculate_days_until_expiry(contract["end_date"])
 
-    effective_status = _effective_status(
-        contract
-    )
+    effective_status = _effective_status(contract)
 
-    expiring_soon = (
-        effective_status != ContractStatus.expired
-        and _is_expiring_soon(
-            contract["end_date"],
-            contract["renewal_notice_days"],
-        )
+    expiring_soon = effective_status != ContractStatus.expired and _is_expiring_soon(
+        contract["end_date"],
+        contract["renewal_notice_days"],
     )
 
     return {
@@ -381,12 +336,8 @@ def _build_contract_response(
         "payment_terms": contract["payment_terms"],
         "delivery_terms": contract["delivery_terms"],
         "pricing_terms": contract["pricing_terms"],
-        "minimum_order_value": (
-            contract["minimum_order_value"]
-        ),
-        "renewal_notice_days": (
-            contract["renewal_notice_days"]
-        ),
+        "minimum_order_value": (contract["minimum_order_value"]),
+        "renewal_notice_days": (contract["renewal_notice_days"]),
         "auto_renew": contract["auto_renew"],
         "status": effective_status,
         "expiring_soon": expiring_soon,
@@ -400,6 +351,7 @@ def _build_contract_response(
 # ============================================================
 # 1. CREATE CONTRACT
 # ============================================================
+
 
 def create_contract(
     contract_data: SupplierContractCreate,
@@ -418,48 +370,31 @@ def create_contract(
         5. Historical/expired contracts are allowed.
     """
 
-    supplier_id = (
-        contract_data.supplier_id.strip()
-    )
+    supplier_id = contract_data.supplier_id.strip()
 
-    contract_number = (
-        contract_data.contract_number.strip()
-    )
+    contract_number = contract_data.contract_number.strip()
 
     if not supplier_id:
-        raise ValueError(
-            "Supplier ID is required."
-        )
+        raise ValueError("Supplier ID is required.")
 
     if not contract_number:
-        raise ValueError(
-            "Contract number is required."
-        )
+        raise ValueError("Contract number is required.")
 
-    _validate_supplier_active(
-        supplier_id
-    )
+    _validate_supplier_active(supplier_id)
 
     _validate_contract_dates(
         contract_data.start_date,
         contract_data.end_date,
     )
 
-    existing = _find_contract_by_number(
-        contract_number
-    )
+    existing = _find_contract_by_number(contract_number)
 
     if existing:
-        raise ValueError(
-            f"Contract number '{contract_number}' "
-            "already exists."
-        )
+        raise ValueError(f"Contract number '{contract_number}' already exists.")
 
     now = _utc_now()
 
-    contract_id = (
-        f"CNT-{uuid.uuid4().hex[:8].upper()}"
-    )
+    contract_id = f"CNT-{uuid.uuid4().hex[:8].upper()}"
 
     contract = {
         "contract_id": contract_id,
@@ -472,12 +407,8 @@ def create_contract(
         "payment_terms": contract_data.payment_terms,
         "delivery_terms": contract_data.delivery_terms,
         "pricing_terms": contract_data.pricing_terms,
-        "minimum_order_value": (
-            contract_data.minimum_order_value
-        ),
-        "renewal_notice_days": (
-            contract_data.renewal_notice_days
-        ),
+        "minimum_order_value": (contract_data.minimum_order_value),
+        "renewal_notice_days": (contract_data.renewal_notice_days),
         "auto_renew": contract_data.auto_renew,
         "status": ContractStatus.draft,
         "created_at": now,
@@ -485,13 +416,9 @@ def create_contract(
         "created_by": str(actor_id),
     }
 
-    supplier_contracts[
-        contract_id
-    ] = contract
+    supplier_contracts[contract_id] = contract
 
-    supplier_contract_history[
-        contract_id
-    ] = []
+    supplier_contract_history[contract_id] = []
 
     _add_history(
         contract_id=contract_id,
@@ -504,14 +431,13 @@ def create_contract(
         reason="Supplier contract created.",
     )
 
-    return _build_contract_response(
-        contract
-    )
+    return _build_contract_response(contract)
 
 
 # ============================================================
 # 2. GET CONTRACT
 # ============================================================
+
 
 def get_contract(
     contract_id: str,
@@ -521,23 +447,18 @@ def get_contract(
     effective lifecycle status.
     """
 
-    contract = supplier_contracts.get(
-        contract_id
-    )
+    contract = supplier_contracts.get(contract_id)
 
     if contract is None:
-        raise ValueError(
-            "Contract not found."
-        )
+        raise ValueError("Contract not found.")
 
-    return _build_contract_response(
-        contract
-    )
+    return _build_contract_response(contract)
 
 
 # ============================================================
 # 3. LIST CONTRACTS
 # ============================================================
+
 
 def list_contracts(
     supplier_id: str | None = None,
@@ -552,28 +473,15 @@ def list_contracts(
     results = []
 
     for contract in supplier_contracts.values():
+        effective_status = _effective_status(contract)
 
-        effective_status = _effective_status(
-            contract
-        )
-
-        if (
-            supplier_id is not None
-            and contract["supplier_id"] != supplier_id
-        ):
+        if supplier_id is not None and contract["supplier_id"] != supplier_id:
             continue
 
-        if (
-            status is not None
-            and effective_status != status
-        ):
+        if status is not None and effective_status != status:
             continue
 
-        results.append(
-            _build_contract_response(
-                contract
-            )
-        )
+        results.append(_build_contract_response(contract))
 
     results.sort(
         key=lambda item: (
@@ -588,6 +496,7 @@ def list_contracts(
 # ============================================================
 # 4. UPDATE CONTRACT
 # ============================================================
+
 
 def update_contract(
     contract_id: str,
@@ -608,36 +517,22 @@ def update_contract(
     contract history for audit purposes.
     """
 
-    contract = supplier_contracts.get(
-        contract_id
-    )
+    contract = supplier_contracts.get(contract_id)
 
     if contract is None:
-        raise ValueError(
-            "Contract not found."
-        )
+        raise ValueError("Contract not found.")
 
-    effective_status = _effective_status(
-        contract
-    )
+    effective_status = _effective_status(contract)
 
     if effective_status == ContractStatus.expired:
-        raise ValueError(
-            "Expired contracts cannot be updated."
-        )
+        raise ValueError("Expired contracts cannot be updated.")
 
-    update_data = contract_data.model_dump(
-        exclude_unset=True
-    )
+    update_data = contract_data.model_dump(exclude_unset=True)
 
     if not update_data:
-        raise ValueError(
-            "At least one contract field must be provided."
-        )
+        raise ValueError("At least one contract field must be provided.")
 
-    new_start_date = contract[
-        "start_date"
-    ]
+    new_start_date = contract["start_date"]
 
     new_end_date = update_data.get(
         "end_date",
@@ -656,10 +551,7 @@ def update_contract(
     changes = {}
 
     for field, new_value in update_data.items():
-
-        old_value = contract.get(
-            field
-        )
+        old_value = contract.get(field)
 
         if old_value != new_value:
             changes[field] = {
@@ -681,10 +573,7 @@ def update_contract(
     # --------------------------------------------------------
 
     if changes:
-
-        changed_fields = ", ".join(
-            changes.keys()
-        )
+        changed_fields = ", ".join(changes.keys())
 
         history_reason = (
             "Contract terms updated. "
@@ -701,32 +590,19 @@ def update_contract(
             supplier_id=contract["supplier_id"],
             from_status=effective_status,
             to_status=effective_status,
-            actor_id=(
-                str(actor_id)
-                if actor_id is not None
-                else "system"
-            ),
-            actor_name=(
-                actor_name
-                if actor_name
-                else "System"
-            ),
-            actor_role=(
-                actor_role
-                if actor_role
-                else "system"
-            ),
+            actor_id=(str(actor_id) if actor_id is not None else "system"),
+            actor_name=(actor_name if actor_name else "System"),
+            actor_role=(actor_role if actor_role else "system"),
             reason=history_reason,
         )
 
-    return _build_contract_response(
-        contract
-    )
+    return _build_contract_response(contract)
 
 
 # ============================================================
 # 5. ACTIVATE CONTRACT
 # ============================================================
+
 
 def activate_contract(
     contract_id: str,
@@ -740,21 +616,13 @@ def activate_contract(
     An already expired contract cannot be activated.
     """
 
-    contract = supplier_contracts.get(
-        contract_id
-    )
+    contract = supplier_contracts.get(contract_id)
 
     if contract is None:
-        raise ValueError(
-            "Contract not found."
-        )
+        raise ValueError("Contract not found.")
 
-    if _is_expired(
-        contract["end_date"]
-    ):
-        raise ValueError(
-            "An already expired contract cannot be activated."
-        )
+    if _is_expired(contract["end_date"]):
+        raise ValueError("An already expired contract cannot be activated.")
 
     return _build_contract_response(
         _transition(
@@ -771,6 +639,7 @@ def activate_contract(
 # ============================================================
 # 6. RENEW CONTRACT
 # ============================================================
+
 
 def renew_contract(
     contract_id: str,
@@ -789,27 +658,18 @@ def renew_contract(
     ACTIVE again.
     """
 
-    contract = supplier_contracts.get(
-        contract_id
-    )
+    contract = supplier_contracts.get(contract_id)
 
     if contract is None:
-        raise ValueError(
-            "Contract not found."
-        )
+        raise ValueError("Contract not found.")
 
-    effective_status = _effective_status(
-        contract
-    )
+    effective_status = _effective_status(contract)
 
     if effective_status not in (
         ContractStatus.active,
         ContractStatus.expired,
     ):
-        raise ValueError(
-            "Only active or expired contracts "
-            "can be renewed."
-        )
+        raise ValueError("Only active or expired contracts can be renewed.")
 
     _validate_renewal_dates(
         current_contract=contract,
@@ -817,20 +677,13 @@ def renew_contract(
         new_end_date=renewal_data.new_end_date,
     )
 
-    previous_start_date = contract[
-        "start_date"
-    ]
+    previous_start_date = contract["start_date"]
 
-    previous_end_date = contract[
-        "end_date"
-    ]
+    previous_end_date = contract["end_date"]
 
     previous_status = effective_status
 
-    renewal_reason = (
-        renewal_data.reason
-        or "Supplier contract renewed."
-    )
+    renewal_reason = renewal_data.reason or "Supplier contract renewed."
 
     # Preserve the previous validity period in the
     # immutable history reason.
@@ -844,13 +697,9 @@ def renew_contract(
         f"to {renewal_data.new_end_date.isoformat()}."
     )
 
-    contract["start_date"] = (
-        renewal_data.new_start_date
-    )
+    contract["start_date"] = renewal_data.new_start_date
 
-    contract["end_date"] = (
-        renewal_data.new_end_date
-    )
+    contract["end_date"] = renewal_data.new_end_date
 
     contract["status"] = ContractStatus.active
 
@@ -884,6 +733,7 @@ def renew_contract(
 # 7. LIST EXPIRING CONTRACTS
 # ============================================================
 
+
 def list_expiring_contracts(
     supplier_id: str | None = None,
     within_days: int | None = None,
@@ -903,38 +753,24 @@ def list_expiring_contracts(
     """
 
     if within_days is not None and within_days < 0:
-        raise ValueError(
-            "within_days cannot be negative."
-        )
+        raise ValueError("within_days cannot be negative.")
 
     results = []
 
     for contract in supplier_contracts.values():
-
-        effective_status = _effective_status(
-            contract
-        )
+        effective_status = _effective_status(contract)
 
         # Expired contracts never appear in the renewal
         # alert list.
         if effective_status == ContractStatus.expired:
             continue
 
-        if (
-            supplier_id is not None
-            and contract["supplier_id"] != supplier_id
-        ):
+        if supplier_id is not None and contract["supplier_id"] != supplier_id:
             continue
 
-        days_until_expiry = (
-            _calculate_days_until_expiry(
-                contract["end_date"]
-            )
-        )
+        days_until_expiry = _calculate_days_until_expiry(contract["end_date"])
 
-        renewal_window = (
-            contract["renewal_notice_days"]
-        )
+        renewal_window = contract["renewal_notice_days"]
 
         if within_days is not None:
             renewal_window = min(
@@ -942,26 +778,16 @@ def list_expiring_contracts(
                 within_days,
             )
 
-        if (
-            0
-            <= days_until_expiry
-            <= renewal_window
-        ):
+        if 0 <= days_until_expiry <= renewal_window:
             results.append(
                 {
                     "contract_id": contract["contract_id"],
                     "supplier_id": contract["supplier_id"],
-                    "contract_number": (
-                        contract["contract_number"]
-                    ),
+                    "contract_number": (contract["contract_number"]),
                     "title": contract["title"],
                     "end_date": contract["end_date"],
-                    "renewal_notice_days": (
-                        contract["renewal_notice_days"]
-                    ),
-                    "days_until_expiry": (
-                        days_until_expiry
-                    ),
+                    "renewal_notice_days": (contract["renewal_notice_days"]),
+                    "days_until_expiry": (days_until_expiry),
                     "expiring_soon": True,
                     "status": effective_status,
                 }
@@ -981,6 +807,7 @@ def list_expiring_contracts(
 # 8. CONTRACT HISTORY
 # ============================================================
 
+
 def get_contract_history(
     contract_id: str,
 ):
@@ -990,9 +817,7 @@ def get_contract_history(
     """
 
     if contract_id not in supplier_contracts:
-        raise ValueError(
-            "Contract not found."
-        )
+        raise ValueError("Contract not found.")
 
     return supplier_contract_history.get(
         contract_id,

@@ -1,12 +1,14 @@
 from datetime import date, datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
 from app.schemas.ids import SUPPLIER_ID_PATTERN
 
 # ============================================================
 # CONTRACT STATUS
 # ============================================================
+
 
 class ContractStatus(str, Enum):
     draft = "draft"
@@ -18,6 +20,7 @@ class ContractStatus(str, Enum):
 # ============================================================
 # CONTRACT CREATE REQUEST
 # ============================================================
+
 
 class SupplierContractCreate(BaseModel):
     model_config = ConfigDict(
@@ -34,7 +37,7 @@ class SupplierContractCreate(BaseModel):
                 "pricing_terms": "Fixed",
                 "minimum_order_value": 500000,
                 "renewal_notice_days": 30,
-                "auto_renew": False
+                "auto_renew": False,
             }
         }
     )
@@ -44,55 +47,25 @@ class SupplierContractCreate(BaseModel):
         pattern=SUPPLIER_ID_PATTERN,
     )
 
-    contract_number: str = Field(
-        ...,
-        min_length=1,
-        max_length=100
-    )
+    contract_number: str = Field(..., min_length=1, max_length=100)
 
-    title: str = Field(
-        ...,
-        min_length=2,
-        max_length=200
-    )
+    title: str = Field(..., min_length=2, max_length=200)
 
-    description: str | None = Field(
-        default=None,
-        max_length=2000
-    )
+    description: str | None = Field(default=None, max_length=2000)
 
     start_date: date
 
     end_date: date
 
-    payment_terms: str = Field(
-        ...,
-        min_length=2,
-        max_length=500
-    )
+    payment_terms: str = Field(..., min_length=2, max_length=500)
 
-    delivery_terms: str = Field(
-        ...,
-        min_length=2,
-        max_length=500
-    )
+    delivery_terms: str = Field(..., min_length=2, max_length=500)
 
-    pricing_terms: str = Field(
-        ...,
-        min_length=2,
-        max_length=500
-    )
+    pricing_terms: str = Field(..., min_length=2, max_length=500)
 
-    minimum_order_value: float | None = Field(
-        default=None,
-        ge=0
-    )
+    minimum_order_value: float | None = Field(default=None, ge=0)
 
-    renewal_notice_days: int = Field(
-        default=30,
-        ge=1,
-        le=365
-    )
+    renewal_notice_days: int = Field(default=30, ge=1, le=365)
 
     auto_renew: bool = False
 
@@ -100,6 +73,7 @@ class SupplierContractCreate(BaseModel):
 # ============================================================
 # CONTRACT UPDATE REQUEST
 # ============================================================
+
 
 class SupplierContractUpdate(BaseModel):
     model_config = ConfigDict(
@@ -113,52 +87,26 @@ class SupplierContractUpdate(BaseModel):
                 "pricing_terms": "Fixed",
                 "minimum_order_value": 600000,
                 "renewal_notice_days": 45,
-                "auto_renew": True
+                "auto_renew": True,
             }
         }
     )
 
-    title: str | None = Field(
-        default=None,
-        min_length=2,
-        max_length=200
-    )
+    title: str | None = Field(default=None, min_length=2, max_length=200)
 
-    description: str | None = Field(
-        default=None,
-        max_length=2000
-    )
+    description: str | None = Field(default=None, max_length=2000)
 
     end_date: date | None = None
 
-    payment_terms: str | None = Field(
-        default=None,
-        min_length=2,
-        max_length=500
-    )
+    payment_terms: str | None = Field(default=None, min_length=2, max_length=500)
 
-    delivery_terms: str | None = Field(
-        default=None,
-        min_length=2,
-        max_length=500
-    )
+    delivery_terms: str | None = Field(default=None, min_length=2, max_length=500)
 
-    pricing_terms: str | None = Field(
-        default=None,
-        min_length=2,
-        max_length=500
-    )
+    pricing_terms: str | None = Field(default=None, min_length=2, max_length=500)
 
-    minimum_order_value: float | None = Field(
-        default=None,
-        ge=0
-    )
+    minimum_order_value: float | None = Field(default=None, ge=0)
 
-    renewal_notice_days: int | None = Field(
-        default=None,
-        ge=1,
-        le=365
-    )
+    renewal_notice_days: int | None = Field(default=None, ge=1, le=365)
 
     auto_renew: bool | None = None
 
@@ -167,13 +115,14 @@ class SupplierContractUpdate(BaseModel):
 # CONTRACT RENEWAL REQUEST
 # ============================================================
 
+
 class SupplierContractRenewalRequest(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
                 "new_start_date": "2027-04-01",
                 "new_end_date": "2028-03-31",
-                "reason": "Annual supplier agreement renewed"
+                "reason": "Annual supplier agreement renewed",
             }
         }
     )
@@ -182,15 +131,13 @@ class SupplierContractRenewalRequest(BaseModel):
 
     new_end_date: date
 
-    reason: str | None = Field(
-        default=None,
-        max_length=1000
-    )
+    reason: str | None = Field(default=None, max_length=1000)
 
 
 # ============================================================
 # CONTRACT RESPONSE
 # ============================================================
+
 
 class SupplierContractResponse(BaseModel):
     contract_id: str
@@ -218,6 +165,7 @@ class SupplierContractResponse(BaseModel):
 # CONTRACT RENEWAL RESPONSE
 # ============================================================
 
+
 class SupplierContractRenewalResponse(BaseModel):
     contract_id: str
     supplier_id: str
@@ -233,6 +181,7 @@ class SupplierContractRenewalResponse(BaseModel):
 # ============================================================
 # CONTRACT HISTORY
 # ============================================================
+
 
 class SupplierContractHistory(BaseModel):
     history_id: str
@@ -250,6 +199,7 @@ class SupplierContractHistory(BaseModel):
 # ============================================================
 # CONTRACT EXPIRY RESPONSE
 # ============================================================
+
 
 class SupplierContractExpiryResponse(BaseModel):
     contract_id: str

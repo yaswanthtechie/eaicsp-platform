@@ -7,6 +7,7 @@ configuration conventions and supports environment variable overrides.
 """
 
 import json
+import math
 import os
 from functools import lru_cache
 from typing import Any, Dict, Final, Optional, Set
@@ -48,6 +49,23 @@ DEFAULT_MONGODB_URI: Final[str] = "mongodb://localhost:27017"
 DEFAULT_MONGODB_DATABASE: Final[str] = "supplier_risk"
 DEFAULT_MONGODB_COLLECTION: Final[str] = "headlines"
 DEFAULT_PLATFORM_SERVICE_URL: Final[str] = "http://127.0.0.1:8005"
+
+# ------------------------------------------------------------------
+# Client Supplier & Incident Scoring Defaults (Issue #350)
+# ------------------------------------------------------------------
+
+DEFAULT_CLIENT_QUALITY_INCIDENT_WEIGHT: Final[float] = 15.0
+DEFAULT_CLIENT_DELAY_INCIDENT_WEIGHT: Final[float] = 10.0
+DEFAULT_CLIENT_DISPUTE_INCIDENT_WEIGHT: Final[float] = 12.0
+DEFAULT_CLIENT_OTHER_INCIDENT_WEIGHT: Final[float] = 8.0
+DEFAULT_CLIENT_TARGET_ON_TIME_DELIVERY_PCT: Final[float] = 95.0
+DEFAULT_CLIENT_LATE_DELIVERY_PENALTY_WEIGHT: Final[float] = 1.0
+DEFAULT_CLIENT_RISK_WEIGHT: Final[float] = 0.5
+DEFAULT_NLP_RISK_WEIGHT: Final[float] = 0.5
+DEFAULT_CLIENT_MAX_INCIDENT_SCORE: Final[float] = 75.0
+
+DEFAULT_MONGODB_CLIENT_SUPPLIERS_COLLECTION: Final[str] = "client_suppliers"
+DEFAULT_MONGODB_CLIENT_INCIDENTS_COLLECTION: Final[str] = "client_incidents"
 
 # Service API keys (R15-M5): which callers may use X-API-Key on this service.
 ALLOWED_API_KEY_CALLERS: Final[frozenset[str]] = frozenset({"supplier-portal", "gateway-bff"})
@@ -217,6 +235,25 @@ def validate_factor_weight(name: str, value: Any, max_val: float = 1.0) -> float
     return val
 
 
+def validate_composite_weights(
+    client_risk_weight: float,
+    nlp_risk_weight: float,
+    tolerance: float = 1e-6,
+) -> None:
+    """
+    Validate that client_risk_weight and nlp_risk_weight are non-negative,
+    do not exceed 1.0, and sum to 1.0 within a small floating-point tolerance.
+    """
+    val_crw = validate_factor_weight("client_risk_weight", client_risk_weight)
+    val_nrw = validate_factor_weight("nlp_risk_weight", nlp_risk_weight)
+    total = val_crw + val_nrw
+    if not math.isclose(total, 1.0, abs_tol=tolerance):
+        raise ValueError(
+            f"The sum of client_risk_weight ({val_crw}) and "
+            f"nlp_risk_weight ({val_nrw}) must equal 1.0, got {total}"
+        )
+
+
 def validate_hysteresis_thresholds(
     enter_medium: float,
     exit_medium: float,
@@ -315,6 +352,17 @@ class Settings:
         hysteresis_min_evidence: int | None = None,
         risk_assessment_ttl_seconds: int | None = None,
         platform_service_url: str | None = None,
+        client_quality_incident_weight: float | None = None,
+        client_delay_incident_weight: float | None = None,
+        client_dispute_incident_weight: float | None = None,
+        client_other_incident_weight: float | None = None,
+        client_target_on_time_delivery_pct: float | None = None,
+        client_late_delivery_penalty_weight: float | None = None,
+        client_risk_weight: float | None = None,
+        nlp_risk_weight: float | None = None,
+        client_max_incident_score: float | None = None,
+        mongodb_client_suppliers_collection: str | None = None,
+        mongodb_client_incidents_collection: str | None = None,
     ) -> None:
         # 1. Negative sentiment penalty
         if negative_sentiment_penalty is not None:
@@ -630,6 +678,92 @@ class Settings:
                 os.getenv("PLATFORM_AUTH_URL", DEFAULT_PLATFORM_SERVICE_URL),
             )
 
+        # 19. Client Supplier & Incident Scoring (Issue #350)
+        self.client_quality_incident_weight = (
+            validate_numeric_weight("client_quality_incident_weight", client_quality_incident_weight)
+            if client_quality_incident_weight is not None
+            else float(os.getenv("CLIENT_QUALITY_INCIDENT_WEIGHT", DEFAULT_CLIENT_QUALITY_INCIDENT_WEIGHT))
+        )
+        self.client_delay_incident_weight = (
+            validate_numeric_weight("client_delay_incident_weight", client_delay_incident_weight)
+            if client_delay_incident_weight is not None
+            else float(os.getenv("CLIENT_DELAY_INCIDENT_WEIGHT", DEFAULT_CLIENT_DELAY_INCIDENT_WEIGHT))
+        )
+        self.client_dispute_incident_weight = (
+            validate_numeric_weight("client_dispute_incident_weight", client_dispute_incident_weight)
+            if client_dispute_incident_weight is not None
+            else float(os.getenv("CLIENT_DISPUTE_INCIDENT_WEIGHT", DEFAULT_CLIENT_DISPUTE_INCIDENT_WEIGHT))
+        )
+        self.client_other_incident_weight = (
+            validate_numeric_weight("client_other_incident_weight", client_other_incident_weight)
+            if client_other_incident_weight is not None
+            else float(os.getenv("CLIENT_OTHER_INCIDENT_WEIGHT", DEFAULT_CLIENT_OTHER_INCIDENT_WEIGHT))
+        )
+        self.client_target_on_time_delivery_pct = (
+            validate_numeric_weight("client_target_on_time_delivery_pct", client_target_on_time_delivery_pct)
+            if client_target_on_time_delivery_pct is not None
+            else float(os.getenv("CLIENT_TARGET_ON_TIME_DELIVERY_PCT", DEFAULT_CLIENT_TARGET_ON_TIME_DELIVERY_PCT))
+        )
+        self.client_late_delivery_penalty_weight = (
+            validate_numeric_weight("client_late_delivery_penalty_weight", client_late_delivery_penalty_weight)
+            if client_late_delivery_penalty_weight is not None
+            else float(os.getenv("CLIENT_LATE_DELIVERY_PENALTY_WEIGHT", DEFAULT_CLIENT_LATE_DELIVERY_PENALTY_WEIGHT))
+        )
+        if client_risk_weight is not None:
+            self.client_risk_weight = validate_factor_weight(
+                "client_risk_weight", client_risk_weight
+            )
+        else:
+            raw_crw = os.getenv("CLIENT_RISK_WEIGHT")
+            if raw_crw is not None:
+                try:
+                    val_crw = float(raw_crw)
+                except (ValueError, TypeError) as exc:
+                    raise ValueError(
+                        f"Weight 'CLIENT_RISK_WEIGHT' must be numeric, got {type(raw_crw).__name__}: {raw_crw}"
+                    ) from exc
+                self.client_risk_weight = validate_factor_weight("CLIENT_RISK_WEIGHT", val_crw)
+            else:
+                self.client_risk_weight = validate_factor_weight(
+                    "client_risk_weight", DEFAULT_CLIENT_RISK_WEIGHT
+                )
+
+        if nlp_risk_weight is not None:
+            self.nlp_risk_weight = validate_factor_weight(
+                "nlp_risk_weight", nlp_risk_weight
+            )
+        else:
+            raw_nrw = os.getenv("NLP_RISK_WEIGHT")
+            if raw_nrw is not None:
+                try:
+                    val_nrw = float(raw_nrw)
+                except (ValueError, TypeError) as exc:
+                    raise ValueError(
+                        f"Weight 'NLP_RISK_WEIGHT' must be numeric, got {type(raw_nrw).__name__}: {raw_nrw}"
+                    ) from exc
+                self.nlp_risk_weight = validate_factor_weight("NLP_RISK_WEIGHT", val_nrw)
+            else:
+                self.nlp_risk_weight = validate_factor_weight(
+                    "nlp_risk_weight", DEFAULT_NLP_RISK_WEIGHT
+                )
+
+        validate_composite_weights(self.client_risk_weight, self.nlp_risk_weight)
+        self.client_max_incident_score = (
+            validate_numeric_weight("client_max_incident_score", client_max_incident_score)
+            if client_max_incident_score is not None
+            else float(os.getenv("CLIENT_MAX_INCIDENT_SCORE", DEFAULT_CLIENT_MAX_INCIDENT_SCORE))
+        )
+        self.mongodb_client_suppliers_collection = (
+            mongodb_client_suppliers_collection.strip()
+            if mongodb_client_suppliers_collection is not None
+            else os.getenv("MONGODB_CLIENT_SUPPLIERS_COLLECTION", DEFAULT_MONGODB_CLIENT_SUPPLIERS_COLLECTION).strip()
+        )
+        self.mongodb_client_incidents_collection = (
+            mongodb_client_incidents_collection.strip()
+            if mongodb_client_incidents_collection is not None
+            else os.getenv("MONGODB_CLIENT_INCIDENTS_COLLECTION", DEFAULT_MONGODB_CLIENT_INCIDENTS_COLLECTION).strip()
+        )
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert settings instance to dictionary for API serialization."""
         return {
@@ -660,6 +794,17 @@ class Settings:
             "mongodb_collection": self.mongodb_collection,
             "risk_assessment_ttl_seconds": self.risk_assessment_ttl_seconds,
             "platform_service_url": self.platform_service_url,
+            "client_quality_incident_weight": self.client_quality_incident_weight,
+            "client_delay_incident_weight": self.client_delay_incident_weight,
+            "client_dispute_incident_weight": self.client_dispute_incident_weight,
+            "client_other_incident_weight": self.client_other_incident_weight,
+            "client_target_on_time_delivery_pct": self.client_target_on_time_delivery_pct,
+            "client_late_delivery_penalty_weight": self.client_late_delivery_penalty_weight,
+            "client_risk_weight": self.client_risk_weight,
+            "nlp_risk_weight": self.nlp_risk_weight,
+            "client_max_incident_score": self.client_max_incident_score,
+            "mongodb_client_suppliers_collection": self.mongodb_client_suppliers_collection,
+            "mongodb_client_incidents_collection": self.mongodb_client_incidents_collection,
         }
 
 

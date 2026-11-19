@@ -1,9 +1,11 @@
 from __future__ import annotations
+
 import json
 import logging
 import time
 from datetime import datetime, timezone
 from typing import Any
+
 from confluent_kafka import (
     Consumer,
     KafkaError,
@@ -11,6 +13,7 @@ from confluent_kafka import (
     Producer,
     TopicPartition,
 )
+
 from app.core.config import settings
 from app.schemas.events import SupplierStatusChangedEvent
 from app.services.supplier_compliance_service import (
@@ -50,15 +53,11 @@ class SupplierStatusChangedConsumer:
         dlq_topic: str | None = None,
         auto_offset_reset: str | None = None,
     ) -> None:
-        self.bootstrap_servers = (
-            bootstrap_servers or settings.KAFKA_BOOTSTRAP_SERVERS
-        )
+        self.bootstrap_servers = bootstrap_servers or settings.KAFKA_BOOTSTRAP_SERVERS
         self.topic = topic or settings.KAFKA_STATUS_CHANGED_TOPIC
         self.group_id = group_id or settings.KAFKA_CONSUMER_GROUP
         self.dlq_topic = dlq_topic or settings.KAFKA_DLQ_TOPIC
-        self.auto_offset_reset = (
-            auto_offset_reset or settings.KAFKA_AUTO_OFFSET_RESET
-        )
+        self.auto_offset_reset = auto_offset_reset or settings.KAFKA_AUTO_OFFSET_RESET
 
         self._consumer = Consumer(
             {
@@ -118,13 +117,11 @@ class SupplierStatusChangedConsumer:
             if remaining:
                 errors.append(
                     KafkaDeadLetterError(
-                        f"{remaining} DLQ message(s) remained pending "
-                        "at shutdown."
+                        f"{remaining} DLQ message(s) remained pending at shutdown."
                     )
                 )
                 logger.error(
-                    "DLQ producer still has %s message(s) pending "
-                    "at shutdown.",
+                    "DLQ producer still has %s message(s) pending at shutdown.",
                     remaining,
                 )
         except Exception as exc:
@@ -195,8 +192,7 @@ class SupplierStatusChangedConsumer:
         self._running = True
 
         logger.info(
-            "Supplier Portal Kafka consumer started: "
-            "topic=%s group=%s bootstrap=%s",
+            "Supplier Portal Kafka consumer started: topic=%s group=%s bootstrap=%s",
             self.topic,
             self.group_id,
             self.bootstrap_servers,
@@ -209,15 +205,23 @@ class SupplierStatusChangedConsumer:
                 if message is None:
                     continue
 
-                if message.error():
-                    self._handle_consumer_error(message.error())
+                error = message.error()
+                if error is not None:
+                    self._handle_consumer_error(error)
                     continue
 
-                retry_key = (
-                    message.topic(),
-                    message.partition(),
-                    message.offset(),
-                )
+                topic = message.topic()
+                partition = message.partition()
+                offset = message.offset()
+
+                if topic is None or partition is None or offset is None:
+                    # Skip one malformed message instead of stopping the consumer.
+                    logger.error(
+                        "Skipping Kafka message without topic, partition or offset"
+                    )
+                    continue
+
+                retry_key = (topic, partition, offset)
 
                 try:
                     self.process_message(message)
@@ -238,7 +242,7 @@ class SupplierStatusChangedConsumer:
                     elif not self._running:
                         raise KafkaConsumerError(
                             "Consumer stopped after a DLQ/commit failure."
-                        )
+                        ) from exc
 
                     continue
 
@@ -262,9 +266,7 @@ class SupplierStatusChangedConsumer:
 
                         committed = self._dead_letter_and_commit(
                             message=message,
-                            reason=(
-                                f"failed after {attempts} attempts: {exc}"
-                            ),
+                            reason=(f"failed after {attempts} attempts: {exc}"),
                         )
 
                         if committed:
@@ -272,11 +274,10 @@ class SupplierStatusChangedConsumer:
                         elif not self._running:
                             raise KafkaConsumerError(
                                 "Consumer stopped after a DLQ/commit failure."
-                            )
+                            ) from exc
                     else:
                         logger.exception(
-                            "Processing failed (attempt %s/%s); "
-                            "rewinding offset %s",
+                            "Processing failed (attempt %s/%s); rewinding offset %s",
                             attempts,
                             max_retries,
                             message.offset(),
@@ -339,9 +340,7 @@ class SupplierStatusChangedConsumer:
                 error_reason=reason,
             )
         except Exception:
-            logger.exception(
-                "DLQ publish failed; original message will be retried."
-            )
+            logger.exception("DLQ publish failed; original message will be retried.")
 
             try:
                 self._rewind(message)
@@ -380,9 +379,7 @@ class SupplierStatusChangedConsumer:
         raw_value = message.value()
 
         if raw_value is None:
-            raise KafkaMessageValidationError(
-                "Kafka message has no value."
-            )
+            raise KafkaMessageValidationError("Kafka message has no value.")
 
         try:
             if isinstance(raw_value, bytes):
@@ -404,16 +401,13 @@ class SupplierStatusChangedConsumer:
             ) from exc
 
         if not isinstance(data, dict):
-            raise KafkaMessageValidationError(
-                "Kafka event must be a JSON object."
-            )
+            raise KafkaMessageValidationError("Kafka event must be a JSON object.")
 
         try:
             event = SupplierStatusChangedEvent.model_validate(data)
         except Exception as exc:
             raise KafkaMessageValidationError(
-                "Kafka event does not match the Supplier Portal "
-                "event contract."
+                "Kafka event does not match the Supplier Portal event contract."
             ) from exc
 
         if event.event_type != EVENT_TYPE:
@@ -484,9 +478,7 @@ class SupplierStatusChangedConsumer:
                 on_delivery=_on_delivery,
             )
         except BufferError as exc:
-            raise KafkaDeadLetterError(
-                f"DLQ producer queue is full: {exc}"
-            ) from exc
+            raise KafkaDeadLetterError(f"DLQ producer queue is full: {exc}") from exc
         except KafkaException as exc:
             raise KafkaDeadLetterError(
                 f"Could not publish event to DLQ: {exc}"
@@ -499,9 +491,7 @@ class SupplierStatusChangedConsumer:
         try:
             remaining = self._dlq_producer.flush(timeout=5.0)
         except Exception as exc:
-            raise KafkaDeadLetterError(
-                f"Failed to flush DLQ message: {exc}"
-            ) from exc
+            raise KafkaDeadLetterError(f"Failed to flush DLQ message: {exc}") from exc
 
         if remaining > 0:
             raise KafkaDeadLetterError(
@@ -510,9 +500,7 @@ class SupplierStatusChangedConsumer:
             )
 
         if delivery_errors:
-            raise KafkaDeadLetterError(
-                f"DLQ delivery failed: {delivery_errors[0]}"
-            )
+            raise KafkaDeadLetterError(f"DLQ delivery failed: {delivery_errors[0]}")
 
     def _commit(self, message: Any) -> None:
         """Synchronously commit a message offset."""
@@ -523,8 +511,7 @@ class SupplierStatusChangedConsumer:
             )
         except KafkaException:
             logger.exception(
-                "Kafka offset commit failed: "
-                "topic=%s partition=%s offset=%s",
+                "Kafka offset commit failed: topic=%s partition=%s offset=%s",
                 message.topic(),
                 message.partition(),
                 message.offset(),

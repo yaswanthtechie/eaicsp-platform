@@ -1,11 +1,10 @@
-
 import xmltodict
 
 from app.schemas.sanctions import SanctionedEntity
 
 
 def _as_list(value):
- 
+
     if not value:
         return []
 
@@ -39,10 +38,7 @@ def load_un(
         xml_path,
         encoding="utf-8",
     ) as file:
-
-        data = xmltodict.parse(
-            file.read()
-        )
+        data = xmltodict.parse(file.read())
 
     entities: list[SanctionedEntity] = []
 
@@ -76,14 +72,11 @@ def load_un(
     )
 
     for person in individuals:
-
         if not isinstance(
             person,
             dict,
         ):
             continue
-
-
 
         name_parts = []
 
@@ -93,23 +86,15 @@ def load_un(
             "THIRD_NAME",
             "FOURTH_NAME",
         ):
-
-            value = _clean_value(
-                person.get(field)
-            )
+            value = _clean_value(person.get(field))
 
             if value:
-                name_parts.append(
-                    value
-                )
+                name_parts.append(value)
 
-        name = " ".join(
-            name_parts
-        ).strip()
+        name = " ".join(name_parts).strip()
 
         if not name:
             continue
-
 
         aliases: list[str] = []
 
@@ -121,49 +106,26 @@ def load_un(
         )
 
         for alias in alias_data:
-
             if not isinstance(
                 alias,
                 dict,
             ):
                 continue
 
-            alias_name = _clean_value(
-                alias.get(
-                    "ALIAS_NAME"
-                )
-            )
+            alias_name = _clean_value(alias.get("ALIAS_NAME"))
 
-            if (
-                alias_name
-                and alias_name != name
-                and alias_name not in aliases
-            ):
-                aliases.append(
-                    alias_name
-                )
+            if alias_name and alias_name != name and alias_name not in aliases:
+                aliases.append(alias_name)
 
-
-        listed_date = _clean_value(
-            person.get(
-                "LISTED_ON"
-            )
-        )
-
+        listed_date = _clean_value(person.get("LISTED_ON"))
 
         entities.append(
             SanctionedEntity(
                 name=name,
-                aliases=sorted(
-                    aliases
-                ),
+                aliases=sorted(aliases),
                 source="UN",
-                listed_date=(
-                    listed_date
-                    or None
-                ),
+                listed_date=(listed_date or None),
             )
         )
 
     return entities
-

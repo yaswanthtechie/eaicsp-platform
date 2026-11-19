@@ -1,4 +1,3 @@
-
 from datetime import date, datetime
 from typing import Literal
 
@@ -61,18 +60,17 @@ class SupplierRiskScoreResponse(BaseModel):
         ge=0,
         le=100,
     )
-    tier: Literal[
-        "Low",
-        "Medium",
-        "High",
-        "Critical",
-    ] | None = None
-    top_factors: list[RiskFactorResponse] = Field(
-        default_factory=list
-    )
-    top_evidence_articles: list[EvidenceArticleResponse] = Field(
-        default_factory=list
-    )
+    tier: (
+        Literal[
+            "Low",
+            "Medium",
+            "High",
+            "Critical",
+        ]
+        | None
+    ) = None
+    top_factors: list[RiskFactorResponse] = Field(default_factory=list)
+    top_evidence_articles: list[EvidenceArticleResponse] = Field(default_factory=list)
     computed_at: datetime | None = None
 
     @model_validator(mode="after")
@@ -89,11 +87,7 @@ class SupplierRiskScoreResponse(BaseModel):
             )
 
         # Evidence must not exist when no risk score is available.
-        if self.score is None and (
-            self.top_factors or self.top_evidence_articles
-        ):
-            raise ValueError(
-                "Evidence cannot be present without a risk score."
-            )
+        if self.score is None and (self.top_factors or self.top_evidence_articles):
+            raise ValueError("Evidence cannot be present without a risk score.")
 
         return self

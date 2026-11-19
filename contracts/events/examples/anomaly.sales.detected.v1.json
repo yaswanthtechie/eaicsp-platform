@@ -1,0 +1,16 @@
+{
+  "event_id": "7c1e4a52-6d3b-4f08-a9e1-2b5d8c0f4e17",
+  "event_type": "anomaly.sales.detected",
+  "event_version": 1,
+  "occurred_at": "2026-11-17T03:20:41.205318+00:00",
+  "producer": "anomaly-detection-service",
+  "payload": {
+    "sku_id": "SKU-000123",
+    "warehouse_id": "WH-BLR-01",
+    "date": "2026-11-14",
+    "expected_quantity": 52.0,
+    "actual_quantity": 214.0,
+    "score": 8.2,
+    "severity": "medium"
+  }
+}

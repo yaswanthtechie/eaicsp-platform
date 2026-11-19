@@ -1,8 +1,7 @@
-from collections import Counter
 import re
+from collections import Counter
 
 from app.services.three_way_match_service import three_way_matches
-
 
 # ============================================================
 # RESOLUTION ACTION PATTERNS
@@ -50,6 +49,7 @@ RESOLUTION_PATTERNS = {
 # TEXT HELPERS
 # ============================================================
 
+
 def _normalize_text(value: str) -> str:
     """
     Normalize resolution text for pattern matching.
@@ -80,6 +80,7 @@ def _classify_resolution(reason: str) -> str | None:
 # ============================================================
 # HISTORICAL CASE ANALYSIS
 # ============================================================
+
 
 def _get_historical_resolutions(
     current_match_id: str,
@@ -133,6 +134,7 @@ def _get_historical_resolutions(
 # SUGGESTION GENERATION
 # ============================================================
 
+
 def _build_suggestion(
     discrepancy_type: str,
     historical_actions: list[str],
@@ -155,9 +157,7 @@ def _build_suggestion(
 
     action_counts = Counter(historical_actions)
 
-    suggested_action, supporting_case_count = (
-        action_counts.most_common(1)[0]
-    )
+    suggested_action, supporting_case_count = action_counts.most_common(1)[0]
 
     historical_case_count = len(historical_actions)
 
@@ -175,8 +175,7 @@ def _build_suggestion(
             "accepting or approving the exception."
         ),
         "escalate_review": (
-            "Historical cases most commonly resulted in "
-            "additional or manual review."
+            "Historical cases most commonly resulted in additional or manual review."
         ),
     }
 
@@ -192,6 +191,7 @@ def _build_suggestion(
 # ============================================================
 # PUBLIC SERVICE FUNCTION
 # ============================================================
+
 
 def get_dispute_resolution_suggestions(
     supplier_id: str,
@@ -218,14 +218,11 @@ def get_dispute_resolution_suggestions(
     match = three_way_matches.get(match_key)
 
     if match is None:
-        raise KeyError(
-            "Three-way match not found."
-        )
+        raise KeyError("Three-way match not found.")
 
     if match.get("status") != "discrepancy":
         raise ValueError(
-            "Resolution suggestions are available only "
-            "for unresolved discrepancies."
+            "Resolution suggestions are available only for unresolved discrepancies."
         )
 
     discrepancy_types = match.get("discrepancies", [])

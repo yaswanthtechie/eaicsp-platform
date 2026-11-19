@@ -1,4 +1,3 @@
-
 import csv
 from pathlib import Path
 
@@ -13,13 +12,12 @@ from app.services.supplier_seed_loader import (
     seed_suppliers,
 )
 
+
 @pytest.fixture
 def db_session():
     engine = create_engine(
         "sqlite://",
-        execution_options={
-            "schema_translate_map": {"supplier_portal": None}
-        },
+        execution_options={"schema_translate_map": {"supplier_portal": None}},
     )
     Base.metadata.create_all(engine)
 
@@ -30,9 +28,8 @@ def db_session():
     Base.metadata.drop_all(engine)
     engine.dispose()
 
-def test_seed_persists_suppliers_and_is_idempotent(
-    tmp_path, db_session
-):
+
+def test_seed_persists_suppliers_and_is_idempotent(tmp_path, db_session):
     path = tmp_path / "suppliers.csv"
     write_csv(
         path,
@@ -73,9 +70,7 @@ def test_seed_persists_suppliers_and_is_idempotent(
 
     assert second == {"inserted": 0, "updated": 2}
 
-    saved = db_session.scalars(
-        select(Supplier).order_by(Supplier.supplier_id)
-    ).all()
+    saved = db_session.scalars(select(Supplier).order_by(Supplier.supplier_id)).all()
 
     assert len(saved) == 2
     assert saved[0].supplier_id == "SUP-00001"
@@ -85,26 +80,29 @@ def test_seed_persists_suppliers_and_is_idempotent(
     assert saved[1].sanctions_list == "OFAC-SDN"
 
 
-def test_seed_rejects_invalid_csv_before_persisting(
-    tmp_path, db_session
-):
+def test_seed_rejects_invalid_csv_before_persisting(tmp_path, db_session):
     path = tmp_path / "suppliers.csv"
     write_csv(path, [supplier("SUP001")])
 
-    with pytest.raises(
-        ValueError, match="invalid canonical supplier ID"
-    ):
+    with pytest.raises(ValueError, match="invalid canonical supplier ID"):
         seed_suppliers(path, db_session)
 
-    assert db_session.scalars(
-        select(Supplier)
-    ).all() == []
+    assert db_session.scalars(select(Supplier)).all() == []
 
 
 FIELDS = [
-    "supplier_id", "name", "country", "city", "state", "lat", "lng",
-    "sanctions_flag", "sanctions_list", "lead_time_days",
-    "payment_terms_days", "reliability_score",
+    "supplier_id",
+    "name",
+    "country",
+    "city",
+    "state",
+    "lat",
+    "lng",
+    "sanctions_flag",
+    "sanctions_list",
+    "lead_time_days",
+    "payment_terms_days",
+    "reliability_score",
 ]
 
 
@@ -136,9 +134,7 @@ def supplier(supplier_id="SUP-00007", **overrides):
 
 def test_loads_canonical_supplier_and_parses_sanctions_flag(tmp_path):
     path = tmp_path / "suppliers.csv"
-    write_csv(path, [
-        supplier(sanctions_flag="True", sanctions_list="OFAC-SDN")
-    ])
+    write_csv(path, [supplier(sanctions_flag="True", sanctions_list="OFAC-SDN")])
 
     records = load_supplier_csv(path)
 
@@ -179,12 +175,7 @@ def test_rejects_missing_file(tmp_path):
 
 
 def test_repository_seed_has_60_canonical_supplier_ids():
-    seed_path = (
-        Path(__file__).resolve().parents[1]
-        / "data"
-        / "seed"
-        / "suppliers.csv"
-    )
+    seed_path = Path(__file__).resolve().parents[1] / "data" / "seed" / "suppliers.csv"
 
     records = load_supplier_csv(seed_path)
 
@@ -213,6 +204,7 @@ def test_repository_seed_has_60_canonical_supplier_ids():
         ) == expected
 
         assert record["sanctions_flag"] is True
+
 
 def test_rejects_invalid_sanctions_flag(tmp_path):
     path = tmp_path / "suppliers.csv"

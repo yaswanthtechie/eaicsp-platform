@@ -1,14 +1,13 @@
-
 import json
 from datetime import date, datetime, timezone
+from pathlib import Path
+from unittest.mock import Mock, patch
 
 import pytest
-from pathlib import Path
+
 from app.models.shipment import Shipment
 from app.models.shipment_eta_event import ShipmentETAEvent
 from app.services.shipment_eta_consumer import ShipmentETAConsumer
-from unittest.mock import Mock, call, patch
-
 
 SHIPMENT_ID = "SHP-2026-000001"
 PO_NUMBER = "PO-2026-000001"
@@ -22,6 +21,7 @@ class FakeKafkaMessage:
     def value(self):
         return self._payload
 
+
 class FakeKafkaRecord(FakeKafkaMessage):
     def topic(self):
         return "eta.shipment.predicted"
@@ -34,6 +34,7 @@ class FakeKafkaRecord(FakeKafkaMessage):
 
     def key(self):
         return b"SHP-2026-000001"
+
 
 def create_shipment(db):
     shipment = Shipment(
@@ -49,9 +50,7 @@ def create_shipment(db):
         items=[],
         status="dispatched",
         created_by="supplier@company.com",
-        dispatched_at=datetime(
-            2026, 10, 26, 10, 0, tzinfo=timezone.utc
-        ),
+        dispatched_at=datetime(2026, 10, 26, 10, 0, tzinfo=timezone.utc),
     )
     db.add(shipment)
     db.commit()
@@ -95,10 +94,13 @@ def test_eta_prediction_is_saved_to_shipment(po_db):
     try:
         create_shipment(db)
 
-        assert process_event(
-            create_consumer(),
-            create_eta_event(),
-        ) is True
+        assert (
+            process_event(
+                create_consumer(),
+                create_eta_event(),
+            )
+            is True
+        )
 
         db.expire_all()
         shipment = db.get(Shipment, SHIPMENT_ID)
@@ -128,11 +130,7 @@ def test_duplicate_eta_event_is_not_saved_twice(po_db):
         assert process_event(consumer, event) is True
         assert process_event(consumer, event) is True
 
-        count = (
-            db.query(ShipmentETAEvent)
-            .filter_by(event_id=event["event_id"])
-            .count()
-        )
+        count = db.query(ShipmentETAEvent).filter_by(event_id=event["event_id"]).count()
         assert count == 1
 
     finally:
@@ -149,17 +147,13 @@ def test_newer_eta_prediction_updates_existing_prediction(po_db):
         assert process_event(consumer, first_event) is True
 
         newer_event = create_eta_event()
-        newer_event["event_id"] = (
-            "223e4567-e89b-42d3-a456-426614174000"
-        )
+        newer_event["event_id"] = "223e4567-e89b-42d3-a456-426614174000"
         newer_event["occurred_at"] = "2026-10-26T11:30:00Z"
         newer_event["payload"]["eta_days"] = 2.5
         newer_event["payload"]["confidence_low"] = 2.0
         newer_event["payload"]["confidence_high"] = 3.0
         newer_event["payload"]["model_version"] = "eta-model-v2"
-        newer_event["payload"]["predicted_at"] = (
-            "2026-10-26T11:30:00Z"
-        )
+        newer_event["payload"]["predicted_at"] = "2026-10-26T11:30:00Z"
 
         assert process_event(consumer, newer_event) is True
 
@@ -183,24 +177,16 @@ def test_older_eta_prediction_does_not_overwrite_newer_prediction(po_db):
         consumer = create_consumer()
 
         newer_event = create_eta_event()
-        newer_event["event_id"] = (
-            "323e4567-e89b-42d3-a456-426614174000"
-        )
+        newer_event["event_id"] = "323e4567-e89b-42d3-a456-426614174000"
         newer_event["payload"]["eta_days"] = 2.5
-        newer_event["payload"]["predicted_at"] = (
-            "2026-10-26T11:30:00Z"
-        )
+        newer_event["payload"]["predicted_at"] = "2026-10-26T11:30:00Z"
 
         assert process_event(consumer, newer_event) is True
 
         older_event = create_eta_event()
-        older_event["event_id"] = (
-            "423e4567-e89b-42d3-a456-426614174000"
-        )
+        older_event["event_id"] = "423e4567-e89b-42d3-a456-426614174000"
         older_event["payload"]["eta_days"] = 5.5
-        older_event["payload"]["predicted_at"] = (
-            "2026-10-26T10:30:00Z"
-        )
+        older_event["payload"]["predicted_at"] = "2026-10-26T10:30:00Z"
 
         assert process_event(consumer, older_event) is True
 
@@ -315,17 +301,20 @@ def test_processing_retries_before_success():
 
     message = FakeKafkaRecord({})
 
-    with patch.object(
-        consumer,
-        "process_message",
-        side_effect=[RuntimeError("temporary failure"), True],
-    ) as process_mock, patch.object(
-        consumer,
-        "_commit_message",
-    ) as commit_mock, patch(
-        "app.services.shipment_eta_consumer.time.sleep",
-    ) as sleep_mock:
-
+    with (
+        patch.object(
+            consumer,
+            "process_message",
+            side_effect=[RuntimeError("temporary failure"), True],
+        ) as process_mock,
+        patch.object(
+            consumer,
+            "_commit_message",
+        ) as commit_mock,
+        patch(
+            "app.services.shipment_eta_consumer.time.sleep",
+        ) as sleep_mock,
+    ):
         consumer._process_with_retry(message)
 
     assert process_mock.call_count == 2
@@ -342,21 +331,25 @@ def test_processing_failure_publishes_to_dlq_and_commits():
 
     message = FakeKafkaRecord({})
 
-    with patch.object(
-        consumer,
-        "process_message",
-        side_effect=RuntimeError("database unavailable"),
-    ) as process_mock, patch.object(
-        consumer,
-        "_publish_to_dlq",
-        return_value=True,
-    ) as dlq_mock, patch.object(
-        consumer,
-        "_commit_message",
-    ) as commit_mock, patch(
-        "app.services.shipment_eta_consumer.time.sleep",
+    with (
+        patch.object(
+            consumer,
+            "process_message",
+            side_effect=RuntimeError("database unavailable"),
+        ) as process_mock,
+        patch.object(
+            consumer,
+            "_publish_to_dlq",
+            return_value=True,
+        ) as dlq_mock,
+        patch.object(
+            consumer,
+            "_commit_message",
+        ) as commit_mock,
+        patch(
+            "app.services.shipment_eta_consumer.time.sleep",
+        ),
     ):
-
         consumer._process_with_retry(message)
 
     assert process_mock.call_count == 2
@@ -376,21 +369,25 @@ def test_dlq_failure_does_not_commit_offset():
 
     message = FakeKafkaRecord({})
 
-    with patch.object(
-        consumer,
-        "process_message",
-        side_effect=ValueError("invalid event"),
-    ), patch.object(
-        consumer,
-        "_publish_to_dlq",
-        return_value=False,
-    ), patch.object(
-        consumer,
-        "_commit_message",
-    ) as commit_mock, patch(
-        "app.services.shipment_eta_consumer.time.sleep",
+    with (
+        patch.object(
+            consumer,
+            "process_message",
+            side_effect=ValueError("invalid event"),
+        ),
+        patch.object(
+            consumer,
+            "_publish_to_dlq",
+            return_value=False,
+        ),
+        patch.object(
+            consumer,
+            "_commit_message",
+        ) as commit_mock,
+        patch(
+            "app.services.shipment_eta_consumer.time.sleep",
+        ),
     ):
-
         with pytest.raises(
             RuntimeError,
             match="Could not publish ETA event to DLQ",
@@ -483,9 +480,7 @@ def test_harish_example_event_is_stored_on_shipment(po_db):
                 items=[{"sku_id": "SKU-000123", "quantity": 100}],
                 status="created",
                 created_by="supplier@company.com",
-                dispatched_at=datetime(
-                    2026, 10, 15, 6, 30, tzinfo=timezone.utc
-                ),
+                dispatched_at=datetime(2026, 10, 15, 6, 30, tzinfo=timezone.utc),
             )
         )
         db.commit()
@@ -514,21 +509,25 @@ def test_invalid_event_goes_to_dlq_without_retry():
 
     message = FakeKafkaRecord({})
 
-    with patch.object(
-        consumer,
-        "process_message",
-        side_effect=ValueError("Unknown shipment: SHP-2026-999999"),
-    ) as process_mock, patch.object(
-        consumer,
-        "_publish_to_dlq",
-        return_value=True,
-    ) as dlq_mock, patch.object(
-        consumer,
-        "_commit_message",
-    ) as commit_mock, patch(
-        "app.services.shipment_eta_consumer.time.sleep",
-    ) as sleep_mock:
-
+    with (
+        patch.object(
+            consumer,
+            "process_message",
+            side_effect=ValueError("Unknown shipment: SHP-2026-999999"),
+        ) as process_mock,
+        patch.object(
+            consumer,
+            "_publish_to_dlq",
+            return_value=True,
+        ) as dlq_mock,
+        patch.object(
+            consumer,
+            "_commit_message",
+        ) as commit_mock,
+        patch(
+            "app.services.shipment_eta_consumer.time.sleep",
+        ) as sleep_mock,
+    ):
         consumer._process_with_retry(message)
 
     assert process_mock.call_count == 1
@@ -538,4 +537,3 @@ def test_invalid_event_goes_to_dlq_without_retry():
         "Unknown shipment: SHP-2026-999999",
     )
     commit_mock.assert_called_once_with(message)
-

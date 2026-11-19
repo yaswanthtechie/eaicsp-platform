@@ -2364,6 +2364,90 @@ Realistic run in detail: precision 0.8188, recall 0.5458, F1 0.6550; spikes foun
 
 **Limits.** Under realistic noise the detector is conservative: it keeps false alarms near 2 per 1000 days and accepts that moderate one-day spikes are missed. Drops are only called when the expected value is at least 15 units, so slow sellers get no drop flags. Injected events stay in later baselines, which can hide a second event soon after the first. The thresholds are design values calibrated on the seed; real client data may need `src.calibrate_sales_anomaly` re-run. Publishing events and the batch job are #327.
 
+# Round 15 - Sales anomaly events and batch job (#327)
+
+Sales anomalies are published as `anomaly.sales.detected` events, with the same envelope as every other platform event. Contract: `contracts/events/anomaly.sales.detected.v1.json`, example: `contracts/events/examples/anomaly.sales.detected.v1.json`. Topic = event type, producer `anomaly-detection-service`, partition key `sku_id|warehouse_id` so one product at one warehouse stays in order.
+
+| Payload field | Meaning |
+|---|---|
+| `sku_id`, `warehouse_id` | Canonical ids (`SKU-000123`, `WH-BLR-01`) |
+| `date` | Sales day (YYYY-MM-DD); the first day of the incident |
+| `expected_quantity` | Median of the same weekday over the previous 8 weeks |
+| `actual_quantity` | Units sold that day (0 for a product that stopped selling) |
+| `score` | Robust z-score, positive for a spike, negative for a drop |
+| `severity` | `high`, `medium` or `low` (the #326 rule) |
+
+**One event per incident.** The job publishes only `run_start` rows (see "One incident, one event" above), so a product that stops selling gives one event, not one a day for five weeks. Severity is the one on the first day of the incident; if the incident gets worse later, no second event is sent.
+
+**Running it.** From any folder (the ledger path does not depend on the working directory):
+
+```
+python -m src.sales_anomaly_batch --input <staging sales file or folder> --last-days 7
+python -m src.sales_anomaly_batch --input <sales.csv> --dry-run
+python -m src.sales_anomaly_batch --input <sales.csv> --no-kafka --events-log output/sales_events.jsonl --last-days 7
+```
+
+`--input` is one CSV or a folder of CSVs (the staging sales files, canonical columns `date`, `sku_id`, `warehouse_id`, `quantity_sold`). It expects one row per day, product and warehouse; if files in a folder overlap, the same day is summed twice. Kafka comes from `KAFKA_BOOTSTRAP_SERVERS` (default `localhost:9092`); the topic is always the event type. `--dry-run` publishes and records nothing and only prints the counts. `--no-kafka --events-log <file>` writes the events to a JSON-lines file instead. The job prints one line: incidents found, published, already published, older than `--last-days`, and rows skipped for non-canonical ids.
+
+**First run.** A first run over a long history would publish every past incident as a live alert (3,820 on the 2-year seed). So when the ledger is empty the job refuses to run unless you choose: `--last-days N` publishes only the incidents in the last N days of the data and records the older ones as skipped, so a later run never publishes them; `--publish-all` sends the whole history on purpose. After that, runs need no flag.
+
+**Running it twice.** Every anomaly (`sku_id|warehouse_id|date`) is written to a ledger, `output/sales_anomaly_published.jsonl` in the service folder (`--ledger` changes the path; the folder is gitignored). A run skips anything in it, so a second run over the same data publishes nothing. On the synthetic seed (3,820 incidents), the first run with `--last-days 7` published 68 and recorded the other 3,752 as skipped; the second run published 0 (`already published: 68`). Before an event is delivered, the job writes a `pending` ledger line with its `event_id`; after delivery it writes the confirmed line. If the job dies in between, the next run sends the same anomaly again with the same `event_id`, so consumers de-duplicate on `event_id` like on every other topic. If delivery fails, the job stops and the events not yet delivered are sent on the next run. Delete the ledger only if you want every incident treated as new.
+
+**Kafka.** The producer is idempotent. A message that is only slow is flushed again rather than queued twice; it is sent again only after the broker reported an error, and the job stops after 3 attempts.
+
+**Not published.** Rows whose product or warehouse is not a canonical id (for example client codes such as `PRD-10482` or `HYD-01`) are counted in the output line and never published, because the contract only allows canonical ids.
+
+The gateway BFF does not read this topic yet (`KAFKA_TOPICS` in `services/api-gateway/app/core/config.py`), and an event type it does not know about shows as `info` until it is mapped (#320).
+
+# Round 15 - MLflow tracking and data drift (#366)
+
+Every sales anomaly run is logged to MLflow, and the batch job checks whether the latest load looks different from the data the thresholds were set up on.
+
+## Tracking
+
+`MLFLOW_TRACKING_URI` must be set (for the compose server: `http://localhost:5000`); it is never hard-coded. If it is not set, nothing is logged and a warning says so. MLflow errors are turned into warnings and never stop a run.
+
+When the MLflow server stores artifacts in MinIO (as the compose server does), also set `MLFLOW_S3_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`; see `.env.example`. A failed artifact upload only logs a warning and sets the tag `artifact_upload=failed`.
+
+Each run (the evaluation, and every batch run except `--dry-run`) logs, in the experiment `anomaly-detection-r15-sales`:
+
+- parameters: every threshold in `src/config.py`, the drift settings, and the run's own settings (input, seeds, window)
+- data date range: `data_start`, `data_end`, `data_days`
+- metrics: `anomalies_high`, `anomalies_medium`, `anomalies_low`, `anomalies_total`; precision and recall on the injected anomalies (evaluation); the drift numbers (batch)
+- artifact: the Evidently report `drift_report.html` (batch)
+
+## Running against the compose stack
+
+From the repo root, with a `.env` made from `.env.example`:
+
+    docker compose --env-file .env -f infra/docker-compose.yml up -d mlflow
+    docker compose --env-file .env -f infra/docker-compose.yml up minio-init-models
+
+`up -d mlflow` starts MLflow with PostgreSQL and MinIO. `minio-init-models` is a one-shot service that creates the `ml-models` bucket; MLflow stores artifacts there, and without it uploads fail with `NoSuchBucket`. The first MLflow start installs its packages and takes a few minutes. Then set the variables from `.env.example` in your shell and run the commands below.
+
+## Model registry
+
+    python -m src.sales_anomaly_eval --register
+
+registers the thresholds in force (and a copy of the code) as a new version of `sales-anomaly-detector`. Versions carry a `config_hash` tag, a fingerprint of the thresholds and the detector code, so the same thresholds with the same code never get a second version, and a change to either does. If `--register` cannot register (MLflow unreachable, no URI, no artifact access) it prints `REGISTRATION FAILED` and exits with code 1.
+
+The batch job tags each run with the registered version and logs its precision and recall (`setup_precision`, `setup_recall`). If the thresholds in force are not registered, the run is tagged `not registered` and a warning is logged; if MLflow cannot be reached for the lookup, it is tagged `lookup failed`.
+
+## Data drift
+
+    python -m src.sales_anomaly_batch --input <sales.csv> --reference <setup window sales.csv> --last-days 7
+
+`--reference` is the setup window: the clean sales file the thresholds were calibrated on. It is compared with the latest `DRIFT_LATEST_DAYS` (28) days of `--input` on two columns: the quantity distribution and the share of zero-sales days. A column drifts when its drift score passes `DRIFT_NUM_THRESHOLD` / `DRIFT_CAT_THRESHOLD` (0.1). The comparison uses fixed distance measures (Wasserstein for quantity, Jensen-Shannon for zero-sales days), so a higher threshold always means fewer alerts, whatever the file size. If the share of drifted columns reaches `DRIFT_ALERT_SHARE` (0.5, so either column), the job logs `DATA DRIFT: ...` as a warning and sets the MLflow tag `drift_alert=true`. The job still runs and publishes events. The summary line ends with `drift: ok`, `drift: ALERT` or `drift: not checked`.
+
+All drift settings are in `src/config.py`. The tests use synthetic data only and a mocked MLflow, plus one round trip (register, load back, predict) against a local sqlite store.
+
+## Limits
+
+- The setup window is a file passed with `--reference`; it is not stored anywhere yet.
+- MLflow waits are capped (1 retry, 10 s timeout) so an outage does not hold a run up; set `MLFLOW_HTTP_REQUEST_MAX_RETRIES` / `MLFLOW_HTTP_REQUEST_TIMEOUT` to change that.
+- A failed publish is not logged to MLflow, series under 56 days are not covered by drift, and the setup window is one file compared with the latest 28 days, so strong seasonality can raise false alerts.
+- Evidently is needed for the drift check (`evidently==0.7.23` in `requirements.txt`).
+
 # Future Improvements
 
 Potential future enhancements include:
@@ -2486,7 +2570,7 @@ The validated continuous-lifecycle results are:
 ## Test suite
 
 ```text
-745 passed
+916 passed
 3 warnings
 0 failures
 ```

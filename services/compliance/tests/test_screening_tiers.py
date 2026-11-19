@@ -1,10 +1,9 @@
 from app.services.screening_tier_service import (
     calculate_country_risk_tier,
-    calculate_transaction_tier,
     calculate_screening_tier,
+    calculate_transaction_tier,
     get_screening_action,
 )
-
 
 
 def test_low_country_risk():
@@ -115,10 +114,6 @@ def test_high_country_boundary():
     assert result == "HIGH"
 
 
-
-
-
-
 def test_low_screening_action():
     assert get_screening_action("LOW") == "STANDARD_SCREENING"
 
@@ -128,7 +123,4 @@ def test_medium_screening_action():
 
 
 def test_high_screening_action():
-    assert (
-        get_screening_action("HIGH")
-        == "ENHANCED_REVIEW_AND_MANUAL_APPROVAL"
-    )
+    assert get_screening_action("HIGH") == "ENHANCED_REVIEW_AND_MANUAL_APPROVAL"

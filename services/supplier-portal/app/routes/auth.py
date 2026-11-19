@@ -1,6 +1,7 @@
+from secrets import token_urlsafe
+
 from fastapi import APIRouter, Form, HTTPException
 from pydantic import BaseModel
-from secrets import token_urlsafe
 
 router = APIRouter(prefix="/auth")
 
@@ -51,6 +52,4 @@ def refresh_token(request: RefreshTokenRequest):
 
 @router.post("/logout")
 def logout(request: LogoutRequest):
-    return {
-        "message": "Logged out successfully"
-    }
+    return {"message": "Logged out successfully"}

@@ -115,9 +115,7 @@ def test_compliance_summary_api_requires_compliance_officer(
     client,
     mock_compliance_officer_auth,
 ):
-    response = client.get(
-        "/api/v1/compliance/reports/compliance-summary"
-    )
+    response = client.get("/api/v1/compliance/reports/compliance-summary")
 
     assert response.status_code == 200
     data = response.json()
@@ -128,9 +126,7 @@ def test_compliance_summary_api_requires_compliance_officer(
 
 
 def test_compliance_summary_api_rejects_missing_token(client):
-    response = client.get(
-        "/api/v1/compliance/reports/compliance-summary"
-    )
+    response = client.get("/api/v1/compliance/reports/compliance-summary")
 
     assert response.status_code == 401
 
@@ -147,9 +143,7 @@ def test_compliance_summary_api_rejects_wrong_role(client):
     app.dependency_overrides[verify_token] = mock_verify_token
 
     try:
-        response = client.get(
-            "/api/v1/compliance/reports/compliance-summary"
-        )
+        response = client.get("/api/v1/compliance/reports/compliance-summary")
     finally:
         app.dependency_overrides.pop(verify_token, None)
 

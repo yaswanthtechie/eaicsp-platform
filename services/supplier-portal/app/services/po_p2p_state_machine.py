@@ -27,28 +27,22 @@ P2P_TRANSITIONS = {
     P2PState.acknowledged: [
         P2PState.shipped,
     ],
-
     P2PState.shipped: [
         P2PState.received,
     ],
-
     P2PState.received: [
         P2PState.invoiced,
     ],
-
     P2PState.invoiced: [
         P2PState.matched,
         P2PState.discrepancy,
     ],
-
     P2PState.matched: [
         P2PState.payment_approved,
     ],
-
     P2PState.discrepancy: [
         P2PState.matched,
     ],
-
     P2PState.payment_approved: [],
 }
 
@@ -122,8 +116,7 @@ def transition_p2p(
 
     if current_state is None:
         raise ValueError(
-            f"P2P workflow state not initialized for "
-            f"Purchase Order '{po_number}'."
+            f"P2P workflow state not initialized for Purchase Order '{po_number}'."
         )
 
     allowed_states = P2P_TRANSITIONS.get(
@@ -132,11 +125,7 @@ def transition_p2p(
     )
 
     if target_state not in allowed_states:
-
-        allowed = ", ".join(
-            state.value
-            for state in allowed_states
-        )
+        allowed = ", ".join(state.value for state in allowed_states)
 
         if not allowed:
             allowed = "none"

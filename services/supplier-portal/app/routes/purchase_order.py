@@ -5,32 +5,28 @@ from app.core.auth import (
     require_roles,
     require_supplier_view_access,
     require_supplier_write_access,
-    verify_token,
 )
-
 from app.schemas.purchase_order import (
-    PurchaseOrderCreate,
-    PurchaseOrderHistory,
-    PurchaseOrderUpdate,
-    PurchaseOrderResponse,
-    PurchaseOrderTransition,
-    MessageResponse,
     BulkPOSendRequest,
     BulkPOSendResponse,
+    MessageResponse,
+    PurchaseOrderCreate,
+    PurchaseOrderHistory,
+    PurchaseOrderResponse,
+    PurchaseOrderTransition,
+    PurchaseOrderUpdate,
 )
-
 from app.services.purchase_order_service import (
+    acknowledge_purchase_order,
+    bulk_send_purchase_orders,
     create_purchase_order,
+    delete_purchase_order,
     get_all_purchase_orders,
     get_purchase_order_by_id,
-    update_purchase_order,
-    delete_purchase_order,
-    acknowledge_purchase_order,
-    transition_purchase_order,
     get_purchase_order_events,
-    bulk_send_purchase_orders,
+    transition_purchase_order,
+    update_purchase_order,
 )
-
 
 router = APIRouter(
     dependencies=[Depends(enforce_not_suspended)],
@@ -105,15 +101,11 @@ def require_po_access(supplier_only: bool = False):
 
         if (
             user.get("role") == "supplier"
-            and user["supplier_id"]
-            != purchase_order["supplier_id"]
+            and user["supplier_id"] != purchase_order["supplier_id"]
         ):
             raise HTTPException(
                 status_code=403,
-                detail=(
-                    "Forbidden: supplier does not own "
-                    "this Purchase Order"
-                ),
+                detail=("Forbidden: supplier does not own this Purchase Order"),
             )
 
         return user, purchase_order
@@ -155,10 +147,7 @@ def require_po_event_access(
 
     authenticated_supplier_id = user.get("supplier_id")
 
-    if (
-        user.get("role") == "supplier"
-        and not authenticated_supplier_id
-    ):
+    if user.get("role") == "supplier" and not authenticated_supplier_id:
         raise HTTPException(
             status_code=403,
             detail="Supplier identity is missing",
@@ -183,18 +172,13 @@ def require_po_event_access(
     purchase_order = get_purchase_order_by_id(po_number)
 
     if purchase_order:
-
         if (
             user.get("role") == "supplier"
-            and authenticated_supplier_id
-            != purchase_order["supplier_id"]
+            and authenticated_supplier_id != purchase_order["supplier_id"]
         ):
             raise HTTPException(
                 status_code=403,
-                detail=(
-                    "Forbidden: supplier does not own "
-                    "this Purchase Order"
-                ),
+                detail=("Forbidden: supplier does not own this Purchase Order"),
             )
 
         return user, events
@@ -211,22 +195,15 @@ def require_po_event_access(
             detail="Purchase Order not found",
         )
 
-    event_supplier_ids = {
-        event.get("supplier_id")
-        for event in events
-    }
+    event_supplier_ids = {event.get("supplier_id") for event in events}
 
     if (
         user.get("role") == "supplier"
-        and authenticated_supplier_id
-        not in event_supplier_ids
+        and authenticated_supplier_id not in event_supplier_ids
     ):
         raise HTTPException(
             status_code=403,
-            detail=(
-                "Forbidden: supplier does not own "
-                "this Purchase Order history"
-            ),
+            detail=("Forbidden: supplier does not own this Purchase Order history"),
         )
 
     return user, events
@@ -281,9 +258,7 @@ def get_po_events(
 )
 def create_po(
     purchase_order: PurchaseOrderCreate,
-    user=Depends(
-        require_roles("procurement_manager")
-    ),
+    user=Depends(require_roles("procurement_manager")),
 ):
     """
     Create a new Purchase Order.
@@ -295,9 +270,7 @@ def create_po(
     """
 
     try:
-        return create_purchase_order(
-            purchase_order
-        )
+        return create_purchase_order(purchase_order)
 
     except ValueError as e:
         message = str(e)
@@ -310,7 +283,7 @@ def create_po(
             raise HTTPException(
                 status_code=409,
                 detail=message,
-            )
+            ) from e
 
         # ----------------------------------------------------
         # Invalid business data -> 400 Bad Request
@@ -319,7 +292,7 @@ def create_po(
         raise HTTPException(
             status_code=400,
             detail=message,
-        )
+        ) from e
 
 
 # ============================================================
@@ -334,9 +307,7 @@ def create_po(
 )
 def bulk_send_po(
     request: BulkPOSendRequest,
-    user=Depends(
-        require_roles("procurement_manager")
-    ),
+    user=Depends(require_roles("procurement_manager")),
 ):
     """
     Bulk-send Purchase Orders.
@@ -365,7 +336,7 @@ def bulk_send_po(
         raise HTTPException(
             status_code=400,
             detail=str(e),
-        )
+        ) from e
 
 
 # ============================================================
@@ -409,7 +380,6 @@ def list_purchase_orders(
     # --------------------------------------------------------
 
     if user.get("role") == "supplier":
-
         authenticated_supplier_id = user.get("supplier_id")
 
         if not authenticated_supplier_id:
@@ -423,8 +393,7 @@ def list_purchase_orders(
         return [
             purchase_order
             for purchase_order in purchase_orders
-            if purchase_order.get("supplier_id")
-            == authenticated_supplier_id
+            if purchase_order.get("supplier_id") == authenticated_supplier_id
         ]
 
     # --------------------------------------------------------
@@ -527,7 +496,6 @@ def update_po(
     # --------------------------------------------------------
 
     if user_role == "supplier":
-
         authenticated_supplier_id = user.get("supplier_id")
 
         if not authenticated_supplier_id:
@@ -536,16 +504,10 @@ def update_po(
                 detail="Supplier identity is missing",
             )
 
-        if (
-            authenticated_supplier_id
-            != existing_po.get("supplier_id")
-        ):
+        if authenticated_supplier_id != existing_po.get("supplier_id"):
             raise HTTPException(
                 status_code=403,
-                detail=(
-                    "Forbidden: supplier does not own "
-                    "this Purchase Order"
-                ),
+                detail=("Forbidden: supplier does not own this Purchase Order"),
             )
 
     # --------------------------------------------------------
@@ -587,7 +549,7 @@ def update_po(
         raise HTTPException(
             status_code=400,
             detail=str(e),
-        )
+        ) from e
 
 
 # ============================================================
@@ -650,7 +612,6 @@ def delete_po(
     # --------------------------------------------------------
 
     if user_role == "supplier":
-
         authenticated_supplier_id = user.get("supplier_id")
 
         if not authenticated_supplier_id:
@@ -659,16 +620,10 @@ def delete_po(
                 detail="Supplier identity is missing",
             )
 
-        if (
-            authenticated_supplier_id
-            != existing_po.get("supplier_id")
-        ):
+        if authenticated_supplier_id != existing_po.get("supplier_id"):
             raise HTTPException(
                 status_code=403,
-                detail=(
-                    "Forbidden: supplier does not own "
-                    "this Purchase Order"
-                ),
+                detail=("Forbidden: supplier does not own this Purchase Order"),
             )
 
     # --------------------------------------------------------
@@ -700,12 +655,7 @@ def delete_po(
             detail="Purchase Order not found",
         )
 
-    return {
-        "message": (
-            f"Purchase Order '{po_number}' "
-            "deleted successfully."
-        )
-    }
+    return {"message": (f"Purchase Order '{po_number}' deleted successfully.")}
 
 
 # ============================================================
@@ -725,9 +675,7 @@ def delete_po(
     response_model=PurchaseOrderResponse,
 )
 def acknowledge_po(
-    access=Depends(
-        require_po_access(supplier_only=True)
-    ),
+    access=Depends(require_po_access(supplier_only=True)),
 ):
     """
     Acknowledge a Purchase Order.
@@ -741,9 +689,7 @@ def acknowledge_po(
     po_number = purchase_order["po_number"]
 
     try:
-        purchase_order = acknowledge_purchase_order(
-            po_number
-        )
+        purchase_order = acknowledge_purchase_order(po_number)
 
         if not purchase_order:
             raise HTTPException(
@@ -757,7 +703,7 @@ def acknowledge_po(
         raise HTTPException(
             status_code=400,
             detail=str(e),
-        )
+        ) from e
 
 
 # ============================================================
@@ -776,9 +722,7 @@ def acknowledge_po(
 def transition_po(
     po_number: str,
     transition: PurchaseOrderTransition,
-    user=Depends(
-        require_roles("procurement_manager")
-    ),
+    user=Depends(require_roles("procurement_manager")),
 ):
     """
     Transition a Purchase Order to another lifecycle state.
@@ -832,4 +776,4 @@ def transition_po(
         raise HTTPException(
             status_code=400,
             detail=str(e),
-        )
+        ) from e

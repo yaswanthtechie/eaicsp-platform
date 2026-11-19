@@ -26,21 +26,14 @@ def require_graphql_view_access(
     supplier_id = user.get("supplier_id")
 
     if not isinstance(supplier_id, str) or not supplier_id.strip():
-        raise PermissionError(
-            "Supplier identity is missing"
-        )
+        raise PermissionError("Supplier identity is missing")
 
-    compliance_status = (
-        supplier_compliance_service.get_access_status(
-            supplier_id.strip()
-        )
+    compliance_status = supplier_compliance_service.get_access_status(
+        supplier_id.strip()
     )
 
     if compliance_status == SupplierComplianceStatus.suspended:
-        raise PermissionError(
-            "Supplier account is suspended due to "
-            "compliance status"
-        )
+        raise PermissionError("Supplier account is suspended due to compliance status")
 
 
 def require_graphql_write_access(
@@ -60,16 +53,11 @@ def require_graphql_write_access(
 
     supplier_id = user["supplier_id"].strip()
 
-    compliance_status = (
-        supplier_compliance_service.get_access_status(
-            supplier_id
-        )
-    )
+    compliance_status = supplier_compliance_service.get_access_status(supplier_id)
 
     if compliance_status != SupplierComplianceStatus.cleared:
         raise PermissionError(
-            "Supplier account is under compliance review. "
-            "This action is not permitted."
+            "Supplier account is under compliance review. This action is not permitted."
         )
 
 

@@ -45,6 +45,7 @@ class PurchaseOrderType:
     actual_delivery_date: date | None
     history: list[PurchaseOrderHistoryType]
 
+
 @strawberry.type
 class ApprovedPOLineType:
     line_number: int
@@ -69,7 +70,8 @@ class ApprovedPurchaseOrderType:
     lines: list[ApprovedPOLineType]
     status: str
     acknowledged_at: datetime | None
-    
+
+
 @strawberry.type
 class PageInfoType:
     has_next_page: bool
@@ -87,9 +89,11 @@ class PurchaseOrderConnectionType:
     edges: list[PurchaseOrderEdgeType]
     page_info: PageInfoType
 
+
 # ============================================================
 # INVOICE GRAPHQL TYPES
 # ============================================================
+
 
 @strawberry.type
 class InvoiceLineItemType:
@@ -161,9 +165,11 @@ class InvoiceConnectionType:
     edges: list[InvoiceEdgeType]
     page_info: PageInfoType
 
+
 # ============================================================
 # SUPPLIER DOCUMENT GRAPHQL TYPES
 # ============================================================
+
 
 @strawberry.type
 class SupplierDocumentType:

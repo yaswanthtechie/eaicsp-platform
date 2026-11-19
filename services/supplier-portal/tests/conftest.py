@@ -31,16 +31,16 @@ import pytest
 from fastapi.testclient import TestClient
 from minio.error import S3Error
 
-from app.main import app
 from app.core.auth import verify_token
+from app.main import app
+from app.models.shipment import Shipment
 from app.services.document_storage_service import (
     document_storage_service,
 )
-
 from app.services.supplier_compliance_service import (
     supplier_compliance_service,
 )
-from app.models.shipment import Shipment
+
 
 class FakeMinioClient:
     """
@@ -74,9 +74,7 @@ class FakeMinioClient:
     ):
         content = data.read()
 
-        self.objects[
-            (bucket_name, object_name)
-        ] = SimpleNamespace(
+        self.objects[(bucket_name, object_name)] = SimpleNamespace(
             object_name=object_name,
             content=content,
             content_type=content_type,
@@ -97,9 +95,7 @@ class FakeMinioClient:
         )
 
     def stat_object(self, bucket_name, object_name):
-        obj = self.objects.get(
-            (bucket_name, object_name)
-        )
+        obj = self.objects.get((bucket_name, object_name))
 
         if obj is None:
             raise self._missing(
@@ -128,8 +124,7 @@ class FakeMinioClient:
         return [
             obj
             for (bucket, key), obj in self.objects.items()
-            if bucket == bucket_name
-            and key.startswith(prefix)
+            if bucket == bucket_name and key.startswith(prefix)
         ]
 
     def presigned_get_object(
@@ -240,9 +235,7 @@ class AuthenticatedTestClient(TestClient):
         async def mock_verify_token():
             return self.test_user
 
-        app.dependency_overrides[verify_token] = (
-            mock_verify_token
-        )
+        app.dependency_overrides[verify_token] = mock_verify_token
 
         return super().request(*args, **kwargs)
 
@@ -259,9 +252,7 @@ def mock_authentication():
     async def mock_verify_token():
         return SUPPLIER_USER
 
-    app.dependency_overrides[verify_token] = (
-        mock_verify_token
-    )
+    app.dependency_overrides[verify_token] = mock_verify_token
 
     yield
 
@@ -336,12 +327,8 @@ def compliance_client():
         yield test_client
 
 
-
 @pytest.fixture(autouse=True)
 def compliance_db(tmp_path, monkeypatch):
-    from app.services.supplier_compliance_service import (
-        supplier_compliance_service,
-    )
 
     monkeypatch.setattr(
         supplier_compliance_service,
@@ -370,15 +357,13 @@ def po_db(monkeypatch):
     )
     from app.models.po_ack_outbox import POAckOutbox
     from app.models.po_mirror import POMirror
-    from app.models.shipment_outbox import ShipmentOutbox
     from app.models.shipment_eta_event import ShipmentETAEvent
+    from app.models.shipment_outbox import ShipmentOutbox
 
     schema_name = settings.SUPPLIER_DB_SCHEMA
 
     if not schema_name.replace("_", "").isalnum():
-        raise ValueError(
-            f"Unsupported SQLite schema name: {schema_name!r}"
-        )
+        raise ValueError(f"Unsupported SQLite schema name: {schema_name!r}")
 
     engine = create_engine(
         "sqlite://",
@@ -388,9 +373,7 @@ def po_db(monkeypatch):
 
     @event.listens_for(engine, "connect")
     def attach_schema(dbapi_connection, _record):
-        dbapi_connection.execute(
-            f"ATTACH DATABASE ':memory:' AS {schema_name}"
-        )
+        dbapi_connection.execute(f"ATTACH DATABASE ':memory:' AS {schema_name}")
 
     Base.metadata.create_all(
         engine,

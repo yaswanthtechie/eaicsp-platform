@@ -20,10 +20,7 @@ from app.schemas.supplier_onboarding import SupplierRegistration
 )
 def test_request_models_require_canonical_supplier_id(model):
     schema = model.model_json_schema()
-    assert (
-        schema["properties"]["supplier_id"]["pattern"]
-        == SUPPLIER_ID_PATTERN
-    )
+    assert schema["properties"]["supplier_id"]["pattern"] == SUPPLIER_ID_PATTERN
 
 
 @pytest.mark.parametrize(

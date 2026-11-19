@@ -2,7 +2,6 @@ import logging
 import uuid
 
 import httpx
-
 from fastapi import (
     Depends,
     HTTPException,
@@ -17,11 +16,10 @@ from fastapi.security import (
 from app.core.config import settings
 from app.services.supplier_compliance_service import (
     ComplianceDatabaseError,
-    SupplierNotFoundError,
     SupplierComplianceStatus,
+    SupplierNotFoundError,
     supplier_compliance_service,
 )
-
 
 # ============================================================
 # LOGGING
@@ -34,23 +32,15 @@ logger = logging.getLogger("auth_requests")
 # CONSTANTS
 # ============================================================
 
-SUSPENDED_SUPPLIER_DETAIL = (
-    "Supplier account is suspended due to compliance status"
-)
+SUSPENDED_SUPPLIER_DETAIL = "Supplier account is suspended due to compliance status"
 
 MISSING_SUPPLIER_ID_DETAIL = "Supplier identity is missing"
 
-UNRESOLVED_SUPPLIER_ID_DETAIL = (
-    "Supplier identity could not be resolved"
-)
+UNRESOLVED_SUPPLIER_ID_DETAIL = "Supplier identity could not be resolved"
 
-UNVERIFIED_COMPLIANCE_DETAIL = (
-    "Supplier compliance status could not be verified"
-)
+UNVERIFIED_COMPLIANCE_DETAIL = "Supplier compliance status could not be verified"
 
-COMPLIANCE_UNAVAILABLE_DETAIL = (
-    "Supplier compliance service is temporarily unavailable"
-)
+COMPLIANCE_UNAVAILABLE_DETAIL = "Supplier compliance service is temporarily unavailable"
 
 
 # ============================================================
@@ -62,9 +52,7 @@ security = HTTPBearer(auto_error=False)
 
 async def verify_token(
     request: Request,
-    credentials: HTTPAuthorizationCredentials = Depends(
-        security
-    ),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     """
     Verify access tokens through the Platform Service.
@@ -104,8 +92,7 @@ async def verify_token(
 
     except httpx.TimeoutException as exc:
         logger.error(
-            "AUTHENTICATION SERVICE TIMEOUT | "
-            "endpoint=%s | request_id=%s",
+            "AUTHENTICATION SERVICE TIMEOUT | endpoint=%s | request_id=%s",
             request.url.path,
             request_id,
         )
@@ -116,8 +103,7 @@ async def verify_token(
 
     except httpx.RequestError as exc:
         logger.error(
-            "AUTHENTICATION SERVICE UNAVAILABLE | "
-            "endpoint=%s | request_id=%s",
+            "AUTHENTICATION SERVICE UNAVAILABLE | endpoint=%s | request_id=%s",
             request.url.path,
             request_id,
         )
@@ -129,8 +115,7 @@ async def verify_token(
     # 4. Handle invalid credentials.
     if response.status_code == status.HTTP_401_UNAUTHORIZED:
         logger.warning(
-            "TOKEN VERIFICATION FAILED | "
-            "endpoint=%s | request_id=%s",
+            "TOKEN VERIFICATION FAILED | endpoint=%s | request_id=%s",
             request.url.path,
             request_id,
         )
@@ -150,10 +135,7 @@ async def verify_token(
         )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "Authentication service returned "
-                "an unexpected response"
-            ),
+            detail=("Authentication service returned an unexpected response"),
         )
 
     # 6. Parse and validate the response.
@@ -161,8 +143,7 @@ async def verify_token(
         data = response.json()
     except ValueError as exc:
         logger.error(
-            "AUTHENTICATION SERVICE INVALID JSON | "
-            "endpoint=%s | request_id=%s",
+            "AUTHENTICATION SERVICE INVALID JSON | endpoint=%s | request_id=%s",
             request.url.path,
             request_id,
         )
@@ -173,22 +154,18 @@ async def verify_token(
 
     if not isinstance(data, dict):
         logger.error(
-            "AUTHENTICATION SERVICE INVALID RESPONSE | "
-            "endpoint=%s | request_id=%s",
+            "AUTHENTICATION SERVICE INVALID RESPONSE | endpoint=%s | request_id=%s",
             request.url.path,
             request_id,
         )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "Authentication service returned invalid user data"
-            ),
+            detail=("Authentication service returned invalid user data"),
         )
 
     if data.get("valid") is not True:
         logger.warning(
-            "TOKEN VERIFICATION FAILED | "
-            "endpoint=%s | request_id=%s",
+            "TOKEN VERIFICATION FAILED | endpoint=%s | request_id=%s",
             request.url.path,
             request_id,
         )
@@ -207,10 +184,7 @@ async def verify_token(
     if user_id is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "Authentication service did not return "
-                "user information"
-            ),
+            detail=("Authentication service did not return user information"),
         )
 
     if not isinstance(user_role, str) or not user_role.strip():
@@ -221,8 +195,7 @@ async def verify_token(
 
     # Preserve the existing authentication-boundary contract.
     if user_role == "supplier" and (
-        not isinstance(supplier_id, str)
-        or not supplier_id.strip()
+        not isinstance(supplier_id, str) or not supplier_id.strip()
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -239,8 +212,7 @@ async def verify_token(
     request.state.full_name = full_name
 
     logger.info(
-        "TOKEN VERIFIED | verified_by=platform | "
-        "endpoint=%s | request_id=%s | role=%s",
+        "TOKEN VERIFIED | verified_by=platform | endpoint=%s | request_id=%s | role=%s",
         request.url.path,
         request_id,
         user_role,
@@ -252,6 +224,7 @@ async def verify_token(
 # ============================================================
 # ROLE AUTHORIZATION
 # ============================================================
+
 
 def require_roles(*allowed_roles: str):
     """Restrict an endpoint to the specified roles."""
@@ -292,10 +265,7 @@ def require_roles(*allowed_roles: str):
             )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    f"Role '{user_role}' is not authorized "
-                    "for this endpoint"
-                ),
+                detail=(f"Role '{user_role}' is not authorized for this endpoint"),
             )
 
         logger.info(
@@ -317,6 +287,7 @@ def require_roles(*allowed_roles: str):
 # SUPPLIER COMPLIANCE ACCESS AUTHORIZATION
 # ============================================================
 
+
 def _require_supplier_id(
     user: dict,
     *,
@@ -334,6 +305,7 @@ def _require_supplier_id(
 
     return supplier_id.strip()
 
+
 def _get_supplier_compliance_status(
     supplier_id: str,
 ) -> SupplierComplianceStatus:
@@ -345,16 +317,11 @@ def _get_supplier_compliance_status(
     Supplier identifiers are never included in log messages.
     """
     try:
-        compliance_status = (
-            supplier_compliance_service.get_access_status(
-                supplier_id
-            )
-        )
+        compliance_status = supplier_compliance_service.get_access_status(supplier_id)
 
     except SupplierNotFoundError as exc:
         logger.warning(
-            "SUPPLIER COMPLIANCE CHECK DENIED | "
-            "reason=unknown_supplier",
+            "SUPPLIER COMPLIANCE CHECK DENIED | reason=unknown_supplier",
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -365,8 +332,7 @@ def _get_supplier_compliance_status(
         # Avoid logging exception text or traceback here because
         # database exceptions can contain sensitive record values.
         logger.error(
-            "SUPPLIER COMPLIANCE DATABASE ERROR | "
-            "error_type=%s",
+            "SUPPLIER COMPLIANCE DATABASE ERROR | error_type=%s",
             type(exc).__name__,
         )
         raise HTTPException(
@@ -388,6 +354,7 @@ def _get_supplier_compliance_status(
 
     return compliance_status
 
+
 def _deny_if_suspended(
     compliance_status: SupplierComplianceStatus,
 ) -> None:
@@ -398,6 +365,7 @@ def _deny_if_suspended(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=SUSPENDED_SUPPLIER_DETAIL,
         )
+
 
 async def enforce_not_suspended(
     user=Depends(verify_token),
@@ -416,9 +384,7 @@ async def enforce_not_suspended(
         detail=MISSING_SUPPLIER_ID_DETAIL,
     )
 
-    compliance_status = _get_supplier_compliance_status(
-        supplier_id
-    )
+    compliance_status = _get_supplier_compliance_status(supplier_id)
 
     _deny_if_suspended(compliance_status)
 
@@ -440,9 +406,7 @@ async def enforce_not_suspended_with_resolved_identity(
         detail=UNRESOLVED_SUPPLIER_ID_DETAIL,
     )
 
-    compliance_status = _get_supplier_compliance_status(
-        supplier_id
-    )
+    compliance_status = _get_supplier_compliance_status(supplier_id)
 
     _deny_if_suspended(compliance_status)
 
@@ -464,9 +428,7 @@ async def enforce_not_suspended_with_supplier_id_required(
         detail="Supplier ID is required",
     )
 
-    compliance_status = _get_supplier_compliance_status(
-        supplier_id
-    )
+    compliance_status = _get_supplier_compliance_status(supplier_id)
 
     _deny_if_suspended(compliance_status)
 
@@ -489,9 +451,7 @@ async def require_supplier_view_access(
         detail=UNRESOLVED_SUPPLIER_ID_DETAIL,
     )
 
-    compliance_status = _get_supplier_compliance_status(
-        supplier_id
-    )
+    compliance_status = _get_supplier_compliance_status(supplier_id)
 
     _deny_if_suspended(compliance_status)
 
@@ -524,9 +484,7 @@ async def require_supplier_write_access(
         detail=UNRESOLVED_SUPPLIER_ID_DETAIL,
     )
 
-    compliance_status = _get_supplier_compliance_status(
-        supplier_id
-    )
+    compliance_status = _get_supplier_compliance_status(supplier_id)
 
     _deny_if_suspended(compliance_status)
 
@@ -550,9 +508,7 @@ async def require_supplier_write_access(
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "Supplier compliance status does not permit this action"
-            ),
+            detail=("Supplier compliance status does not permit this action"),
         )
 
     logger.info(

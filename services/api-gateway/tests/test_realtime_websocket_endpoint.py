@@ -39,6 +39,7 @@ EXPECTED_SEVERITY = {
     "eta.shipment.predicted": "info",
     "forecast.batch.completed": "info",
     "data.pipeline.completed": "info",
+    "anomaly.sales.detected": "critical",
 }
 
 

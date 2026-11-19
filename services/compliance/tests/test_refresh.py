@@ -1,17 +1,16 @@
 from datetime import date, timedelta
 
+from app.core.config import (
+    CONFIDENCE_WEIGHT,
+    RECENCY_WEIGHT,
+    SOURCE_WEIGHT,
+)
 from app.services.risk_score_service import (
     calculate_country_risk,
     calculate_overall_supplier_risk,
     calculate_recency_score,
     calculate_risk_score,
     parse_date,
-)
-
-from app.core.config import (
-    CONFIDENCE_WEIGHT,
-    SOURCE_WEIGHT,
-    RECENCY_WEIGHT,
 )
 
 
@@ -40,17 +39,13 @@ def test_parse_date_year_slash_month_day():
 
 
 def test_parse_date_iso_datetime():
-    result = parse_date(
-        "2026-08-10T12:30:00"
-    )
+    result = parse_date("2026-08-10T12:30:00")
 
     assert result == date(2026, 8, 10)
 
 
 def test_parse_date_iso_datetime_z():
-    result = parse_date(
-        "2026-08-10T12:30:00Z"
-    )
+    result = parse_date("2026-08-10T12:30:00Z")
 
     assert result == date(2026, 8, 10)
 
@@ -79,88 +74,58 @@ def test_parse_date_whitespace():
     assert result is None
 
 
-
-
 def test_recency_score_last_30_days():
-    listed_date = (
-        date.today() - timedelta(days=10)
-    ).isoformat()
+    listed_date = (date.today() - timedelta(days=10)).isoformat()
 
-    score = calculate_recency_score(
-        listed_date
-    )
+    score = calculate_recency_score(listed_date)
 
     assert score == 100.0
 
 
 def test_recency_score_31_to_90_days():
-    listed_date = (
-        date.today() - timedelta(days=60)
-    ).isoformat()
+    listed_date = (date.today() - timedelta(days=60)).isoformat()
 
-    score = calculate_recency_score(
-        listed_date
-    )
+    score = calculate_recency_score(listed_date)
 
     assert score == 90.0
 
 
 def test_recency_score_91_to_180_days():
-    listed_date = (
-        date.today() - timedelta(days=120)
-    ).isoformat()
+    listed_date = (date.today() - timedelta(days=120)).isoformat()
 
-    score = calculate_recency_score(
-        listed_date
-    )
+    score = calculate_recency_score(listed_date)
 
     assert score == 75.0
 
 
 def test_recency_score_181_to_365_days():
-    listed_date = (
-        date.today() - timedelta(days=300)
-    ).isoformat()
+    listed_date = (date.today() - timedelta(days=300)).isoformat()
 
-    score = calculate_recency_score(
-        listed_date
-    )
+    score = calculate_recency_score(listed_date)
 
     assert score == 60.0
 
 
 def test_recency_score_366_to_730_days():
-    listed_date = (
-        date.today() - timedelta(days=500)
-    ).isoformat()
+    listed_date = (date.today() - timedelta(days=500)).isoformat()
 
-    score = calculate_recency_score(
-        listed_date
-    )
+    score = calculate_recency_score(listed_date)
 
     assert score == 40.0
 
 
 def test_recency_score_older_than_730_days():
-    listed_date = (
-        date.today() - timedelta(days=1000)
-    ).isoformat()
+    listed_date = (date.today() - timedelta(days=1000)).isoformat()
 
-    score = calculate_recency_score(
-        listed_date
-    )
+    score = calculate_recency_score(listed_date)
 
     assert score == 20.0
 
 
 def test_recency_score_future_date():
-    listed_date = (
-        date.today() + timedelta(days=30)
-    ).isoformat()
+    listed_date = (date.today() + timedelta(days=30)).isoformat()
 
-    score = calculate_recency_score(
-        listed_date
-    )
+    score = calculate_recency_score(listed_date)
 
     assert score == 100.0
 
@@ -181,21 +146,13 @@ def test_recency_score_is_between_zero_and_hundred():
         None,
         "invalid",
         date.today().isoformat(),
-        (
-            date.today()
-            - timedelta(days=1000)
-        ).isoformat(),
+        (date.today() - timedelta(days=1000)).isoformat(),
     ]
 
     for listed_date in test_dates:
-
-        score = calculate_recency_score(
-            listed_date
-        )
+        score = calculate_recency_score(listed_date)
 
         assert 0 <= score <= 100
-
-
 
 
 def test_risk_score_returns_required_fields():
@@ -263,23 +220,11 @@ def test_zero_match_has_zero_risk():
         listed_date=None,
     )
 
-    assert (
-        result["risk_factors"]
-        ["match_confidence"]
-        == 0
-    )
+    assert result["risk_factors"]["match_confidence"] == 0
 
-    assert (
-        result["risk_factors"]
-        ["source_coverage"]
-        == 0
-    )
+    assert result["risk_factors"]["source_coverage"] == 0
 
-    assert (
-    result["risk_factors"]
-    ["recency"]
-    == 50.0
-)
+    assert result["risk_factors"]["recency"] == 50.0
 
     assert result["risk_score"] == 10
 
@@ -292,11 +237,7 @@ def test_match_confidence_is_limited_to_hundred():
         listed_date=None,
     )
 
-    assert (
-        result["risk_factors"]
-        ["match_confidence"]
-        == 100
-    )
+    assert result["risk_factors"]["match_confidence"] == 100
 
 
 def test_negative_match_score_becomes_zero():
@@ -307,11 +248,7 @@ def test_negative_match_score_becomes_zero():
         listed_date=None,
     )
 
-    assert (
-        result["risk_factors"]
-        ["match_confidence"]
-        == 0
-    )
+    assert result["risk_factors"]["match_confidence"] == 0
 
 
 def test_one_source_has_one_third_source_coverage():
@@ -323,8 +260,7 @@ def test_one_source_has_one_third_source_coverage():
     )
 
     assert round(
-        result["risk_factors"]
-        ["source_coverage"],
+        result["risk_factors"]["source_coverage"],
         2,
     ) == round(
         (1 / 5) * 100,
@@ -344,8 +280,7 @@ def test_two_sources_have_two_thirds_source_coverage():
     )
 
     assert round(
-        result["risk_factors"]
-        ["source_coverage"],
+        result["risk_factors"]["source_coverage"],
         2,
     ) == round(
         (2 / 5) * 100,
@@ -365,11 +300,7 @@ def test_three_source_recent_listing_has_high_risk():
         listed_date=None,
     )
 
-    assert (
-        result["risk_factors"]
-        ["source_coverage"]
-        == 60
-    )
+    assert result["risk_factors"]["source_coverage"] == 60
 
 
 def test_duplicate_sources_do_not_increase_source_score():
@@ -385,8 +316,7 @@ def test_duplicate_sources_do_not_increase_source_score():
     )
 
     assert round(
-        result["risk_factors"]
-        ["source_coverage"],
+        result["risk_factors"]["source_coverage"],
         2,
     ) == round(
         (1 / 5) * 100,
@@ -407,8 +337,7 @@ def test_source_names_are_case_insensitive():
     )
 
     assert round(
-        result["risk_factors"]
-        ["source_coverage"],
+        result["risk_factors"]["source_coverage"],
         2,
     ) == round(
         (1 / 5) * 100,
@@ -427,17 +356,10 @@ def test_recent_listing_increases_risk():
     old = calculate_risk_score(
         match_score=90,
         matched_sources=["OFAC"],
-        listed_date=(
-            date.today()
-            - timedelta(days=1000)
-        ).isoformat(),
+        listed_date=(date.today() - timedelta(days=1000)).isoformat(),
     )
 
-    assert (
-        recent["risk_score"]
-        >
-        old["risk_score"]
-    )
+    assert recent["risk_score"] > old["risk_score"]
 
 
 def test_more_sources_increases_risk():
@@ -458,11 +380,7 @@ def test_more_sources_increases_risk():
         listed_date=date.today().isoformat(),
     )
 
-    assert (
-        three_sources["risk_score"]
-        >
-        one_source["risk_score"]
-    )
+    assert three_sources["risk_score"] > one_source["risk_score"]
 
 
 def test_higher_match_score_increases_risk():
@@ -479,13 +397,7 @@ def test_higher_match_score_increases_risk():
         listed_date=date.today().isoformat(),
     )
 
-    assert (
-        high_match["risk_score"]
-        >
-        low_match["risk_score"]
-    )
-
-
+    assert high_match["risk_score"] > low_match["risk_score"]
 
 
 def test_risk_score_is_integer():
@@ -542,94 +454,72 @@ def test_risk_factors_are_numeric():
     )
 
 
-
-
 def test_india_country_risk():
 
-    score = calculate_country_risk(
-        "India"
-    )
+    score = calculate_country_risk("India")
 
     assert score == 30.0
 
 
 def test_usa_country_risk():
 
-    score = calculate_country_risk(
-        "USA"
-    )
+    score = calculate_country_risk("USA")
 
     assert score == 20.0
 
 
 def test_united_states_country_risk():
 
-    score = calculate_country_risk(
-        "United States"
-    )
+    score = calculate_country_risk("United States")
 
     assert score == 20.0
 
 
 def test_uk_country_risk():
 
-    score = calculate_country_risk(
-        "UK"
-    )
+    score = calculate_country_risk("UK")
 
     assert score == 20.0
 
 
 def test_russia_country_risk():
 
-    score = calculate_country_risk(
-        "Russia"
-    )
+    score = calculate_country_risk("Russia")
 
     assert score == 70.0
 
 
 def test_iran_country_risk():
 
-    score = calculate_country_risk(
-        "Iran"
-    )
+    score = calculate_country_risk("Iran")
 
     assert score == 90.0
 
 
 def test_north_korea_country_risk():
 
-    score = calculate_country_risk(
-        "North Korea"
-    )
+    score = calculate_country_risk("North Korea")
 
     assert score == 100.0
 
 
 def test_country_risk_is_case_insensitive():
 
-    score = calculate_country_risk(
-        "india"
-    )
+    score = calculate_country_risk("india")
 
     assert score == 30.0
 
 
 def test_country_risk_strips_whitespace():
 
-    score = calculate_country_risk(
-        "  India  "
-    )
+    score = calculate_country_risk("  India  ")
 
     assert score == 30.0
 
 
 def test_unknown_country_has_neutral_risk():
 
-    score = calculate_country_risk(
-        "Unknown Country"
-    )
+    score = calculate_country_risk("Unknown Country")
 
     assert score == 50.0
 
@@ -661,15 +551,9 @@ def test_country_risk_is_between_zero_and_hundred():
     ]
 
     for country in countries:
-
-        score = calculate_country_risk(
-            country
-        )
+        score = calculate_country_risk(country)
 
         assert 0 <= score <= 100
-
-
-
 
 
 def test_overall_supplier_risk_uses_80_20_weight():
@@ -752,7 +636,6 @@ def test_overall_supplier_risk_is_bounded():
     ]
 
     for sanctions_score, country_score in test_cases:
-
         result = calculate_overall_supplier_risk(
             sanctions_score=sanctions_score,
             country_risk_score=country_score,
@@ -773,6 +656,7 @@ def test_overall_supplier_risk_is_float():
         float,
     )
 
+
 def test_risk_score_uses_configured_weights():
     result = calculate_risk_score(
         match_score=100,
@@ -780,10 +664,6 @@ def test_risk_score_uses_configured_weights():
         listed_date=None,
     )
 
-    expected = round(
-        100 * CONFIDENCE_WEIGHT
-        + 60 * SOURCE_WEIGHT
-        + 50 * RECENCY_WEIGHT
-    )
+    expected = round(100 * CONFIDENCE_WEIGHT + 60 * SOURCE_WEIGHT + 50 * RECENCY_WEIGHT)
 
     assert result["risk_score"] == expected

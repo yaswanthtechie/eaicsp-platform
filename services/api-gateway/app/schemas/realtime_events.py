@@ -1,13 +1,14 @@
 """
 Event envelope and payload validation schemas for Realtime WebSocket (R15-M3).
 
-Defines the contract validation for the six canonical dashboard event types:
+Defines the contract validation for the seven canonical dashboard event types:
 1. inventory.stock.low
 2. iot.anomaly.detected
 3. supplierrisk.score.changed
 4. eta.shipment.predicted
 5. forecast.batch.completed
 6. data.pipeline.completed
+7. anomaly.sales.detected
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
@@ -34,6 +35,7 @@ CANONICAL_EVENT_TYPES: Set[str] = {
     "eta.shipment.predicted",
     "forecast.batch.completed",
     "data.pipeline.completed",
+    "anomaly.sales.detected",
 }
 
 
@@ -116,6 +118,21 @@ class EtaShipmentPredictedPayload(BaseModel):
     model_version: str
     predicted_at: str
     top_features: Optional[List[Dict[str, Any]]] = None
+    predicted_delay_days: Optional[float] = None
+
+
+class SalesAnomalyDetectedPayload(BaseModel):
+    """Payload of contracts/events/anomaly.sales.detected.v1.json (all fields required)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    sku_id: str = Field(..., pattern=SKU_ID_PATTERN)
+    warehouse_id: str = Field(..., pattern=WAREHOUSE_ID_PATTERN)
+    date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
+    expected_quantity: float = Field(..., ge=0)
+    actual_quantity: float = Field(..., ge=0)
+    score: float
+    severity: Literal["high", "medium", "low"]
 
 
 class ForecastBatchCompletedPayload(BaseModel):
@@ -173,6 +190,7 @@ PAYLOAD_VALIDATORS: Dict[str, type[BaseModel]] = {
     "eta.shipment.predicted": EtaShipmentPredictedPayload,
     "forecast.batch.completed": ForecastBatchCompletedPayload,
     "data.pipeline.completed": DataPipelineCompletedPayload,
+    "anomaly.sales.detected": SalesAnomalyDetectedPayload,
 }
 
 

@@ -22,8 +22,10 @@ from fastapi import UploadFile
 from minio import Minio
 
 from app.core.config import settings
-from app.services.document_storage_service import DocumentStorageService
-
+from app.services.document_storage_service import (
+    DocumentStorageError,
+    DocumentStorageService,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -39,14 +41,12 @@ def _load_real_minio_credentials() -> tuple[str, str]:
     """
     env_values = dotenv_values(".env")
 
-    access_key = (
-        os.environ.get("REAL_MINIO_ACCESS_KEY")
-        or env_values.get("MINIO_ACCESS_KEY")
+    access_key = os.environ.get("REAL_MINIO_ACCESS_KEY") or env_values.get(
+        "MINIO_ACCESS_KEY"
     )
 
-    secret_key = (
-        os.environ.get("REAL_MINIO_SECRET_KEY")
-        or env_values.get("MINIO_SECRET_KEY")
+    secret_key = os.environ.get("REAL_MINIO_SECRET_KEY") or env_values.get(
+        "MINIO_SECRET_KEY"
     )
 
     if not access_key:
@@ -87,7 +87,7 @@ def storage_service():
 
     try:
         service.ensure_bucket()
-    except Exception as exc:
+    except DocumentStorageError as exc:
         pytest.fail(
             "Real MinIO integration setup failed.\n"
             f"Endpoint: {settings.MINIO_ENDPOINT}\n"
@@ -107,9 +107,7 @@ def unique_document():
     Generate unique supplier/document identifiers so repeated
     integration-test runs cannot collide.
     """
-    supplier_id = (
-        f"INTEGRATION-{uuid.uuid4().hex[:8].upper()}"
-    )
+    supplier_id = f"INTEGRATION-{uuid.uuid4().hex[:8].upper()}"
     document_id = str(uuid.uuid4())
 
     return supplier_id, document_id
@@ -130,8 +128,7 @@ def cleanup_objects(storage_service):
                 bucket_name=storage_service.bucket_name,
                 object_name=object_key,
             )
-        except Exception:
-            # Cleanup must never hide the original test failure.
+        except Exception:  # noqa: BLE001, S110 - cleanup must never hide the original test failure
             pass
 
 
@@ -174,13 +171,9 @@ def test_real_minio_upload_creates_supplier_scoped_object(
 
     cleanup_objects.append(object_key)
 
-    assert object_key.startswith(
-        f"suppliers/{supplier_id}/onboarding/"
-    )
+    assert object_key.startswith(f"suppliers/{supplier_id}/onboarding/")
 
-    assert object_key.endswith(
-        f"_{file.filename}"
-    )
+    assert object_key.endswith(f"_{file.filename}")
 
     assert supplier_id in object_key
     assert document_id in object_key
@@ -226,10 +219,7 @@ def test_real_minio_upload_preserves_uploaded_content(
     """
     supplier_id, document_id = unique_document
 
-    content = (
-        b"%PDF-1.4\n"
-        b"Real MinIO integration test content\n"
-    )
+    content = b"%PDF-1.4\nReal MinIO integration test content\n"
 
     file = create_upload_file(
         filename="bank_certificate.pdf",
@@ -267,31 +257,23 @@ def test_real_minio_different_suppliers_have_different_object_keys(
     document_id_a = str(uuid.uuid4())
     document_id_b = str(uuid.uuid4())
 
-    object_key_a = (
-        storage_service.build_onboarding_object_key(
-            supplier_id="SUP-00001",
-            document_id=document_id_a,
-            file_name="pan_card.pdf",
-        )
+    object_key_a = storage_service.build_onboarding_object_key(
+        supplier_id="SUP-00001",
+        document_id=document_id_a,
+        file_name="pan_card.pdf",
     )
 
-    object_key_b = (
-        storage_service.build_onboarding_object_key(
-            supplier_id="SUP-00002",
-            document_id=document_id_b,
-            file_name="pan_card.pdf",
-        )
+    object_key_b = storage_service.build_onboarding_object_key(
+        supplier_id="SUP-00002",
+        document_id=document_id_b,
+        file_name="pan_card.pdf",
     )
 
     assert object_key_a != object_key_b
 
-    assert object_key_a.startswith(
-        "suppliers/SUP-00001/onboarding/"
-    )
+    assert object_key_a.startswith("suppliers/SUP-00001/onboarding/")
 
-    assert object_key_b.startswith(
-        "suppliers/SUP-00002/onboarding/"
-    )
+    assert object_key_b.startswith("suppliers/SUP-00002/onboarding/")
 
 
 def test_real_minio_supplier_a_object_is_not_supplier_b_object(
@@ -304,20 +286,16 @@ def test_real_minio_supplier_a_object_is_not_supplier_b_object(
     document_id_a = str(uuid.uuid4())
     document_id_b = str(uuid.uuid4())
 
-    object_key_a = (
-        storage_service.build_onboarding_object_key(
-            supplier_id="SUP-00001",
-            document_id=document_id_a,
-            file_name="pan_card.pdf",
-        )
+    object_key_a = storage_service.build_onboarding_object_key(
+        supplier_id="SUP-00001",
+        document_id=document_id_a,
+        file_name="pan_card.pdf",
     )
 
-    object_key_b = (
-        storage_service.build_onboarding_object_key(
-            supplier_id="SUP-00002",
-            document_id=document_id_b,
-            file_name="pan_card.pdf",
-        )
+    object_key_b = storage_service.build_onboarding_object_key(
+        supplier_id="SUP-00002",
+        document_id=document_id_b,
+        file_name="pan_card.pdf",
     )
 
     assert object_key_a != object_key_b
@@ -365,17 +343,13 @@ def test_real_minio_presigned_url_is_generated(
     )
 
     assert isinstance(url, str)
-    assert url.startswith(
-        ("http://", "https://")
-    )
+    assert url.startswith(("http://", "https://"))
 
     parsed = urlparse(url)
 
     assert parsed.scheme in {"http", "https"}
     assert parsed.netloc
-    assert parsed.path.endswith(
-        f"/{object_key}"
-    )
+    assert parsed.path.endswith(f"/{object_key}")
 
 
 def test_real_minio_presigned_url_contains_configured_expiry(
@@ -402,20 +376,13 @@ def test_real_minio_presigned_url_contains_configured_expiry(
         object_key=object_key,
     )
 
-    query = parse_qs(
-        urlparse(url).query
-    )
+    query = parse_qs(urlparse(url).query)
 
     assert "X-Amz-Expires" in query
 
-    expires = int(
-        query["X-Amz-Expires"][0]
-    )
+    expires = int(query["X-Amz-Expires"][0])
 
-    assert (
-        expires
-        == settings.MINIO_PRESIGNED_EXPIRY_SECONDS
-    )
+    assert expires == settings.MINIO_PRESIGNED_EXPIRY_SECONDS
 
     assert expires <= 300
 
@@ -430,10 +397,7 @@ def test_real_minio_presigned_url_can_download_object(
     """
     supplier_id, document_id = unique_document
 
-    content = (
-        b"%PDF-1.4\n"
-        b"Presigned URL integration test\n"
-    )
+    content = b"%PDF-1.4\nPresigned URL integration test\n"
 
     file = create_upload_file(
         filename="pan_card.pdf",
@@ -467,10 +431,7 @@ def test_real_minio_missing_object_returns_false(
     """
     A missing object must return False.
     """
-    missing_object_key = (
-        "suppliers/integration-test/"
-        f"missing-{uuid.uuid4()}.pdf"
-    )
+    missing_object_key = f"suppliers/integration-test/missing-{uuid.uuid4()}.pdf"
 
     assert (
         storage_service.object_exists(

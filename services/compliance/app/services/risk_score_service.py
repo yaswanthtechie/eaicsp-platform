@@ -2,15 +2,14 @@ from datetime import date, datetime
 
 from app.core.config import (
     CONFIDENCE_WEIGHT,
-    SOURCE_WEIGHT,
+    COUNTRY_RISK_INDEX,
+    COUNTRY_RISK_WEIGHT,
     RECENCY_WEIGHT,
     SANCTIONS_WEIGHT,
-    COUNTRY_RISK_WEIGHT,
-    COUNTRY_RISK_INDEX,
-    UNKNOWN_COUNTRY_RISK,
+    SOURCE_WEIGHT,
     TOTAL_SOURCES,
+    UNKNOWN_COUNTRY_RISK,
 )
-
 
 
 def parse_date(
@@ -104,17 +103,11 @@ def calculate_risk_score(
 
     unique_sources = {
         source.strip().upper()
-        for source in (
-            matched_sources or []
-        )
-        if source
-        and source.strip()
+        for source in (matched_sources or [])
+        if source and source.strip()
     }
 
-    source_score = (
-        len(unique_sources)
-        / TOTAL_SOURCES
-    ) * 100
+    source_score = (len(unique_sources) / TOTAL_SOURCES) * 100
 
     source_score = max(
         0.0,
@@ -124,18 +117,13 @@ def calculate_risk_score(
         ),
     )
 
-    recency_score = calculate_recency_score(
-        listed_date
-    )
+    recency_score = calculate_recency_score(listed_date)
 
     # Config-driven weighted risk calculation
     weighted_score = (
-        confidence_score
-        * CONFIDENCE_WEIGHT
-        + source_score
-        * SOURCE_WEIGHT
-        + recency_score
-        * RECENCY_WEIGHT
+        confidence_score * CONFIDENCE_WEIGHT
+        + source_score * SOURCE_WEIGHT
+        + recency_score * RECENCY_WEIGHT
     )
 
     bounded_score = max(
@@ -146,11 +134,7 @@ def calculate_risk_score(
         ),
     )
 
-    risk_score = int(
-        round(
-            bounded_score
-        )
-    )
+    risk_score = int(round(bounded_score))
 
     return {
         "risk_score": risk_score,
@@ -178,9 +162,7 @@ def calculate_country_risk(
     if not country:
         return UNKNOWN_COUNTRY_RISK
 
-    normalized_country = (
-        country.strip().upper()
-    )
+    normalized_country = country.strip().upper()
 
     if not normalized_country:
         return UNKNOWN_COUNTRY_RISK
@@ -224,10 +206,7 @@ def calculate_overall_supplier_risk(
 
     # Config-driven overall supplier risk calculation
     overall_score = (
-        sanctions_score
-        * SANCTIONS_WEIGHT
-        + country_risk_score
-        * COUNTRY_RISK_WEIGHT
+        sanctions_score * SANCTIONS_WEIGHT + country_risk_score * COUNTRY_RISK_WEIGHT
     )
 
     return round(

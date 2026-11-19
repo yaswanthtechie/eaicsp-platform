@@ -1,11 +1,11 @@
 import logging
+
 from fastapi import (
     APIRouter,
     Depends,
-    Query,
     HTTPException,
+    Query,
 )
-
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -13,70 +13,58 @@ from app.core.dependency import (
     require_roles,
     verify_internal_caller,
 )
-
 from app.schemas.compliance import (
-    ComplianceRequest,
-    ComplianceResponse,
     BulkComplianceRequest,
     BulkComplianceResponse,
-    OverrideCreateRequest,
-    OverrideResponse,
-    ComplianceSummaryResponse,
     CaseListResponse,
+    ComplianceRequest,
+    ComplianceResponse,
+    ComplianceSummaryResponse,
     InternalComplianceRequest,
     InternalComplianceResponse,
+    OverrideCreateRequest,
+    OverrideResponse,
 )
-
 from app.schemas.regulatory_reporting import (
     RegulatoryReportResponse,
     RegulatoryRulesResponse,
 )
-
 from app.services.audit_service import (
-    write_audit,
-    write_bulk_audit,
     get_audit_history,
     get_audit_summary,
+    write_audit,
+    write_bulk_audit,
 )
-
-from app.services.override_service import (
-    create_override,
-    get_override,
-    get_all_overrides,
-    delete_override,
-)
-
 from app.services.case_service import (
     assign_case,
-    transition_case,
+    get_case_history,
     get_case_or_404,
     get_cases,
-    get_case_history,
+    transition_case,
 )
-
 from app.services.compliance_screening_service import (
     screen_and_open_case,
     screen_bulk_and_open_cases,
 )
-
-from app.services.reporting_service import (
-    get_compliance_summary,
-)
-
 from app.services.internal_compliance_service import (
     clear_internal_cache,
     perform_internal_compliance_check,
 )
-
+from app.services.override_service import (
+    create_override,
+    delete_override,
+    get_all_overrides,
+    get_override,
+)
 from app.services.regulatory_rules_service import (
-    get_regulatory_rules,
     evaluate_regulatory_rules,
+    get_regulatory_rules,
     normalize_country,
 )
-
+from app.services.reporting_service import (
+    get_compliance_summary,
+)
 from app.services.sla_service import get_sla_status
-
-
 
 logger = logging.getLogger(__name__)
 
@@ -110,9 +98,7 @@ def get_actor_identity(auth_data) -> str:
 def screen(
     request: ComplianceRequest,
     db: Session = Depends(get_db),
-    auth_data=Depends(
-        require_roles("compliance_officer")
-    ),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
     result = screen_and_open_case(
         db=db,
@@ -143,9 +129,7 @@ def screen(
 def bulk_screen(
     request: BulkComplianceRequest,
     db: Session = Depends(get_db),
-    auth_data=Depends(
-        require_roles("compliance_officer")
-    ),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
     results = screen_bulk_and_open_cases(
         db=db,
@@ -177,10 +161,9 @@ def internal_compliance_check(
     db: Session = Depends(get_db),
     caller_service: str = Depends(verify_internal_caller),
 ):
-   
+
     logger.info(
-        "Internal compliance request received: "
-        "caller=%s supplier_id=%s",
+        "Internal compliance request received: caller=%s supplier_id=%s",
         caller_service,
         request.supplier_id,
     )
@@ -197,10 +180,9 @@ def internal_compliance_check(
     except HTTPException:
         raise
 
-    except Exception:
+    except Exception as exc:
         logger.exception(
-            "Internal compliance check failed: "
-            "caller=%s supplier_id=%s",
+            "Internal compliance check failed: caller=%s supplier_id=%s",
             caller_service,
             request.supplier_id,
         )
@@ -208,7 +190,7 @@ def internal_compliance_check(
         raise HTTPException(
             status_code=503,
             detail="Compliance service unavailable",
-        )
+        ) from exc
 
     logger.info(
         "Internal compliance response returned: "
@@ -221,6 +203,8 @@ def internal_compliance_check(
     )
 
     return result
+
+
 # ============================================================
 # AUDIT
 # ============================================================
@@ -233,9 +217,7 @@ def internal_compliance_check(
 def audit_history(
     entity_name: str = Query(...),
     db: Session = Depends(get_db),
-    auth_data=Depends(
-        require_roles("compliance_officer")
-    ),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
     return get_audit_history(
         db=db,
@@ -249,9 +231,7 @@ def audit_history(
 )
 def audit_summary(
     db: Session = Depends(get_db),
-    auth_data=Depends(
-        require_roles("compliance_officer")
-    ),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
     return get_audit_summary(db)
 
@@ -269,9 +249,7 @@ def audit_summary(
 def add_override(
     request: OverrideCreateRequest,
     db: Session = Depends(get_db),
-    auth_data=Depends(
-        require_roles("compliance_officer")
-    ),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
     override = create_override(
         db=db,
@@ -297,9 +275,7 @@ def read_override(
     matched_name: str = Query(...),
     source: str = Query(...),
     db: Session = Depends(get_db),
-    auth_data=Depends(
-        require_roles("compliance_officer")
-    ),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
     override = get_override(
         db=db,
@@ -324,9 +300,7 @@ def read_override(
 )
 def read_all_overrides(
     db: Session = Depends(get_db),
-    auth_data=Depends(
-        require_roles("compliance_officer")
-    ),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
     return get_all_overrides(db)
 
@@ -340,9 +314,7 @@ def remove_override(
     matched_name: str = Query(...),
     source: str = Query(...),
     db: Session = Depends(get_db),
-    auth_data=Depends(
-        require_roles("compliance_officer")
-    ),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
     deleted = delete_override(
         db=db,
@@ -380,9 +352,7 @@ def remove_override(
 def list_cases(
     status: str | None = Query(None),
     db: Session = Depends(get_db),
-    auth_data=Depends(
-        require_roles("compliance_officer")
-    ),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
     try:
         cases = get_cases(
@@ -394,7 +364,7 @@ def list_cases(
         raise HTTPException(
             status_code=400,
             detail=str(exc),
-        )
+        ) from exc
 
     return {
         "cases": cases,
@@ -409,9 +379,7 @@ def list_cases(
 def get_case(
     case_number: str,
     db: Session = Depends(get_db),
-    auth_data=Depends(
-        require_roles("compliance_officer")
-    ),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
     try:
         case = get_case_or_404(
@@ -423,7 +391,7 @@ def get_case(
         raise HTTPException(
             status_code=404,
             detail=str(exc),
-        )
+        ) from exc
 
     return case
 
@@ -436,9 +404,7 @@ def assign_case_to_officer(
     case_number: str,
     assigned_to: str = Query(...),
     db: Session = Depends(get_db),
-    auth_data=Depends(
-        require_roles("compliance_officer")
-    ),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
     try:
         case = get_case_or_404(
@@ -450,7 +416,7 @@ def assign_case_to_officer(
         raise HTTPException(
             status_code=404,
             detail=str(exc),
-        )
+        ) from exc
 
     try:
         return assign_case(
@@ -464,7 +430,7 @@ def assign_case_to_officer(
         raise HTTPException(
             status_code=400,
             detail=str(exc),
-        )
+        ) from exc
 
 
 @router.post(
@@ -477,9 +443,7 @@ def update_case_status(
     reason: str | None = Query(None),
     comments: str | None = Query(None),
     db: Session = Depends(get_db),
-    auth_data=Depends(
-        require_roles("compliance_officer")
-    ),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
     try:
         case = get_case_or_404(
@@ -491,7 +455,7 @@ def update_case_status(
         raise HTTPException(
             status_code=404,
             detail=str(exc),
-        )
+        ) from exc
 
     try:
         updated_case = transition_case(
@@ -507,9 +471,8 @@ def update_case_status(
         raise HTTPException(
             status_code=400,
             detail=str(exc),
-        )
+        ) from exc
 
-    
     clear_internal_cache()
 
     return updated_case
@@ -522,9 +485,7 @@ def update_case_status(
 def get_case_history_route(
     case_number: str,
     db: Session = Depends(get_db),
-    auth_data=Depends(
-        require_roles("compliance_officer")
-    ),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
     try:
         case = get_case_or_404(
@@ -541,7 +502,7 @@ def get_case_history_route(
         raise HTTPException(
             status_code=404,
             detail=str(exc),
-        )
+        ) from exc
 
 
 # ============================================================
@@ -556,9 +517,7 @@ def get_case_history_route(
 )
 def compliance_summary(
     db: Session = Depends(get_db),
-    auth_data=Depends(
-        require_roles("compliance_officer")
-    ),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
     return get_compliance_summary(db)
 
@@ -570,9 +529,7 @@ def compliance_summary(
 )
 def regulatory_report(
     country: str,
-    auth_data=Depends(
-        require_roles("compliance_officer")
-    ),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
     rules = get_regulatory_rules(country)
 
@@ -593,9 +550,7 @@ def evaluate_regulatory_report(
     kyc_verified: bool = Query(...),
     documents_complete: bool = Query(...),
     reporting_compliant: bool = Query(True),
-    auth_data=Depends(
-        require_roles("compliance_officer")
-    ),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
     return evaluate_regulatory_rules(
         country=country,
@@ -606,15 +561,11 @@ def evaluate_regulatory_report(
     )
 
 
-
 @router.get(
     "/sla",
     tags=["SLA"],
 )
 def sla_status(
-    auth_data=Depends(
-        require_roles("compliance_officer")
-    ),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
     return get_sla_status()
-

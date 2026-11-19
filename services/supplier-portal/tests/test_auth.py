@@ -1,10 +1,8 @@
 import pytest
-
 from fastapi import Request
 from fastapi.security import HTTPAuthorizationCredentials
 
 from app.core import auth
-
 
 # ============================================================
 # TEST DATA
@@ -36,6 +34,7 @@ VALID_PROCUREMENT_RESPONSE = {
 # FAKE PLATFORM RESPONSE
 # ============================================================
 
+
 class FakeResponse:
     """
     Fake httpx response returned by Platform Service.
@@ -61,6 +60,7 @@ class FakeResponse:
 # ============================================================
 # FAKE HTTP CLIENT
 # ============================================================
+
 
 class FakeAsyncClient:
     """
@@ -104,6 +104,7 @@ class FakeAsyncClient:
 # REQUEST HELPER
 # ============================================================
 
+
 def create_request(
     path="/api/v1/purchase-orders/PO1001",
     headers=None,
@@ -140,6 +141,7 @@ def create_request(
 # FIXTURE
 # ============================================================
 
+
 @pytest.fixture(autouse=True)
 def remove_dependency_overrides():
     """
@@ -165,6 +167,7 @@ def remove_dependency_overrides():
 # ============================================================
 # 1. VALID TOKEN
 # ============================================================
+
 
 @pytest.mark.asyncio
 async def test_verify_token_valid_token(monkeypatch):
@@ -214,14 +217,9 @@ async def test_verify_token_valid_token(monkeypatch):
     assert request.state.role == "supplier"
     assert request.state.supplier_id == "SUP-00001"
 
-    assert captured_request["headers"]["Authorization"] == (
-        "Bearer valid-token"
-    )
+    assert captured_request["headers"]["Authorization"] == ("Bearer valid-token")
 
-    assert (
-        captured_request["headers"]["X-Caller-Service"]
-        == "supplier-portal"
-    )
+    assert captured_request["headers"]["X-Caller-Service"] == "supplier-portal"
 
     assert (
         captured_request["headers"]["X-Caller-Endpoint"]
@@ -235,6 +233,7 @@ async def test_verify_token_valid_token(monkeypatch):
 # 2. MISSING TOKEN
 # ============================================================
 
+
 @pytest.mark.asyncio
 async def test_verify_token_missing_token():
     """
@@ -244,7 +243,6 @@ async def test_verify_token_missing_token():
     request = create_request()
 
     with pytest.raises(auth.HTTPException) as exc_info:
-
         await auth.verify_token(
             request=request,
             credentials=None,
@@ -252,14 +250,13 @@ async def test_verify_token_missing_token():
 
     assert exc_info.value.status_code == 401
 
-    assert exc_info.value.detail == (
-        "Missing authentication token"
-    )
+    assert exc_info.value.detail == ("Missing authentication token")
 
 
 # ============================================================
 # 3. INVALID / EXPIRED TOKEN
 # ============================================================
+
 
 @pytest.mark.asyncio
 async def test_verify_token_invalid_or_expired_token(monkeypatch):
@@ -294,7 +291,6 @@ async def test_verify_token_invalid_or_expired_token(monkeypatch):
     )
 
     with pytest.raises(auth.HTTPException) as exc_info:
-
         await auth.verify_token(
             request=request,
             credentials=credentials,
@@ -302,14 +298,13 @@ async def test_verify_token_invalid_or_expired_token(monkeypatch):
 
     assert exc_info.value.status_code == 401
 
-    assert exc_info.value.detail == (
-        "Invalid or expired authentication token"
-    )
+    assert exc_info.value.detail == ("Invalid or expired authentication token")
 
 
 # ============================================================
 # 4. PLATFORM SERVICE UNAVAILABLE
 # ============================================================
+
 
 @pytest.mark.asyncio
 async def test_verify_token_platform_service_unavailable(
@@ -322,9 +317,7 @@ async def test_verify_token_platform_service_unavailable(
 
     def fake_async_client(*args, **kwargs):
         return FakeAsyncClient(
-            exception=auth.httpx.RequestError(
-                "Connection failed"
-            ),
+            exception=auth.httpx.RequestError("Connection failed"),
         )
 
     monkeypatch.setattr(
@@ -341,7 +334,6 @@ async def test_verify_token_platform_service_unavailable(
     )
 
     with pytest.raises(auth.HTTPException) as exc_info:
-
         await auth.verify_token(
             request=request,
             credentials=credentials,
@@ -349,14 +341,13 @@ async def test_verify_token_platform_service_unavailable(
 
     assert exc_info.value.status_code == 503
 
-    assert exc_info.value.detail == (
-        "Authentication service is unavailable"
-    )
+    assert exc_info.value.detail == ("Authentication service is unavailable")
 
 
 # ============================================================
 # 5. PLATFORM SERVICE TIMEOUT
 # ============================================================
+
 
 @pytest.mark.asyncio
 async def test_verify_token_platform_service_timeout(
@@ -368,9 +359,7 @@ async def test_verify_token_platform_service_timeout(
 
     def fake_async_client(*args, **kwargs):
         return FakeAsyncClient(
-            exception=auth.httpx.TimeoutException(
-                "Request timed out"
-            ),
+            exception=auth.httpx.TimeoutException("Request timed out"),
         )
 
     monkeypatch.setattr(
@@ -387,7 +376,6 @@ async def test_verify_token_platform_service_timeout(
     )
 
     with pytest.raises(auth.HTTPException) as exc_info:
-
         await auth.verify_token(
             request=request,
             credentials=credentials,
@@ -395,14 +383,13 @@ async def test_verify_token_platform_service_timeout(
 
     assert exc_info.value.status_code == 503
 
-    assert exc_info.value.detail == (
-        "Authentication service timed out"
-    )
+    assert exc_info.value.detail == ("Authentication service timed out")
 
 
 # ============================================================
 # 6. UNEXPECTED PLATFORM STATUS
 # ============================================================
+
 
 @pytest.mark.asyncio
 async def test_verify_token_unexpected_platform_status(
@@ -439,7 +426,6 @@ async def test_verify_token_unexpected_platform_status(
     )
 
     with pytest.raises(auth.HTTPException) as exc_info:
-
         await auth.verify_token(
             request=request,
             credentials=credentials,
@@ -448,14 +434,14 @@ async def test_verify_token_unexpected_platform_status(
     assert exc_info.value.status_code == 503
 
     assert exc_info.value.detail == (
-        "Authentication service returned "
-        "an unexpected response"
+        "Authentication service returned an unexpected response"
     )
 
 
 # ============================================================
 # 7. INVALID JSON
 # ============================================================
+
 
 @pytest.mark.asyncio
 async def test_verify_token_invalid_json(monkeypatch):
@@ -488,7 +474,6 @@ async def test_verify_token_invalid_json(monkeypatch):
     )
 
     with pytest.raises(auth.HTTPException) as exc_info:
-
         await auth.verify_token(
             request=request,
             credentials=credentials,
@@ -496,14 +481,13 @@ async def test_verify_token_invalid_json(monkeypatch):
 
     assert exc_info.value.status_code == 503
 
-    assert exc_info.value.detail == (
-        "Authentication service returned invalid JSON"
-    )
+    assert exc_info.value.detail == ("Authentication service returned invalid JSON")
 
 
 # ============================================================
 # 8. PLATFORM SAYS TOKEN INVALID
 # ============================================================
+
 
 @pytest.mark.asyncio
 async def test_verify_token_platform_returns_valid_false(
@@ -540,7 +524,6 @@ async def test_verify_token_platform_returns_valid_false(
     )
 
     with pytest.raises(auth.HTTPException) as exc_info:
-
         await auth.verify_token(
             request=request,
             credentials=credentials,
@@ -548,14 +531,13 @@ async def test_verify_token_platform_returns_valid_false(
 
     assert exc_info.value.status_code == 401
 
-    assert exc_info.value.detail == (
-        "Invalid authentication token"
-    )
+    assert exc_info.value.detail == ("Invalid authentication token")
 
 
 # ============================================================
 # 9. MISSING USER ID
 # ============================================================
+
 
 @pytest.mark.asyncio
 async def test_verify_token_missing_user_id(monkeypatch):
@@ -592,7 +574,6 @@ async def test_verify_token_missing_user_id(monkeypatch):
     )
 
     with pytest.raises(auth.HTTPException) as exc_info:
-
         await auth.verify_token(
             request=request,
             credentials=credentials,
@@ -601,14 +582,14 @@ async def test_verify_token_missing_user_id(monkeypatch):
     assert exc_info.value.status_code == 503
 
     assert exc_info.value.detail == (
-        "Authentication service did not return "
-        "user information"
+        "Authentication service did not return user information"
     )
 
 
 # ============================================================
 # 10. MISSING ROLE
 # ============================================================
+
 
 @pytest.mark.asyncio
 async def test_verify_token_missing_role(monkeypatch):
@@ -646,7 +627,6 @@ async def test_verify_token_missing_role(monkeypatch):
     )
 
     with pytest.raises(auth.HTTPException) as exc_info:
-
         await auth.verify_token(
             request=request,
             credentials=credentials,
@@ -654,14 +634,13 @@ async def test_verify_token_missing_role(monkeypatch):
 
     assert exc_info.value.status_code == 401
 
-    assert exc_info.value.detail == (
-        "User role is not assigned"
-    )
+    assert exc_info.value.detail == ("User role is not assigned")
 
 
 # ============================================================
 # 11. SUPPLIER INFORMATION IS RETURNED
 # ============================================================
+
 
 @pytest.mark.asyncio
 async def test_verify_token_returns_supplier_identity(
@@ -709,6 +688,7 @@ async def test_verify_token_returns_supplier_identity(
 # 12. REQUEST ID IS FORWARDED
 # ============================================================
 
+
 @pytest.mark.asyncio
 async def test_verify_token_forwards_existing_request_id(
     monkeypatch,
@@ -754,10 +734,7 @@ async def test_verify_token_forwards_existing_request_id(
 
     assert result["valid"] is True
 
-    assert (
-        captured_request["headers"]["X-Request-ID"]
-        == "test-request-123"
-    )
+    assert captured_request["headers"]["X-Request-ID"] == "test-request-123"
 
     assert request.state.request_id == "test-request-123"
 
@@ -765,6 +742,7 @@ async def test_verify_token_forwards_existing_request_id(
 # ============================================================
 # 13. ROLE AUTHORIZATION - ALLOWED ROLE
 # ============================================================
+
 
 @pytest.mark.asyncio
 async def test_require_roles_allows_authorized_role():
@@ -788,6 +766,7 @@ async def test_require_roles_allows_authorized_role():
 # 14. ROLE AUTHORIZATION - DENIED ROLE
 # ============================================================
 
+
 @pytest.mark.asyncio
 async def test_require_roles_rejects_unauthorized_role():
     """
@@ -797,12 +776,9 @@ async def test_require_roles_rejects_unauthorized_role():
 
     request = create_request()
 
-    role_checker = auth.require_roles(
-        "procurement_manager"
-    )
+    role_checker = auth.require_roles("procurement_manager")
 
     with pytest.raises(auth.HTTPException) as exc_info:
-
         await role_checker(
             request=request,
             user=VALID_SUPPLIER_RESPONSE,
@@ -811,14 +787,14 @@ async def test_require_roles_rejects_unauthorized_role():
     assert exc_info.value.status_code == 403
 
     assert exc_info.value.detail == (
-        "Role 'supplier' is not authorized "
-        "for this endpoint"
+        "Role 'supplier' is not authorized for this endpoint"
     )
 
 
 # ============================================================
 # 15. ROLE MISSING
 # ============================================================
+
 
 @pytest.mark.asyncio
 async def test_require_roles_missing_role():
@@ -828,9 +804,7 @@ async def test_require_roles_missing_role():
 
     request = create_request()
 
-    role_checker = auth.require_roles(
-        "procurement_manager"
-    )
+    role_checker = auth.require_roles("procurement_manager")
 
     user_without_role = {
         "valid": True,
@@ -840,7 +814,6 @@ async def test_require_roles_missing_role():
     }
 
     with pytest.raises(auth.HTTPException) as exc_info:
-
         await role_checker(
             request=request,
             user=user_without_role,
@@ -848,14 +821,13 @@ async def test_require_roles_missing_role():
 
     assert exc_info.value.status_code == 401
 
-    assert exc_info.value.detail == (
-        "User role is not assigned"
-    )
+    assert exc_info.value.detail == ("User role is not assigned")
 
 
 # ============================================================
 # 16. PROCUREMENT MANAGER AUTHORIZATION
 # ============================================================
+
 
 @pytest.mark.asyncio
 async def test_require_roles_allows_procurement_manager():
@@ -866,9 +838,7 @@ async def test_require_roles_allows_procurement_manager():
 
     request = create_request()
 
-    role_checker = auth.require_roles(
-        "procurement_manager"
-    )
+    role_checker = auth.require_roles("procurement_manager")
 
     result = await role_checker(
         request=request,
@@ -877,9 +847,11 @@ async def test_require_roles_allows_procurement_manager():
 
     assert result == VALID_PROCUREMENT_RESPONSE
 
+
 # ============================================================
 # 17. NON-SUPPLIER USER HAS NO SUPPLIER IDENTITY
 # ============================================================
+
 
 @pytest.mark.asyncio
 async def test_verify_token_procurement_manager_has_no_supplier_id(
@@ -924,9 +896,11 @@ async def test_verify_token_procurement_manager_has_no_supplier_id(
     assert result["user_id"] == 4
     assert result["supplier_id"] is None
 
+
 # ============================================================
 # 18. SUPPLIER WITHOUT SUPPLIER ID
 # ============================================================
+
 
 @pytest.mark.asyncio
 async def test_verify_token_supplier_without_supplier_id_is_rejected(
@@ -969,7 +943,6 @@ async def test_verify_token_supplier_without_supplier_id_is_rejected(
     )
 
     with pytest.raises(auth.HTTPException) as exc_info:
-
         await auth.verify_token(
             request=request,
             credentials=credentials,
@@ -977,7 +950,4 @@ async def test_verify_token_supplier_without_supplier_id_is_rejected(
 
     assert exc_info.value.status_code == 403
 
-    assert exc_info.value.detail == (
-        "Supplier identity could not be resolved"
-    )
-
+    assert exc_info.value.detail == ("Supplier identity could not be resolved")

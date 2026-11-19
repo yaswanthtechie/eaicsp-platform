@@ -55,6 +55,11 @@ class Inventory(Base):
         nullable=False,
     )
 
+    reorder_point = Column(
+        Integer,
+        nullable=True,
+    )
+
     # =====================================================
     # MILESTONE 1 - MULTI-ECHELON
     # =====================================================

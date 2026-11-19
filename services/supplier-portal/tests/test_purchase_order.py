@@ -1,22 +1,21 @@
 import pytest
 
-from app.services.purchase_order_service import (
-    purchase_orders,
-    po_events,
-)
-from app.services.invoice_service import invoices
-
-from app.services.supplier_onboarding_service import (
-    suppliers,
-)
 from app.schemas.supplier_onboarding import (
     SupplierOnboardingStatus,
 )
-
+from app.services.invoice_service import invoices
+from app.services.purchase_order_service import (
+    po_events,
+    purchase_orders,
+)
+from app.services.supplier_onboarding_service import (
+    suppliers,
+)
 
 # ============================================================
 # TEST SETUP
 # ============================================================
+
 
 def setup_function():
     """
@@ -45,6 +44,7 @@ def setup_function():
 # ============================================================
 # TEST DATA HELPERS
 # ============================================================
+
 
 def create_sample_po(
     client,
@@ -122,9 +122,7 @@ def acknowledge_po(
     the Purchase Order.
     """
 
-    response = supplier_client.post(
-        f"/api/v1/purchase-orders/{po_number}/acknowledge"
-    )
+    response = supplier_client.post(f"/api/v1/purchase-orders/{po_number}/acknowledge")
 
     return response
 
@@ -171,9 +169,11 @@ def cancel_po(
 
     return response
 
+
 # ============================================================
 # CREATE / READ / UPDATE / DELETE
 # ============================================================
+
 
 def test_create_purchase_order(procurement_client):
 
@@ -253,19 +253,14 @@ def test_create_purchase_order_wrong_total(procurement_client):
 
     assert response.status_code == 400
 
-    assert (
-        "does not match the item total"
-        in response.json()["detail"]
-    )
+    assert "does not match the item total" in response.json()["detail"]
 
 
 def test_get_all_purchase_orders(procurement_client):
 
     create_sample_po(procurement_client)
 
-    response = procurement_client.get(
-        "/api/v1/purchase-orders"
-    )
+    response = procurement_client.get("/api/v1/purchase-orders")
 
     assert response.status_code == 200
 
@@ -282,9 +277,7 @@ def test_get_purchase_order_by_id(
 
     create_sample_po(procurement_client)
 
-    response = supplier_client.get(
-        "/api/v1/purchase-orders/PO1001"
-    )
+    response = supplier_client.get("/api/v1/purchase-orders/PO1001")
 
     assert response.status_code == 200
 
@@ -295,16 +288,11 @@ def test_get_purchase_order_by_id(
 
 def test_get_purchase_order_not_found(supplier_client):
 
-    response = supplier_client.get(
-        "/api/v1/purchase-orders/PO9999"
-    )
+    response = supplier_client.get("/api/v1/purchase-orders/PO9999")
 
     assert response.status_code == 404
 
-    assert (
-        response.json()["detail"]
-        == "Purchase Order not found"
-    )
+    assert response.json()["detail"] == "Purchase Order not found"
 
 
 def test_update_purchase_order(procurement_client):
@@ -333,20 +321,13 @@ def test_delete_purchase_order(
 
     create_sample_po(procurement_client)
 
-    response = procurement_client.delete(
-        "/api/v1/purchase-orders/PO1001"
-    )
+    response = procurement_client.delete("/api/v1/purchase-orders/PO1001")
 
     assert response.status_code == 200
 
-    assert (
-        "deleted successfully"
-        in response.json()["message"]
-    )
+    assert "deleted successfully" in response.json()["message"]
 
-    response = supplier_client.get(
-        "/api/v1/purchase-orders/PO1001"
-    )
+    response = supplier_client.get("/api/v1/purchase-orders/PO1001")
 
     assert response.status_code == 404
 
@@ -385,9 +366,7 @@ def test_draft_to_sent(procurement_client):
 
     # Authenticated procurement manager identity
     # must be recorded as the actor.
-    assert event["actor"] == (
-        "procurementmanager@company.com"
-    )
+    assert event["actor"] == ("procurementmanager@company.com")
 
     assert "timestamp" in event
 
@@ -452,9 +431,7 @@ def test_acknowledged_to_fulfilled(
     assert send_response.status_code == 200
 
     # sent -> acknowledged
-    acknowledge_response = acknowledge_po(
-        supplier_client
-    )
+    acknowledge_response = acknowledge_po(supplier_client)
 
     assert acknowledge_response.status_code == 200
 
@@ -476,9 +453,7 @@ def test_acknowledged_to_fulfilled(
 
     # Actor must come from the authenticated
     # procurement manager, not the request body.
-    assert event["actor"] == (
-        "procurementmanager@company.com"
-    )
+    assert event["actor"] == ("procurementmanager@company.com")
 
     assert "timestamp" in event
 
@@ -516,9 +491,7 @@ def test_draft_to_cancelled(procurement_client):
     assert event["to_status"] == "cancelled"
 
     # The request-body actor "siri" must NOT be trusted.
-    assert event["actor"] == (
-        "procurementmanager@company.com"
-    )
+    assert event["actor"] == ("procurementmanager@company.com")
 
     assert event["actor"] != "siri"
 
@@ -558,9 +531,7 @@ def test_sent_to_cancelled(procurement_client):
     assert event["to_status"] == "cancelled"
 
     # Authenticated procurement manager is the actor.
-    assert event["actor"] == (
-        "procurementmanager@company.com"
-    )
+    assert event["actor"] == ("procurementmanager@company.com")
 
     assert event["actor"] != "siri"
 
@@ -584,9 +555,7 @@ def test_acknowledged_to_cancelled(
     assert send_response.status_code == 200
 
     # sent -> acknowledged
-    acknowledge_response = acknowledge_po(
-        supplier_client
-    )
+    acknowledge_response = acknowledge_po(supplier_client)
 
     assert acknowledge_response.status_code == 200
 
@@ -610,9 +579,7 @@ def test_acknowledged_to_cancelled(
     assert event["to_status"] == "cancelled"
 
     # Authenticated procurement manager is the actor.
-    assert event["actor"] == (
-        "procurementmanager@company.com"
-    )
+    assert event["actor"] == ("procurementmanager@company.com")
 
     assert event["actor"] != "siri"
 
@@ -623,23 +590,20 @@ def test_acknowledged_to_cancelled(
 # ILLEGAL STATE TRANSITIONS
 # ============================================================
 
+
 @pytest.mark.parametrize(
     "from_state,target_state",
     [
         ("draft", "acknowledged"),
         ("draft", "fulfilled"),
-
         ("sent", "draft"),
         ("sent", "fulfilled"),
-
         ("acknowledged", "draft"),
         ("acknowledged", "sent"),
-
         ("fulfilled", "draft"),
         ("fulfilled", "sent"),
         ("fulfilled", "acknowledged"),
         ("fulfilled", "cancelled"),
-
         ("cancelled", "draft"),
         ("cancelled", "sent"),
         ("cancelled", "acknowledged"),
@@ -664,32 +628,25 @@ def test_illegal_purchase_order_transitions(
     # --------------------------------------------------------
 
     if from_state == "sent":
-
         response = send_po(procurement_client)
 
         assert response.status_code == 200
 
     elif from_state == "acknowledged":
-
         response = send_po(procurement_client)
 
         assert response.status_code == 200
 
-        response = acknowledge_po(
-            supplier_client
-        )
+        response = acknowledge_po(supplier_client)
 
         assert response.status_code == 200
 
     elif from_state == "fulfilled":
-
         response = send_po(procurement_client)
 
         assert response.status_code == 200
 
-        response = acknowledge_po(
-            supplier_client
-        )
+        response = acknowledge_po(supplier_client)
 
         assert response.status_code == 200
 
@@ -698,7 +655,6 @@ def test_illegal_purchase_order_transitions(
         assert response.status_code == 200
 
     elif from_state == "cancelled":
-
         response = cancel_po(
             procurement_client,
             actor="siri",
@@ -722,15 +678,13 @@ def test_illegal_purchase_order_transitions(
 
     detail = response.json()["detail"]
 
-    assert (
-        f"Cannot go from {from_state} to {target_state}"
-        in detail
-    )
+    assert f"Cannot go from {from_state} to {target_state}" in detail
 
 
 # ============================================================
 # ACKNOWLEDGE ENDPOINT
 # ============================================================
+
 
 def test_acknowledge_without_sent_status(
     procurement_client,
@@ -739,16 +693,11 @@ def test_acknowledge_without_sent_status(
 
     create_sample_po(procurement_client)
 
-    response = acknowledge_po(
-        supplier_client
-    )
+    response = acknowledge_po(supplier_client)
 
     assert response.status_code == 400
 
-    assert (
-        "Cannot go from draft to acknowledged"
-        in response.json()["detail"]
-    )
+    assert "Cannot go from draft to acknowledged" in response.json()["detail"]
 
 
 def test_acknowledge_fulfilled_po(
@@ -764,21 +713,17 @@ def test_acknowledge_fulfilled_po(
 
     fulfill_po(procurement_client)
 
-    response = acknowledge_po(
-        supplier_client
-    )
+    response = acknowledge_po(supplier_client)
 
     assert response.status_code == 400
 
-    assert (
-        "Cannot go from fulfilled to acknowledged"
-        in response.json()["detail"]
-    )
+    assert "Cannot go from fulfilled to acknowledged" in response.json()["detail"]
 
 
 # ============================================================
 # MISSING PO TRANSITIONS
 # ============================================================
+
 
 def test_transition_purchase_order_not_found(
     procurement_client,
@@ -794,31 +739,24 @@ def test_transition_purchase_order_not_found(
 
     assert response.status_code == 404
 
-    assert (
-        response.json()["detail"]
-        == "Purchase Order not found"
-    )
+    assert response.json()["detail"] == "Purchase Order not found"
 
 
 def test_acknowledge_purchase_order_not_found(
     supplier_client,
 ):
 
-    response = supplier_client.post(
-        "/api/v1/purchase-orders/PO9999/acknowledge"
-    )
+    response = supplier_client.post("/api/v1/purchase-orders/PO9999/acknowledge")
 
     assert response.status_code == 404
 
-    assert (
-        response.json()["detail"]
-        == "Purchase Order not found"
-    )
+    assert response.json()["detail"] == "Purchase Order not found"
 
 
 # ============================================================
 # EVENT / HISTORY TESTS
 # ============================================================
+
 
 def test_purchase_order_events_empty(
     procurement_client,
@@ -827,9 +765,7 @@ def test_purchase_order_events_empty(
 
     create_sample_po(procurement_client)
 
-    response = supplier_client.get(
-        "/api/v1/purchase-orders/PO1001/events"
-    )
+    response = supplier_client.get("/api/v1/purchase-orders/PO1001/events")
 
     assert response.status_code == 200
 
@@ -847,9 +783,7 @@ def test_purchase_order_events(
 
     acknowledge_po(supplier_client)
 
-    response = supplier_client.get(
-        "/api/v1/purchase-orders/PO1001/events"
-    )
+    response = supplier_client.get("/api/v1/purchase-orders/PO1001/events")
 
     assert response.status_code == 200
 
@@ -857,9 +791,7 @@ def test_purchase_order_events(
 
     assert len(body) == 2
 
-    assert body[0]["actor"] == (
-        "procurementmanager@company.com"
-    )
+    assert body[0]["actor"] == ("procurementmanager@company.com")
     assert body[0]["actor"] != "harish"
     assert body[0]["from_status"] == "draft"
     assert body[0]["to_status"] == "sent"
@@ -873,16 +805,11 @@ def test_purchase_order_events_not_found(
     supplier_client,
 ):
 
-    response = supplier_client.get(
-        "/api/v1/purchase-orders/PO9999/events"
-    )
+    response = supplier_client.get("/api/v1/purchase-orders/PO9999/events")
 
     assert response.status_code == 404
 
-    assert (
-        response.json()["detail"]
-        == "Purchase Order not found"
-    )
+    assert response.json()["detail"] == "Purchase Order not found"
 
 
 def test_history_is_preserved_after_delete(
@@ -897,23 +824,17 @@ def test_history_is_preserved_after_delete(
     acknowledge_po(supplier_client)
 
     # Delete using internal procurement role
-    response = procurement_client.delete(
-        "/api/v1/purchase-orders/PO1001"
-    )
+    response = procurement_client.delete("/api/v1/purchase-orders/PO1001")
 
     assert response.status_code == 200
 
     # PO itself is deleted.
-    response = supplier_client.get(
-        "/api/v1/purchase-orders/PO1001"
-    )
+    response = supplier_client.get("/api/v1/purchase-orders/PO1001")
 
     assert response.status_code == 404
 
     # Audit events remain.
-    response = supplier_client.get(
-        "/api/v1/purchase-orders/PO1001/events"
-    )
+    response = supplier_client.get("/api/v1/purchase-orders/PO1001/events")
 
     assert response.status_code == 200
 
@@ -925,6 +846,7 @@ def test_history_is_preserved_after_delete(
 # ============================================================
 # BULK SEND
 # ============================================================
+
 
 def test_bulk_send_purchase_orders(
     procurement_client,
@@ -1061,9 +983,11 @@ def test_bulk_send_only_draft_can_be_sent(
     assert results[1]["status"] == "sent"
     assert results[1]["error"] is None
 
+
 # ============================================================
 # R5 AUTHORIZATION / SUPPLIER SCOPING TESTS
 # ============================================================
+
 
 def test_supplier_can_access_own_purchase_order(
     procurement_client,
@@ -1080,9 +1004,7 @@ def test_supplier_can_access_own_purchase_order(
         supplier_id="SUP-00001",
     )
 
-    response = supplier_client.get(
-        "/api/v1/purchase-orders/PO2001"
-    )
+    response = supplier_client.get("/api/v1/purchase-orders/PO2001")
 
     assert response.status_code == 200
 
@@ -1112,9 +1034,7 @@ def test_supplier_cannot_access_other_supplier_purchase_order(
         supplier_id="SUP-00002",
     )
 
-    response = supplier_client.get(
-        "/api/v1/purchase-orders/PO2002"
-    )
+    response = supplier_client.get("/api/v1/purchase-orders/PO2002")
 
     assert response.status_code == 403
 
@@ -1151,9 +1071,7 @@ def test_supplier_cannot_acknowledge_other_supplier_purchase_order(
     assert response.status_code == 200
 
     # SUP-00001 attempts to acknowledge SUP-00002's PO.
-    response = supplier_client.post(
-        "/api/v1/purchase-orders/PO2003/acknowledge"
-    )
+    response = supplier_client.post("/api/v1/purchase-orders/PO2003/acknowledge")
 
     assert response.status_code == 403
 
@@ -1189,9 +1107,7 @@ def test_supplier_cannot_view_other_supplier_purchase_order_events(
     assert response.status_code == 200
 
     # SUP-00001 attempts to view SUP-00002's PO history.
-    response = supplier_client.get(
-        "/api/v1/purchase-orders/PO2004/events"
-    )
+    response = supplier_client.get("/api/v1/purchase-orders/PO2004/events")
 
     assert response.status_code == 403
 
@@ -1219,6 +1135,7 @@ def test_supplier_cannot_bulk_send_purchase_orders(
     assert response.json()["detail"] == (
         "Role 'supplier' is not authorized for this endpoint"
     )
+
 
 # ============================================================
 # R5 AUTHORIZATION - CREATE PURCHASE ORDER
@@ -1257,8 +1174,7 @@ def test_supplier_cannot_create_purchase_order(
     assert response.status_code == 403
 
     assert response.json()["detail"] == (
-        "Role 'supplier' is not authorized "
-        "for this endpoint"
+        "Role 'supplier' is not authorized for this endpoint"
     )
 
 
@@ -1292,8 +1208,7 @@ def test_compliance_cannot_create_purchase_order(
     assert response.status_code == 403
 
     assert response.json()["detail"] == (
-        "Role 'compliance_officer' is not authorized "
-        "for this endpoint"
+        "Role 'compliance_officer' is not authorized for this endpoint"
     )
 
 
@@ -1315,13 +1230,13 @@ def test_supplier_cannot_transition_purchase_order(
         "po_number": "PO3003",
         "supplier_id": "SUP-00001",
         "items": [
-        {
-            "item_code": "ITEM001",
-            "description": "Test Item",
-            "quantity": 1,
-            "unit_price": 7000,
-       }
-    ],
+            {
+                "item_code": "ITEM001",
+                "description": "Test Item",
+                "quantity": 1,
+                "unit_price": 7000,
+            }
+        ],
         "total_amount": 7000,
         "status": "draft",
         "created_at": "2026-07-23T10:00:00",
@@ -1341,8 +1256,7 @@ def test_supplier_cannot_transition_purchase_order(
     assert response.status_code == 403
 
     assert response.json()["detail"] == (
-        "Role 'supplier' is not authorized "
-        "for this endpoint"
+        "Role 'supplier' is not authorized for this endpoint"
     )
 
 
@@ -1378,8 +1292,7 @@ def test_compliance_cannot_transition_purchase_order(
     assert response.status_code == 403
 
     assert response.json()["detail"] == (
-        "Role 'compliance_officer' is not authorized "
-        "for this endpoint"
+        "Role 'compliance_officer' is not authorized for this endpoint"
     )
 
 
@@ -1424,9 +1337,7 @@ def test_transition_uses_authenticated_user_email_as_actor(
 
     event = body["history"][0]
 
-    assert event["actor"] == (
-        "procurementmanager@company.com"
-    )
+    assert event["actor"] == ("procurementmanager@company.com")
 
     assert event["actor"] != "attacker@example.com"
 
@@ -1445,23 +1356,23 @@ def test_supplier_can_update_own_purchase_order(
     """
 
     purchase_orders["PO3006"] = {
-    "po_number": "PO3006",
-    "supplier_id": "SUP-00001",
-    "items": [
-        {
-            "item_code": "LAP001",
-            "description": "Laptop",
-            "quantity": 1,
-            "unit_price": 5000,
-        }
-    ],
-    "total_amount": 5000,
-    "status": "draft",
-    "created_at": "2026-07-23T10:00:00",
-    "expected_delivery": "2026-07-30",
-    "actual_delivery_date": None,
-    "history": [],
-}
+        "po_number": "PO3006",
+        "supplier_id": "SUP-00001",
+        "items": [
+            {
+                "item_code": "LAP001",
+                "description": "Laptop",
+                "quantity": 1,
+                "unit_price": 5000,
+            }
+        ],
+        "total_amount": 5000,
+        "status": "draft",
+        "created_at": "2026-07-23T10:00:00",
+        "expected_delivery": "2026-07-30",
+        "actual_delivery_date": None,
+        "history": [],
+    }
 
     response = supplier_client.put(
         "/api/v1/purchase-orders/PO3006",
@@ -1545,9 +1456,7 @@ def test_compliance_cannot_update_purchase_order(
 
     assert response.status_code == 403
 
-    assert response.json()["detail"] == (
-        "Forbidden: insufficient permissions"
-    )
+    assert response.json()["detail"] == ("Forbidden: insufficient permissions")
 
 
 def test_supplier_without_supplier_id_cannot_update_po(
@@ -1580,9 +1489,7 @@ def test_supplier_without_supplier_id_cannot_update_po(
 
     assert response.status_code == 403
 
-    assert response.json()["detail"] == (
-        "Supplier identity is missing"
-    )
+    assert response.json()["detail"] == ("Supplier identity is missing")
 
 
 # ============================================================
@@ -1611,15 +1518,11 @@ def test_supplier_can_delete_own_purchase_order(
         "history": [],
     }
 
-    response = supplier_client.delete(
-        "/api/v1/purchase-orders/PO3010"
-    )
+    response = supplier_client.delete("/api/v1/purchase-orders/PO3010")
 
     assert response.status_code == 200
 
-    assert "deleted successfully" in (
-        response.json()["message"]
-    )
+    assert "deleted successfully" in (response.json()["message"])
 
     assert "PO3010" not in purchase_orders
 
@@ -1645,9 +1548,7 @@ def test_supplier_cannot_delete_other_supplier_purchase_order(
         "history": [],
     }
 
-    response = supplier_client.delete(
-        "/api/v1/purchase-orders/PO3011"
-    )
+    response = supplier_client.delete("/api/v1/purchase-orders/PO3011")
 
     assert response.status_code == 403
 
@@ -1678,15 +1579,11 @@ def test_compliance_cannot_delete_purchase_order(
         "history": [],
     }
 
-    response = compliance_client.delete(
-        "/api/v1/purchase-orders/PO3012"
-    )
+    response = compliance_client.delete("/api/v1/purchase-orders/PO3012")
 
     assert response.status_code == 403
 
-    assert response.json()["detail"] == (
-        "Forbidden: insufficient permissions"
-    )
+    assert response.json()["detail"] == ("Forbidden: insufficient permissions")
 
 
 def test_supplier_without_supplier_id_cannot_delete_po(
@@ -1710,15 +1607,11 @@ def test_supplier_without_supplier_id_cannot_delete_po(
         "history": [],
     }
 
-    response = supplier_no_id_client.delete(
-        "/api/v1/purchase-orders/PO3013"
-    )
+    response = supplier_no_id_client.delete("/api/v1/purchase-orders/PO3013")
 
     assert response.status_code == 403
 
-    assert response.json()["detail"] == (
-        "Supplier identity is missing"
-    )
+    assert response.json()["detail"] == ("Supplier identity is missing")
 
     assert "PO3013" in purchase_orders
 
@@ -1731,15 +1624,11 @@ def test_delete_purchase_order_not_found(
     Deleting a non-existent PO returns 404.
     """
 
-    response = supplier_client.delete(
-        "/api/v1/purchase-orders/PO9999"
-    )
+    response = supplier_client.delete("/api/v1/purchase-orders/PO9999")
 
     assert response.status_code == 404
 
-    assert response.json()["detail"] == (
-        "Purchase Order not found"
-    )
+    assert response.json()["detail"] == ("Purchase Order not found")
 
 
 # ============================================================
@@ -1781,18 +1670,13 @@ def test_supplier_list_returns_only_own_purchase_orders(
         "history": [],
     }
 
-    response = supplier_client.get(
-        "/api/v1/purchase-orders"
-    )
+    response = supplier_client.get("/api/v1/purchase-orders")
 
     assert response.status_code == 200
 
     body = response.json()
 
-    po_numbers = [
-        po["po_number"]
-        for po in body
-    ]
+    po_numbers = [po["po_number"] for po in body]
 
     assert "PO3014" in po_numbers
     assert "PO3015" not in po_numbers
@@ -1822,15 +1706,11 @@ def test_supplier_without_supplier_id_cannot_list_purchase_orders(
         "history": [],
     }
 
-    response = supplier_no_id_client.get(
-        "/api/v1/purchase-orders"
-    )
+    response = supplier_no_id_client.get("/api/v1/purchase-orders")
 
     assert response.status_code == 403
 
-    assert response.json()["detail"] == (
-        "Supplier identity is missing"
-    )
+    assert response.json()["detail"] == ("Supplier identity is missing")
 
 
 # ============================================================
@@ -1859,13 +1739,12 @@ def test_procurement_manager_can_delete_any_supplier_po(
         "history": [],
     }
 
-    response = procurement_client.delete(
-        "/api/v1/purchase-orders/PO3017"
-    )
+    response = procurement_client.delete("/api/v1/purchase-orders/PO3017")
 
     assert response.status_code == 200
 
     assert "PO3017" not in purchase_orders
+
 
 def test_supplier_without_supplier_id_cannot_get_po(
     procurement_client,
@@ -1883,11 +1762,10 @@ def test_supplier_without_supplier_id_cannot_get_po(
         "history": [],
     }
 
-    response = supplier_no_id_client.get(
-        "/api/v1/purchase-orders/PO3018"
-    )
+    response = supplier_no_id_client.get("/api/v1/purchase-orders/PO3018")
 
     assert response.status_code == 403
+
 
 def test_supplier_without_supplier_id_cannot_acknowledge_po(
     procurement_client,
@@ -1905,11 +1783,10 @@ def test_supplier_without_supplier_id_cannot_acknowledge_po(
         "history": [],
     }
 
-    response = supplier_no_id_client.post(
-        "/api/v1/purchase-orders/PO3019/acknowledge"
-    )
+    response = supplier_no_id_client.post("/api/v1/purchase-orders/PO3019/acknowledge")
 
     assert response.status_code == 403
+
 
 def test_supplier_without_supplier_id_cannot_view_po_events(
     procurement_client,
@@ -1927,11 +1804,10 @@ def test_supplier_without_supplier_id_cannot_view_po_events(
         "history": [],
     }
 
-    response = supplier_no_id_client.get(
-        "/api/v1/purchase-orders/PO3020/events"
-    )
+    response = supplier_no_id_client.get("/api/v1/purchase-orders/PO3020/events")
 
     assert response.status_code == 403
+
 
 def test_procurement_manager_can_view_any_supplier_po(
     procurement_client,
@@ -1948,12 +1824,11 @@ def test_procurement_manager_can_view_any_supplier_po(
         "history": [],
     }
 
-    response = procurement_client.get(
-        "/api/v1/purchase-orders/PO3021"
-    )
+    response = procurement_client.get("/api/v1/purchase-orders/PO3021")
 
     assert response.status_code == 200
     assert response.json()["supplier_id"] == "SUP-00002"
+
 
 def test_procurement_manager_can_update_any_supplier_po(
     procurement_client,
@@ -1962,13 +1837,13 @@ def test_procurement_manager_can_update_any_supplier_po(
         "po_number": "PO3022",
         "supplier_id": "SUP-00002",
         "items": [
-        {
-            "item_code": "ITEM001",
-            "description": "Test Item",
-            "quantity": 1,
-            "unit_price": 7000,
-       }
-   ],
+            {
+                "item_code": "ITEM001",
+                "description": "Test Item",
+                "quantity": 1,
+                "unit_price": 7000,
+            }
+        ],
         "status": "draft",
         "created_at": "2026-07-23T10:00:00",
         "total_amount": 7000,
@@ -1983,6 +1858,7 @@ def test_procurement_manager_can_update_any_supplier_po(
     )
 
     assert response.status_code == 200
+
 
 def test_procurement_manager_can_list_all_purchase_orders(
     procurement_client,
@@ -2011,23 +1887,20 @@ def test_procurement_manager_can_list_all_purchase_orders(
         "history": [],
     }
 
-    response = procurement_client.get(
-        "/api/v1/purchase-orders"
-    )
+    response = procurement_client.get("/api/v1/purchase-orders")
 
     assert response.status_code == 200
 
-    po_numbers = {
-        po["po_number"]
-        for po in response.json()
-    }
+    po_numbers = {po["po_number"] for po in response.json()}
 
     assert "PO3023" in po_numbers
     assert "PO3024" in po_numbers
 
+
 # ============================================================
 # SUPPLIER ONBOARDING ENFORCEMENT
 # ============================================================
+
 
 def test_cannot_create_purchase_order_for_unregistered_supplier(
     procurement_client,
@@ -2058,10 +1931,7 @@ def test_cannot_create_purchase_order_for_unregistered_supplier(
 
     assert response.status_code == 400
 
-    assert (
-        "must complete onboarding and be active"
-        in response.json()["detail"]
-    )
+    assert "must complete onboarding and be active" in response.json()["detail"]
 
     assert "PO4001" not in purchase_orders
 
@@ -2100,10 +1970,7 @@ def test_cannot_create_purchase_order_for_inactive_supplier(
 
     assert response.status_code == 400
 
-    assert (
-        "must complete onboarding and be active"
-        in response.json()["detail"]
-    )
+    assert "must complete onboarding and be active" in response.json()["detail"]
 
     assert "PO4002" not in purchase_orders
 

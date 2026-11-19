@@ -30,10 +30,7 @@ def get_canonical_po(
         mirror = db.scalars(
             select(POMirror).where(
                 POMirror.supplier_id == supplier_id,
-                (
-                    (POMirror.po_id == po_number)
-                    | (POMirror.po_number == po_number)
-                ),
+                ((POMirror.po_id == po_number) | (POMirror.po_number == po_number)),
             )
         ).first()
 
@@ -42,9 +39,7 @@ def get_canonical_po(
 
         # Only approved Inventory POs can be invoiced or matched.
         if mirror.approval_status != "approved":
-            raise ValueError(
-                f"Purchase Order '{po_number}' is not approved."
-            )
+            raise ValueError(f"Purchase Order '{po_number}' is not approved.")
 
         return {
             "po_number": mirror.po_number or mirror.po_id,

@@ -51,13 +51,7 @@ def test_case_creation_creates_history():
     try:
         case = create_test_case(db)
 
-        history = (
-            db.query(CaseHistory)
-            .filter(
-                CaseHistory.case_id == case.id
-            )
-            .all()
-        )
+        history = db.query(CaseHistory).filter(CaseHistory.case_id == case.id).all()
 
         assert len(history) == 1
         assert history[0].from_status is None
@@ -113,9 +107,7 @@ def test_case_can_be_cleared():
 
         assert case.status == "CLEARED"
         assert case.resolution == "CLEARED"
-        assert case.resolution_reason == (
-            "False positive after compliance review"
-        )
+        assert case.resolution_reason == ("False positive after compliance review")
         assert case.resolved_at is not None
 
     finally:
@@ -146,9 +138,7 @@ def test_case_can_be_confirmed():
 
         assert case.status == "CONFIRMED"
         assert case.resolution == "CONFIRMED"
-        assert case.resolution_reason == (
-            "Sanctions match confirmed"
-        )
+        assert case.resolution_reason == ("Sanctions match confirmed")
         assert case.resolved_at is not None
 
     finally:
@@ -221,9 +211,7 @@ def test_case_history_contains_full_resolution_trail():
 
         history = (
             db.query(CaseHistory)
-            .filter(
-                CaseHistory.case_id == case.id
-            )
+            .filter(CaseHistory.case_id == case.id)
             .order_by(CaseHistory.id)
             .all()
         )
@@ -242,6 +230,7 @@ def test_case_history_contains_full_resolution_trail():
 
     finally:
         db.close()
+
 
 def test_case_deduplication_reuses_same_entity_and_country():
     db = SessionLocal()
@@ -349,6 +338,7 @@ def test_case_deduplication_does_not_treat_sql_wildcards_as_wildcards():
     finally:
         db.close()
 
+
 def test_case_number_matches_database_id():
     db = SessionLocal()
 
@@ -360,6 +350,7 @@ def test_case_number_matches_database_id():
 
     finally:
         db.close()
+
 
 def test_different_cases_have_unique_case_numbers():
     db = SessionLocal()

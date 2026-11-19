@@ -1,5 +1,7 @@
-from sqlalchemy.orm import Session
+from datetime import datetime
+
 from sqlalchemy import func
+from sqlalchemy.orm import Session
 
 from app.models.audit import ComplianceAudit
 from app.models.compliance_case import ComplianceCase
@@ -7,11 +9,7 @@ from app.models.compliance_case import ComplianceCase
 
 def get_compliance_summary(db: Session) -> dict:
     # Total number of screenings
-    screening_volume = (
-        db.query(func.count(ComplianceAudit.id))
-        .scalar()
-        or 0
-    )
+    screening_volume = db.query(func.count(ComplianceAudit.id)).scalar() or 0
 
     # Total flagged screenings
     flagged_count = (
@@ -23,20 +21,14 @@ def get_compliance_summary(db: Session) -> dict:
 
     # Flag rate
     if screening_volume > 0:
-        flag_rate = (
-            flagged_count / screening_volume
-        ) * 100
+        flag_rate = (flagged_count / screening_volume) * 100
     else:
         flag_rate = 0.0
 
     # Open cases
     open_cases = (
         db.query(func.count(ComplianceCase.id))
-        .filter(
-            ComplianceCase.status.in_(
-                ["OPEN", "UNDER_REVIEW"]
-            )
-        )
+        .filter(ComplianceCase.status.in_(["OPEN", "UNDER_REVIEW"]))
         .scalar()
         or 0
     )
@@ -45,27 +37,25 @@ def get_compliance_summary(db: Session) -> dict:
     resolved_cases = (
         db.query(ComplianceCase)
         .filter(
-            ComplianceCase.status.in_(
-                ["CLEARED", "CONFIRMED"]
-            ),
+            ComplianceCase.status.in_(["CLEARED", "CONFIRMED"]),
             ComplianceCase.created_at.isnot(None),
             ComplianceCase.resolved_at.isnot(None),
         )
         .all()
     )
 
-    if resolved_cases:
-        total_resolution_seconds = sum(
-            (
-                case.resolved_at - case.created_at
-            ).total_seconds()
-            for case in resolved_cases
-        )
+    valid_resolution_times: list[float] = [
+        (case.resolved_at - case.created_at).total_seconds()
+        for case in resolved_cases
+        if isinstance(case.resolved_at, datetime)
+        and isinstance(case.created_at, datetime)
+    ]
+
+    if valid_resolution_times:
+        total_resolution_seconds = sum(valid_resolution_times)
 
         average_resolution_time_hours = (
-            total_resolution_seconds
-            / len(resolved_cases)
-            / 3600
+            total_resolution_seconds / len(valid_resolution_times) / 3600
         )
     else:
         average_resolution_time_hours = 0.0

@@ -47,8 +47,7 @@ def test_sla_alert_sends_webhook_successfully(mock_post):
             "latency_ms": 750.25,
             "threshold_ms": 500.0,
             "message": (
-                "Compliance Service latency exceeded "
-                "the configured SLA threshold."
+                "Compliance Service latency exceeded the configured SLA threshold."
             ),
         },
         timeout=3.0,

@@ -6,43 +6,37 @@ from rapidfuzz import fuzz, process
 from sqlalchemy.orm import Session
 
 from app.core.config import (
-    OFAC_CSV_PATH,
-    UN_XML_PATH,
+    EU_FIXTURE_PATH,
     EU_XML_PATH,
     INTERNAL_WATCHLIST_PATH,
-    PEP_CSV_PATH,
     MATCH_THRESHOLD,
-    USE_FIXTURES,
+    OFAC_CSV_PATH,
     OFAC_FIXTURE_PATH,
+    PEP_CSV_PATH,
     UN_FIXTURE_PATH,
-    EU_FIXTURE_PATH,
+    UN_XML_PATH,
+    USE_FIXTURES,
 )
-
-from app.services.sources.ofac import load_ofac
-from app.services.sources.un import load_un
+from app.services.dedupe_service import (
+    deduplicate_entities,
+    normalize_name,
+)
+from app.services.downloader_service import (
+    download_all_lists,
+)
+from app.services.override_service import get_override
+from app.services.risk_score_service import (
+    calculate_country_risk,
+    calculate_overall_supplier_risk,
+    calculate_risk_score,
+)
 from app.services.sources.eu import load_eu
 from app.services.sources.internal_watchlist import (
     load_internal_watchlist,
 )
+from app.services.sources.ofac import load_ofac
 from app.services.sources.pep import load_pep
-
-from app.services.dedupe_service import (
-    normalize_name,
-    deduplicate_entities,
-)
-
-from app.services.downloader_service import (
-    download_all_lists,
-)
-
-from app.services.risk_score_service import (
-    calculate_risk_score,
-    calculate_country_risk,
-    calculate_overall_supplier_risk,
-)
-
-from app.services.override_service import get_override
-
+from app.services.sources.un import load_un
 
 sanction_index: dict[str, dict[str, Any]] = {}
 search_keys: list[str] = []
@@ -67,8 +61,7 @@ def _normalize_sources(sources: Any) -> list[str]:
     normalized = {
         str(source).strip().upper()
         for source in sources
-        if source is not None
-        and str(source).strip()
+        if source is not None and str(source).strip()
     }
 
     return sorted(normalized)
@@ -84,8 +77,7 @@ def _normalize_aliases(aliases: Any) -> list[str]:
     normalized = {
         str(alias).strip()
         for alias in aliases
-        if alias is not None
-        and str(alias).strip()
+        if alias is not None and str(alias).strip()
     }
 
     return sorted(normalized)
@@ -139,9 +131,7 @@ def apply_override(
     if not entity_name:
         return result
 
-    sources = _normalize_sources(
-        result.get("matched_lists", [])
-    )
+    sources = _normalize_sources(result.get("matched_lists", []))
 
     for source in sources:
         override = get_override(
@@ -169,37 +159,17 @@ def merge_index_records(
     source: dict[str, Any],
 ) -> dict[str, Any]:
 
-    target_sources = set(
-        _normalize_sources(
-            target.get("sources", [])
-        )
-    )
+    target_sources = set(_normalize_sources(target.get("sources", [])))
 
-    source_sources = set(
-        _normalize_sources(
-            source.get("sources", [])
-        )
-    )
+    source_sources = set(_normalize_sources(source.get("sources", [])))
 
-    target["sources"] = sorted(
-        target_sources | source_sources
-    )
+    target["sources"] = sorted(target_sources | source_sources)
 
-    target_aliases = set(
-        _normalize_aliases(
-            target.get("aliases", [])
-        )
-    )
+    target_aliases = set(_normalize_aliases(target.get("aliases", [])))
 
-    source_aliases = set(
-        _normalize_aliases(
-            source.get("aliases", [])
-        )
-    )
+    source_aliases = set(_normalize_aliases(source.get("aliases", [])))
 
-    target["aliases"] = sorted(
-        target_aliases | source_aliases
-    )
+    target["aliases"] = sorted(target_aliases | source_aliases)
 
     if not target.get("name"):
         target["name"] = source.get("name")
@@ -242,12 +212,8 @@ def create_index_record(
 
     return {
         "name": record.get("name"),
-        "aliases": _normalize_aliases(
-            record.get("aliases", [])
-        ),
-        "sources": _normalize_sources(
-            record.get("sources", [])
-        ),
+        "aliases": _normalize_aliases(record.get("aliases", [])),
+        "sources": _normalize_sources(record.get("sources", [])),
         "confidence": _clamp(confidence),
         "listed_date": record.get("listed_date"),
     }
@@ -283,7 +249,6 @@ def build_prefix_index() -> None:
     first_char_index.clear()
 
     for key in search_keys:
-
         if not key:
             continue
 
@@ -317,16 +282,11 @@ def build_sanction_index(
     first_char_index.clear()
 
     for record in merged_records.values():
-
-        indexed_record = create_index_record(
-            record
-        )
+        indexed_record = create_index_record(record)
 
         name = indexed_record.get("name")
 
-        normalized_name = normalize_name(
-            name or ""
-        )
+        normalized_name = normalize_name(name or "")
 
         if len(normalized_name) < MIN_SEARCH_KEY_LENGTH:
             continue
@@ -337,10 +297,7 @@ def build_sanction_index(
         )
 
     for record in merged_records.values():
-
-        indexed_record = create_index_record(
-            record
-        )
+        indexed_record = create_index_record(record)
 
         aliases = indexed_record.get(
             "aliases",
@@ -348,10 +305,7 @@ def build_sanction_index(
         )
 
         for alias in aliases:
-
-            normalized_alias = normalize_name(
-                alias
-            )
+            normalized_alias = normalize_name(alias)
 
             if len(normalized_alias) < MIN_SEARCH_KEY_LENGTH:
                 continue
@@ -361,15 +315,11 @@ def build_sanction_index(
                 indexed_record,
             )
 
-    search_keys.extend(
-        sanction_index.keys()
-    )
+    search_keys.extend(sanction_index.keys())
 
     build_prefix_index()
 
-    print(
-        f"Index ready: {len(search_keys)}"
-    )
+    print(f"Index ready: {len(search_keys)}")
 
 
 def _clear_indexes() -> None:
@@ -426,64 +376,40 @@ def _load_fixture_data() -> None:
         eu_path,
     ]
 
-    missing_files = [
-        file
-        for file in fixture_files
-        if not file.exists()
-    ]
+    missing_files = [file for file in fixture_files if not file.exists()]
 
     if missing_files:
         raise FileNotFoundError(
             "Required fixture files are missing: "
-            + ", ".join(
-                str(file)
-                for file in missing_files
-            )
+            + ", ".join(str(file) for file in missing_files)
         )
 
     print("Loading OFAC fixture")
 
-    ofac_records = load_ofac(
-        str(ofac_path)
-    )
+    ofac_records = load_ofac(str(ofac_path))
 
-    print(
-        f"Loaded {len(ofac_records)} OFAC fixture records"
-    )
+    print(f"Loaded {len(ofac_records)} OFAC fixture records")
     _validate_source_records("OFAC", ofac_records)
 
     print("Loading UN fixture")
 
-    un_records = load_un(
-        str(un_path)
-    )
+    un_records = load_un(str(un_path))
 
-    print(
-        f"Loaded {len(un_records)} UN fixture records"
-    )
+    print(f"Loaded {len(un_records)} UN fixture records")
     _validate_source_records("UN", un_records)
 
     print("Loading EU fixture")
 
-    eu_records = load_eu(
-        str(eu_path)
-    )
+    eu_records = load_eu(str(eu_path))
 
-    print(
-        f"Loaded {len(eu_records)} EU fixture records"
-    )
+    print(f"Loaded {len(eu_records)} EU fixture records")
     _validate_source_records("EU", eu_records)
 
     print("Loading Internal Watchlist")
 
-    internal_watchlist_records = load_internal_watchlist(
-        INTERNAL_WATCHLIST_PATH
-    )
+    internal_watchlist_records = load_internal_watchlist(INTERNAL_WATCHLIST_PATH)
 
-    print(
-        f"Loaded {len(internal_watchlist_records)} "
-        "Internal Watchlist records"
-    )
+    print(f"Loaded {len(internal_watchlist_records)} Internal Watchlist records")
     _validate_source_records(
         "INTERNAL_WATCHLIST",
         internal_watchlist_records,
@@ -491,13 +417,9 @@ def _load_fixture_data() -> None:
 
     print("Loading PEP")
 
-    pep_records = load_pep(
-        PEP_CSV_PATH
-    )
+    pep_records = load_pep(PEP_CSV_PATH)
 
-    print(
-        f"Loaded {len(pep_records)} PEP records"
-    )
+    print(f"Loaded {len(pep_records)} PEP records")
     _validate_source_records("PEP", pep_records)
 
     all_records = (
@@ -508,22 +430,17 @@ def _load_fixture_data() -> None:
         + pep_records
     )
 
-    print(
-        f"Total fixture records: {len(all_records)}"
-    )
+    print(f"Total fixture records: {len(all_records)}")
 
     merged_records = deduplicate_entities(
         all_records,
         threshold=MATCH_THRESHOLD,
     )
 
-    print(
-        f"Merged fixture entities: {len(merged_records)}"
-    )
+    print(f"Merged fixture entities: {len(merged_records)}")
 
-    build_sanction_index(
-        merged_records
-    )
+    build_sanction_index(merged_records)
+
 
 def _load_downloaded_data() -> None:
 
@@ -541,11 +458,7 @@ def _load_downloaded_data() -> None:
     ]
 
     # Download only missing external sanctions files.
-    missing_downloadable = [
-        file
-        for file in downloadable_files
-        if not file.exists()
-    ]
+    missing_downloadable = [file for file in downloadable_files if not file.exists()]
 
     if missing_downloadable:
         print("Missing sanctions files:")
@@ -558,70 +471,43 @@ def _load_downloaded_data() -> None:
         download_all_lists()
 
     # All five files are required for screening.
-    required_files = (
-        downloadable_files
-        + local_files
-    )
+    required_files = downloadable_files + local_files
 
     # Validate that everything is now available.
-    missing_files = [
-        file
-        for file in required_files
-        if not file.exists()
-    ]
+    missing_files = [file for file in required_files if not file.exists()]
 
     if missing_files:
         raise FileNotFoundError(
             "Required screening files are missing: "
-            + ", ".join(
-                str(file)
-                for file in missing_files
-            )
+            + ", ".join(str(file) for file in missing_files)
         )
 
     print("Loading OFAC")
 
-    ofac_records = load_ofac(
-        OFAC_CSV_PATH
-    )
+    ofac_records = load_ofac(OFAC_CSV_PATH)
 
-    print(
-        f"Loaded {len(ofac_records)} OFAC records"
-    )
+    print(f"Loaded {len(ofac_records)} OFAC records")
     _validate_source_records("OFAC", ofac_records)
 
     print("Loading UN")
 
-    un_records = load_un(
-        UN_XML_PATH
-    )
+    un_records = load_un(UN_XML_PATH)
 
-    print(
-        f"Loaded {len(un_records)} UN records"
-    )
+    print(f"Loaded {len(un_records)} UN records")
     _validate_source_records("UN", un_records)
 
     print("Loading EU")
 
-    eu_records = load_eu(
-        EU_XML_PATH
-    )
+    eu_records = load_eu(EU_XML_PATH)
 
-    print(
-        f"Loaded {len(eu_records)} EU records"
-    )
+    print(f"Loaded {len(eu_records)} EU records")
     _validate_source_records("EU", eu_records)
 
     print("Loading Internal Watchlist")
 
-    internal_watchlist_records = load_internal_watchlist(
-        INTERNAL_WATCHLIST_PATH
-    )
+    internal_watchlist_records = load_internal_watchlist(INTERNAL_WATCHLIST_PATH)
 
-    print(
-        f"Loaded {len(internal_watchlist_records)} "
-        "Internal Watchlist records"
-    )
+    print(f"Loaded {len(internal_watchlist_records)} Internal Watchlist records")
     _validate_source_records(
         "INTERNAL_WATCHLIST",
         internal_watchlist_records,
@@ -629,13 +515,9 @@ def _load_downloaded_data() -> None:
 
     print("Loading PEP")
 
-    pep_records = load_pep(
-        PEP_CSV_PATH
-    )
+    pep_records = load_pep(PEP_CSV_PATH)
 
-    print(
-        f"Loaded {len(pep_records)} PEP records"
-    )
+    print(f"Loaded {len(pep_records)} PEP records")
     _validate_source_records("PEP", pep_records)
 
     # Combine all five sources into one screening dataset.
@@ -647,9 +529,7 @@ def _load_downloaded_data() -> None:
         + pep_records
     )
 
-    print(
-        f"Total records: {len(all_records)}"
-    )
+    print(f"Total records: {len(all_records)}")
 
     # Deduplicate entities appearing in multiple sources.
     merged_records = deduplicate_entities(
@@ -657,14 +537,11 @@ def _load_downloaded_data() -> None:
         threshold=MATCH_THRESHOLD,
     )
 
-    print(
-        f"Merged entities: {len(merged_records)}"
-    )
+    print(f"Merged entities: {len(merged_records)}")
 
     # Build the searchable index from the merged records.
-    build_sanction_index(
-        merged_records
-    )
+    build_sanction_index(merged_records)
+
 
 def load_all_sanctions() -> None:
 
@@ -689,10 +566,7 @@ def load_all_sanctions() -> None:
 def refresh_sanctions_data() -> None:
 
     if USE_FIXTURES:
-
-        print(
-            "USE_FIXTURES=true; skipping live sanctions refresh."
-        )
+        print("USE_FIXTURES=true; skipping live sanctions refresh.")
 
         load_all_sanctions()
 
@@ -704,17 +578,12 @@ def refresh_sanctions_data() -> None:
 
     load_all_sanctions()
 
-    print(
-        "Sanctions data refresh completed."
-    )
+    print("Sanctions data refresh completed.")
 
 
 def ensure_index_loaded() -> None:
 
-    if (
-        not _indexes_loaded
-        or not sanction_index
-    ):
+    if not _indexes_loaded or not sanction_index:
         load_all_sanctions()
 
 
@@ -724,13 +593,7 @@ def build_clean_response(
     country: str | None,
 ) -> dict[str, Any]:
 
-    country_risk_score = _clamp(
-        _safe_float(
-            calculate_country_risk(
-                country
-            )
-        )
-    )
+    country_risk_score = _clamp(_safe_float(calculate_country_risk(country)))
 
     sanctions_risk_score = 0.0
 
@@ -820,13 +683,9 @@ def build_matched_response(
         2,
     )
 
-    matched_name = record.get(
-        "name"
-    )
+    matched_name = record.get("name")
 
-    listed_date = record.get(
-        "listed_date"
-    )
+    listed_date = record.get("listed_date")
 
     risk_result = calculate_risk_score(
         match_score=score,
@@ -843,13 +702,7 @@ def build_matched_response(
         )
     )
 
-    country_risk_score = _clamp(
-        _safe_float(
-            calculate_country_risk(
-                country
-            )
-        )
-    )
+    country_risk_score = _clamp(_safe_float(calculate_country_risk(country)))
 
     overall_supplier_risk = _clamp(
         _safe_float(
@@ -986,7 +839,6 @@ def _get_fuzzy_candidates(
         return []
 
     if len(normalized) >= 3:
-
         candidates = prefix_index.get(
             normalized[:3],
             [],
@@ -996,7 +848,6 @@ def _get_fuzzy_candidates(
             return candidates
 
     if len(normalized) >= 2:
-
         candidates = two_char_index.get(
             normalized[:2],
             [],
@@ -1011,13 +862,9 @@ def _get_fuzzy_candidates(
     )
 
     if candidates:
-        return candidates[
-            :MAX_FALLBACK_CANDIDATES
-        ]
+        return candidates[:MAX_FALLBACK_CANDIDATES]
 
-    return search_keys[
-        :MAX_FALLBACK_CANDIDATES
-    ]
+    return search_keys[:MAX_FALLBACK_CANDIDATES]
 
 
 def fuzzy_search(
@@ -1028,9 +875,7 @@ def fuzzy_search(
     if not normalized:
         return None
 
-    candidates = _get_fuzzy_candidates(
-        normalized
-    )
+    candidates = _get_fuzzy_candidates(normalized)
 
     if not candidates:
         return None
@@ -1042,6 +887,7 @@ def fuzzy_search(
         score_cutoff=match_threshold,
     )
 
+
 def screen_normalized_entity(
     normalized: str,
     original_name: str,
@@ -1051,16 +897,10 @@ def screen_normalized_entity(
 
     start = time.perf_counter()
 
-    record = sanction_index.get(
-        normalized
-    )
+    record = sanction_index.get(normalized)
 
     if record is not None:
-
-        duration = (
-            time.perf_counter()
-            - start
-        ) * 1000
+        duration = (time.perf_counter() - start) * 1000
 
         return build_response(
             flagged=True,
@@ -1076,13 +916,9 @@ def screen_normalized_entity(
         match_threshold=match_threshold,
     )
 
-    duration = (
-        time.perf_counter()
-        - start
-    ) * 1000
+    duration = (time.perf_counter() - start) * 1000
 
     if not match:
-
         return build_response(
             flagged=False,
             record=None,
@@ -1095,12 +931,9 @@ def screen_normalized_entity(
     matched_key = match[0]
     score = int(match[1])
 
-    record = sanction_index.get(
-        matched_key
-    )
+    record = sanction_index.get(matched_key)
 
     if record is None:
-
         return build_response(
             flagged=False,
             record=None,
@@ -1125,22 +958,16 @@ def _validate_entity_name(
 ) -> None:
 
     if name is None:
-        raise ValueError(
-            "entity_name must not be null"
-        )
+        raise ValueError("entity_name must not be null")
 
     if not isinstance(
         name,
         str,
     ):
-        raise ValueError(
-            "entity_name must be a string"
-        )
+        raise ValueError("entity_name must be a string")
 
     if not name.strip():
-        raise ValueError(
-            "entity_name must not be blank"
-        )
+        raise ValueError("entity_name must not be blank")
 
 
 def screen_entity(
@@ -1157,7 +984,6 @@ def screen_entity(
     normalized = normalize_name(name)
 
     if not normalized:
-
         result = build_clean_response(
             duration=0,
             entity_name=name,
@@ -1192,22 +1018,16 @@ def screen_bulk(
 ) -> dict[str, Any]:
 
     if names is None:
-        raise ValueError(
-            "entity_names must not be null"
-        )
+        raise ValueError("entity_names must not be null")
 
     if not isinstance(
         names,
         list,
     ):
-        raise ValueError(
-            "entity_names must be a list"
-        )
+        raise ValueError("entity_names must be a list")
 
     if not names:
-        raise ValueError(
-            "entity_names must contain at least one item"
-        )
+        raise ValueError("entity_names must contain at least one item")
 
     for name in names:
         _validate_entity_name(name)
@@ -1216,25 +1036,19 @@ def screen_bulk(
 
     start = time.perf_counter()
 
-    results: list[
-        dict[str, Any] | None
-    ] = [None] * len(names)
+    results: list[dict[str, Any] | None] = [None] * len(names)
 
     cache: dict[
         str,
         dict[str, Any],
     ] = {}
 
-    fuzzy_items: list[
-        tuple[int, str, str]
-    ] = []
+    fuzzy_items: list[tuple[int, str, str]] = []
 
     for position, name in enumerate(names):
-
         normalized = normalize_name(name)
 
         if not normalized:
-
             result = build_clean_response(
                 duration=0,
                 entity_name=name,
@@ -1252,7 +1066,6 @@ def screen_bulk(
         cached = cache.get(normalized)
 
         if cached is not None:
-
             result = cached.copy()
 
             result["entity_name"] = name
@@ -1267,12 +1080,9 @@ def screen_bulk(
 
             continue
 
-        record = sanction_index.get(
-            normalized
-        )
+        record = sanction_index.get(normalized)
 
         if record is not None:
-
             result = build_response(
                 flagged=True,
                 record=record,
@@ -1307,11 +1117,9 @@ def screen_bulk(
         normalized,
         original_name,
     ) in fuzzy_items:
-
         cached = cache.get(normalized)
 
         if cached is not None:
-
             result = cached.copy()
 
             result["entity_name"] = original_name
@@ -1343,32 +1151,26 @@ def screen_bulk(
 
         results[position] = result
 
-    final_results: list[
-        dict[str, Any]
-    ] = []
+    final_results: list[dict[str, Any]] = []
 
-    for index, result in enumerate(results):
-
-        if result is None:
-
-            result = build_clean_response(
+    for index, maybe_result in enumerate(results):
+        if maybe_result is None:
+            clean_result = build_clean_response(
                 duration=0,
                 entity_name=names[index],
                 country=country,
             )
 
-            result = apply_override(
+            clean_result = apply_override(
                 db=db,
-                result=result,
+                result=clean_result,
                 entity_name=names[index],
             )
+            final_results.append(clean_result)
+        else:
+            final_results.append(maybe_result)
 
-        final_results.append(result)
-
-    total_duration = (
-        time.perf_counter()
-        - start
-    ) * 1000
+    total_duration = (time.perf_counter() - start) * 1000
 
     return {
         "count": len(names),

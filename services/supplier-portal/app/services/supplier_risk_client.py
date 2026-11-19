@@ -11,15 +11,11 @@ class SupplierRiskServiceError(Exception):
     """Base error for Supplier Risk Service integration."""
 
 
-class SupplierRiskServiceUnavailableError(
-    SupplierRiskServiceError
-):
+class SupplierRiskServiceUnavailableError(SupplierRiskServiceError):
     """Raised when Supplier Risk Service cannot be reached."""
 
 
-class SupplierRiskInvalidResponseError(
-    SupplierRiskServiceError
-):
+class SupplierRiskInvalidResponseError(SupplierRiskServiceError):
     """Raised when Supplier Risk Service returns an invalid response."""
 
 
@@ -92,9 +88,7 @@ def get_supplier_risk_score(supplier_id: str) -> dict:
     }
 
     try:
-        with httpx.Client(
-            timeout=settings.SUPPLIER_RISK_TIMEOUT_SECONDS
-        ) as client:
+        with httpx.Client(timeout=settings.SUPPLIER_RISK_TIMEOUT_SECONDS) as client:
             response = client.get(
                 url,
                 headers=headers,

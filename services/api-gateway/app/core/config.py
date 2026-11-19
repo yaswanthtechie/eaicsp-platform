@@ -226,6 +226,7 @@ class Settings(BaseSettings):
         "eta.shipment.predicted",
         "forecast.batch.completed",
         "data.pipeline.completed",
+        "anomaly.sales.detected",
     ]
     REALTIME_AUTH_TIMEOUT_SECONDS: float = 2.0
     REALTIME_WS_PATH: str = "/api/v1/analytics/kpis/real-time"

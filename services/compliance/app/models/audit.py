@@ -2,7 +2,6 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     Boolean,
-    Column,
     DateTime,
     Float,
     Index,
@@ -10,6 +9,7 @@ from sqlalchemy import (
     String,
     Text,
 )
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 
@@ -17,103 +17,34 @@ from app.core.database import Base
 class ComplianceAudit(Base):
     __tablename__ = "compliance_audit"
 
-    id = Column(Integer, primary_key=True, index=True)
-
-    entity_name = Column(
-        String,
-        nullable=False,
-        index=True,
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    entity_name: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    country: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    matched: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    decision: Mapped[str | None] = mapped_column(String, nullable=True)
+    matched_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    matched_lists: Mapped[str | None] = mapped_column(String, nullable=True)
+    match_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    risk_score: Mapped[float] = mapped_column(Float, nullable=False, default=0)
+    risk_factors: Mapped[str | None] = mapped_column(Text, nullable=True)
+    country_risk_score: Mapped[float] = mapped_column(Float, nullable=False, default=0)
+    overall_supplier_risk: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0
     )
-
-    country = Column(
-        String,
-        nullable=True,
-        index=True,
+    screening_type: Mapped[str] = mapped_column(
+        String, nullable=False, default="INITIAL", index=True
     )
-
-    matched = Column(
-        Boolean,
-        nullable=False,
-        default=False,
+    newly_flagged: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, index=True
     )
-
-    decision = Column(
-        String,
-        nullable=True,
+    screening_run_id: Mapped[str | None] = mapped_column(
+        String, nullable=True, index=True
     )
-
-    matched_name = Column(
-        String,
-        nullable=True,
+    service_name: Mapped[str] = mapped_column(
+        String, nullable=False, default="compliance-service"
     )
-
-    matched_lists = Column(
-        String,
-        nullable=True,
-    )
-
-    match_score = Column(
-        Integer,
-        nullable=False,
-        default=0,
-    )
-
-    risk_score = Column(
-        Float,
-        nullable=False,
-        default=0,
-    )
-
-    risk_factors = Column(
-        Text,
-        nullable=True,
-    )
-
-    country_risk_score = Column(
-        Float,
-        nullable=False,
-        default=0,
-    )
-
-    overall_supplier_risk = Column(
-        Float,
-        nullable=False,
-        default=0,
-    )
-
-    screening_type = Column(
-        String,
-        nullable=False,
-        default="INITIAL",
-        index=True,
-    )
-
-    newly_flagged = Column(
-        Boolean,
-        nullable=False,
-        default=False,
-        index=True,
-    )
-
-    screening_run_id = Column(
-        String,
-        nullable=True,
-        index=True,
-    )
-
-    service_name = Column(
-        String,
-        nullable=False,
-        default="compliance-service",
-    )
-
-    duration_ms = Column(
-        Float,
-        nullable=False,
-        default=0,
-    )
-
-    created_at = Column(
+    duration_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
@@ -121,31 +52,10 @@ class ComplianceAudit(Base):
     )
 
     __table_args__ = (
-        Index(
-            "idx_audit_entity_date",
-            "entity_name",
-            "created_at",
-        ),
-        Index(
-            "idx_audit_screening_type_date",
-            "screening_type",
-            "created_at",
-        ),
-        Index(
-            "idx_audit_newly_flagged_date",
-            "newly_flagged",
-            "created_at",
-        ),
-        Index(
-            "idx_audit_screening_run",
-            "screening_run_id",
-        ),
-        Index(
-            "idx_audit_country",
-            "country",
-        ),
-        Index(
-            "idx_audit_decision",
-            "decision",
-        ),
+        Index("idx_audit_entity_date", "entity_name", "created_at"),
+        Index("idx_audit_screening_type_date", "screening_type", "created_at"),
+        Index("idx_audit_newly_flagged_date", "newly_flagged", "created_at"),
+        Index("idx_audit_screening_run", "screening_run_id"),
+        Index("idx_audit_country", "country"),
+        Index("idx_audit_decision", "decision"),
     )

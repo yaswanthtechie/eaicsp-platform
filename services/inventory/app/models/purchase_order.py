@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import Column, DateTime, Float, Integer, String
+from sqlalchemy import Column, Date, DateTime, Float, Integer, String
 
 from app.database import Base
 
@@ -65,6 +65,21 @@ class PurchaseOrder(Base):
 
     hold_source = Column(
         String,
+        nullable=True,
+    )
+
+    order_date = Column(
+        Date,
+        nullable=True,
+    )
+
+    expected_date = Column(
+        Date,
+        nullable=True,
+    )
+
+    received_date = Column(
+        Date,
         nullable=True,
     )
 

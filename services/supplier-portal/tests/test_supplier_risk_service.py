@@ -1,11 +1,9 @@
-
 import pytest
 
 from app.services import supplier_risk_service
 from app.services.supplier_risk_client import (
     SupplierRiskServiceError,
 )
-
 
 VALID_RISK_RESPONSE = {
     "supplier_id": "SUP-00001",
@@ -24,9 +22,7 @@ def test_risk_score_success_returns_available_response(monkeypatch):
         lambda supplier_id: VALID_RISK_RESPONSE,
     )
 
-    response = supplier_risk_service.get_supplier_risk_score_response(
-        "SUP-00001"
-    )
+    response = supplier_risk_service.get_supplier_risk_score_response("SUP-00001")
 
     assert response["supplier_id"] == "SUP-00001"
     assert response["risk_available"] is True
@@ -36,9 +32,7 @@ def test_risk_score_success_returns_available_response(monkeypatch):
 
 def test_risk_service_error_returns_fallback_response(monkeypatch):
     def mock_get_risk_score(supplier_id):
-        raise SupplierRiskServiceError(
-            "Supplier Risk Service unavailable"
-        )
+        raise SupplierRiskServiceError("Supplier Risk Service unavailable")
 
     monkeypatch.setattr(
         supplier_risk_service,
@@ -46,9 +40,7 @@ def test_risk_service_error_returns_fallback_response(monkeypatch):
         mock_get_risk_score,
     )
 
-    response = supplier_risk_service.get_supplier_risk_score_response(
-        "SUP-00001"
-    )
+    response = supplier_risk_service.get_supplier_risk_score_response("SUP-00001")
 
     assert response == {
         "supplier_id": "SUP-00001",
@@ -74,9 +66,7 @@ def test_none_score_returns_risk_unavailable(monkeypatch):
         lambda supplier_id: risk_response,
     )
 
-    response = supplier_risk_service.get_supplier_risk_score_response(
-        "SUP-00001"
-    )
+    response = supplier_risk_service.get_supplier_risk_score_response("SUP-00001")
 
     assert response["risk_available"] is False
     assert response["score"] is None
@@ -97,6 +87,4 @@ def test_invalid_supplier_id_value_error_propagates(monkeypatch):
         ValueError,
         match="Invalid supplier ID format.",
     ):
-        supplier_risk_service.get_supplier_risk_score_response(
-            "SUP001"
-        )
+        supplier_risk_service.get_supplier_risk_score_response("SUP001")

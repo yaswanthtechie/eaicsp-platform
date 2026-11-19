@@ -1,14 +1,12 @@
 import pytest
-
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
-from app.main import app
 from app.core.auth import verify_token
-from app.routes.purchase_order import router as purchase_order_router
+from app.main import app
 from app.routes.invoice import router as invoice_router
+from app.routes.purchase_order import router as purchase_order_router
 from app.routes.supplier_stats_routes import router as supplier_stats_router
-
 
 PUBLIC_PATHS = {
     "/",
@@ -32,9 +30,7 @@ def _protected_routes():
     """
 
     for router, prefix in ROUTERS:
-
         for route in router.routes:
-
             if not isinstance(route, APIRoute):
                 continue
 
@@ -43,9 +39,7 @@ def _protected_routes():
             if full_path in PUBLIC_PATHS:
                 continue
 
-            for method in sorted(
-                route.methods - {"HEAD", "OPTIONS"}
-            ):
+            for method in sorted(route.methods - {"HEAD", "OPTIONS"}):
                 path = full_path
 
                 for param in route.param_convertors:

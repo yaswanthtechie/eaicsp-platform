@@ -29,6 +29,5 @@ def validate_transition(
 
     if new_status not in allowed_states:
         raise ValueError(
-            f"Invalid case state transition: "
-            f"{current_status} -> {new_status}"
+            f"Invalid case state transition: {current_status} -> {new_status}"
         )

@@ -1,35 +1,30 @@
 import pytest
 
-from app.schemas.purchase_order import PurchaseOrderStatus
 from app.schemas.invoice import InvoiceStatus
-
-from app.services.purchase_order_service import (
-    purchase_orders,
-    po_events,
-)
-
-from app.services.invoice_service import (
-    invoices,
-    invoice_events,
-)
-
+from app.schemas.purchase_order import PurchaseOrderStatus
 from app.services.goods_receipt_service import goods_receipts
-from app.services.shipment_service import shipments
-
+from app.services.invoice_service import (
+    invoice_events,
+    invoices,
+)
 from app.services.po_p2p_state_machine import (
     P2PState,
     p2p_states,
 )
-
+from app.services.purchase_order_service import (
+    po_events,
+    purchase_orders,
+)
+from app.services.shipment_service import shipments
+from app.services.supplier_onboarding_service import suppliers
 from app.services.three_way_match_service import (
     three_way_matches,
 )
-from app.services.supplier_onboarding_service import suppliers
-
 
 # ============================================================
 # RESET ALL IN-MEMORY DATA
 # ============================================================
+
 
 @pytest.fixture(autouse=True)
 def reset_data():
@@ -93,10 +88,10 @@ def reset_data():
     three_way_matches.clear()
 
 
-
 # ============================================================
 # TEST DATA HELPERS
 # ============================================================
+
 
 def create_fulfilled_po(
     po_number="PO1001",
@@ -127,6 +122,7 @@ def create_fulfilled_po(
     p2p_states[po_number] = P2PState.invoiced
 
     return purchase_orders[po_number]
+
 
 def create_invoice_via_api(
     client,
@@ -159,6 +155,7 @@ def create_invoice_via_api(
             "invoice_date": "2026-09-09",
         },
     )
+
 
 def create_received_goods_receipt(
     po_number="PO1001",
@@ -254,30 +251,22 @@ def match_url(
     supplier_id="SUP-00001",
     invoice_number="INV1001",
 ):
-    return (
-        f"/api/v1/three-way-matches/"
-        f"{supplier_id}/{invoice_number}"
-    )
+    return f"/api/v1/three-way-matches/{supplier_id}/{invoice_number}"
 
 
 def resolve_url(
     supplier_id="SUP-00001",
     invoice_number="INV1001",
 ):
-    return (
-        f"/api/v1/three-way-matches/"
-        f"{supplier_id}/{invoice_number}/resolve"
-    )
+    return f"/api/v1/three-way-matches/{supplier_id}/{invoice_number}/resolve"
 
 
 def payment_approve_url(
     supplier_id="SUP-00001",
     invoice_number="INV1001",
 ):
-    return (
-        f"/api/v1/three-way-matches/"
-        f"{supplier_id}/{invoice_number}/payment-approve"
-    )
+    return f"/api/v1/three-way-matches/{supplier_id}/{invoice_number}/payment-approve"
+
 
 def resolution_suggestion_url(
     supplier_id="SUP-00001",
@@ -288,18 +277,18 @@ def resolution_suggestion_url(
         f"{supplier_id}/{invoice_number}/resolution-suggestion"
     )
 
+
 # ============================================================
 # 1. EXACT 3-WAY MATCH
 # ============================================================
+
 
 def test_exact_three_way_match(
     procurement_client,
 ):
     prepare_exact_match()
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
 
@@ -326,14 +315,13 @@ def test_exact_three_way_match(
 # 2. SUPPLIER CANNOT EXECUTE THREE-WAY MATCH
 # ============================================================
 
+
 def test_supplier_cannot_execute_three_way_match(
     supplier_client,
 ):
     prepare_exact_match()
 
-    response = supplier_client.post(
-        match_url()
-    )
+    response = supplier_client.post(match_url())
 
     assert response.status_code == 403
 
@@ -344,6 +332,7 @@ def test_supplier_cannot_execute_three_way_match(
 # 3. PO QUANTITY MISMATCH
 # ============================================================
 
+
 def test_po_quantity_mismatch(
     procurement_client,
 ):
@@ -351,9 +340,7 @@ def test_po_quantity_mismatch(
 
     purchase_orders["PO1001"]["items"][0]["quantity"] = 12
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
 
@@ -369,18 +356,15 @@ def test_po_quantity_mismatch(
 # 4. GOODS RECEIPT QUANTITY MISMATCH
 # ============================================================
 
+
 def test_goods_receipt_quantity_mismatch(
     procurement_client,
 ):
     prepare_exact_match()
 
-    goods_receipts[
-        "GR-PO1001"
-    ]["items"][0]["quantity"] = 8
+    goods_receipts["GR-PO1001"]["items"][0]["quantity"] = 8
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
 
@@ -396,18 +380,15 @@ def test_goods_receipt_quantity_mismatch(
 # 5. INVOICE QUANTITY MISMATCH
 # ============================================================
 
+
 def test_invoice_quantity_mismatch(
     procurement_client,
 ):
     prepare_exact_match()
 
-    invoices[
-        ("SUP-00001", "INV1001")
-    ]["items"][0]["quantity"] = 5
+    invoices[("SUP-00001", "INV1001")]["items"][0]["quantity"] = 5
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
 
@@ -423,18 +404,15 @@ def test_invoice_quantity_mismatch(
 # 6. PRICE BELOW 5% DIFFERENCE
 # ============================================================
 
+
 def test_price_difference_below_five_percent_is_matched(
     procurement_client,
 ):
     prepare_exact_match()
 
-    invoices[
-        ("SUP-00001", "INV1001")
-    ]["items"][0]["unit_price"] = 104.0
+    invoices[("SUP-00001", "INV1001")]["items"][0]["unit_price"] = 104.0
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
 
@@ -450,18 +428,15 @@ def test_price_difference_below_five_percent_is_matched(
 # 7. PRICE EXACTLY 5%
 # ============================================================
 
+
 def test_price_difference_exactly_five_percent_is_matched(
     procurement_client,
 ):
     prepare_exact_match()
 
-    invoices[
-        ("SUP-00001", "INV1001")
-    ]["items"][0]["unit_price"] = 105.0
+    invoices[("SUP-00001", "INV1001")]["items"][0]["unit_price"] = 105.0
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
 
@@ -480,6 +455,7 @@ def test_price_difference_exactly_five_percent_is_matched(
 # ============================================================
 # 8. PRICE ABOVE 5%
 # ============================================================
+
 
 def test_price_difference_above_five_percent_is_discrepancy(
     supplier_client,
@@ -529,9 +505,11 @@ def test_price_difference_above_five_percent_is_discrepancy(
 
     assert p2p_states["PO1001"] == P2PState.discrepancy
 
+
 # ============================================================
 # 9. QUANTITY + PRICE MISMATCH
 # ============================================================
+
 
 def test_quantity_and_price_mismatch(
     supplier_client,
@@ -582,9 +560,11 @@ def test_quantity_and_price_mismatch(
 
     assert p2p_states["PO1001"] == P2PState.discrepancy
 
+
 # ============================================================
 # 10. MISSING INVOICE
 # ============================================================
+
 
 def test_missing_invoice_returns_error(
     procurement_client,
@@ -607,6 +587,7 @@ def test_missing_invoice_returns_error(
 # 11. MISSING PO
 # ============================================================
 
+
 def test_missing_po_returns_error(
     procurement_client,
 ):
@@ -616,9 +597,7 @@ def test_missing_po_returns_error(
         po_number="PO-NOT-FOUND",
     )
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code in (404, 400)
     assert "po" in response.text.lower()
@@ -627,6 +606,7 @@ def test_missing_po_returns_error(
 # ============================================================
 # 12. WRONG SUPPLIER / CROSS-SUPPLIER ACCESS
 # ============================================================
+
 
 def test_supplier_cannot_match_other_supplier_invoice(
     supplier_client,
@@ -649,6 +629,7 @@ def test_supplier_cannot_match_other_supplier_invoice(
 # 13. INVOICE WRONG STATUS
 # ============================================================
 
+
 @pytest.mark.parametrize(
     "invoice_status",
     [
@@ -664,13 +645,9 @@ def test_invoice_must_be_submitted(
 ):
     prepare_exact_match()
 
-    invoices[
-        ("SUP-00001", "INV1001")
-    ]["status"] = invoice_status
+    invoices[("SUP-00001", "INV1001")]["status"] = invoice_status
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code in (400, 409)
     assert "submitted" in response.text.lower()
@@ -680,18 +657,15 @@ def test_invoice_must_be_submitted(
 # 14. PO WRONG STATUS
 # ============================================================
 
+
 def test_po_must_be_fulfilled(
     procurement_client,
 ):
     prepare_exact_match()
 
-    purchase_orders[
-        "PO1001"
-    ]["status"] = PurchaseOrderStatus.acknowledged
+    purchase_orders["PO1001"]["status"] = PurchaseOrderStatus.acknowledged
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code in (400, 409)
     assert "fulfilled" in response.text.lower()
@@ -700,6 +674,7 @@ def test_po_must_be_fulfilled(
 # ============================================================
 # 15. P2P WRONG STATUS
 # ============================================================
+
 
 @pytest.mark.parametrize(
     "wrong_state",
@@ -718,13 +693,9 @@ def test_p2p_must_be_invoiced(
 ):
     prepare_exact_match()
 
-    p2p_states[
-        "PO1001"
-    ] = wrong_state
+    p2p_states["PO1001"] = wrong_state
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code in (400, 409)
     assert "invoiced" in response.text.lower()
@@ -734,21 +705,18 @@ def test_p2p_must_be_invoiced(
 # 16. REPEATED MATCH
 # ============================================================
 
+
 def test_repeated_match_is_rejected(
     procurement_client,
 ):
     prepare_exact_match()
 
-    first_response = procurement_client.post(
-        match_url()
-    )
+    first_response = procurement_client.post(match_url())
 
     assert first_response.status_code == 200
     assert p2p_states["PO1001"] == P2PState.matched
 
-    second_response = procurement_client.post(
-        match_url()
-    )
+    second_response = procurement_client.post(match_url())
 
     assert second_response.status_code in (400, 409)
 
@@ -757,15 +725,14 @@ def test_repeated_match_is_rejected(
 # 17. MATCH RESULT PERSISTENCE
 # ============================================================
 
+
 def test_match_result_is_persisted(
     procurement_client,
     supplier_client,
 ):
     prepare_exact_match()
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
 
@@ -774,13 +741,10 @@ def test_match_result_is_persisted(
     match_id = data["match_id"]
 
     assert any(
-        match.get("match_id") == match_id
-        for match in three_way_matches.values()
+        match.get("match_id") == match_id for match in three_way_matches.values()
     )
 
-    get_response = supplier_client.get(
-        match_url()
-    )
+    get_response = supplier_client.get(match_url())
 
     assert get_response.status_code == 200
 
@@ -794,21 +758,18 @@ def test_match_result_is_persisted(
 # 18. DISCREPANCY DETAILS
 # ============================================================
 
+
 def test_discrepancy_contains_correct_line_details(
     procurement_client,
 ):
     prepare_exact_match()
 
-    invoice = invoices[
-        ("SUP-00001", "INV1001")
-    ]
+    invoice = invoices[("SUP-00001", "INV1001")]
 
     invoice["items"][0]["quantity"] = 5
     invoice["items"][0]["unit_price"] = 106.0
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
 
@@ -834,19 +795,16 @@ def test_discrepancy_contains_correct_line_details(
 # 19. COMPLIANCE OFFICER RESOLVES DISCREPANCY
 # ============================================================
 
+
 def test_compliance_officer_can_resolve_discrepancy(
     procurement_client,
     compliance_client,
 ):
     prepare_exact_match()
 
-    invoices[
-        ("SUP-00001", "INV1001")
-    ]["items"][0]["quantity"] = 5
+    invoices[("SUP-00001", "INV1001")]["items"][0]["quantity"] = 5
 
-    match_response = procurement_client.post(
-        match_url()
-    )
+    match_response = procurement_client.post(match_url())
 
     assert match_response.status_code == 200
     assert match_response.json()["status"] == "discrepancy"
@@ -854,9 +812,7 @@ def test_compliance_officer_can_resolve_discrepancy(
     response = compliance_client.post(
         resolve_url(),
         json={
-            "reason": (
-                "Approved after manual compliance review."
-            ),
+            "reason": ("Approved after manual compliance review."),
         },
     )
 
@@ -873,15 +829,14 @@ def test_compliance_officer_can_resolve_discrepancy(
 # 20. RESOLUTION WITHOUT DISCREPANCY
 # ============================================================
 
+
 def test_resolution_without_discrepancy_fails(
     procurement_client,
     compliance_client,
 ):
     prepare_exact_match()
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
     assert response.json()["status"] == "matched"
@@ -889,9 +844,7 @@ def test_resolution_without_discrepancy_fails(
     response = compliance_client.post(
         resolve_url(),
         json={
-            "reason": (
-                "Attempted unnecessary resolution."
-            ),
+            "reason": ("Attempted unnecessary resolution."),
         },
     )
 
@@ -902,19 +855,16 @@ def test_resolution_without_discrepancy_fails(
 # 21. INVALID / EMPTY RESOLUTION REASON
 # ============================================================
 
+
 def test_resolution_requires_valid_reason(
     procurement_client,
     compliance_client,
 ):
     prepare_exact_match()
 
-    invoices[
-        ("SUP-00001", "INV1001")
-    ]["items"][0]["quantity"] = 5
+    invoices[("SUP-00001", "INV1001")]["items"][0]["quantity"] = 5
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
     assert response.json()["status"] == "discrepancy"
@@ -933,6 +883,7 @@ def test_resolution_requires_valid_reason(
 # 22. UNAUTHORIZED RESOLUTION
 # ============================================================
 
+
 def test_supplier_cannot_resolve_discrepancy(
     supplier_client,
     procurement_client,
@@ -944,9 +895,7 @@ def test_supplier_cannot_resolve_discrepancy(
     invoice["items"][0]["quantity"] = 5
 
     # Procurement Manager performs the three-way match.
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
     assert response.json()["status"] == "discrepancy"
@@ -954,40 +903,35 @@ def test_supplier_cannot_resolve_discrepancy(
     # Supplier must not be allowed to resolve the discrepancy.
     response = supplier_client.post(
         resolve_url(),
-        json={
-            "reason": "Supplier attempted to resolve the discrepancy."
-        },
+        json={"reason": "Supplier attempted to resolve the discrepancy."},
     )
 
     assert response.status_code == 403
+
+
 # ============================================================
 # 23. SUCCESSFUL PAYMENT APPROVAL
 # ============================================================
+
 
 def test_payment_approval_after_match(
     procurement_client,
 ):
     prepare_exact_match()
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
     assert response.json()["status"] == "matched"
 
-    response = procurement_client.post(
-        payment_approve_url()
-    )
+    response = procurement_client.post(payment_approve_url())
 
     assert response.status_code == 200
 
     data = response.json()
 
     assert data["payment_status"] == "payment_approved"
-    assert data["approved_by"] == (
-        "procurementmanager@company.com"
-    )
+    assert data["approved_by"] == ("procurementmanager@company.com")
     assert data["approved_role"] == "procurement_manager"
 
     assert p2p_states["PO1001"] == P2PState.payment_approved
@@ -997,71 +941,56 @@ def test_payment_approval_after_match(
 # 24. PAYMENT APPROVAL FROM DISCREPANCY
 # ============================================================
 
+
 def test_payment_approval_from_discrepancy_fails(
     procurement_client,
 ):
     prepare_exact_match()
 
-    invoices[
-        ("SUP-00001", "INV1001")
-    ]["items"][0]["quantity"] = 5
+    invoices[("SUP-00001", "INV1001")]["items"][0]["quantity"] = 5
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
     assert response.json()["status"] == "discrepancy"
 
-    response = procurement_client.post(
-        payment_approve_url()
-    )
+    response = procurement_client.post(payment_approve_url())
 
     assert response.status_code in (400, 409)
 
-    assert (
-        p2p_states["PO1001"]
-        == P2PState.discrepancy
-    )
+    assert p2p_states["PO1001"] == P2PState.discrepancy
 
 
 # ============================================================
 # 25. PAYMENT APPROVAL BEFORE MATCH
 # ============================================================
 
+
 def test_payment_approval_before_match_fails(
     procurement_client,
 ):
     prepare_exact_match()
 
-    response = procurement_client.post(
-        payment_approve_url()
-    )
+    response = procurement_client.post(payment_approve_url())
 
     assert response.status_code == 404
 
-    assert "three-way match record not found" in (
-        response.text.lower()
-    )
+    assert "three-way match record not found" in (response.text.lower())
 
-    assert (
-        p2p_states["PO1001"]
-        == P2PState.invoiced
-    )
+    assert p2p_states["PO1001"] == P2PState.invoiced
 
 
 # ============================================================
 # 26. UNAUTHORIZED PAYMENT APPROVAL
 # ============================================================
 
+
 def test_non_procurement_user_cannot_approve_payment(
     supplier_client,
 ):
     prepare_exact_match()
 
-    response = supplier_client.post(
-        payment_approve_url()
-    )
+    response = supplier_client.post(payment_approve_url())
 
     assert response.status_code == 403
 
@@ -1070,31 +999,23 @@ def test_non_procurement_user_cannot_approve_payment(
 # 27. DUPLICATE PAYMENT APPROVAL
 # ============================================================
 
+
 def test_duplicate_payment_approval_fails(
     procurement_client,
 ):
     prepare_exact_match()
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
 
-    first_response = procurement_client.post(
-        payment_approve_url()
-    )
+    first_response = procurement_client.post(payment_approve_url())
 
     assert first_response.status_code == 200
 
-    assert (
-        p2p_states["PO1001"]
-        == P2PState.payment_approved
-    )
+    assert p2p_states["PO1001"] == P2PState.payment_approved
 
-    second_response = procurement_client.post(
-        payment_approve_url()
-    )
+    second_response = procurement_client.post(payment_approve_url())
 
     assert second_response.status_code in (400, 409)
 
@@ -1103,37 +1024,29 @@ def test_duplicate_payment_approval_fails(
 # 28. MATCHED -> PAYMENT APPROVED
 # ============================================================
 
+
 def test_p2p_moves_from_matched_to_payment_approved(
     procurement_client,
 ):
     prepare_exact_match()
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
 
-    assert (
-        p2p_states["PO1001"]
-        == P2PState.matched
-    )
+    assert p2p_states["PO1001"] == P2PState.matched
 
-    response = procurement_client.post(
-        payment_approve_url()
-    )
+    response = procurement_client.post(payment_approve_url())
 
     assert response.status_code == 200
 
-    assert (
-        p2p_states["PO1001"]
-        == P2PState.payment_approved
-    )
+    assert p2p_states["PO1001"] == P2PState.payment_approved
 
 
 # ============================================================
 # 29. MULTIPLE INVOICE ITEMS
 # ============================================================
+
 
 def test_multiple_invoice_items_match(
     procurement_client,
@@ -1213,9 +1126,7 @@ def test_multiple_invoice_items_match(
         "history": [],
     }
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
 
@@ -1230,6 +1141,7 @@ def test_multiple_invoice_items_match(
 # ============================================================
 # 30. MULTIPLE POS IN ONE INVOICE
 # ============================================================
+
 
 def test_multiple_pos_in_one_invoice_match(
     procurement_client,
@@ -1284,9 +1196,7 @@ def test_multiple_pos_in_one_invoice_match(
         "history": [],
     }
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
 
@@ -1294,20 +1204,15 @@ def test_multiple_pos_in_one_invoice_match(
 
     assert data["status"] == "matched"
 
-    assert (
-        p2p_states["PO1001"]
-        == P2PState.matched
-    )
+    assert p2p_states["PO1001"] == P2PState.matched
 
-    assert (
-        p2p_states["PO1002"]
-        == P2PState.matched
-    )
+    assert p2p_states["PO1002"] == P2PState.matched
 
 
 # ============================================================
 # 31. MULTI-PO DISCREPANCY / STATE SAFETY
 # ============================================================
+
 
 def test_multi_po_discrepancy_moves_all_referenced_pos_to_discrepancy(
     procurement_client,
@@ -1362,9 +1267,7 @@ def test_multi_po_discrepancy_moves_all_referenced_pos_to_discrepancy(
         "history": [],
     }
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
 
@@ -1372,20 +1275,15 @@ def test_multi_po_discrepancy_moves_all_referenced_pos_to_discrepancy(
 
     assert data["status"] == "discrepancy"
 
-    assert (
-        p2p_states["PO1001"]
-        == P2PState.discrepancy
-    )
+    assert p2p_states["PO1001"] == P2PState.discrepancy
 
-    assert (
-        p2p_states["PO1002"]
-        == P2PState.discrepancy
-    )
+    assert p2p_states["PO1002"] == P2PState.discrepancy
 
 
 # ============================================================
 # 33. INTERNAL PROCUREMENT MANAGER CAN ACCESS
 # ============================================================
+
 
 def test_procurement_manager_can_access_supplier_match(
     procurement_client,
@@ -1418,14 +1316,13 @@ def test_procurement_manager_can_access_supplier_match(
 # 34. MATCH METADATA
 # ============================================================
 
+
 def test_match_metadata_is_created(
     procurement_client,
 ):
     prepare_exact_match()
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
 
@@ -1433,14 +1330,13 @@ def test_match_metadata_is_created(
 
     assert data["match_id"]
     assert data["created_at"]
-    assert data["created_by"] == (
-        "procurementmanager@company.com"
-    )
+    assert data["created_by"] == ("procurementmanager@company.com")
 
 
 # ============================================================
 # 35. RESOLUTION METADATA
 # ============================================================
+
 
 def test_resolution_metadata_is_recorded(
     procurement_client,
@@ -1448,13 +1344,9 @@ def test_resolution_metadata_is_recorded(
 ):
     prepare_exact_match()
 
-    invoices[
-        ("SUP-00001", "INV1001")
-    ]["items"][0]["quantity"] = 5
+    invoices[("SUP-00001", "INV1001")]["items"][0]["quantity"] = 5
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
     assert response.json()["status"] == "discrepancy"
@@ -1462,9 +1354,7 @@ def test_resolution_metadata_is_recorded(
     response = compliance_client.post(
         resolve_url(),
         json={
-            "reason": (
-                "Manual compliance review completed."
-            ),
+            "reason": ("Manual compliance review completed."),
         },
     )
 
@@ -1486,9 +1376,7 @@ def test_resolution_metadata_is_recorded(
 
     assert stored_match["resolution"]["resolved_by"]
 
-    assert stored_match["resolution"]["resolved_role"] == (
-        "compliance_officer"
-    )
+    assert stored_match["resolution"]["resolved_role"] == ("compliance_officer")
 
     assert stored_match["resolved_by"]
 
@@ -1497,20 +1385,17 @@ def test_resolution_metadata_is_recorded(
 # 36. PAYMENT APPROVAL METADATA
 # ============================================================
 
+
 def test_payment_approval_metadata_is_recorded(
     procurement_client,
 ):
     prepare_exact_match()
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
 
-    response = procurement_client.post(
-        payment_approve_url()
-    )
+    response = procurement_client.post(payment_approve_url())
 
     assert response.status_code == 200
 
@@ -1518,15 +1403,14 @@ def test_payment_approval_metadata_is_recorded(
 
     assert data["payment_status"] == "payment_approved"
     assert data["approved_at"]
-    assert data["approved_by"] == (
-        "procurementmanager@company.com"
-    )
+    assert data["approved_by"] == ("procurementmanager@company.com")
     assert data["approved_role"] == "procurement_manager"
 
 
 # ============================================================
 # 37. MISSING GOODS RECEIPT
 # ============================================================
+
 
 def test_missing_goods_receipt_creates_discrepancy(
     procurement_client,
@@ -1535,9 +1419,7 @@ def test_missing_goods_receipt_creates_discrepancy(
 
     create_submitted_invoice()
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
 
@@ -1553,31 +1435,23 @@ def test_missing_goods_receipt_creates_discrepancy(
 # 38. MATCH AFTER PAYMENT APPROVAL
 # ============================================================
 
+
 def test_match_after_payment_approval_fails(
     procurement_client,
 ):
     prepare_exact_match()
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
 
-    response = procurement_client.post(
-        payment_approve_url()
-    )
+    response = procurement_client.post(payment_approve_url())
 
     assert response.status_code == 200
 
-    assert (
-        p2p_states["PO1001"]
-        == P2PState.payment_approved
-    )
+    assert p2p_states["PO1001"] == P2PState.payment_approved
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code in (400, 409)
 
@@ -1586,37 +1460,30 @@ def test_match_after_payment_approval_fails(
 # 39. PAYMENT APPROVAL DOES NOT CHANGE DISCREPANCY
 # ============================================================
 
+
 def test_payment_approval_failure_keeps_discrepancy_state(
     procurement_client,
 ):
     prepare_exact_match()
 
-    invoices[
-        ("SUP-00001", "INV1001")
-    ]["items"][0]["quantity"] = 5
+    invoices[("SUP-00001", "INV1001")]["items"][0]["quantity"] = 5
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
     assert response.json()["status"] == "discrepancy"
 
-    response = procurement_client.post(
-        payment_approve_url()
-    )
+    response = procurement_client.post(payment_approve_url())
 
     assert response.status_code in (400, 409)
 
-    assert (
-        p2p_states["PO1001"]
-        == P2PState.discrepancy
-    )
+    assert p2p_states["PO1001"] == P2PState.discrepancy
 
 
 # ============================================================
 # 40. MULTI-PO MIXED MATCH RESULT
 # ============================================================
+
 
 def test_multi_po_mixed_result_is_discrepancy(
     procurement_client,
@@ -1671,9 +1538,7 @@ def test_multi_po_mixed_result_is_discrepancy(
         "history": [],
     }
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
 
@@ -1681,20 +1546,15 @@ def test_multi_po_mixed_result_is_discrepancy(
 
     assert data["status"] == "discrepancy"
 
-    assert (
-        p2p_states["PO1001"]
-        == P2PState.discrepancy
-    )
+    assert p2p_states["PO1001"] == P2PState.discrepancy
 
-    assert (
-        p2p_states["PO1002"]
-        == P2PState.discrepancy
-    )
+    assert p2p_states["PO1002"] == P2PState.discrepancy
 
 
 # ============================================================
 # 41. SUPPLIER WITHOUT SUPPLIER_ID CANNOT ACCESS MATCH
 # ============================================================
+
 
 def test_supplier_without_supplier_id_is_rejected(
     supplier_no_id_client,
@@ -1710,13 +1570,13 @@ def test_supplier_without_supplier_id_is_rejected(
 
     assert response.status_code == 403
 
-    assert "supplier id is required" in (
-        response.text.lower()
-    )
+    assert "supplier id is required" in (response.text.lower())
+
 
 # ============================================================
 # 42. SUPPLIER CANNOT GET OTHER SUPPLIER MATCH
 # ============================================================
+
 
 def test_supplier_cannot_get_other_supplier_match(
     supplier_client,
@@ -1751,6 +1611,7 @@ def test_supplier_cannot_get_other_supplier_match(
 # ============================================================
 # 43. SUPPLIER CAN GET OWN MATCH
 # ============================================================
+
 
 def test_supplier_can_get_own_match(
     supplier_client,
@@ -1787,6 +1648,7 @@ def test_supplier_can_get_own_match(
 # 44. UNKNOWN THREE-WAY MATCH RETURNS 404
 # ============================================================
 
+
 def test_unknown_three_way_match_returns_404(
     supplier_client,
 ):
@@ -1799,9 +1661,7 @@ def test_unknown_three_way_match_returns_404(
 
     assert response.status_code == 404
 
-    assert "three-way match record not found" in (
-        response.text.lower()
-    )
+    assert "three-way match record not found" in (response.text.lower())
 
 
 # ============================================================
@@ -1821,6 +1681,7 @@ def test_unknown_supplier_match_returns_403(
 
     assert "forbidden" in response.text.lower()
 
+
 def test_unknown_match_for_own_supplier_returns_404(
     supplier_client,
 ):
@@ -1833,13 +1694,13 @@ def test_unknown_match_for_own_supplier_returns_404(
 
     assert response.status_code == 404
 
-    assert "three-way match record not found" in (
-        response.text.lower()
-    )
+    assert "three-way match record not found" in (response.text.lower())
+
 
 # ============================================================
 # 46. PROCUREMENT MANAGER CAN GET OTHER SUPPLIER MATCH
 # ============================================================
+
 
 def test_procurement_manager_can_get_other_supplier_match(
     procurement_client,
@@ -1867,6 +1728,7 @@ def test_procurement_manager_can_get_other_supplier_match(
     assert response.status_code == 200
     assert response.json()["supplier_id"] == "SUP-00002"
 
+
 # ============================================================
 # TASK 4 — DISPUTE RESOLUTION SUGGESTIONS
 # ============================================================
@@ -1886,9 +1748,7 @@ def seed_historical_match(
     already resolved by a compliance officer.
     """
 
-    three_way_matches[
-        (supplier_id, invoice_number)
-    ] = {
+    three_way_matches[(supplier_id, invoice_number)] = {
         "match_id": match_id,
         "supplier_id": supplier_id,
         "invoice_number": invoice_number,
@@ -1896,21 +1756,15 @@ def seed_historical_match(
         "lines": [],
         "discrepancies": discrepancies,
         "created_at": None,
-        "created_by": (
-            "procurementmanager@company.com"
-        ),
+        "created_by": ("procurementmanager@company.com"),
         "resolution": {
             "reason": resolution_reason,
             "resolved_at": None,
-            "resolved_by": (
-                "complianceofficer@company.com"
-            ),
+            "resolved_by": ("complianceofficer@company.com"),
             "resolved_role": "compliance_officer",
         },
         "resolved_at": None,
-        "resolved_by": (
-            "complianceofficer@company.com"
-        ),
+        "resolved_by": ("complianceofficer@company.com"),
         "payment_approved": False,
         "payment_approved_at": None,
         "payment_approved_by": None,
@@ -1931,9 +1785,7 @@ def create_price_discrepancy_match(
         invoice_number=invoice_number,
     )
 
-    invoices[
-        ("SUP-00001", invoice_number)
-    ]["items"][0]["unit_price"] = 106.0
+    invoices[("SUP-00001", invoice_number)]["items"][0]["unit_price"] = 106.0
 
     response = procurement_client.post(
         match_url(
@@ -1952,6 +1804,7 @@ def create_price_discrepancy_match(
 # 47. PRICE MISMATCH RESOLUTION SUGGESTION
 # ============================================================
 
+
 def test_price_mismatch_resolution_suggestion(
     procurement_client,
     compliance_client,
@@ -1969,9 +1822,7 @@ def test_price_mismatch_resolution_suggestion(
         supplier_id="SUP-00001",
         invoice_number="OLD-PRICE-001",
         discrepancies=["price_mismatch"],
-        resolution_reason=(
-            "Corrected invoice received from supplier."
-        ),
+        resolution_reason=("Corrected invoice received from supplier."),
     )
 
     seed_historical_match(
@@ -1979,9 +1830,7 @@ def test_price_mismatch_resolution_suggestion(
         supplier_id="SUP-00002",
         invoice_number="OLD-PRICE-002",
         discrepancies=["price_mismatch"],
-        resolution_reason=(
-            "Invoice correction requested."
-        ),
+        resolution_reason=("Invoice correction requested."),
     )
 
     seed_historical_match(
@@ -1989,9 +1838,7 @@ def test_price_mismatch_resolution_suggestion(
         supplier_id="SUP-00003",
         invoice_number="OLD-PRICE-003",
         discrepancies=["price_mismatch"],
-        resolution_reason=(
-            "Credit note issued."
-        ),
+        resolution_reason=("Credit note issued."),
     )
 
     create_price_discrepancy_match(
@@ -2017,13 +1864,9 @@ def test_price_mismatch_resolution_suggestion(
 
     suggestion = data["suggestions"][0]
 
-    assert suggestion["discrepancy_type"] == (
-        "price_mismatch"
-    )
+    assert suggestion["discrepancy_type"] == ("price_mismatch")
 
-    assert suggestion["suggested_action"] == (
-        "correct_invoice"
-    )
+    assert suggestion["suggested_action"] == ("correct_invoice")
 
     assert suggestion["historical_case_count"] == 3
     assert suggestion["supporting_case_count"] == 2
@@ -2032,6 +1875,7 @@ def test_price_mismatch_resolution_suggestion(
 # ============================================================
 # 48. QUANTITY MISMATCH RESOLUTION SUGGESTION
 # ============================================================
+
 
 def test_quantity_mismatch_resolution_suggestion(
     procurement_client,
@@ -2047,9 +1891,7 @@ def test_quantity_mismatch_resolution_suggestion(
         supplier_id="SUP-00001",
         invoice_number="OLD-QTY-001",
         discrepancies=["quantity_mismatch"],
-        resolution_reason=(
-            "Credit note issued for excess quantity."
-        ),
+        resolution_reason=("Credit note issued for excess quantity."),
     )
 
     seed_historical_match(
@@ -2057,9 +1899,7 @@ def test_quantity_mismatch_resolution_suggestion(
         supplier_id="SUP-00002",
         invoice_number="OLD-QTY-002",
         discrepancies=["quantity_mismatch"],
-        resolution_reason=(
-            "Credit memo issued."
-        ),
+        resolution_reason=("Credit memo issued."),
     )
 
     seed_historical_match(
@@ -2067,29 +1907,19 @@ def test_quantity_mismatch_resolution_suggestion(
         supplier_id="SUP-00003",
         invoice_number="OLD-QTY-003",
         discrepancies=["quantity_mismatch"],
-        resolution_reason=(
-            "Manual compliance review completed."
-        ),
+        resolution_reason=("Manual compliance review completed."),
     )
 
     prepare_exact_match()
 
-    invoices[
-        ("SUP-00001", "INV1001")
-    ]["items"][0]["quantity"] = 5
+    invoices[("SUP-00001", "INV1001")]["items"][0]["quantity"] = 5
 
-    match_response = procurement_client.post(
-        match_url()
-    )
+    match_response = procurement_client.post(match_url())
 
     assert match_response.status_code == 200
-    assert match_response.json()["status"] == (
-        "discrepancy"
-    )
+    assert match_response.json()["status"] == ("discrepancy")
 
-    response = compliance_client.get(
-        resolution_suggestion_url()
-    )
+    response = compliance_client.get(resolution_suggestion_url())
 
     assert response.status_code == 200
 
@@ -2099,13 +1929,9 @@ def test_quantity_mismatch_resolution_suggestion(
 
     suggestion = data["suggestions"][0]
 
-    assert suggestion["discrepancy_type"] == (
-        "quantity_mismatch"
-    )
+    assert suggestion["discrepancy_type"] == ("quantity_mismatch")
 
-    assert suggestion["suggested_action"] == (
-        "credit_note"
-    )
+    assert suggestion["suggested_action"] == ("credit_note")
 
     assert suggestion["historical_case_count"] == 3
     assert suggestion["supporting_case_count"] == 2
@@ -2114,6 +1940,7 @@ def test_quantity_mismatch_resolution_suggestion(
 # ============================================================
 # 49. MULTIPLE DISCREPANCIES GET MULTIPLE SUGGESTIONS
 # ============================================================
+
 
 def test_multiple_discrepancies_get_multiple_suggestions(
     procurement_client,
@@ -2142,26 +1969,18 @@ def test_multiple_discrepancies_get_multiple_suggestions(
 
     prepare_exact_match()
 
-    invoice = invoices[
-        ("SUP-00001", "INV1001")
-    ]
+    invoice = invoices[("SUP-00001", "INV1001")]
 
     invoice["items"][0]["quantity"] = 5
     invoice["items"][0]["unit_price"] = 106.0
 
-    match_response = procurement_client.post(
-        match_url()
-    )
+    match_response = procurement_client.post(match_url())
 
     assert match_response.status_code == 200
 
-    assert match_response.json()["status"] == (
-        "discrepancy"
-    )
+    assert match_response.json()["status"] == ("discrepancy")
 
-    response = compliance_client.get(
-        resolution_suggestion_url()
-    )
+    response = compliance_client.get(resolution_suggestion_url())
 
     assert response.status_code == 200
 
@@ -2169,29 +1988,17 @@ def test_multiple_discrepancies_get_multiple_suggestions(
 
     assert len(data["suggestions"]) == 2
 
-    suggestions = {
-        item["discrepancy_type"]: item
-        for item in data["suggestions"]
-    }
+    suggestions = {item["discrepancy_type"]: item for item in data["suggestions"]}
 
-    assert (
-        suggestions["quantity_mismatch"][
-            "suggested_action"
-        ]
-        == "credit_note"
-    )
+    assert suggestions["quantity_mismatch"]["suggested_action"] == "credit_note"
 
-    assert (
-        suggestions["price_mismatch"][
-            "suggested_action"
-        ]
-        == "correct_invoice"
-    )
+    assert suggestions["price_mismatch"]["suggested_action"] == "correct_invoice"
 
 
 # ============================================================
 # 50. NO HISTORICAL EVIDENCE
 # ============================================================
+
 
 def test_no_historical_evidence_returns_no_suggestion(
     procurement_client,
@@ -2206,9 +2013,7 @@ def test_no_historical_evidence_returns_no_suggestion(
         procurement_client,
     )
 
-    response = compliance_client.get(
-        resolution_suggestion_url()
-    )
+    response = compliance_client.get(resolution_suggestion_url())
 
     assert response.status_code == 200
 
@@ -2218,9 +2023,7 @@ def test_no_historical_evidence_returns_no_suggestion(
 
     suggestion = data["suggestions"][0]
 
-    assert suggestion["discrepancy_type"] == (
-        "price_mismatch"
-    )
+    assert suggestion["discrepancy_type"] == ("price_mismatch")
 
     assert suggestion["suggested_action"] is None
 
@@ -2233,6 +2036,7 @@ def test_no_historical_evidence_returns_no_suggestion(
 # 51. UNRESOLVED HISTORICAL CASE IS IGNORED
 # ============================================================
 
+
 def test_unresolved_historical_case_is_ignored(
     procurement_client,
     compliance_client,
@@ -2242,9 +2046,7 @@ def test_unresolved_historical_case_is_ignored(
     must not be used as resolution evidence.
     """
 
-    three_way_matches[
-        ("SUP-00001", "OLD-UNRESOLVED")
-    ] = {
+    three_way_matches[("SUP-00001", "OLD-UNRESOLVED")] = {
         "match_id": "HIST-UNRESOLVED-001",
         "supplier_id": "SUP-00001",
         "invoice_number": "OLD-UNRESOLVED",
@@ -2252,9 +2054,7 @@ def test_unresolved_historical_case_is_ignored(
         "lines": [],
         "discrepancies": ["price_mismatch"],
         "created_at": None,
-        "created_by": (
-            "procurementmanager@company.com"
-        ),
+        "created_by": ("procurementmanager@company.com"),
         "resolution": None,
         "resolved_at": None,
         "resolved_by": None,
@@ -2268,9 +2068,7 @@ def test_unresolved_historical_case_is_ignored(
         procurement_client,
     )
 
-    response = compliance_client.get(
-        resolution_suggestion_url()
-    )
+    response = compliance_client.get(resolution_suggestion_url())
 
     assert response.status_code == 200
 
@@ -2287,6 +2085,7 @@ def test_unresolved_historical_case_is_ignored(
 # 52. CURRENT DISPUTE IS NOT USED AS HISTORY
 # ============================================================
 
+
 def test_current_dispute_is_not_used_as_history(
     procurement_client,
     compliance_client,
@@ -2300,9 +2099,7 @@ def test_current_dispute_is_not_used_as_history(
         procurement_client,
     )
 
-    current_match = three_way_matches[
-        ("SUP-00001", "INV1001")
-    ]
+    current_match = three_way_matches[("SUP-00001", "INV1001")]
 
     # Add a resolution reason to the current record while
     # keeping the current status as discrepancy.
@@ -2313,9 +2110,7 @@ def test_current_dispute_is_not_used_as_history(
         "resolved_role": None,
     }
 
-    response = compliance_client.get(
-        resolution_suggestion_url()
-    )
+    response = compliance_client.get(resolution_suggestion_url())
 
     assert response.status_code == 200
 
@@ -2332,6 +2127,7 @@ def test_current_dispute_is_not_used_as_history(
 # 53. SUGGESTION DOES NOT RESOLVE DISPUTE
 # ============================================================
 
+
 def test_suggestion_is_read_only(
     procurement_client,
     compliance_client,
@@ -2346,44 +2142,30 @@ def test_suggestion_is_read_only(
         supplier_id="SUP-00001",
         invoice_number="OLD-READONLY-001",
         discrepancies=["price_mismatch"],
-        resolution_reason=(
-            "Corrected invoice received."
-        ),
+        resolution_reason=("Corrected invoice received."),
     )
 
     create_price_discrepancy_match(
         procurement_client,
     )
 
-    before_status = three_way_matches[
-        ("SUP-00001", "INV1001")
-    ]["status"]
+    before_status = three_way_matches[("SUP-00001", "INV1001")]["status"]
 
     before_p2p_state = p2p_states["PO1001"]
 
-    response = compliance_client.get(
-        resolution_suggestion_url()
-    )
+    response = compliance_client.get(resolution_suggestion_url())
 
     assert response.status_code == 200
 
-    assert (
-        three_way_matches[
-            ("SUP-00001", "INV1001")
-        ]["status"]
-        == before_status
-    )
+    assert three_way_matches[("SUP-00001", "INV1001")]["status"] == before_status
 
-    assert (
-        p2p_states["PO1001"]
-        == before_p2p_state
-        == P2PState.discrepancy
-    )
+    assert p2p_states["PO1001"] == before_p2p_state == P2PState.discrepancy
 
 
 # ============================================================
 # 54. SUPPLIER CANNOT GET RESOLUTION SUGGESTION
 # ============================================================
+
 
 def test_supplier_cannot_get_resolution_suggestion(
     procurement_client,
@@ -2398,9 +2180,7 @@ def test_supplier_cannot_get_resolution_suggestion(
         procurement_client,
     )
 
-    response = supplier_client.get(
-        resolution_suggestion_url()
-    )
+    response = supplier_client.get(resolution_suggestion_url())
 
     assert response.status_code == 403
 
@@ -2408,6 +2188,7 @@ def test_supplier_cannot_get_resolution_suggestion(
 # ============================================================
 # 55. SUPPLIER CANNOT ACCESS OTHER SUPPLIER SUGGESTION
 # ============================================================
+
 
 def test_supplier_cannot_access_other_supplier_suggestion(
     procurement_client,
@@ -2422,9 +2203,7 @@ def test_supplier_cannot_access_other_supplier_suggestion(
         supplier_id="SUP-00002",
         invoice_number="OLD-CROSS-001",
         discrepancies=["price_mismatch"],
-        resolution_reason=(
-            "Corrected invoice received."
-        ),
+        resolution_reason=("Corrected invoice received."),
     )
 
     # Build a SUP-00002 current discrepancy.
@@ -2432,9 +2211,7 @@ def test_supplier_cannot_access_other_supplier_suggestion(
         supplier_id="SUP-00002",
     )
 
-    invoices[
-        ("SUP-00002", "INV1001")
-    ]["items"][0]["unit_price"] = 106.0
+    invoices[("SUP-00002", "INV1001")]["items"][0]["unit_price"] = 106.0
 
     response = procurement_client.post(
         match_url(
@@ -2444,9 +2221,7 @@ def test_supplier_cannot_access_other_supplier_suggestion(
     )
 
     assert response.status_code == 200
-    assert response.json()["status"] == (
-        "discrepancy"
-    )
+    assert response.json()["status"] == ("discrepancy")
 
     # SUP-00001 supplier tries to access SUP-00002.
     response = supplier_client.get(
@@ -2463,6 +2238,7 @@ def test_supplier_cannot_access_other_supplier_suggestion(
 # 56. UNKNOWN MATCH RETURNS 404
 # ============================================================
 
+
 def test_unknown_resolution_suggestion_match_returns_404(
     compliance_client,
 ):
@@ -2475,14 +2251,13 @@ def test_unknown_resolution_suggestion_match_returns_404(
 
     assert response.status_code == 404
 
-    assert "three-way match not found" in (
-        response.text.lower()
-    )
+    assert "three-way match not found" in (response.text.lower())
 
 
 # ============================================================
 # 57. MATCHED CASE CANNOT GENERATE SUGGESTION
 # ============================================================
+
 
 def test_matched_case_cannot_generate_resolution_suggestion(
     procurement_client,
@@ -2490,22 +2265,18 @@ def test_matched_case_cannot_generate_resolution_suggestion(
 ):
     prepare_exact_match()
 
-    response = procurement_client.post(
-        match_url()
-    )
+    response = procurement_client.post(match_url())
 
     assert response.status_code == 200
     assert response.json()["status"] == "matched"
 
-    response = compliance_client.get(
-        resolution_suggestion_url()
-    )
+    response = compliance_client.get(resolution_suggestion_url())
 
     assert response.status_code == 400
 
-    assert "unresolved discrepancies" in (
-        response.text.lower()
-    )
+    assert "unresolved discrepancies" in (response.text.lower())
+
+
 # ============================================================
 # R15: CANONICAL INVENTORY PO + INVENTORY GOODS RECEIPT
 #
@@ -2632,9 +2403,7 @@ def test_inventory_receipt_quantity_mismatch_is_flagged_for_review(
     assert invoice_response.status_code in (200, 201), invoice_response.text
     assert p2p_states[INVENTORY_PO_ID] == P2PState.invoiced
 
-    response = procurement_client.post(
-        match_url(invoice_number="INV-2026-0001")
-    )
+    response = procurement_client.post(match_url(invoice_number="INV-2026-0001"))
 
     assert response.status_code == 200, response.text
     data = response.json()
@@ -2661,9 +2430,7 @@ def test_inventory_receipt_full_match_is_matched(
     invoice_response = invoice_inventory_po(supplier_client, quantity=100)
     assert invoice_response.status_code in (200, 201), invoice_response.text
 
-    response = procurement_client.post(
-        match_url(invoice_number="INV-2026-0001")
-    )
+    response = procurement_client.post(match_url(invoice_number="INV-2026-0001"))
 
     assert response.status_code == 200, response.text
     data = response.json()

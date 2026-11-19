@@ -1,0 +1,247 @@
+"""Pure helpers for nightly forecast batch. No Airflow or Docker dependency."""
+
+import json
+import math
+import re
+import uuid
+from datetime import date, datetime, timedelta, timezone
+
+
+SKU_PATTERN = re.compile(r"SKU-\d{6}")
+WAREHOUSE_PATTERN = re.compile(r"WH-[A-Z]{3}-\d{2}")
+
+
+def validate_pair(sku, warehouse):
+    """Validate canonical SKU and warehouse identifiers."""
+    if not isinstance(sku, str) or not SKU_PATTERN.fullmatch(sku):
+        raise ValueError(f"Invalid sku_id: {sku!r}")
+
+    if not isinstance(warehouse, str) or not WAREHOUSE_PATTERN.fullmatch(warehouse):
+        raise ValueError(f"Invalid warehouse_id: {warehouse!r}")
+
+
+def build_rows(
+    batch_date,
+    forecasts_by_pair,
+    model_version,
+    generated_at,
+    version,
+    horizon,
+    interval_level=0.8,
+):
+    """Validate forecasts and build ClickHouse rows."""
+    if isinstance(batch_date, str):
+        batch_date = date.fromisoformat(batch_date)
+
+    rows = []
+
+    for sku, warehouse, forecast in forecasts_by_pair:
+        validate_pair(sku, warehouse)
+
+        if len(forecast) != horizon:
+            raise ValueError(
+                f"{sku}/{warehouse}: expected {horizon} forecast points, "
+                f"received {len(forecast)}"
+            )
+
+        # Reject shifted forecast windows on later-day reruns.
+        forecast_dates = [
+            datetime.fromisoformat(str(point["date"]).replace("Z", "+00:00")).date()
+            for point in forecast
+        ]
+        expected_dates = [
+            batch_date + timedelta(days=offset)
+            for offset in range(1, horizon + 1)
+        ]
+        if forecast_dates != expected_dates:
+            raise ValueError(
+                f"{sku}/{warehouse}: forecast covers {forecast_dates[0]} to "
+                f"{forecast_dates[-1]}, expected {expected_dates[0]} to "
+                f"{expected_dates[-1]} for batch_date {batch_date}"
+            )
+
+        for point in forecast:
+            forecast_date = datetime.fromisoformat(
+                str(point["date"]).replace("Z", "+00:00")
+            ).date()
+
+            if forecast_date < batch_date:
+                raise ValueError(
+                    f"{sku}/{warehouse}: forecast_date {forecast_date} "
+                    f"is before batch_date {batch_date}"
+                )
+
+            predicted = float(point["predicted"])
+            lower = float(point["lower_bound"])
+            upper = float(point["upper_bound"])
+
+            if not all(
+                math.isfinite(value) and value >= 0
+                for value in (predicted, lower, upper)
+            ):
+                raise ValueError(
+                    f"Invalid forecast values for {sku}/{warehouse}"
+                )
+
+            if lower > predicted or predicted > upper:
+                raise ValueError(
+                    f"Invalid forecast interval for {sku}/{warehouse}"
+                )
+
+            rows.append(
+                (
+                    batch_date,
+                    forecast_date,
+                    sku,
+                    warehouse,
+                    predicted,
+                    lower,
+                    upper,
+                    interval_level,
+                    model_version,
+                    generated_at,
+                    version,
+                )
+            )
+
+    return rows
+
+
+def build_event(
+    run_id,
+    model_version,
+    pairs,
+    horizon,
+    completed_at=None,
+    duration_seconds=0.0,
+    status="SUCCESS",
+    message=None,
+):
+    """Build the forecast.batch.completed event using UUID v4."""
+    if status not in {"SUCCESS", "PARTIAL"}:
+        raise ValueError("status must be SUCCESS or PARTIAL")
+
+    completed_at = completed_at or datetime.now(timezone.utc)
+
+    if completed_at.tzinfo is None:
+        completed_at = completed_at.replace(tzinfo=timezone.utc)
+
+    completed_at = completed_at.astimezone(timezone.utc)
+    pair_set = set(pairs)
+
+    if message is None:
+        message = f"Forecasted {len(pair_set)} SKU/warehouse pairs."
+
+    return {
+        "event_id": str(uuid.uuid4()),
+        "event_type": "forecast.batch.completed",
+        "event_version": 1,
+        "occurred_at": completed_at.isoformat(),
+        "producer": "demand-forecast-service",
+        "payload": {
+            "run_id": run_id,
+            "model_version": model_version,
+            "granularity": "daily",
+            "sku_count": len({sku for sku, _ in pair_set}),
+            "warehouse_count": len({warehouse for _, warehouse in pair_set}),
+            "horizon": horizon,
+            "completed_at": completed_at.isoformat(),
+            "status": status,
+            "duration_seconds": max(0.0, float(duration_seconds)),
+            "destination_mart": "clickhouse.demand_forecast_history",
+            "message": str(message)[:300],
+        },
+    }
+
+
+def write_batch(ch, cache, rows, cache_entries, columns, ttl, batch_date_text):
+    """Write ClickHouse rows and Redis cache entries using a pipeline."""
+    for offset in range(0, len(rows), 5000):
+        ch.insert(
+            "demand_forecast_history",
+            rows[offset:offset + 5000],
+            column_names=columns,
+        )
+
+    if cache_entries:
+        pipeline = cache.pipeline()
+        for cache_key, cache_value in cache_entries:
+            pipeline.set(cache_key, json.dumps(cache_value), ex=ttl)
+        current_latest = cache.get("forecast_cache:latest_batch_date")
+        if current_latest is None or batch_date_text >= current_latest:
+            pipeline.set(
+                "forecast_cache:latest_batch_date", batch_date_text, ex=ttl
+            )
+        pipeline.execute()
+
+
+def forecast_pairs(
+    model,
+    pairs,
+    horizon,
+    batch_date,
+    model_version,
+    generated_at,
+    version,
+    interval_level,
+    run_id,
+):
+    """Forecast every pair; raise when no pair produces a valid forecast."""
+    if isinstance(batch_date, str):
+        batch_date = date.fromisoformat(batch_date)
+
+    rows = []
+    cache_entries = []
+    successful = set()
+    failed = []
+
+    batch_date_text = batch_date.isoformat()
+
+    for sku, warehouse in sorted(pairs):
+        try:
+            forecast = model.predict(sku, warehouse, horizon)
+
+            pair_rows = build_rows(
+                batch_date=batch_date,
+                forecasts_by_pair=[(sku, warehouse, forecast)],
+                model_version=model_version,
+                generated_at=generated_at,
+                version=version,
+                horizon=horizon,
+                interval_level=interval_level,
+            )
+        except Exception as exc:
+            failed.append(
+                (sku, warehouse, f"{type(exc).__name__}: {exc}")
+            )
+            continue
+
+        rows.extend(pair_rows)
+        successful.add((sku, warehouse))
+
+        cache_entries.append(
+            (
+                f"forecast_cache:{batch_date_text}:{sku}:{warehouse}",
+                {
+                    "run_id": run_id,
+                    "batch_date": batch_date_text,
+                    "sku_id": sku,
+                    "warehouse_id": warehouse,
+                    "model_version": model_version,
+                    "granularity": "daily",
+                    "horizon": horizon,
+                    "interval_level": interval_level,
+                    "generated_at": generated_at.isoformat(),
+                    "forecast": forecast,
+                },
+            )
+        )
+
+    if not successful:
+        first_failure = failed[0][2] if failed else "no pairs to forecast"
+        raise RuntimeError(
+            "No SKU/warehouse pairs produced a valid forecast. "
+            f"First failure: {first_failure}"
+        )
+
+    return rows, cache_entries, successful, failed

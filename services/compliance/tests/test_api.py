@@ -1,13 +1,8 @@
-import httpx
 from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock, MagicMock
 
 from app.main import app
 
-
 client = TestClient(app)
-
-
 
 
 def test_screen_api_clean_entity(mock_compliance_officer_auth):
@@ -54,7 +49,6 @@ def test_screen_api_sanctioned_entity(mock_compliance_officer_auth):
     assert data["match_score"] >= 90
     assert data["matched_count"] >= 1
     assert len(data["source"]) >= 1
-
 
 
 def test_screen_api_invalid_entity_type(mock_compliance_officer_auth):
@@ -195,8 +189,6 @@ def test_bulk_screen_api_invalid_entity_type(mock_compliance_officer_auth):
     assert data["detail"][0]["loc"][-1] == "entity_type"
 
 
-
-
 def test_audit_history_api(mock_compliance_officer_auth):
     response = client.get(
         "/api/v1/compliance/audit",
@@ -211,9 +203,7 @@ def test_audit_history_api(mock_compliance_officer_auth):
 
 
 def test_audit_summary_api(mock_compliance_officer_auth):
-    response = client.get(
-        "/api/v1/compliance/audit/summary"
-    )
+    response = client.get("/api/v1/compliance/audit/summary")
 
     assert response.status_code == 200
 
@@ -234,6 +224,7 @@ def test_audit_summary_api(mock_compliance_officer_auth):
         list,
     )
 
+
 def test_bulk_screen_api_rejects_more_than_500_entities(mock_compliance_officer_auth):
     payload = {
         "entity_names": [f"Entity {i}" for i in range(501)],
@@ -242,12 +233,11 @@ def test_bulk_screen_api_rejects_more_than_500_entities(mock_compliance_officer_
     }
 
     response = client.post(
-    "/api/v1/compliance/screen-bulk",
-    json=payload,
-)
+        "/api/v1/compliance/screen-bulk",
+        json=payload,
+    )
 
     assert response.status_code == 422
-
 
 
 def test_create_override_api(mock_compliance_officer_auth):
@@ -304,10 +294,8 @@ def test_create_override_api_blank_entity_name(mock_compliance_officer_auth):
     assert response.status_code == 422
 
 
-
-
 def test_read_override_api(mock_compliance_officer_auth):
-    
+
     create_response = client.post(
         "/api/v1/compliance/override",
         json={
@@ -339,12 +327,8 @@ def test_read_override_api(mock_compliance_officer_auth):
     assert data["source"] == "OFAC"
 
 
-
-
 def test_read_all_overrides_api(mock_compliance_officer_auth):
-    response = client.get(
-        "/api/v1/compliance/overrides"
-    )
+    response = client.get("/api/v1/compliance/overrides")
 
     assert response.status_code == 200
 
@@ -353,9 +337,8 @@ def test_read_all_overrides_api(mock_compliance_officer_auth):
     assert isinstance(data, list)
 
 
-
 def test_remove_override_api(mock_compliance_officer_auth):
-    
+
     create_response = client.post(
         "/api/v1/compliance/override",
         json={
@@ -369,7 +352,6 @@ def test_remove_override_api(mock_compliance_officer_auth):
 
     assert create_response.status_code == 200
 
-    
     response = client.delete(
         "/api/v1/compliance/override",
         params={
@@ -402,10 +384,8 @@ def test_remove_nonexistent_override_api(mock_compliance_officer_auth):
     assert response.status_code in (404, 200)
 
 
-
-
 def test_override_affects_screening_api(mock_compliance_officer_auth):
-    
+
     create_response = client.post(
         "/api/v1/compliance/override",
         json={
@@ -419,7 +399,6 @@ def test_override_affects_screening_api(mock_compliance_officer_auth):
 
     assert create_response.status_code == 200
 
-   
     screen_response = client.post(
         "/api/v1/compliance/screen",
         json={
@@ -433,16 +412,13 @@ def test_override_affects_screening_api(mock_compliance_officer_auth):
 
     data = screen_response.json()
 
-    
     assert data["matched_name"] == "HAMAS"
     assert data["match_score"] == 100
 
-    
     assert data["is_flagged"] is False
     assert data["override_applied"] is True
     assert data["override_reason"] == "Test false positive"
     assert data["reviewed_by"] == "pytest"
-
 
     delete_response = client.delete(
         "/api/v1/compliance/override",
@@ -457,7 +433,7 @@ def test_override_affects_screening_api(mock_compliance_officer_auth):
 
 
 def test_removed_override_no_longer_applies(mock_compliance_officer_auth):
-    
+
     client.delete(
         "/api/v1/compliance/override",
         params={
@@ -554,6 +530,7 @@ def test_screen_returns_high_screening_tier(
     assert data["screening_tier"] == "HIGH"
     assert data["enhanced_review_required"] is True
 
+
 def test_high_country_risk_makes_screening_tier_high(
     client,
     mock_compliance_officer_auth,
@@ -608,7 +585,7 @@ def test_bulk_screen_creates_cases_for_flagged_entities(
 def test_closed_case_cannot_be_reassigned(
     mock_compliance_officer_auth,
 ):
-    
+
     screen_response = client.post(
         "/api/v1/compliance/screen",
         json={
@@ -625,7 +602,6 @@ def test_closed_case_cannot_be_reassigned(
     assert screen_data["is_flagged"] is True
     case_number = screen_data["case_number"]
 
-  
     review_response = client.post(
         f"/api/v1/compliance/cases/{case_number}/status",
         params={
@@ -635,7 +611,6 @@ def test_closed_case_cannot_be_reassigned(
 
     assert review_response.status_code == 200
 
-  
     close_response = client.post(
         f"/api/v1/compliance/cases/{case_number}/status",
         params={
@@ -646,7 +621,6 @@ def test_closed_case_cannot_be_reassigned(
 
     assert close_response.status_code == 200
 
-
     assign_response = client.post(
         f"/api/v1/compliance/cases/{case_number}/assign",
         params={
@@ -655,16 +629,13 @@ def test_closed_case_cannot_be_reassigned(
     )
 
     assert assign_response.status_code == 400
-    assert (
-        assign_response.json()["detail"]
-        == "Closed cases cannot be reassigned"
-    )
+    assert assign_response.json()["detail"] == "Closed cases cannot be reassigned"
 
 
 def test_closing_case_requires_resolution_reason(
     mock_compliance_officer_auth,
 ):
-  
+
     screen_response = client.post(
         "/api/v1/compliance/screen",
         json={
@@ -689,7 +660,6 @@ def test_closing_case_requires_resolution_reason(
     )
 
     assert review_response.status_code == 200
-
 
     close_response = client.post(
         f"/api/v1/compliance/cases/{case_number}/status",
@@ -735,6 +705,7 @@ def test_list_cases_invalid_status(
     assert response.status_code == 400
     assert "Invalid status" in response.json()["detail"]
 
+
 def test_assign_case_blank_assigned_to_api(
     mock_compliance_officer_auth,
 ):
@@ -762,15 +733,11 @@ def test_assign_case_blank_assigned_to_api(
     )
 
     assert assign_response.status_code == 400
-    assert (
-        assign_response.json()["detail"]
-        == "assigned_to must not be blank"
-    )
+    assert assign_response.json()["detail"] == "assigned_to must not be blank"
+
 
 def test_regulatory_report_api_india(mock_compliance_officer_auth):
-    response = client.get(
-        "/api/v1/compliance/reports/regulatory/India"
-    )
+    response = client.get("/api/v1/compliance/reports/regulatory/India")
 
     assert response.status_code == 200
 
@@ -778,10 +745,7 @@ def test_regulatory_report_api_india(mock_compliance_officer_auth):
 
     assert data["country"] == "INDIA"
 
-    codes = {
-        rule["rule_code"]
-        for rule in data["applicable_rules"]
-    }
+    codes = {rule["rule_code"] for rule in data["applicable_rules"]}
 
     assert "IND-SANCTIONS" in codes
     assert "IND-KYC" in codes
@@ -812,10 +776,7 @@ def test_regulatory_evaluation_api_usa(
     assert data["failed_count"] == 0
     assert data["review_count"] == 1
 
-    statuses = {
-        rule["rule_code"]: rule["status"]
-        for rule in data["rules"]
-    }
+    statuses = {rule["rule_code"]: rule["status"] for rule in data["rules"]}
 
     assert statuses["US-SANCTIONS"] == "PASSED"
     assert statuses["US-KYC"] == "PASSED"
@@ -843,6 +804,7 @@ def test_regulatory_evaluation_api_india(
     assert data["passed_count"] == 3
     assert data["failed_count"] == 0
     assert data["review_count"] == 0
+
 
 def test_regulatory_evaluation_unknown_country_is_not_500(
     mock_compliance_officer_auth,

@@ -1,9 +1,7 @@
-
 from pathlib import Path
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-
 
 SERVICE_DIR = Path(__file__).resolve().parents[1]
 

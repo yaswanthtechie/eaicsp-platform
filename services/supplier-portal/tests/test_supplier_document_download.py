@@ -8,11 +8,10 @@ from app.core.config import settings
 from app.main import app
 from app.services.document_storage_service import DocumentDownloadError
 from app.services.supplier_onboarding_service import (
-    suppliers,
     supplier_documents,
     supplier_onboarding_history,
+    suppliers,
 )
-
 
 # ============================================================
 # TEST DATA
@@ -86,6 +85,7 @@ def upload_document(
 # FIXTURES
 # ============================================================
 
+
 @pytest.fixture(autouse=True)
 def clean_onboarding_storage():
     """
@@ -101,6 +101,7 @@ def clean_onboarding_storage():
     suppliers.clear()
     supplier_documents.clear()
     supplier_onboarding_history.clear()
+
 
 @pytest.fixture
 def supplier_a_document(procurement_client, supplier_client):
@@ -128,9 +129,7 @@ def supplier_a_document(procurement_client, supplier_client):
     )
 
     assert upload_response.status_code == 201, (
-        "Document upload failed: "
-        f"{upload_response.status_code} "
-        f"{upload_response.text}"
+        f"Document upload failed: {upload_response.status_code} {upload_response.text}"
     )
 
     return upload_response.json()
@@ -162,9 +161,7 @@ def supplier_b_document(procurement_client, supplier_b_client):
     )
 
     assert upload_response.status_code == 201, (
-        "Document upload failed: "
-        f"{upload_response.status_code} "
-        f"{upload_response.text}"
+        f"Document upload failed: {upload_response.status_code} {upload_response.text}"
     )
 
     return upload_response.json()
@@ -189,20 +186,15 @@ def test_supplier_can_download_own_document(
     """
     document_id = supplier_a_document["document_id"]
 
-    expected_url = (
-        "https://minio.test/presigned/"
-        f"{document_id}"
-    )
+    expected_url = f"https://minio.test/presigned/{document_id}"
 
     monkeypatch.setattr(
-        "app.routes.supplier_onboarding."
-        "document_storage_service.generate_download_url",
+        "app.routes.supplier_onboarding.document_storage_service.generate_download_url",
         lambda *, object_key: expected_url,
     )
 
     response = supplier_client.get(
-        f"/api/v1/suppliers/SUP-00001/"
-        f"documents/{document_id}/download"
+        f"/api/v1/suppliers/SUP-00001/documents/{document_id}/download"
     )
 
     assert response.status_code == 200
@@ -213,10 +205,7 @@ def test_supplier_can_download_own_document(
     assert body["supplier_id"] == "SUP-00001"
     assert body["file_name"] == supplier_a_document["file_name"]
     assert body["download_url"] == expected_url
-    assert (
-        body["expires_in_seconds"]
-        == settings.MINIO_PRESIGNED_EXPIRY_SECONDS
-    )
+    assert body["expires_in_seconds"] == settings.MINIO_PRESIGNED_EXPIRY_SECONDS
 
 
 # ============================================================
@@ -236,14 +225,12 @@ def test_download_response_contains_exact_contract(
     document_id = supplier_a_document["document_id"]
 
     monkeypatch.setattr(
-        "app.routes.supplier_onboarding."
-        "document_storage_service.generate_download_url",
+        "app.routes.supplier_onboarding.document_storage_service.generate_download_url",
         lambda *, object_key: "https://minio.test/download",
     )
 
     response = supplier_client.get(
-        f"/api/v1/suppliers/SUP-00001/"
-        f"documents/{document_id}/download"
+        f"/api/v1/suppliers/SUP-00001/documents/{document_id}/download"
     )
 
     assert response.status_code == 200
@@ -282,14 +269,12 @@ def test_download_uses_document_path_as_object_key(
         return "https://minio.test/download"
 
     monkeypatch.setattr(
-        "app.routes.supplier_onboarding."
-        "document_storage_service.generate_download_url",
+        "app.routes.supplier_onboarding.document_storage_service.generate_download_url",
         fake_generate_download_url,
     )
 
     response = supplier_client.get(
-        f"/api/v1/suppliers/SUP-00001/"
-        f"documents/{document_id}/download"
+        f"/api/v1/suppliers/SUP-00001/documents/{document_id}/download"
     )
 
     assert response.status_code == 200
@@ -327,21 +312,17 @@ def test_supplier_cannot_download_another_supplier_document(
         return "https://minio.test/should-not-be-called"
 
     monkeypatch.setattr(
-        "app.routes.supplier_onboarding."
-        "document_storage_service.generate_download_url",
+        "app.routes.supplier_onboarding.document_storage_service.generate_download_url",
         fake_generate_download_url,
     )
 
     response = supplier_client.get(
-        f"/api/v1/suppliers/SUP-00002/"
-        f"documents/{document_id}/download"
+        f"/api/v1/suppliers/SUP-00002/documents/{document_id}/download"
     )
 
     assert response.status_code == 403
 
-    assert response.json()["detail"] == (
-        "Supplier access is restricted to own data"
-    )
+    assert response.json()["detail"] == ("Supplier access is restricted to own data")
 
     assert storage_called is False
 
@@ -374,21 +355,17 @@ def test_supplier_cannot_download_other_supplier_document_id(
         return "https://minio.test/should-not-be-called"
 
     monkeypatch.setattr(
-        "app.routes.supplier_onboarding."
-        "document_storage_service.generate_download_url",
+        "app.routes.supplier_onboarding.document_storage_service.generate_download_url",
         fake_generate_download_url,
     )
 
     response = supplier_client.get(
-        f"/api/v1/suppliers/SUP-00001/"
-        f"documents/{document_id}/download"
+        f"/api/v1/suppliers/SUP-00001/documents/{document_id}/download"
     )
 
     assert response.status_code == 404
 
-    assert response.json()["detail"] == (
-        "Supplier document not found."
-    )
+    assert response.json()["detail"] == ("Supplier document not found.")
 
     assert storage_called is False
 
@@ -414,21 +391,17 @@ def test_download_unknown_document_returns_404(
         return "https://minio.test/should-not-be-called"
 
     monkeypatch.setattr(
-        "app.routes.supplier_onboarding."
-        "document_storage_service.generate_download_url",
+        "app.routes.supplier_onboarding.document_storage_service.generate_download_url",
         fake_generate_download_url,
     )
 
     response = supplier_client.get(
-        "/api/v1/suppliers/SUP-00001/"
-        "documents/DOC-DOES-NOT-EXIST/download"
+        "/api/v1/suppliers/SUP-00001/documents/DOC-DOES-NOT-EXIST/download"
     )
 
     assert response.status_code == 404
 
-    assert response.json()["detail"] == (
-        "Supplier document not found."
-    )
+    assert response.json()["detail"] == ("Supplier document not found.")
 
     assert storage_called is False
 
@@ -454,14 +427,12 @@ def test_download_document_for_unknown_supplier_returns_404(
         return "https://minio.test/should-not-be-called"
 
     monkeypatch.setattr(
-        "app.routes.supplier_onboarding."
-        "document_storage_service.generate_download_url",
+        "app.routes.supplier_onboarding.document_storage_service.generate_download_url",
         fake_generate_download_url,
     )
 
     response = procurement_client.get(
-        "/api/v1/suppliers/SUP-00999/"
-        "documents/DOC-UNKNOWN/download"
+        "/api/v1/suppliers/SUP-00999/documents/DOC-UNKNOWN/download"
     )
 
     assert response.status_code == 404
@@ -489,21 +460,17 @@ def test_supplier_without_supplier_id_cannot_download_document(
         return "https://minio.test/should-not-be-called"
 
     monkeypatch.setattr(
-        "app.routes.supplier_onboarding."
-        "document_storage_service.generate_download_url",
+        "app.routes.supplier_onboarding.document_storage_service.generate_download_url",
         fake_generate_download_url,
     )
 
     response = supplier_no_id_client.get(
-        "/api/v1/suppliers/SUP-00001/"
-        "documents/DOC-ANY/download"
+        "/api/v1/suppliers/SUP-00001/documents/DOC-ANY/download"
     )
 
     assert response.status_code == 403
 
-    assert response.json()["detail"] == (
-        "Supplier identity could not be resolved"
-    )
+    assert response.json()["detail"] == ("Supplier identity could not be resolved")
 
     assert storage_called is False
 
@@ -524,26 +491,20 @@ def test_download_returns_502_when_storage_fails(
     document_id = supplier_a_document["document_id"]
 
     def fake_generate_download_url(*, object_key):
-        raise DocumentDownloadError(
-            "Unable to generate download URL."
-        )
+        raise DocumentDownloadError("Unable to generate download URL.")
 
     monkeypatch.setattr(
-        "app.routes.supplier_onboarding."
-        "document_storage_service.generate_download_url",
+        "app.routes.supplier_onboarding.document_storage_service.generate_download_url",
         fake_generate_download_url,
     )
 
     response = supplier_client.get(
-        f"/api/v1/suppliers/SUP-00001/"
-        f"documents/{document_id}/download"
+        f"/api/v1/suppliers/SUP-00001/documents/{document_id}/download"
     )
 
     assert response.status_code == 502
 
-    assert response.json()["detail"] == (
-        "Unable to generate download URL."
-    )
+    assert response.json()["detail"] == ("Unable to generate download URL.")
 
 
 # ============================================================
@@ -562,19 +523,15 @@ def test_procurement_manager_can_download_supplier_document(
     """
     document_id = supplier_a_document["document_id"]
 
-    expected_url = (
-        "https://minio.test/procurement-download"
-    )
+    expected_url = "https://minio.test/procurement-download"
 
     monkeypatch.setattr(
-        "app.routes.supplier_onboarding."
-        "document_storage_service.generate_download_url",
+        "app.routes.supplier_onboarding.document_storage_service.generate_download_url",
         lambda *, object_key: expected_url,
     )
 
     response = procurement_client.get(
-        f"/api/v1/suppliers/SUP-00001/"
-        f"documents/{document_id}/download"
+        f"/api/v1/suppliers/SUP-00001/documents/{document_id}/download"
     )
 
     assert response.status_code == 200
@@ -611,15 +568,12 @@ def test_download_requires_authentication(
         monkeypatch.setattr(
             "app.routes.supplier_onboarding."
             "document_storage_service.generate_download_url",
-            lambda *, object_key: (
-                "https://minio.test/should-not-be-called"
-            ),
+            lambda *, object_key: "https://minio.test/should-not-be-called",
         )
 
         with TestClient(app) as unauthenticated_client:
             response = unauthenticated_client.get(
-                f"/api/v1/suppliers/SUP-00001/"
-                f"documents/{document_id}/download"
+                f"/api/v1/suppliers/SUP-00001/documents/{document_id}/download"
             )
 
         assert response.status_code == 401
@@ -628,9 +582,8 @@ def test_download_requires_authentication(
         # Restore the normal test authentication override.
         from conftest import SUPPLIER_USER
 
-        app.dependency_overrides[verify_token] = (
-            lambda: SUPPLIER_USER
-        )
+        app.dependency_overrides[verify_token] = lambda: SUPPLIER_USER
+
 
 # ============================================================
 # 12. MINIO OBJECT DOES NOT EXIST
@@ -663,29 +616,25 @@ def test_download_returns_404_when_minio_object_does_not_exist(
         return "https://minio.test/should-not-be-called"
 
     monkeypatch.setattr(
-        "app.routes.supplier_onboarding."
-        "document_storage_service.object_exists",
+        "app.routes.supplier_onboarding.document_storage_service.object_exists",
         fake_object_exists,
     )
 
     monkeypatch.setattr(
-        "app.routes.supplier_onboarding."
-        "document_storage_service.generate_download_url",
+        "app.routes.supplier_onboarding.document_storage_service.generate_download_url",
         fake_generate_download_url,
     )
 
     response = supplier_client.get(
-        f"/api/v1/suppliers/SUP-00001/"
-        f"documents/{document_id}/download"
+        f"/api/v1/suppliers/SUP-00001/documents/{document_id}/download"
     )
 
     assert response.status_code == 404
 
-    assert response.json()["detail"] == (
-        "File does not exist."
-    )
+    assert response.json()["detail"] == ("File does not exist.")
 
     assert url_generation_called is False
+
 
 # ============================================================
 # 13. MINIO OBJECT CHECK FAILURE
@@ -710,9 +659,7 @@ def test_download_returns_502_when_object_check_fails(
     url_generation_called = False
 
     def fake_object_exists(*, object_key):
-        raise DocumentDownloadError(
-            "Unable to check document storage."
-        )
+        raise DocumentDownloadError("Unable to check document storage.")
 
     def fake_generate_download_url(*, object_key):
         nonlocal url_generation_called
@@ -720,26 +667,21 @@ def test_download_returns_502_when_object_check_fails(
         return "https://minio.test/should-not-be-called"
 
     monkeypatch.setattr(
-        "app.routes.supplier_onboarding."
-        "document_storage_service.object_exists",
+        "app.routes.supplier_onboarding.document_storage_service.object_exists",
         fake_object_exists,
     )
 
     monkeypatch.setattr(
-        "app.routes.supplier_onboarding."
-        "document_storage_service.generate_download_url",
+        "app.routes.supplier_onboarding.document_storage_service.generate_download_url",
         fake_generate_download_url,
     )
 
     response = supplier_client.get(
-        f"/api/v1/suppliers/SUP-00001/"
-        f"documents/{document_id}/download"
+        f"/api/v1/suppliers/SUP-00001/documents/{document_id}/download"
     )
 
     assert response.status_code == 502
 
-    assert response.json()["detail"] == (
-        "Unable to check document storage."
-    )
+    assert response.json()["detail"] == ("Unable to check document storage.")
 
     assert url_generation_called is False

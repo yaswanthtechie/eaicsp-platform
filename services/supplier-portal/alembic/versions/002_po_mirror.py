@@ -1,5 +1,5 @@
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 from app.core.config import settings
 
@@ -64,4 +64,3 @@ def downgrade() -> None:
         schema=schema,
     )
     op.drop_table("po_mirror", schema=schema)
-
