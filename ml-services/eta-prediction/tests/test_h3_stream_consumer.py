@@ -824,6 +824,7 @@ def test_prediction_event_contract_requires_delay_fields_together(
         "2026-10-19T00:00:00Z",
         20261019,
         "",
+        None,
     ],
 )
 def test_validate_event_rejects_invalid_planned_delivery_date(planned_date):
@@ -894,8 +895,37 @@ def test_run_publishes_prediction_with_valid_planned_date():
     published_event = publish_mock.call_args.args[1]
 
     assert published_event["payload"]["planned_delivery_date"] == "2026-10-19"
-    assert "predicted_delay_days" in published_event["payload"]
+    assert published_event["payload"]["predicted_delay_days"] == 1
 
+    consumer.commit.assert_called_once_with(
+        message=message,
+        asynchronous=False,
+    )
+
+def test_run_sends_date_overflow_to_dlq_and_commits():
+    event = _event_with(
+        dispatched_at="9999-12-30T00:00:00Z",
+        planned_delivery_date="9999-12-31",
+    )
+    message = _message_for(event, 31)
+
+    consumer = MagicMock()
+    consumer.poll.side_effect = [message, KeyboardInterrupt]
+
+    with (
+        patch("confluent_kafka.Consumer", return_value=consumer),
+        patch("src.stream_consumer.create_producer", return_value=MagicMock()),
+        patch("src.stream_consumer.load_seed_routes", return_value=MagicMock()),
+        patch("src.stream_consumer.load_h2_artifacts"),
+        patch("src.stream_consumer.predict_h2", return_value=dict(PREDICTION)),
+        patch("src.stream_consumer.publish_dlq") as dlq_mock,
+        patch("src.stream_consumer.publish_prediction") as publish_mock,
+    ):
+        with pytest.raises(KeyboardInterrupt):
+            run(RUN_SETTINGS)
+
+    dlq_mock.assert_called_once()
+    publish_mock.assert_not_called()
     consumer.commit.assert_called_once_with(
         message=message,
         asynchronous=False,
