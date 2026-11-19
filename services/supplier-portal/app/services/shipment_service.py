@@ -92,6 +92,9 @@ def _build_shipment_dispatched_event(
             "destination_warehouse": shipment_data["destination_warehouse"],
             "carrier": shipment_data["carrier"],
             "dispatched_at": shipment_data["dispatched_at"].isoformat(),
+            "planned_delivery_date": shipment_data[
+                "expected_delivery_date"
+            ].isoformat(),
         },
     }
 

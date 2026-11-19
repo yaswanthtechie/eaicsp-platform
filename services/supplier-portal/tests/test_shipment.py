@@ -825,6 +825,9 @@ def test_dispatch_event_matches_contract(po_db):
 
     assert [error.message for error in validator.iter_errors(row.payload)] == []
     assert row.payload["payload"]["shipment_id"] == result["shipment_id"]
+    assert row.payload["payload"]["planned_delivery_date"] == str(
+        result["expected_delivery_date"]
+    )
     assert row.message_key == result["shipment_id"]
 
 
