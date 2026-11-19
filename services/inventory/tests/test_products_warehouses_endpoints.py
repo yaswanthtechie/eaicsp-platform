@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app.core.auth import verify_token
 from app.main import app
 from app.models.product import Product
@@ -340,11 +342,23 @@ def test_products_and_warehouses_require_a_token(client_raw):
     assert client_raw.get("/api/v1/inventory/warehouses").status_code == 401
 
 
-def test_ids_filter_rejects_more_than_1000_ids(client):
-    too_many = ",".join(f"SKU-{i:06d}" for i in range(1, 1002))
-    resp = client.get(f"/api/v1/inventory/products?ids={too_many}")
+@pytest.mark.parametrize(
+    ("path", "prefix"), [("products", "SKU"), ("warehouses", "WH")]
+)
+def test_ids_filter_rejects_more_than_1000_ids(client, path, prefix):
+    too_many = ",".join(f"{prefix}-{i:06d}" for i in range(1, 1002))
+    resp = client.get(f"/api/v1/inventory/{path}?ids={too_many}")
     assert resp.status_code == 422
-    assert "at most 1000" in resp.json()["detail"]
+    error = resp.json()["detail"][0]
+    assert error["loc"] == ["query", "ids"]
+    assert "at most 1000" in error["msg"]
+
+
+@pytest.mark.parametrize("path", ["products", "warehouses"])
+def test_offset_above_the_database_limit_is_rejected(client, path):
+    resp = client.get(f"/api/v1/inventory/{path}?offset={2**63}")
+    assert resp.status_code == 422
+    assert resp.json()["detail"][0]["loc"] == ["query", "offset"]
 
 
 def test_ids_filter_results_are_still_paged(client, db_session):
@@ -356,3 +370,10 @@ def test_ids_filter_results_are_still_paged(client, db_session):
     data = resp.json()
     assert data["total"] == 3
     assert [p["sku_id"] for p in data["items"]] == ["SKU-000001", "SKU-000002"]
+
+
+@pytest.mark.parametrize("path", ["products", "warehouses"])
+def test_ids_with_a_nul_character_are_left_out(client, path):
+    resp = client.get(f"/api/v1/inventory/{path}?ids=%00")
+    assert resp.status_code == 200
+    assert resp.json() == {"items": [], "total": 0}

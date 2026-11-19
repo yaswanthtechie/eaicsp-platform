@@ -22,7 +22,11 @@ def parse_ids(ids: str | None) -> list[str] | None:
     """
     if ids is None:
         return None
-    id_list = [value.strip() for value in ids.split(",") if value.strip()]
+    id_list = [
+        value.strip()
+        for value in ids.split(",")
+        if value.strip() and "\x00" not in value
+    ]
     if len(id_list) > MAX_IDS:
         raise ValueError(f"ids accepts at most {MAX_IDS} IDs, got {len(id_list)}")
     return id_list
@@ -47,24 +51,24 @@ def _page(
 def list_products(
     db: Session,
     *,
-    ids: str | None,
+    ids: list[str] | None,
     limit: int,
     offset: int,
 ) -> tuple[list[Product], int]:
-    return _page(db.query(Product), Product.sku_id, parse_ids(ids), limit, offset)
+    return _page(db.query(Product), Product.sku_id, ids, limit, offset)
 
 
 def list_warehouses(
     db: Session,
     *,
-    ids: str | None,
+    ids: list[str] | None,
     limit: int,
     offset: int,
 ) -> tuple[list[Warehouse], int]:
     return _page(
         db.query(Warehouse),
         Warehouse.warehouse_id,
-        parse_ids(ids),
+        ids,
         limit,
         offset,
     )

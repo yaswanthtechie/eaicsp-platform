@@ -454,6 +454,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 9223372036854775807
           minimum: 0
           description: Number of products to skip
           default: 0
@@ -522,6 +523,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 9223372036854775807
           minimum: 0
           description: Number of warehouses to skip
           default: 0

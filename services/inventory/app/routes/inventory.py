@@ -10,6 +10,7 @@ from fastapi import (
     UploadFile,
     status,
 )
+from fastapi.exceptions import RequestValidationError
 from sqlalchemy.orm import Session
 
 from app.core.auth import (
@@ -67,6 +68,7 @@ from app.services.inventory_service import (
 from app.services.master_data_service import (
     list_products,
     list_warehouses,
+    parse_ids,
 )
 from app.services.multi_echelon_service import (
     fulfill_shortage,
@@ -323,6 +325,16 @@ def get_supplier_performance_route(
 # Permission: inventory:read
 # =========================================================
 
+# Largest OFFSET the database accepts (signed 64-bit integer).
+MAX_OFFSET = 2**63 - 1
+
+
+def _ids_validation_error(exc: ValueError) -> RequestValidationError:
+    """Same 422 body as every other query validation error in the contract."""
+    return RequestValidationError(
+        [{"type": "value_error", "loc": ("query", "ids"), "msg": str(exc)}]
+    )
+
 
 @router.get(
     "/products",
@@ -363,6 +375,7 @@ def get_products_route(
     offset: int = Query(
         default=0,
         ge=0,
+        le=MAX_OFFSET,
         description="Number of products to skip",
     ),
     ids: str | None = Query(
@@ -375,9 +388,10 @@ def get_products_route(
     db: Session = Depends(get_db),
 ):
     try:
-        items, total = list_products(db, ids=ids, limit=limit, offset=offset)
+        id_list = parse_ids(ids)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raise _ids_validation_error(exc) from exc
+    items, total = list_products(db, ids=id_list, limit=limit, offset=offset)
     return ProductListResponse(items=items, total=total)
 
 
@@ -421,6 +435,7 @@ def get_warehouses_route(
     offset: int = Query(
         default=0,
         ge=0,
+        le=MAX_OFFSET,
         description="Number of warehouses to skip",
     ),
     ids: str | None = Query(
@@ -433,9 +448,10 @@ def get_warehouses_route(
     db: Session = Depends(get_db),
 ):
     try:
-        items, total = list_warehouses(db, ids=ids, limit=limit, offset=offset)
+        id_list = parse_ids(ids)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raise _ids_validation_error(exc) from exc
+    items, total = list_warehouses(db, ids=id_list, limit=limit, offset=offset)
     return WarehouseListResponse(items=items, total=total)
 
 
