@@ -6,8 +6,10 @@ rejection of malformed/invalid/unsupported schemas, and additive field compatibi
 """
 
 import copy
+import json
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -156,6 +158,15 @@ DATA_PIPELINE_COMPLETED_SAMPLE = {
     },
 }
 
+CONTRACT_EXAMPLES = Path(__file__).resolve().parents[3] / "contracts" / "events" / "examples"
+
+# Use the actual producer example from the canonical event contract.
+SALES_ANOMALY_DETECTED_SAMPLE = json.loads(
+    (CONTRACT_EXAMPLES / "anomaly.sales.detected.v1.json").read_text(encoding="utf-8")
+)
+
+SALES_ANOMALY_DETECTED_SAMPLE["payload"]["severity"] = "high"
+
 ALL_SAMPLES = [
     INVENTORY_STOCK_LOW_SAMPLE,
     IOT_ANOMALY_DETECTED_SAMPLE,
@@ -163,6 +174,7 @@ ALL_SAMPLES = [
     ETA_SHIPMENT_PREDICTED_SAMPLE,
     FORECAST_BATCH_COMPLETED_SAMPLE,
     DATA_PIPELINE_COMPLETED_SAMPLE,
+    SALES_ANOMALY_DETECTED_SAMPLE,
 ]
 
 
@@ -172,8 +184,8 @@ ALL_SAMPLES = [
 
 
 def test_canonical_event_types_count():
-    """Ensure exactly the six canonical dashboard event types are defined."""
-    assert len(CANONICAL_EVENT_TYPES) == 6
+    """Ensure exactly the seven canonical dashboard event types are defined."""
+    assert len(CANONICAL_EVENT_TYPES) == 7
     expected = {
         "inventory.stock.low",
         "iot.anomaly.detected",
@@ -181,12 +193,13 @@ def test_canonical_event_types_count():
         "eta.shipment.predicted",
         "forecast.batch.completed",
         "data.pipeline.completed",
+        "anomaly.sales.detected",
     }
     assert CANONICAL_EVENT_TYPES == expected
 
 
 @pytest.mark.parametrize("sample", ALL_SAMPLES)
-def test_all_six_canonical_events_validate_successfully(sample):
+def test_all_seven_canonical_events_validate_successfully(sample):
     """Each canonical event example must pass validation."""
     valid, dedup_key, error = validate_realtime_event(sample)
     assert valid is True
@@ -209,6 +222,7 @@ def test_iot_anomaly_dedup_key_is_episode_id():
     ETA_SHIPMENT_PREDICTED_SAMPLE,
     FORECAST_BATCH_COMPLETED_SAMPLE,
     DATA_PIPELINE_COMPLETED_SAMPLE,
+    SALES_ANOMALY_DETECTED_SAMPLE,
 ])
 def test_non_iot_dedup_key_is_event_id(sample):
     """All events other than iot.anomaly.detected deduplicate on envelope event_id."""
@@ -371,3 +385,117 @@ def test_event_version_must_be_integer_one(invalid_version):
     valid_ok, _, error_ok = validate_realtime_event(event)
     assert valid_ok is True
     assert error_ok is None
+
+
+@pytest.mark.parametrize("delay", [4.0, 5, 1.5, 0, -1.0, -3])
+def test_eta_predicted_delay_days_validation(delay):
+    """ETA prediction payload accepts positive, zero, and negative predicted_delay_days."""
+    event = copy.deepcopy(ETA_SHIPMENT_PREDICTED_SAMPLE)
+    event["payload"]["predicted_delay_days"] = delay
+    valid, dedup_key, error = validate_realtime_event(event)
+    assert valid is True
+    assert error is None
+    assert dedup_key == event["event_id"]
+
+
+def test_sales_anomaly_contract_example_is_valid():
+    """Validate canonical contract example directly and confirm dedup_key == event_id."""
+    raw_sample = json.loads(
+        (CONTRACT_EXAMPLES / "anomaly.sales.detected.v1.json").read_text(encoding="utf-8")
+    )
+    valid, dedup_key, error = validate_realtime_event(raw_sample)
+    assert valid is True
+    assert error is None
+    assert dedup_key == raw_sample["event_id"]
+
+
+@pytest.mark.parametrize("sev", ["low", "medium", "high"])
+def test_sales_anomaly_valid_severity(sev):
+    """Sales anomaly event accepts lowercase low, medium, and high severity."""
+    event = copy.deepcopy(SALES_ANOMALY_DETECTED_SAMPLE)
+    event["payload"]["severity"] = sev
+    valid, dedup_key, error = validate_realtime_event(event)
+    assert valid is True
+    assert error is None
+    assert dedup_key == event["event_id"]
+
+
+@pytest.mark.parametrize(
+    "invalid_sev",
+    ["critical", "extreme", "catastrophic", "", "unknown", "HIGH", "Medium"],
+)
+def test_sales_anomaly_invalid_severity_fails(invalid_sev):
+    """Sales anomaly event rejects invalid severity values."""
+    event = copy.deepcopy(SALES_ANOMALY_DETECTED_SAMPLE)
+    event["payload"]["severity"] = invalid_sev
+    valid, dedup_key, error = validate_realtime_event(event)
+    assert valid is False
+    assert dedup_key is None
+    assert "Payload validation error for 'anomaly.sales.detected'" in error
+
+
+def test_sales_anomaly_missing_severity_fails():
+    """Sales anomaly event rejects payload missing the required severity field."""
+    event = copy.deepcopy(SALES_ANOMALY_DETECTED_SAMPLE)
+    del event["payload"]["severity"]
+    valid, dedup_key, error = validate_realtime_event(event)
+    assert valid is False
+    assert dedup_key is None
+    assert "Payload validation error for 'anomaly.sales.detected'" in error
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    [
+        "sku_id",
+        "warehouse_id",
+        "date",
+        "expected_quantity",
+        "actual_quantity",
+        "score",
+    ],
+)
+def test_sales_anomaly_missing_required_payload_field_fails(missing_field):
+    """Sales anomaly event rejects payload missing any required contract field."""
+    event = copy.deepcopy(SALES_ANOMALY_DETECTED_SAMPLE)
+    del event["payload"][missing_field]
+    valid, dedup_key, error = validate_realtime_event(event)
+    assert valid is False
+    assert dedup_key is None
+    assert "Payload validation error for 'anomaly.sales.detected'" in error
+
+
+@pytest.mark.parametrize(
+    "field_name,invalid_val",
+    [
+        ("sku_id", "ABC"),
+        ("sku_id", "PRD-10482"),
+        ("warehouse_id", "BLR-01"),
+        ("date", "15/10/2026"),
+    ],
+    ids=[
+        "invalid_sku_abc",
+        "invalid_sku_prd_prefix",
+        "invalid_warehouse_missing_prefix",
+        "invalid_date_format",
+    ],
+)
+def test_sales_anomaly_non_canonical_values_fail(field_name, invalid_val):
+    """Sales anomaly event rejects non-canonical SKU, warehouse, and date formats."""
+    event = copy.deepcopy(SALES_ANOMALY_DETECTED_SAMPLE)
+    event["payload"][field_name] = invalid_val
+    valid, dedup_key, error = validate_realtime_event(event)
+    assert valid is False
+    assert dedup_key is None
+    assert "Payload validation error for 'anomaly.sales.detected'" in error
+
+
+@pytest.mark.parametrize("field_name", ["expected_quantity", "actual_quantity"])
+def test_sales_anomaly_negative_quantities_fail(field_name):
+    """Sales anomaly event rejects negative expected_quantity or actual_quantity."""
+    event = copy.deepcopy(SALES_ANOMALY_DETECTED_SAMPLE)
+    event["payload"][field_name] = -1.0
+    valid, dedup_key, error = validate_realtime_event(event)
+    assert valid is False
+    assert dedup_key is None
+    assert "Payload validation error for 'anomaly.sales.detected'" in error

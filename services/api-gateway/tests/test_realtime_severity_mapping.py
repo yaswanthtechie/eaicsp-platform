@@ -41,6 +41,7 @@ from tests.test_realtime_events_validation import (
     FORECAST_BATCH_COMPLETED_SAMPLE,
     INVENTORY_STOCK_LOW_SAMPLE,
     IOT_ANOMALY_DETECTED_SAMPLE,
+    SALES_ANOMALY_DETECTED_SAMPLE,
     SUPPLIER_RISK_SCORE_CHANGED_SAMPLE,
 )
 
@@ -189,13 +190,158 @@ class TestSupplierRiskSeverity:
 class TestEtaSeverity:
     @pytest.mark.parametrize("eta_days", [0.5, 5.2, 30.0])
     def test_eta_always_info(self, eta_days: float):
-        """eta.shipment.predicted always maps to info."""
+        """eta.shipment.predicted without predicted_delay_days maps to info."""
         payload = {
             "shipment_id": "SHP-2026-000077",
             "po_number": "PO-2026-000123",
             "eta_days": eta_days,
         }
         assert resolve_severity("eta.shipment.predicted", payload) == SEVERITY_INFO
+
+    @pytest.mark.parametrize("delay", [4, 4.0, 4.5, 5, 10.0, "4", "5.2"])
+    def test_eta_delay_4_or_more_is_critical(self, delay: Any):
+        """predicted_delay_days >= 4 maps to critical."""
+        payload = {
+            "shipment_id": "SHP-2026-000077",
+            "po_number": "PO-2026-000123",
+            "eta_days": 8.0,
+            "predicted_delay_days": delay,
+        }
+        assert resolve_severity("eta.shipment.predicted", payload) == SEVERITY_CRITICAL
+
+    @pytest.mark.parametrize("delay", [1, 1.0, 1.5, 2, 3, 3.0, 3.9, "1", "3.0"])
+    def test_eta_delay_1_to_3_is_warning(self, delay: Any):
+        """predicted_delay_days between 1 and 3 (1 <= delay < 4) maps to warning."""
+        payload = {
+            "shipment_id": "SHP-2026-000077",
+            "po_number": "PO-2026-000123",
+            "eta_days": 5.0,
+            "predicted_delay_days": delay,
+        }
+        assert resolve_severity("eta.shipment.predicted", payload) == SEVERITY_WARNING
+
+    @pytest.mark.parametrize("delay", [0, 0.0, -1, -2.5, -5, "0", "-1.0"])
+    def test_eta_delay_0_or_negative_is_info(self, delay: Any):
+        """predicted_delay_days <= 0 maps to info."""
+        payload = {
+            "shipment_id": "SHP-2026-000077",
+            "po_number": "PO-2026-000123",
+            "eta_days": 3.0,
+            "predicted_delay_days": delay,
+        }
+        assert resolve_severity("eta.shipment.predicted", payload) == SEVERITY_INFO
+
+    def test_eta_missing_delay_field_is_info(self):
+        """Missing predicted_delay_days or None maps to info."""
+        payload_missing = {
+            "shipment_id": "SHP-2026-000077",
+            "po_number": "PO-2026-000123",
+            "eta_days": 5.0,
+        }
+        payload_none = {
+            "shipment_id": "SHP-2026-000077",
+            "po_number": "PO-2026-000123",
+            "eta_days": 5.0,
+            "predicted_delay_days": None,
+        }
+        assert resolve_severity("eta.shipment.predicted", payload_missing) == SEVERITY_INFO
+        assert resolve_severity("eta.shipment.predicted", payload_none) == SEVERITY_INFO
+
+    @pytest.mark.parametrize("invalid_delay", ["not-a-number", {}, [], float("nan"), float("inf")])
+    def test_eta_invalid_delay_field_fallback_info(self, invalid_delay: Any):
+        """Invalid non-numeric or NaN/inf predicted_delay_days falls back safely to info."""
+        payload = {
+            "shipment_id": "SHP-2026-000077",
+            "po_number": "PO-2026-000123",
+            "predicted_delay_days": invalid_delay,
+        }
+        assert resolve_severity("eta.shipment.predicted", payload) == SEVERITY_INFO
+
+    def test_eta_boolean_delay_is_not_a_delay(self):
+        """bool is a subclass of int in Python: True/False must not be treated as delays."""
+        payload = {"shipment_id": "SHP-2026-000077", "predicted_delay_days": True}
+        assert resolve_severity("eta.shipment.predicted", payload) == SEVERITY_INFO
+        payload_false = {"shipment_id": "SHP-2026-000077", "predicted_delay_days": False}
+        assert resolve_severity("eta.shipment.predicted", payload_false) == SEVERITY_INFO
+
+    def test_eta_payload_not_mutated(self):
+        """Severity resolver must not mutate ETA payload."""
+        payload = {"shipment_id": "SHP-2026-000077", "predicted_delay_days": 4.5}
+        orig = dict(payload)
+        resolve_severity("eta.shipment.predicted", payload)
+        assert payload == orig
+
+
+def test_eta_boolean_delay_is_not_a_delay():
+    payload = {"shipment_id": "SHP-2026-000077", "predicted_delay_days": True}
+    assert resolve_severity("eta.shipment.predicted", payload) == SEVERITY_INFO
+    payload_false = {"shipment_id": "SHP-2026-000077", "predicted_delay_days": False}
+    assert resolve_severity("eta.shipment.predicted", payload_false) == SEVERITY_INFO
+
+
+# ---------------------------------------------------------------------------
+# 5. Sales Anomaly Event Severity Tests
+# ---------------------------------------------------------------------------
+
+class TestSalesAnomalySeverity:
+    @pytest.mark.parametrize("sev", ["high", "HIGH", "High", "  high  "])
+    def test_sales_anomaly_high_is_critical(self, sev: str):
+        """payload.severity == 'high' maps to critical."""
+        payload = {
+            "sku_id": "SKU-000123",
+            "warehouse_id": "WH-BLR-01",
+            "date": "2026-11-14",
+            "expected_quantity": 52.0,
+            "actual_quantity": 214.0,
+            "score": 8.2,
+            "severity": sev,
+        }
+        assert resolve_severity("anomaly.sales.detected", payload) == SEVERITY_CRITICAL
+
+    @pytest.mark.parametrize("sev", ["medium", "MEDIUM", "Medium", "  medium  "])
+    def test_sales_anomaly_medium_is_warning(self, sev: str):
+        """payload.severity == 'medium' maps to warning."""
+        payload = {
+            "sku_id": "SKU-000123",
+            "warehouse_id": "WH-BLR-01",
+            "date": "2026-11-14",
+            "expected_quantity": 52.0,
+            "actual_quantity": 100.0,
+            "score": 4.5,
+            "severity": sev,
+        }
+        assert resolve_severity("anomaly.sales.detected", payload) == SEVERITY_WARNING
+
+    @pytest.mark.parametrize("sev", ["low", "LOW", "Low", "  low  "])
+    def test_sales_anomaly_low_is_info(self, sev: str):
+        """payload.severity == 'low' maps to info."""
+        payload = {
+            "sku_id": "SKU-000123",
+            "warehouse_id": "WH-BLR-01",
+            "date": "2026-11-14",
+            "expected_quantity": 52.0,
+            "actual_quantity": 55.0,
+            "score": 1.2,
+            "severity": sev,
+        }
+        assert resolve_severity("anomaly.sales.detected", payload) == SEVERITY_INFO
+
+    @pytest.mark.parametrize("unexpected", [None, "extreme", "critical", "catastrophic", 123, {}])
+    def test_sales_anomaly_missing_or_unexpected_fallback_info(self, unexpected: Any):
+        """Missing or unrecognized severity falls back safely to info."""
+        payload = {
+            "sku_id": "SKU-000123",
+            "warehouse_id": "WH-BLR-01",
+            "severity": unexpected,
+        }
+        assert resolve_severity("anomaly.sales.detected", payload) == SEVERITY_INFO
+
+    def test_sales_anomaly_payload_not_mutated(self):
+        """Severity resolver must not mutate sales anomaly payload."""
+        payload = {"sku_id": "SKU-000123", "severity": "high"}
+        orig = dict(payload)
+        resolve_severity("anomaly.sales.detected", payload)
+        assert payload == orig
 
 
 # ---------------------------------------------------------------------------
@@ -372,6 +518,7 @@ class TestRealtimeConsumerSeverityFanout:
             (ETA_SHIPMENT_PREDICTED_SAMPLE, SEVERITY_INFO),
             (FORECAST_BATCH_COMPLETED_SAMPLE, SEVERITY_INFO),
             (DATA_PIPELINE_COMPLETED_SAMPLE, SEVERITY_INFO),
+            (SALES_ANOMALY_DETECTED_SAMPLE, SEVERITY_CRITICAL),
         ],
         ids=[
             "inventory_stock_low_warning",
@@ -380,6 +527,7 @@ class TestRealtimeConsumerSeverityFanout:
             "eta_shipment_predicted_info",
             "forecast_batch_completed_info",
             "data_pipeline_completed_info",
+            "sales_anomaly_detected_critical",
         ],
     )
     async def test_canonical_samples_broadcast_with_correct_severity(
@@ -526,4 +674,66 @@ class TestRealtimeConsumerSeverityFanout:
         conn_mgr.broadcast.assert_not_called()
         mock_producer.send_and_wait.assert_called_once()
         assert mock_producer.send_and_wait.call_args[0][0] == "billing.invoice.generated.dlq"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "delay,expected_sev",
+        [
+            (5.0, SEVERITY_CRITICAL),
+            (2.0, SEVERITY_WARNING),
+            (0.0, SEVERITY_INFO),
+            (-1.5, SEVERITY_INFO),
+            (None, SEVERITY_INFO),
+        ],
+    )
+    async def test_eta_delay_fanout_broadcasts_correct_severity(
+        self, consumer_setup, delay: Any, expected_sev: str
+    ):
+        """ETA events with predicted_delay_days broadcast with correct severity."""
+        service, conn_mgr, _ = consumer_setup
+        event = copy.deepcopy(ETA_SHIPMENT_PREDICTED_SAMPLE)
+        event["event_id"] = str(uuid.uuid4())
+        if delay is not None:
+            event["payload"]["predicted_delay_days"] = delay
+        else:
+            event["payload"].pop("predicted_delay_days", None)
+
+        handled = await service.process_message(
+            topic=event["event_type"],
+            value=json.dumps(event).encode("utf-8"),
+        )
+        assert handled is True
+        broadcast_text = conn_mgr.broadcast.call_args[0][0]
+        broadcast_data = json.loads(broadcast_text)
+        assert broadcast_data["severity"] == expected_sev
+        assert broadcast_data["payload"] == event["payload"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "producer_sev,expected_sev",
+        [
+            ("high", SEVERITY_CRITICAL),
+            ("medium", SEVERITY_WARNING),
+            ("low", SEVERITY_INFO),
+        ],
+    )
+    async def test_sales_anomaly_fanout_broadcasts_correct_severity(
+        self, consumer_setup, producer_sev: str, expected_sev: str
+    ):
+        """Sales anomaly events broadcast with correct mapped severity."""
+        service, conn_mgr, _ = consumer_setup
+        event = copy.deepcopy(SALES_ANOMALY_DETECTED_SAMPLE)
+        event["event_id"] = str(uuid.uuid4())
+        event["payload"]["severity"] = producer_sev
+
+        handled = await service.process_message(
+            topic=event["event_type"],
+            value=json.dumps(event).encode("utf-8"),
+        )
+        assert handled is True
+        broadcast_text = conn_mgr.broadcast.call_args[0][0]
+        broadcast_data = json.loads(broadcast_text)
+        assert broadcast_data["severity"] == expected_sev
+        assert broadcast_data["payload"]["severity"] == producer_sev
+        assert broadcast_data["payload"] == event["payload"]
 

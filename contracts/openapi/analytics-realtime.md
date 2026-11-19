@@ -17,6 +17,7 @@ The API Gateway Backend-For-Frontend (BFF) consumes supply chain and operational
 |                                     Kafka Event Producers                                      |
 |  inventory.stock.low       iot.anomaly.detected       supplierrisk.score.changed               |
 |  eta.shipment.predicted    forecast.batch.completed   data.pipeline.completed                 |
+|  anomaly.sales.detected                                                                        |
 +------------------------------------------------------------------------------------------------+
                                               │
                                               ▼
@@ -38,7 +39,7 @@ The API Gateway Backend-For-Frontend (BFF) consumes supply chain and operational
 This contract establishes:
 1. Connection lifecycle, authentication, heartbeat, and reconnection semantics.
 2. The standard event envelope guaranteed across all messages.
-3. Complete payload schema, field definitions, units, and realistic JSON examples for all six (6) event types.
+3. Complete payload schema, field definitions, units, and realistic JSON examples for all seven (7) event types.
 4. UI alert mapping guidelines (severity, title, message formatting, and card styles).
 
 ---
@@ -335,6 +336,7 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 | `confidence_high` | `number` | **Yes** | Upper bound (days) | Upper 80% prediction interval bound in days from dispatched_at (e.g. `7.3`). |
 | `model_version` | `string` | **Yes** | Model release tag | MLflow registered model name and version, e.g. `eta_pipeline/3`. |
 | `predicted_at` | `string` | **Yes** | UTC ISO-8601 | UTC date-time when prediction inference executed. |
+| `predicted_delay_days` | `integer` | *No* | Days of delay | Predicted delay beyond scheduled delivery date in calendar days (e.g. `4`). Negative values indicate early arrival. (added by #371) |
 | `top_features` | `array[object]` | *No* | SHAP explanations | Optional list of up to 5 `{feature, shap_value}` objects explaining prediction. |
 
 #### Realistic JSON Example
@@ -346,13 +348,14 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
   "event_version": 1,
   "occurred_at": "2026-10-15T06:31:05Z",
   "producer": "eta-prediction",
-  "severity": "info",
+  "severity": "critical",
   "payload": {
     "shipment_id": "SHP-2026-000077",
     "po_number": "PO-2026-000123",
-    "eta_days": 5.2,
-    "confidence_low": 4.1,
-    "confidence_high": 7.3,
+    "eta_days": 8.5,
+    "confidence_low": 6.8,
+    "confidence_high": 10.4,
+    "predicted_delay_days": 4,
     "model_version": "eta_pipeline/3",
     "predicted_at": "2026-10-15T06:31:04Z",
     "top_features": [
@@ -484,20 +487,65 @@ All messages delivered across the WebSocket adhere to the platform's standard ev
 }
 ```
 
+### 4.7 Event 7: `anomaly.sales.detected`
+
+- **Producer:** `anomaly-detection-service` (Pod 2, Issue #327)
+- **Contract:** `contracts/events/anomaly.sales.detected.v1.json`
+- **Example:** `contracts/events/examples/anomaly.sales.detected.v1.json`
+- **Status:** **Confirmed in repository** (`ml-services/anomaly-detection/src/sales_anomaly_events.py`)
+- **Trigger:** One event per new sales anomaly incident (an unusual daily spike or drop for one product at one warehouse). `date` is the first day of the incident.
+- **Routing Key:** `{sku_id}|{warehouse_id}`
+- **Dedup key:** `event_id`
+
+#### Payload Fields
+
+| Field Name | Type | Required | Units / Meaning | Description |
+|:---|:---|:---|:---|:---|
+| `sku_id` | `string` | **Yes** | Canonical SKU ID | e.g. `SKU-000123` |
+| `warehouse_id` | `string` | **Yes** | Canonical Warehouse ID | e.g. `WH-BLR-01` |
+| `date` | `string` | **Yes** | Date (YYYY-MM-DD) | First day of the anomaly incident |
+| `expected_quantity` | `number` | **Yes** | Units, >= 0 | Expected daily sales from the seasonal baseline |
+| `actual_quantity` | `number` | **Yes** | Units, >= 0 | Units actually sold that day |
+| `score` | `number` | **Yes** | Robust z-score | Size of the deviation |
+| `severity` | `string` | **Yes** | `high`, `medium` or `low` | Producer severity; the BFF maps it to the top-level severity |
+
+#### Realistic JSON Example
+
+```json
+{
+  "event_id": "7c1e4a52-6d3b-4f08-a9e1-2b5d8c0f4e17",
+  "event_type": "anomaly.sales.detected",
+  "event_version": 1,
+  "occurred_at": "2026-11-17T03:20:41.205318+00:00",
+  "producer": "anomaly-detection-service",
+  "severity": "warning",
+  "payload": {
+    "sku_id": "SKU-000123",
+    "warehouse_id": "WH-BLR-01",
+    "date": "2026-11-14",
+    "expected_quantity": 52.0,
+    "actual_quantity": 214.0,
+    "score": 8.2,
+    "severity": "medium"
+  }
+}
+```
+
 ---
 
 ## 5. UI Alert Panel Mapping Guide (For Chandhu)
 
-To ensure the alerts panel renders uniformly across the six event types, the table below lists the display title, icon and drilldown for each event type. Badge colour comes only from the top-level `severity` field (see 5.1), using the `danger`, `warning` and `info` tokens in `frontend/packages/dashboard/src/tokens.ts`. The client never picks a colour per event type.
+To ensure the alerts panel renders uniformly across the seven event types, the table below lists the display title, icon and drilldown for each event type. Badge colour comes only from the top-level `severity` field (see 5.1), using the `danger`, `warning` and `info` tokens in `frontend/packages/dashboard/src/tokens.ts`. The client never picks a colour per event type.
 
 | Event Type | Display Title | Possible top-level `severity` | Icon Hint | Primary UI Action / Drilldown |
 |:---|:---|:---|:---|:---|
 | `inventory.stock.low` | **Low Stock Alert** | `critical` (quantity_on_hand is 0) / `warning` | Package / Box | Navigate to Inventory table filtered by `sku_id` & `warehouse_id` |
 | `iot.anomaly.detected` | **Cold-Chain Anomaly** | `critical` / `warning` / `info` | Alert Triangle / Thermometer | Open anomaly detail (message, peak_score vs threshold, top_features) |
 | `supplierrisk.score.changed` | **Supplier Risk Change** | `warning` (tier up) / `info` (tier down or same) | Shield Alert | View Supplier Risk breakdown & news citations modal |
-| `eta.shipment.predicted` | **Shipment ETA Update** | `info` | Truck / Navigation | Open Shipment tracking card for `shipment_id` |
+| `eta.shipment.predicted` | **Shipment ETA Update** | `critical` (delay >= 4d) / `warning` (delay 1–3d) / `info` (delay <= 0d or missing) | Truck / Navigation | Open Shipment tracking card for `shipment_id` |
 | `forecast.batch.completed` | **Forecast Batch Done** | `info` (SUCCESS) / `warning` (PARTIAL) | Trend / Chart | Refresh demand forecast chart view for updated horizon |
 | `data.pipeline.completed` | **Data Ingestion Sync** | `info` | Database / Refresh | Refresh live KPI snapshot widgets |
+| `anomaly.sales.detected` | **Sales Anomaly Alert** | `critical` (high) / `warning` (medium) / `info` (low) | Trending Up / Down | Open Sales Anomaly investigation modal filtered by `sku_id` & `warehouse_id` |
 
 ### 5.1 BFF Severity Decision & Frontend Display
 
@@ -505,7 +553,7 @@ The top-level `severity` field (`critical`, `warning`, `info`) is decided exclus
 
 ### 5.2 BFF Severity Mapping Rules
 
-The BFF consumer pipeline evaluates each valid, deduplicated event and applies the following deterministic mapping logic across the six canonical event types:
+The BFF consumer pipeline evaluates each valid, deduplicated event and applies the following deterministic mapping logic across the seven canonical event types:
 
 | Event Type | BFF Severity Mapping Rule | Resolved Severity |
 |:---|:---|:---|
@@ -518,23 +566,29 @@ The BFF consumer pipeline evaluates each valid, deduplicated event and applies t
 | `supplierrisk.score.changed` | Risk tier increases (`low` -> `medium`, `medium` -> `high`, `low` -> `high`) based on tier ordering `low < medium < high` | `warning` |
 | `supplierrisk.score.changed` | Risk tier decreases (`high` -> `medium`, `medium` -> `low`, `high` -> `low`) | `info` |
 | `supplierrisk.score.changed` | Same tier (`low` -> `low`, `medium` -> `medium`, `high` -> `high`) or unexpected value fallback | `info` |
-| `eta.shipment.predicted` | Delivery transit prediction updated (always) | `info` |
+| `eta.shipment.predicted` | `payload.predicted_delay_days >= 4` | `critical` |
+| `eta.shipment.predicted` | `1 <= payload.predicted_delay_days < 4` (1 to 3 days delay) | `warning` |
+| `eta.shipment.predicted` | `payload.predicted_delay_days <= 0` or missing field | `info` |
 | `forecast.batch.completed` | `payload.status == "SUCCESS"` | `info` |
 | `forecast.batch.completed` | `payload.status == "PARTIAL"` | `warning` |
 | `data.pipeline.completed` | Completed ETL batch run (always) | `info` |
+| `anomaly.sales.detected` | `payload.severity == "high"` | `critical` |
+| `anomaly.sales.detected` | `payload.severity == "medium"` | `warning` |
+| `anomaly.sales.detected` | `payload.severity == "low"` | `info` |
 
 #### Detailed Event Mapping Specifications:
 - **Inventory (`inventory.stock.low`):** The original producer payload remains untouched. When physical stock reaches zero (`quantity_on_hand == 0`), severity maps to `critical`. When stock is available but below reorder point (`quantity_on_hand > 0`), severity maps to `warning`.
 - **IoT Anomaly (`iot.anomaly.detected`):** The producer's `payload.severity` is preserved untouched. The BFF maps both `critical` and `high` to top-level `critical`, `medium` to `warning`, and `low` to `info`.
 - **Supplier Risk (`supplierrisk.score.changed`):** The BFF compares the direction of change between `payload.previous_tier` and `payload.new_tier` using the strict tier ordering `low < medium < high`. The new tier alone does not determine severity. An escalating risk tier maps to `warning`; a de-escalating risk tier maps to `info`. Same-tier transitions and unexpected values safely fall back to `info`.
-- **ETA Prediction (`eta.shipment.predicted`):** Always maps to `info`. Due-date or shipment-delay logic is out of scope.
+- **ETA Prediction (`eta.shipment.predicted`):** Evaluates `payload.predicted_delay_days`. When `predicted_delay_days >= 4`, maps to `critical`; when `1 <= predicted_delay_days < 4` (1 to 3 days delay), maps to `warning`; when `predicted_delay_days <= 0` (on-time or early arrival) or when the field is missing/non-numeric, safely maps to `info`. Original payload is preserved untouched.
 - **Forecast Batch (`forecast.batch.completed`):** `payload.status == "SUCCESS"` maps to `info`; `payload.status == "PARTIAL"` maps to `warning`. FAILED status is outside the producer contract.
 - **Pipeline Completed (`data.pipeline.completed`):** Completed DAG execution always maps to `info`.
+- **Sales Anomaly (`anomaly.sales.detected`):** Evaluates producer `payload.severity`. Maps `high` to top-level `critical`, `medium` to `warning`, and `low` to `info`. Missing or unrecognized payload severity safely falls back to `info`. Original payload is preserved untouched.
 
 ### 5.3 Unknown Event Types & DLQ Routing Behavior
 
 - **Severity Resolver Fallback:** If an unknown or unrecognized event type is processed by the severity resolver, it returns a safe fallback of `info`.
-- **Relationship with Existing Schema Validation & DLQ:** In accordance with Section 2.6 and `realtime_events.py`, the gateway strictly validates the six canonical event types. Any unknown event type fails envelope validation, is routed directly to `<topic>.dlq` with its offset committed, and is **never** broadcast to WebSocket clients. The unknown-event resolver fallback acts as a defensive safety mechanism within the helper function and does not alter or weaken the existing schema validation or DLQ behavior.
+- **Relationship with Existing Schema Validation & DLQ:** In accordance with Section 2.6 and `realtime_events.py`, the gateway strictly validates the seven canonical event types. Any unknown event type fails envelope validation, is routed directly to `<topic>.dlq` with its offset committed, and is **never** broadcast to WebSocket clients. The unknown-event resolver fallback acts as a defensive safety mechanism within the helper function and does not alter or weaken the existing schema validation or DLQ behavior.
 
 ---
 
@@ -545,9 +599,10 @@ The BFF consumer pipeline evaluates each valid, deduplicated event and applies t
 | `inventory.stock.low` | Inventory | **Confirmed** | Outbox relay in `services/inventory` |
 | `iot.anomaly.detected` | Anomaly Detection | **Producer contract** | contracts/events/iot.anomaly.detected.v1.json (PR #258) |
 | `supplierrisk.score.changed` | Supplier Risk | **Confirmed** | Hysteresis publisher in `ml-services/supplier-risk/src/events.py` |
-| `eta.shipment.predicted` | ETA Prediction | **Producer contract** | `contracts/events/eta.shipment.predicted.v1.json` (PR #270) |
+| `eta.shipment.predicted` | ETA Prediction | **Producer contract** | `contracts/events/eta.shipment.predicted.v1.json` (PR #270), delay severity added in Issue #351 |
 | `forecast.batch.completed` | Demand Forecast | **Proposed Event Shape** | Serving API proposed in PR #241; Issue #228 (Uday) |
 | `data.pipeline.completed` | ETL Pipeline | **Confirmed** | Outbox publisher in `data-platform/etl/etl/src/kafka_events.py` |
+| `anomaly.sales.detected` | Anomaly Detection | **Confirmed** | Producer in `ml-services/anomaly-detection/src/sales_anomaly_events.py` (Issue #327, #351) |
 
 ---
 
