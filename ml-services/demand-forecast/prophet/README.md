@@ -2370,3 +2370,8 @@ The following endpoints do not require an API key:
 The `/service_metrics` endpoint is currently accessible without an API key. It exposes operational information such as the model version and request counts, not forecast input or output data.
 
 This is an intentional decision for the current implementation. Review access requirements before exposing this endpoint publicly.
+
+
+## MLflow Production Model Serving (R15-A9)
+
+The Forecast API loads demand_forecast using the MLflow production alias. Configure MLFLOW_TRACKING_URI, MLFLOW_MODEL_NAME, MLFLOW_MODEL_ALIAS and MLFLOW_MODEL_CACHE_DIR. After promoting a model version, call POST /admin/reload-model with a valid service API key. Verify using /health and /model/readyz. Forecast responses include model_name and model_version. If MLflow is unavailable, the service uses its cached model when available and reports degraded status. If no model is available, startup fails.

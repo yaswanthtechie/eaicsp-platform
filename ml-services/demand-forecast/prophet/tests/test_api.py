@@ -31,6 +31,14 @@ class FakeModel:
     def __init__(self, loaded: bool):
         self.is_loaded = loaded
         self.model_version = "7" if loaded else None
+        self.model_name = "demand_forecast"
+        self.load_status = "ready" if loaded else "unhealthy"
+        self.load_error = None
+
+    def load(self):
+        self.is_loaded = True
+        self.model_version = "8"
+        self.load_status = "ready"
 
     def predict(self, sku_id, warehouse_id, horizon):
         return POINTS[:horizon]
@@ -78,6 +86,7 @@ def test_valid_request_matches_contract(monkeypatch):
         "granularity",
         "horizon",
         "interval_level",
+        "model_name",
         "model_version",
         "generated_at",
         "forecast",
@@ -85,6 +94,8 @@ def test_valid_request_matches_contract(monkeypatch):
     assert body["contract_version"] == "v1"
     assert body["granularity"] == "daily"
     assert body["interval_level"] == 0.8
+    assert body["model_name"] == "demand_forecast"
+    assert body["model_version"] == "7"
     assert body["sku_id"] == "SKU-000123"
     assert body["warehouse_id"] == "WH-BLR-01"
     assert body["horizon"] == 2
@@ -180,3 +191,62 @@ def test_non_ascii_api_key_returns_401_not_500(monkeypatch):
 
     assert response.status_code == 401
     assert response.json()["error_code"] == "UNAUTHORIZED"
+
+
+
+def test_admin_reload_requires_api_key(monkeypatch):
+    response = make_client(monkeypatch, auth_ok=False).post(
+        "/admin/reload-model"
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error_code"] == "UNAUTHORIZED"
+
+
+def test_admin_reload_loads_production_model(monkeypatch):
+    response = make_client(monkeypatch).post(
+        "/admin/reload-model",
+        headers=KEY,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "reloaded",
+        "model_name": "demand_forecast",
+        "model_version": "8",
+    }
+
+def test_health_reports_degraded_when_cached_model_is_loaded(monkeypatch):
+    client = make_client(monkeypatch)
+    svc.app.state.forecast_service.production_model.load_status = "degraded"
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["model_loaded"] is True
+    assert response.json()["status"] == "degraded"
+
+
+def test_readiness_reports_degraded_when_cached_model_is_loaded(monkeypatch):
+    client = make_client(monkeypatch)
+    svc.app.state.forecast_service.production_model.load_status = "degraded"
+
+    response = client.get("/model/readyz")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "degraded"}
+
+
+def test_forecast_succeeds_when_cached_model_is_degraded(monkeypatch):
+    client = make_client(monkeypatch)
+    svc.app.state.forecast_service.production_model.load_status = "degraded"
+
+    response = client.get(
+        URL,
+        params=OK_PARAMS,
+        headers=KEY,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["model_name"] == "demand_forecast"
+    assert response.json()["model_version"] == "7"

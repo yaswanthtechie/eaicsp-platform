@@ -59,7 +59,8 @@ paths:
                 granularity: daily
                 horizon: 3
                 interval_level: 0.8
-                model_version: R5
+                model_name: demand_forecast
+                model_version: '7'
                 generated_at: "2026-10-15T06:00:00Z"
                 forecast:
                   - date: "2026-10-16"
@@ -168,6 +169,7 @@ components:
         - granularity
         - horizon
         - interval_level
+        - model_name
         - model_version
         - generated_at
         - forecast
@@ -191,10 +193,14 @@ components:
           type: number
           const: 0.8
           description: Prediction interval coverage (80 percent, from the 10th to 90th percentiles)
+        model_name:
+          type: string
+          minLength: 1
+          description: Name of the registered MLflow model
         model_version:
           type: string
           minLength: 1
-          description: Version of the MLflow "Production" model that produced this forecast
+          description: Version assigned to the MLflow production alias "Production" model that produced this forecast
         generated_at:
           type: string
           format: date-time
