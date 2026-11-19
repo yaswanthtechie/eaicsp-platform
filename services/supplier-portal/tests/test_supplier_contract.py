@@ -3,20 +3,17 @@ from datetime import date, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app
 from app.core.auth import verify_token
-
+from app.main import app
 from app.services.supplier_contract_service import (
-    supplier_contracts,
     supplier_contract_history,
+    supplier_contracts,
 )
-
 from app.services.supplier_onboarding_service import (
-    suppliers,
     supplier_documents,
     supplier_onboarding_history,
+    suppliers,
 )
-
 
 client = TestClient(app)
 
@@ -60,6 +57,7 @@ SUPPLIER_2_USER = {
 # AUTHENTICATION HELPERS
 # ============================================================
 
+
 def authenticate_as(user):
     """
     Mock Platform Service authentication by overriding
@@ -89,6 +87,7 @@ def clear_authentication():
 # ============================================================
 # SUPPLIER HELPERS
 # ============================================================
+
 
 def make_supplier_active(supplier_id: str):
     """
@@ -129,6 +128,7 @@ def clear_contract_stores():
 # PAYLOAD HELPERS
 # ============================================================
 
+
 def contract_payload(
     supplier_id=SUP001,
     contract_number="SC-2026-001",
@@ -154,6 +154,7 @@ def contract_payload(
 # ============================================================
 # FIXTURE
 # ============================================================
+
 
 @pytest.fixture(autouse=True)
 def reset_contract_data():
@@ -184,6 +185,7 @@ def reset_contract_data():
 # ============================================================
 # BASIC SERVICE TESTS
 # ============================================================
+
 
 def test_create_contract_success():
     authenticate_as(PROCUREMENT_USER)
@@ -288,6 +290,7 @@ def test_create_contract_duplicate_number_is_case_insensitive():
 # VALIDATION TESTS
 # ============================================================
 
+
 def test_create_contract_end_date_must_be_after_start_date():
     authenticate_as(PROCUREMENT_USER)
 
@@ -376,6 +379,7 @@ def test_create_contract_rejects_invalid_renewal_notice_days():
 # GET CONTRACT
 # ============================================================
 
+
 def create_contract():
     authenticate_as(PROCUREMENT_USER)
 
@@ -420,6 +424,7 @@ def test_get_unknown_contract_returns_404():
 # ============================================================
 # LIST CONTRACTS
 # ============================================================
+
 
 def test_list_contracts_returns_contracts():
     create_contract()
@@ -503,6 +508,7 @@ def test_list_contracts_invalid_status():
 # ============================================================
 # SUPPLIER SCOPING
 # ============================================================
+
 
 def test_supplier_can_view_own_contract():
     created = create_contract()
@@ -604,6 +610,7 @@ def test_supplier_cannot_override_supplier_scope():
 # UPDATE CONTRACT
 # ============================================================
 
+
 def test_update_contract_success():
     created = create_contract()
 
@@ -661,6 +668,7 @@ def test_update_contract_invalid_end_date():
 # CONTRACT ACTIVATION
 # ============================================================
 
+
 def test_activate_contract_success():
     created = create_contract()
 
@@ -708,6 +716,7 @@ def test_activate_unknown_contract():
 # ============================================================
 # CONTRACT RENEWAL
 # ============================================================
+
 
 def test_renew_active_contract_success():
     created = create_contract()
@@ -827,6 +836,7 @@ def test_renew_unknown_contract():
 # EXPIRY CALCULATION
 # ============================================================
 
+
 def test_contract_reports_days_until_expiry():
     authenticate_as(PROCUREMENT_USER)
 
@@ -868,6 +878,7 @@ def test_contract_not_expiring_soon_when_outside_notice_window():
     assert data["days_until_expiry"] == 100
     assert data["expiring_soon"] is False
 
+
 def test_expired_contract_is_reported_as_expired():
     authenticate_as(PROCUREMENT_USER)
 
@@ -893,10 +904,12 @@ def test_expired_contract_is_reported_as_expired():
     assert data["status"] == "expired"
     assert data["expiring_soon"] is False
     assert data["days_until_expiry"] == -1
-    
+
+
 # ============================================================
 # EXPIRING CONTRACTS
 # ============================================================
+
 
 def test_list_expiring_contracts():
     authenticate_as(PROCUREMENT_USER)
@@ -1020,6 +1033,7 @@ def test_supplier_cannot_request_other_supplier_expiring_contracts():
 # HISTORY
 # ============================================================
 
+
 def test_contract_history_created_on_creation():
     created = create_contract()
 
@@ -1061,10 +1075,7 @@ def test_contract_history_contains_activation():
 
     history = response.json()
 
-    assert any(
-        item["to_status"] == "active"
-        for item in history
-    )
+    assert any(item["to_status"] == "active" for item in history)
 
 
 def test_contract_history_contains_renewal():
@@ -1135,6 +1146,7 @@ def test_supplier_cannot_view_other_supplier_contract_history():
 
     assert response.status_code == 403
 
+
 def test_contract_history_contains_term_update_audit():
     created = create_contract()
 
@@ -1168,31 +1180,18 @@ def test_contract_history_contains_term_update_audit():
     assert update_history["from_status"] == "draft"
     assert update_history["to_status"] == "draft"
 
-    assert update_history["actor_id"] == str(
-        PROCUREMENT_USER["user_id"]
-    )
-    assert update_history["actor_name"] == (
-        PROCUREMENT_USER["full_name"]
-    )
-    assert update_history["role"] == (
-        PROCUREMENT_USER["role"]
-    )
+    assert update_history["actor_id"] == str(PROCUREMENT_USER["user_id"])
+    assert update_history["actor_name"] == (PROCUREMENT_USER["full_name"])
+    assert update_history["role"] == (PROCUREMENT_USER["role"])
 
-    assert "Contract terms updated" in (
-        update_history["reason"]
-    )
+    assert "Contract terms updated" in (update_history["reason"])
 
-    assert "payment_terms" in (
-        update_history["reason"]
-    )
+    assert "payment_terms" in (update_history["reason"])
 
-    assert "delivery_terms" in (
-        update_history["reason"]
-    )
+    assert "delivery_terms" in (update_history["reason"])
 
-    assert "minimum_order_value" in (
-        update_history["reason"]
-    )
+    assert "minimum_order_value" in (update_history["reason"])
+
 
 def test_contract_history_not_created_when_terms_do_not_change():
     created = create_contract()
@@ -1205,9 +1204,7 @@ def test_contract_history_not_created_when_terms_do_not_change():
 
     assert first_response.status_code == 200
 
-    initial_history_count = len(
-        first_response.json()
-    )
+    initial_history_count = len(first_response.json())
 
     response = client.put(
         f"/api/v1/supplier-contracts/{created['contract_id']}",
@@ -1230,6 +1227,7 @@ def test_contract_history_not_created_when_terms_do_not_change():
 # ============================================================
 # AUTHENTICATION / AUTHORIZATION
 # ============================================================
+
 
 def test_create_contract_requires_authentication():
     clear_authentication()
@@ -1320,6 +1318,7 @@ def test_supplier_cannot_renew_contract():
 # ROUTE ORDER REGRESSION
 # ============================================================
 
+
 def test_expiring_route_is_not_treated_as_contract_id():
     authenticate_as(PROCUREMENT_USER)
 
@@ -1334,6 +1333,7 @@ def test_expiring_route_is_not_treated_as_contract_id():
 # ============================================================
 # CONTRACT LIFECYCLE INTEGRATION
 # ============================================================
+
 
 def test_complete_contract_lifecycle():
     created = create_contract()

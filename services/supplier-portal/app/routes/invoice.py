@@ -1,10 +1,10 @@
 from fastapi import (
     APIRouter,
-    HTTPException,
-    UploadFile,
-    File,
-    Query,
     Depends,
+    File,
+    HTTPException,
+    Query,
+    UploadFile,
 )
 
 from app.core.auth import (
@@ -13,39 +13,32 @@ from app.core.auth import (
     require_supplier_view_access,
     require_supplier_write_access,
 )
-
 from app.core.config import settings
-
+from app.schemas.invoice import (
+    InvoiceAdjustment,
+    InvoiceCreate,
+    InvoiceDocumentDownloadResponse,
+    InvoiceResponse,
+    InvoiceTransition,
+    OrphanedFileCleanupResponse,
+    OrphanedFilePurgeResponse,
+)
 from app.services.document_storage_service import (
     DocumentDownloadError,
     DocumentStorageError,
     document_storage_service,
 )
-
-from app.schemas.invoice import (
-    InvoiceCreate,
-    InvoiceResponse,
-    InvoiceTransition,
-    InvoiceAdjustment,
-    InvoiceDocumentDownloadResponse,
-    OrphanedFileCleanupResponse,
-    OrphanedFilePurgeResponse,
-)
-
 from app.services.invoice_service import (
+    adjust_invoice,
     create_invoice,
-    upload_invoice_document,
-    get_invoice_document,
+    find_orphaned_invoice_files,
     get_all_invoices,
     get_invoice_by_number,
-    transition_invoice,
-    adjust_invoice,
-    find_orphaned_invoice_files,
     purge_orphaned_invoice_files,
+    transition_invoice,
+    upload_invoice_document,
 )
-
 from app.services.purchase_order_service import purchase_orders
-
 
 router = APIRouter(
     dependencies=[Depends(enforce_not_suspended)],
@@ -96,9 +89,7 @@ def verify_supplier_invoice_access(
         # ----------------------------------------------------
 
         if user.get("role") == "supplier":
-            authenticated_supplier_id = user.get(
-                "supplier_id"
-            )
+            authenticated_supplier_id = user.get("supplier_id")
 
             if not authenticated_supplier_id:
                 raise HTTPException(
@@ -120,20 +111,13 @@ def verify_supplier_invoice_access(
         # 3. Supplier scoping check
         # ----------------------------------------------------
 
-        if (
-            user.get("role") == "supplier"
-            and user["supplier_id"] != supplier_id
-        ):
+        if user.get("role") == "supplier" and user["supplier_id"] != supplier_id:
             raise HTTPException(
                 status_code=403,
-                detail=(
-                    "Forbidden: supplier does not own "
-                    "this invoice"
-                ),
+                detail=("Forbidden: supplier does not own this invoice"),
             )
 
         return user
-
 
     return dependency
 
@@ -172,10 +156,7 @@ def get_invoices(
     # --------------------------------------------------------
 
     if user.get("role") == "supplier":
-
-        authenticated_supplier_id = user.get(
-            "supplier_id"
-        )
+        authenticated_supplier_id = user.get("supplier_id")
 
         if not authenticated_supplier_id:
             raise HTTPException(
@@ -186,8 +167,7 @@ def get_invoices(
         return [
             invoice
             for invoice in all_invoices
-            if invoice.get("supplier_id")
-            == authenticated_supplier_id
+            if invoice.get("supplier_id") == authenticated_supplier_id
         ]
 
     # --------------------------------------------------------
@@ -210,9 +190,7 @@ def get_invoices(
 def get_invoice(
     supplier_id: str,
     invoice_number: str,
-    user=Depends(
-        verify_supplier_invoice_access()
-    ),
+    user=Depends(verify_supplier_invoice_access()),
 ):
     """
     Get a single invoice.
@@ -272,10 +250,7 @@ def submit_invoice(
     # --------------------------------------------------------
 
     if user.get("role") == "supplier":
-
-        authenticated_supplier_id = user.get(
-            "supplier_id"
-        )
+        authenticated_supplier_id = user.get("supplier_id")
 
         if not authenticated_supplier_id:
             raise HTTPException(
@@ -287,16 +262,10 @@ def submit_invoice(
         # Check invoice supplier ownership
         # ----------------------------------------------------
 
-        if (
-            authenticated_supplier_id
-            != invoice.supplier_id
-        ):
+        if authenticated_supplier_id != invoice.supplier_id:
             raise HTTPException(
                 status_code=403,
-                detail=(
-                    "Forbidden: supplier does not own "
-                    "this invoice"
-                ),
+                detail=("Forbidden: supplier does not own this invoice"),
             )
 
         # ----------------------------------------------------
@@ -307,7 +276,6 @@ def submit_invoice(
         # ----------------------------------------------------
 
         for invoice_item in invoice.items:
-
             po_number = invoice_item.po_number
 
             # If PO does not exist, let create_invoice()
@@ -317,23 +285,16 @@ def submit_invoice(
 
             purchase_order = purchase_orders[po_number]
 
-            if (
-                purchase_order["supplier_id"]
-                != authenticated_supplier_id
-            ):
+            if purchase_order["supplier_id"] != authenticated_supplier_id:
                 raise HTTPException(
                     status_code=403,
-                    detail=(
-                        "Forbidden: supplier does not own "
-                        "this Purchase Order"
-                    ),
+                    detail=("Forbidden: supplier does not own this Purchase Order"),
                 )
 
     try:
         return create_invoice(invoice)
 
     except ValueError as e:
-
         message = str(e)
         lower_message = message.lower()
 
@@ -345,10 +306,7 @@ def submit_invoice(
             ) from e
 
         # Purchase Order not found
-        if (
-            "purchase order" in lower_message
-            and "not found" in lower_message
-        ):
+        if "purchase order" in lower_message and "not found" in lower_message:
             raise HTTPException(
                 status_code=404,
                 detail=message,
@@ -375,11 +333,7 @@ def transition_invoice_status(
     supplier_id: str,
     invoice_number: str,
     transition: InvoiceTransition,
-    user=Depends(
-        verify_supplier_invoice_access(
-            supplier_only=True
-        )
-    ),
+    user=Depends(verify_supplier_invoice_access(supplier_only=True)),
 ):
     """
     Change invoice status using the invoice state machine.
@@ -434,10 +388,7 @@ def transition_invoice_status(
         lower_message = message.lower()
 
         # Invoice does not exist
-        if (
-            "invoice" in lower_message
-            and "not found" in lower_message
-        ):
+        if "invoice" in lower_message and "not found" in lower_message:
             raise HTTPException(
                 status_code=404,
                 detail="Invoice not found.",
@@ -464,9 +415,7 @@ def adjust_invoice_endpoint(
     supplier_id: str,
     invoice_number: str,
     adjustment: InvoiceAdjustment,
-    user=Depends(
-        require_roles("compliance_officer")
-    ),
+    user=Depends(require_roles("compliance_officer")),
 ):
     """
     Adjust a disputed invoice.
@@ -537,10 +486,7 @@ def adjust_invoice_endpoint(
         message = str(e)
         lower_message = message.lower()
 
-        if (
-            "invoice" in lower_message
-            and "not found" in lower_message
-        ):
+        if "invoice" in lower_message and "not found" in lower_message:
             raise HTTPException(
                 status_code=404,
                 detail="Invoice not found.",
@@ -566,11 +512,7 @@ def upload_document(
     supplier_id: str,
     invoice_number: str,
     file: UploadFile = File(...),
-    user=Depends(
-        verify_supplier_invoice_access(
-            supplier_only=True
-        )
-    ),
+    user=Depends(verify_supplier_invoice_access(supplier_only=True)),
 ):
     """
     Upload a PDF document for an existing invoice.
@@ -602,10 +544,7 @@ def upload_document(
         message = str(exc)
         lower_message = message.lower()
 
-        if (
-            "invoice" in lower_message
-            and "not found" in lower_message
-        ):
+        if "invoice" in lower_message and "not found" in lower_message:
             raise HTTPException(
                 status_code=404,
                 detail="Invoice not found.",
@@ -630,9 +569,7 @@ def upload_document(
 def download_invoice_document(
     supplier_id: str,
     invoice_number: str,
-    user=Depends(
-        verify_supplier_invoice_access()
-    ),
+    user=Depends(verify_supplier_invoice_access()),
 ):
     """
     Generate a short-lived presigned MinIO download URL.
@@ -685,10 +622,8 @@ def download_invoice_document(
         # STEP 4: Generate presigned URL
         # ----------------------------------------------------
 
-        download_url = (
-            document_storage_service.generate_download_url(
-                object_key=document_path,
-            )
+        download_url = document_storage_service.generate_download_url(
+            object_key=document_path,
         )
 
         # ----------------------------------------------------
@@ -700,9 +635,7 @@ def download_invoice_document(
             "supplier_id": supplier_id,
             "file_name": f"{invoice_number}.pdf",
             "download_url": download_url,
-            "expires_in_seconds": (
-                settings.MINIO_PRESIGNED_EXPIRY_SECONDS
-            ),
+            "expires_in_seconds": (settings.MINIO_PRESIGNED_EXPIRY_SECONDS),
         }
 
     # --------------------------------------------------------
@@ -740,10 +673,7 @@ def download_invoice_document(
         message = str(exc)
         lower_message = message.lower()
 
-        if (
-            "invoice" in lower_message
-            and "not found" in lower_message
-        ):
+        if "invoice" in lower_message and "not found" in lower_message:
             raise HTTPException(
                 status_code=404,
                 detail="Invoice not found.",
@@ -776,13 +706,10 @@ def find_orphaned_files(
         default=1,
         ge=0,
         description=(
-            "Only files older than this number "
-            "of days are considered orphaned."
+            "Only files older than this number of days are considered orphaned."
         ),
     ),
-    user=Depends(
-        require_roles("compliance_officer")
-    ),
+    user=Depends(require_roles("compliance_officer")),
 ):
     """
     Find orphaned invoice files.
@@ -833,14 +760,9 @@ def purge_orphaned_files(
     older_than_days: int = Query(
         default=1,
         ge=0,
-        description=(
-            "Only files older than this number "
-            "of days can be deleted."
-        ),
+        description=("Only files older than this number of days can be deleted."),
     ),
-    user=Depends(
-        require_roles("compliance_officer")
-    ),
+    user=Depends(require_roles("compliance_officer")),
 ):
     """
     Permanently delete orphaned invoice files.

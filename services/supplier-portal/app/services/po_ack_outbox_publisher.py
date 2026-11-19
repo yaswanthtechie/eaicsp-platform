@@ -52,9 +52,13 @@ class POAckOutboxPublisher:
                 for row in rows:
                     delivery_errors: list[str] = []
 
-                    def on_delivery(error: Any, _message: Any) -> None:
+                    def on_delivery(
+                        error: Any,
+                        _message: Any,
+                        errors: list[str] = delivery_errors,
+                    ) -> None:
                         if error is not None:
-                            delivery_errors.append(str(error))
+                            errors.append(str(error))
 
                     row.attempts += 1
 
@@ -67,6 +71,12 @@ class POAckOutboxPublisher:
                         )
                         pending = producer.flush(10)
                     except Exception as exc:
+                        # Any per-row failure (Kafka, serialization, bad topic)
+                        # is recorded on this row only. Rows already sent in
+                        # this batch must still be committed as published.
+                        logger.exception(
+                            "Outbox row %s failed to publish", row.event_id
+                        )
                         row.last_error = str(exc)[:1000]
                         continue
 

@@ -1,8 +1,7 @@
-
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Index, Integer, JSON, String, func
+from sqlalchemy import JSON, DateTime, Index, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.config import settings

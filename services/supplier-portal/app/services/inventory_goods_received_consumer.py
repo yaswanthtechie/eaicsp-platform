@@ -93,9 +93,7 @@ class InventoryGoodsReceivedConsumer:
         for field, pattern in PAYLOAD_ID_PATTERNS.items():
             value = payload[field]
             if not isinstance(value, str) or not re.fullmatch(pattern, value):
-                raise ValueError(
-                    f"payload.{field} is not a canonical ID: {value!r}"
-                )
+                raise ValueError(f"payload.{field} is not a canonical ID: {value!r}")
 
         if payload["status"] != "received":
             raise ValueError("Receipt status must be received")
@@ -110,9 +108,7 @@ class InventoryGoodsReceivedConsumer:
             if not isinstance(sku_id, str) or not sku_id:
                 raise ValueError("item.sku_id is required")
             if not re.fullmatch(SKU_ID_PATTERN, sku_id):
-                raise ValueError(
-                    f"item.sku_id is not a canonical SKU ID: {sku_id!r}"
-                )
+                raise ValueError(f"item.sku_id is not a canonical SKU ID: {sku_id!r}")
             if type(quantity) is not int or quantity < 1:
                 raise ValueError("item.quantity_received must be a positive integer")
 
@@ -139,12 +135,10 @@ class InventoryGoodsReceivedConsumer:
             db.add(record)
             db.commit()
             return True
-        except IntegrityError:
+        except IntegrityError as exc:
             db.rollback()
             # Same event_id already committed: safe to acknowledge.
-            existing = db.get(
-                InventoryGoodsReceiptEvent, event["event_id"]
-            )
+            existing = db.get(InventoryGoodsReceiptEvent, event["event_id"])
             if existing is not None:
                 return False
 
@@ -152,8 +146,7 @@ class InventoryGoodsReceivedConsumer:
             # must never add its quantities to the match again.
             existing = db.scalars(
                 select(InventoryGoodsReceiptEvent).where(
-                    InventoryGoodsReceiptEvent.receipt_id
-                    == payload["receipt_id"]
+                    InventoryGoodsReceiptEvent.receipt_id == payload["receipt_id"]
                 )
             ).first()
             if existing is not None:
@@ -164,7 +157,7 @@ class InventoryGoodsReceivedConsumer:
                     f"receipt_id={payload['receipt_id']}: "
                     f"existing_event_id={existing.event_id}, "
                     f"incoming_event_id={event['event_id']}"
-                )
+                ) from exc
             raise
         finally:
             db.close()
@@ -270,10 +263,11 @@ class InventoryGoodsReceivedConsumer:
                 message = self.consumer.poll(1.0)
                 if message is None:
                     continue
-                if message.error():
-                    if message.error().code() == KafkaError._PARTITION_EOF:
+                error = message.error()
+                if error is not None:
+                    if error.code() == KafkaError._PARTITION_EOF:
                         continue
-                    raise RuntimeError(str(message.error()))
+                    raise RuntimeError(str(error))
 
                 # Failures that cannot be parked in the DLQ propagate: the
                 # runner restarts the consumer from the last committed

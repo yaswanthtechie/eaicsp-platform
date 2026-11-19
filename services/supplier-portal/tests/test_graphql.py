@@ -1,4 +1,4 @@
-﻿"""
+"""
 GraphQL API tests for the Supplier Portal.
 
 Covers:
@@ -19,31 +19,29 @@ Covers:
 """
 
 from datetime import date, datetime, timezone
+from uuid import uuid4
 
 import pytest
 
+from app.database import SessionLocal
+from app.models.po_ack_outbox import POAckOutbox
+from app.models.po_mirror import POMirror
+from app.schemas.events import (
+    SupplierComplianceStatus,
+    SupplierStatusChangedEvent,
+)
+from app.schemas.purchase_order import PurchaseOrderStatus
 from app.services.invoice_service import invoices
 from app.services.purchase_order_service import (
     purchase_orders,
+)
+from app.services.supplier_compliance_service import (
+    supplier_compliance_service,
 )
 from app.services.supplier_onboarding_service import (
     supplier_documents,
     suppliers,
 )
-from app.schemas.purchase_order import PurchaseOrderStatus
-from uuid import uuid4
-
-from app.schemas.events import (
-    SupplierComplianceStatus,
-    SupplierStatusChangedEvent,
-)
-from app.services.supplier_compliance_service import (
-    supplier_compliance_service,
-)
-from app.database import SessionLocal
-from app.models.po_mirror import POMirror
-from app.models.po_ack_outbox import POAckOutbox
-
 
 # ============================================================
 # GRAPHQL HELPER
@@ -72,6 +70,7 @@ def graphql(
 # TEST DATA HELPERS
 # ============================================================
 
+
 def seed_supplier(supplier_id: str = "SUP-00001") -> dict:
     supplier = {
         "supplier_id": supplier_id,
@@ -84,6 +83,7 @@ def seed_supplier(supplier_id: str = "SUP-00001") -> dict:
     supplier.pop("compliance_access_status", None)
 
     return supplier
+
 
 def set_compliance_status(
     supplier_id: str,
@@ -111,9 +111,7 @@ def set_compliance_status(
     try:
         new_status = status_mapping[status]
     except KeyError as exc:
-        raise ValueError(
-            f"Unsupported compliance status: {status!r}"
-        ) from exc
+        raise ValueError(f"Unsupported compliance status: {status!r}") from exc
 
     event_id = str(uuid4())
 
@@ -134,9 +132,7 @@ def set_compliance_status(
         },
     }
 
-    event = SupplierStatusChangedEvent.model_validate(
-        event_data
-    )
+    event = SupplierStatusChangedEvent.model_validate(event_data)
 
     # This persists the state and audit record in SQLite.
     supplier_compliance_service.apply_status_changed_event(event)
@@ -226,9 +222,7 @@ def seed_invoice(
         "history": [],
     }
 
-    invoices[
-        (supplier_id, invoice_number)
-    ] = invoice
+    invoices[(supplier_id, invoice_number)] = invoice
 
     return invoice
 
@@ -251,14 +245,9 @@ def seed_document(
         "document_id": document_id,
         "supplier_id": supplier_id,
         "document_type": document_type,
-        "file_name": (
-            f"{document_type}.pdf"
-        ),
+        "file_name": (f"{document_type}.pdf"),
         "document_path": (
-            "uploads/"
-            "supplier_onboarding/"
-            f"{supplier_id}/"
-            f"{document_type}.pdf"
+            f"uploads/supplier_onboarding/{supplier_id}/{document_type}.pdf"
         ),
         "status": "submitted",
         "uploaded_at": datetime(
@@ -291,9 +280,7 @@ def clean_graphql_data(tmp_path):
 
     # Give every test its own temporary SQLite database.
     original_db_path = supplier_compliance_service._db_path
-    supplier_compliance_service._db_path = (
-        tmp_path / "compliance_state.db"
-    )
+    supplier_compliance_service._db_path = tmp_path / "compliance_state.db"
 
     try:
         # Clear shared in-memory test data before each test.
@@ -316,6 +303,7 @@ def clean_graphql_data(tmp_path):
 
         # Restore the original database path.
         supplier_compliance_service._db_path = original_db_path
+
 
 # ============================================================
 # 1. GRAPHQL ENDPOINT / SCHEMA
@@ -359,13 +347,7 @@ def test_graphql_schema_exposes_required_query_fields(
     assert "errors" not in result
 
     field_names = {
-        field["name"]
-        for field in (
-            result["data"]
-            ["__schema"]
-            ["queryType"]
-            ["fields"]
-        )
+        field["name"] for field in (result["data"]["__schema"]["queryType"]["fields"])
     }
 
     assert "purchaseOrder" in field_names
@@ -398,22 +380,11 @@ def test_graphql_schema_exposes_acknowledge_mutation(
 
     field_names = {
         field["name"]
-        for field in (
-            result["data"]
-            ["__schema"]
-            ["mutationType"]
-            ["fields"]
-        )
+        for field in (result["data"]["__schema"]["mutationType"]["fields"])
     }
 
-    assert (
-        "acknowledgePurchaseOrder"
-        in field_names
-    )
-    assert (
-        "acknowledgeApprovedPurchaseOrder"
-        in field_names
-    )
+    assert "acknowledgePurchaseOrder" in field_names
+    assert "acknowledgeApprovedPurchaseOrder" in field_names
 
 
 # ============================================================
@@ -485,6 +456,7 @@ def test_supplier_can_query_own_purchase_order(
     assert po["items"][0]["quantity"] == 2
     assert po["items"][0]["unitPrice"] == 1000
 
+
 def test_supplier_can_query_own_approved_purchase_orders(
     supplier_client,
 ):
@@ -512,15 +484,10 @@ def test_supplier_can_query_own_approved_purchase_orders(
     pos = result["data"]["approvedPurchaseOrders"]
 
     assert any(
-        po["poId"] == "PO-2026-000123"
-        and po["supplierId"] == "SUP-00001"
-        for po in pos
+        po["poId"] == "PO-2026-000123" and po["supplierId"] == "SUP-00001" for po in pos
     )
 
-    assert all(
-        po["supplierId"] == "SUP-00001"
-        for po in pos
-    )
+    assert all(po["supplierId"] == "SUP-00001" for po in pos)
 
 
 def test_supplier_b_can_query_own_approved_purchase_orders(
@@ -546,15 +513,10 @@ def test_supplier_b_can_query_own_approved_purchase_orders(
     pos = result["data"]["approvedPurchaseOrders"]
 
     assert any(
-        po["poId"] == "PO-2026-000125"
-        and po["supplierId"] == "SUP-00002"
-        for po in pos
+        po["poId"] == "PO-2026-000125" and po["supplierId"] == "SUP-00002" for po in pos
     )
 
-    assert all(
-        po["supplierId"] == "SUP-00002"
-        for po in pos
-    )
+    assert all(po["supplierId"] == "SUP-00002" for po in pos)
 
 
 def test_supplier_without_supplier_id_cannot_query_approved_purchase_orders(
@@ -566,10 +528,7 @@ def test_supplier_without_supplier_id_cannot_query_approved_purchase_orders(
     )
 
     assert "errors" in result
-    assert (
-        "Supplier identity is missing"
-        in result["errors"][0]["message"]
-    )
+    assert "Supplier identity is missing" in result["errors"][0]["message"]
 
 
 def test_suspended_supplier_cannot_query_approved_purchase_orders(
@@ -597,7 +556,6 @@ def test_suspended_supplier_cannot_query_approved_purchase_orders(
     )
 
 
-
 def test_query_unknown_purchase_order_returns_null(
     supplier_client,
 ):
@@ -611,10 +569,7 @@ def test_query_unknown_purchase_order_returns_null(
 
     assert "errors" not in result
 
-    assert (
-        result["data"]["purchaseOrder"]
-        is None
-    )
+    assert result["data"]["purchaseOrder"] is None
 
 
 def test_supplier_cannot_query_other_supplier_purchase_order(
@@ -636,10 +591,7 @@ def test_supplier_cannot_query_other_supplier_purchase_order(
     assert "errors" not in result
 
     # Critical Milestone 3 security requirement.
-    assert (
-        result["data"]["purchaseOrder"]
-        is None
-    )
+    assert result["data"]["purchaseOrder"] is None
 
 
 def test_supplier_b_can_query_own_purchase_order(
@@ -725,18 +677,11 @@ def test_purchase_order_list_is_supplier_scoped(
 
     assert "errors" not in result
 
-    edges = (
-        result["data"]
-        ["purchaseOrders"]
-        ["edges"]
-    )
+    edges = result["data"]["purchaseOrders"]["edges"]
 
     assert len(edges) == 2
 
-    supplier_ids = {
-        edge["node"]["supplierId"]
-        for edge in edges
-    }
+    supplier_ids = {edge["node"]["supplierId"] for edge in edges}
 
     assert supplier_ids == {"SUP-00001"}
 
@@ -763,16 +708,9 @@ def test_purchase_order_list_does_not_leak_other_supplier(
 
     assert "errors" not in result
 
-    edges = (
-        result["data"]
-        ["purchaseOrders"]
-        ["edges"]
-    )
+    edges = result["data"]["purchaseOrders"]["edges"]
 
-    po_numbers = {
-        edge["node"]["poNumber"]
-        for edge in edges
-    }
+    po_numbers = {edge["node"]["poNumber"] for edge in edges}
 
     assert "PO-SUP001-001" in po_numbers
     assert "PO-SUP002-001" not in po_numbers
@@ -804,22 +742,12 @@ def test_purchase_order_cursor_pagination(
 
     assert "errors" not in first_page
 
-    connection = (
-        first_page["data"]
-        ["purchaseOrders"]
-    )
+    connection = first_page["data"]["purchaseOrders"]
 
     assert len(connection["edges"]) == 2
-    assert (
-        connection["pageInfo"]
-        ["hasNextPage"]
-        is True
-    )
+    assert connection["pageInfo"]["hasNextPage"] is True
 
-    end_cursor = (
-        connection["pageInfo"]
-        ["endCursor"]
-    )
+    end_cursor = connection["pageInfo"]["endCursor"]
 
     assert end_cursor is not None
 
@@ -834,20 +762,11 @@ def test_purchase_order_cursor_pagination(
 
     assert "errors" not in second_page
 
-    second_connection = (
-        second_page["data"]
-        ["purchaseOrders"]
-    )
+    second_connection = second_page["data"]["purchaseOrders"]
 
-    assert len(
-        second_connection["edges"]
-    ) == 1
+    assert len(second_connection["edges"]) == 1
 
-    assert (
-        second_connection["pageInfo"]
-        ["hasNextPage"]
-        is False
-    )
+    assert second_connection["pageInfo"]["hasNextPage"] is False
 
 
 @pytest.mark.parametrize(
@@ -926,8 +845,7 @@ def test_supplier_can_query_own_invoice(
         supplier_client,
         INVOICE_QUERY,
         {
-            "invoiceNumber":
-                "INV-GQL-001",
+            "invoiceNumber": "INV-GQL-001",
         },
     )
 
@@ -936,20 +854,11 @@ def test_supplier_can_query_own_invoice(
     invoice = result["data"]["invoice"]
 
     assert invoice is not None
-    assert (
-        invoice["invoiceNumber"]
-        == "INV-GQL-001"
-    )
-    assert (
-        invoice["supplierId"]
-        == "SUP-00001"
-    )
+    assert invoice["invoiceNumber"] == "INV-GQL-001"
+    assert invoice["supplierId"] == "SUP-00001"
     assert invoice["amount"] == 2000
     assert len(invoice["items"]) == 1
-    assert (
-        invoice["items"][0]["itemCode"]
-        == "ITEM001"
-    )
+    assert invoice["items"][0]["itemCode"] == "ITEM001"
 
 
 def test_query_unknown_invoice_returns_null(
@@ -959,17 +868,13 @@ def test_query_unknown_invoice_returns_null(
         supplier_client,
         INVOICE_QUERY,
         {
-            "invoiceNumber":
-                "DOES-NOT-EXIST",
+            "invoiceNumber": "DOES-NOT-EXIST",
         },
     )
 
     assert "errors" not in result
 
-    assert (
-        result["data"]["invoice"]
-        is None
-    )
+    assert result["data"]["invoice"] is None
 
 
 def test_supplier_cannot_query_other_supplier_invoice(
@@ -984,17 +889,13 @@ def test_supplier_cannot_query_other_supplier_invoice(
         supplier_client,
         INVOICE_QUERY,
         {
-            "invoiceNumber":
-                "INV-SUP002-001",
+            "invoiceNumber": "INV-SUP002-001",
         },
     )
 
     assert "errors" not in result
 
-    assert (
-        result["data"]["invoice"]
-        is None
-    )
+    assert result["data"]["invoice"] is None
 
 
 def test_supplier_cannot_query_other_supplier_invoice_even_when_both_exist(
@@ -1014,17 +915,13 @@ def test_supplier_cannot_query_other_supplier_invoice_even_when_both_exist(
         supplier_client,
         INVOICE_QUERY,
         {
-            "invoiceNumber":
-                "INV-SUP002-001",
+            "invoiceNumber": "INV-SUP002-001",
         },
     )
 
     assert "errors" not in result
 
-    assert (
-        result["data"]["invoice"]
-        is None
-    )
+    assert result["data"]["invoice"] is None
 
 
 def test_supplier_b_can_query_own_invoice(
@@ -1039,8 +936,7 @@ def test_supplier_b_can_query_own_invoice(
         supplier_b_client,
         INVOICE_QUERY,
         {
-            "invoiceNumber":
-                "INV-SUP002-001",
+            "invoiceNumber": "INV-SUP002-001",
         },
     )
 
@@ -1049,14 +945,8 @@ def test_supplier_b_can_query_own_invoice(
     invoice = result["data"]["invoice"]
 
     assert invoice is not None
-    assert (
-        invoice["invoiceNumber"]
-        == "INV-SUP002-001"
-    )
-    assert (
-        invoice["supplierId"]
-        == "SUP-00002"
-    )
+    assert invoice["invoiceNumber"] == "INV-SUP002-001"
+    assert invoice["supplierId"] == "SUP-00002"
 
 
 # ============================================================
@@ -1117,18 +1007,11 @@ def test_invoice_list_is_supplier_scoped(
 
     assert "errors" not in result
 
-    edges = (
-        result["data"]
-        ["invoices"]
-        ["edges"]
-    )
+    edges = result["data"]["invoices"]["edges"]
 
     assert len(edges) == 2
 
-    supplier_ids = {
-        edge["node"]["supplierId"]
-        for edge in edges
-    }
+    supplier_ids = {edge["node"]["supplierId"] for edge in edges}
 
     assert supplier_ids == {"SUP-00001"}
 
@@ -1155,26 +1038,13 @@ def test_invoice_list_does_not_leak_other_supplier(
 
     assert "errors" not in result
 
-    edges = (
-        result["data"]
-        ["invoices"]
-        ["edges"]
-    )
+    edges = result["data"]["invoices"]["edges"]
 
-    invoice_numbers = {
-        edge["node"]["invoiceNumber"]
-        for edge in edges
-    }
+    invoice_numbers = {edge["node"]["invoiceNumber"] for edge in edges}
 
-    assert (
-        "INV-SUP001-001"
-        in invoice_numbers
-    )
+    assert "INV-SUP001-001" in invoice_numbers
 
-    assert (
-        "INV-SUP002-001"
-        not in invoice_numbers
-    )
+    assert "INV-SUP002-001" not in invoice_numbers
 
 
 def test_invoice_cursor_pagination(
@@ -1203,25 +1073,13 @@ def test_invoice_cursor_pagination(
 
     assert "errors" not in first_page
 
-    connection = (
-        first_page["data"]
-        ["invoices"]
-    )
+    connection = first_page["data"]["invoices"]
 
-    assert len(
-        connection["edges"]
-    ) == 2
+    assert len(connection["edges"]) == 2
 
-    assert (
-        connection["pageInfo"]
-        ["hasNextPage"]
-        is True
-    )
+    assert connection["pageInfo"]["hasNextPage"] is True
 
-    end_cursor = (
-        connection["pageInfo"]
-        ["endCursor"]
-    )
+    end_cursor = connection["pageInfo"]["endCursor"]
 
     assert end_cursor is not None
 
@@ -1236,20 +1094,11 @@ def test_invoice_cursor_pagination(
 
     assert "errors" not in second_page
 
-    second_connection = (
-        second_page["data"]
-        ["invoices"]
-    )
+    second_connection = second_page["data"]["invoices"]
 
-    assert len(
-        second_connection["edges"]
-    ) == 1
+    assert len(second_connection["edges"]) == 1
 
-    assert (
-        second_connection["pageInfo"]
-        ["hasNextPage"]
-        is False
-    )
+    assert second_connection["pageInfo"]["hasNextPage"] is False
 
 
 @pytest.mark.parametrize(
@@ -1340,32 +1189,16 @@ def test_supplier_can_query_own_documents(
 
     assert "errors" not in result
 
-    edges = (
-        result["data"]
-        ["documents"]
-        ["edges"]
-    )
+    edges = result["data"]["documents"]["edges"]
 
     assert len(edges) == 1
 
     document = edges[0]["node"]
 
-    assert (
-        document["documentId"]
-        == "DOC-GQL-001"
-    )
-    assert (
-        document["supplierId"]
-        == "SUP-00001"
-    )
-    assert (
-        document["documentType"]
-        == "pan_card"
-    )
-    assert (
-        document["fileName"]
-        == "pan_card.pdf"
-    )
+    assert document["documentId"] == "DOC-GQL-001"
+    assert document["supplierId"] == "SUP-00001"
+    assert document["documentType"] == "pan_card"
+    assert document["fileName"] == "pan_card.pdf"
     assert document["status"] == "submitted"
     assert document["uploadedBy"] == "8"
 
@@ -1393,28 +1226,15 @@ def test_documents_do_not_leak_other_supplier(
 
     assert "errors" not in result
 
-    edges = (
-        result["data"]
-        ["documents"]
-        ["edges"]
-    )
+    edges = result["data"]["documents"]["edges"]
 
     assert len(edges) == 1
 
-    document_ids = {
-        edge["node"]["documentId"]
-        for edge in edges
-    }
+    document_ids = {edge["node"]["documentId"] for edge in edges}
 
-    assert (
-        "DOC-SUP001-001"
-        in document_ids
-    )
+    assert "DOC-SUP001-001" in document_ids
 
-    assert (
-        "DOC-SUP002-001"
-        not in document_ids
-    )
+    assert "DOC-SUP002-001" not in document_ids
 
 
 def test_supplier_b_can_query_own_documents(
@@ -1440,18 +1260,11 @@ def test_supplier_b_can_query_own_documents(
 
     assert "errors" not in result
 
-    edges = (
-        result["data"]
-        ["documents"]
-        ["edges"]
-    )
+    edges = result["data"]["documents"]["edges"]
 
     assert len(edges) == 1
 
-    assert (
-        edges[0]["node"]["supplierId"]
-        == "SUP-00002"
-    )
+    assert edges[0]["node"]["supplierId"] == "SUP-00002"
 
 
 def test_document_cursor_pagination(
@@ -1485,25 +1298,13 @@ def test_document_cursor_pagination(
 
     assert "errors" not in first_page
 
-    connection = (
-        first_page["data"]
-        ["documents"]
-    )
+    connection = first_page["data"]["documents"]
 
-    assert len(
-        connection["edges"]
-    ) == 2
+    assert len(connection["edges"]) == 2
 
-    assert (
-        connection["pageInfo"]
-        ["hasNextPage"]
-        is True
-    )
+    assert connection["pageInfo"]["hasNextPage"] is True
 
-    end_cursor = (
-        connection["pageInfo"]
-        ["endCursor"]
-    )
+    end_cursor = connection["pageInfo"]["endCursor"]
 
     assert end_cursor is not None
 
@@ -1518,20 +1319,11 @@ def test_document_cursor_pagination(
 
     assert "errors" not in second_page
 
-    second_connection = (
-        second_page["data"]
-        ["documents"]
-    )
+    second_connection = second_page["data"]["documents"]
 
-    assert len(
-        second_connection["edges"]
-    ) == 1
+    assert len(second_connection["edges"]) == 1
 
-    assert (
-        second_connection["pageInfo"]
-        ["hasNextPage"]
-        is False
-    )
+    assert second_connection["pageInfo"]["hasNextPage"] is False
 
 
 @pytest.mark.parametrize(
@@ -1572,6 +1364,7 @@ def test_document_pagination_rejects_invalid_cursor(
 # 7. SUPPLIER WITHOUT SUPPLIER_ID
 # ============================================================
 
+
 def test_supplier_without_supplier_id_cannot_query_purchase_orders(
     supplier_no_id_client,
 ):
@@ -1590,10 +1383,8 @@ def test_supplier_without_supplier_id_cannot_query_purchase_orders(
 
     assert "errors" in result
 
-    assert (
-        "Supplier identity is missing"
-        in result["errors"][0]["message"]
-    )
+    assert "Supplier identity is missing" in result["errors"][0]["message"]
+
 
 def test_supplier_without_supplier_id_cannot_query_single_purchase_order(
     supplier_no_id_client,
@@ -1607,17 +1398,14 @@ def test_supplier_without_supplier_id_cannot_query_single_purchase_order(
         supplier_no_id_client,
         PURCHASE_ORDER_QUERY,
         {
-            "poNumber":
-                "PO-SUP001-SINGLE",
+            "poNumber": "PO-SUP001-SINGLE",
         },
     )
 
     assert "errors" in result
 
-    assert (
-        "Supplier identity is missing"
-        in result["errors"][0]["message"]
-    )
+    assert "Supplier identity is missing" in result["errors"][0]["message"]
+
 
 def test_supplier_without_supplier_id_cannot_query_invoices(
     supplier_no_id_client,
@@ -1637,10 +1425,8 @@ def test_supplier_without_supplier_id_cannot_query_invoices(
 
     assert "errors" in result
 
-    assert (
-        "Supplier identity is missing"
-        in result["errors"][0]["message"]
-    )
+    assert "Supplier identity is missing" in result["errors"][0]["message"]
+
 
 def test_supplier_without_supplier_id_cannot_query_single_invoice(
     supplier_no_id_client,
@@ -1654,17 +1440,14 @@ def test_supplier_without_supplier_id_cannot_query_single_invoice(
         supplier_no_id_client,
         INVOICE_QUERY,
         {
-            "invoiceNumber":
-                "INV-SUP001-SINGLE",
+            "invoiceNumber": "INV-SUP001-SINGLE",
         },
     )
 
     assert "errors" in result
 
-    assert (
-        "Supplier identity is missing"
-        in result["errors"][0]["message"]
-    )
+    assert "Supplier identity is missing" in result["errors"][0]["message"]
+
 
 def test_supplier_without_supplier_id_cannot_query_documents(
     supplier_no_id_client,
@@ -1684,10 +1467,7 @@ def test_supplier_without_supplier_id_cannot_query_documents(
 
     assert "errors" in result
 
-    assert (
-        "Supplier identity is missing"
-        in result["errors"][0]["message"]
-    )
+    assert "Supplier identity is missing" in result["errors"][0]["message"]
 
 
 # ============================================================
@@ -1724,40 +1504,24 @@ def test_supplier_can_acknowledge_own_purchase_order(
         supplier_client,
         ACKNOWLEDGE_MUTATION,
         {
-            "poNumber":
-                "PO-GQL-ACK-001",
+            "poNumber": "PO-GQL-ACK-001",
         },
     )
 
     assert "errors" not in result
 
-    po = (
-        result["data"]
-        ["acknowledgePurchaseOrder"]
-    )
+    po = result["data"]["acknowledgePurchaseOrder"]
 
     assert po is not None
 
-    assert (
-        po["poNumber"]
-        == "PO-GQL-ACK-001"
-    )
+    assert po["poNumber"] == "PO-GQL-ACK-001"
+
+    assert po["supplierId"] == "SUP-00001"
+
+    assert po["status"] == "ACKNOWLEDGED"
 
     assert (
-        po["supplierId"]
-        == "SUP-00001"
-    )
-
-    assert (
-        po["status"]
-        == "ACKNOWLEDGED"
-    )
-
-    assert (
-        purchase_orders[
-            "PO-GQL-ACK-001"
-        ]["status"]
-        == PurchaseOrderStatus.acknowledged
+        purchase_orders["PO-GQL-ACK-001"]["status"] == PurchaseOrderStatus.acknowledged
     )
 
 
@@ -1792,27 +1556,21 @@ def test_supplier_can_acknowledge_own_approved_purchase_order(
 
     db = SessionLocal()
     try:
-        saved_po = db.query(POMirror).filter(
-            POMirror.po_id == po_id
-        ).one()
+        saved_po = db.query(POMirror).filter(POMirror.po_id == po_id).one()
 
         assert saved_po.status == "acknowledged"
         assert saved_po.acknowledged_at is not None
 
-        outbox_events = db.query(POAckOutbox).filter(
-            POAckOutbox.message_key == po_id
-        ).all()
+        outbox_events = (
+            db.query(POAckOutbox).filter(POAckOutbox.message_key == po_id).all()
+        )
 
         assert len(outbox_events) == 1
         assert outbox_events[0].status == "pending"
         assert (
-            outbox_events[0].payload["event_type"]
-            == "supplierportal.po.acknowledged"
+            outbox_events[0].payload["event_type"] == "supplierportal.po.acknowledged"
         )
-        assert (
-            outbox_events[0].payload["payload"]["po_number"]
-            == po_id
-        )
+        assert outbox_events[0].payload["payload"]["po_number"] == po_id
     finally:
         db.close()
 
@@ -1832,10 +1590,7 @@ def test_acknowledge_unknown_approved_po_returns_null(
     )
 
     assert "errors" not in result
-    assert (
-        result["data"]["acknowledgeApprovedPurchaseOrder"]
-        is None
-    )
+    assert result["data"]["acknowledgeApprovedPurchaseOrder"] is None
 
 
 def test_supplier_cannot_acknowledge_another_suppliers_approved_po(
@@ -1858,23 +1613,18 @@ def test_supplier_cannot_acknowledge_another_suppliers_approved_po(
     )
 
     assert "errors" not in result
-    assert (
-        result["data"]["acknowledgeApprovedPurchaseOrder"]
-        is None
-    )
+    assert result["data"]["acknowledgeApprovedPurchaseOrder"] is None
 
     db = SessionLocal()
     try:
-        saved_po = db.query(POMirror).filter(
-            POMirror.po_id == po_id
-        ).one()
+        saved_po = db.query(POMirror).filter(POMirror.po_id == po_id).one()
 
         assert saved_po.status == "approved"
         assert saved_po.acknowledged_at is None
 
-        assert db.query(POAckOutbox).filter(
-            POAckOutbox.message_key == po_id
-        ).count() == 0
+        assert (
+            db.query(POAckOutbox).filter(POAckOutbox.message_key == po_id).count() == 0
+        )
     finally:
         db.close()
 
@@ -1900,22 +1650,19 @@ def test_needs_review_supplier_cannot_acknowledge_approved_po(
 
     assert "errors" in result
     assert (
-        "Supplier account is under compliance review"
-        in result["errors"][0]["message"]
+        "Supplier account is under compliance review" in result["errors"][0]["message"]
     )
 
     db = SessionLocal()
     try:
-        saved_po = db.query(POMirror).filter(
-            POMirror.po_id == po_id
-        ).one()
+        saved_po = db.query(POMirror).filter(POMirror.po_id == po_id).one()
 
         assert saved_po.status == "approved"
         assert saved_po.acknowledged_at is None
 
-        assert db.query(POAckOutbox).filter(
-            POAckOutbox.message_key == po_id
-        ).count() == 0
+        assert (
+            db.query(POAckOutbox).filter(POAckOutbox.message_key == po_id).count() == 0
+        )
     finally:
         db.close()
 
@@ -1947,16 +1694,14 @@ def test_suspended_supplier_cannot_acknowledge_approved_po(
 
     db = SessionLocal()
     try:
-        saved_po = db.query(POMirror).filter(
-            POMirror.po_id == po_id
-        ).one()
+        saved_po = db.query(POMirror).filter(POMirror.po_id == po_id).one()
 
         assert saved_po.status == "approved"
         assert saved_po.acknowledged_at is None
 
-        assert db.query(POAckOutbox).filter(
-            POAckOutbox.message_key == po_id
-        ).count() == 0
+        assert (
+            db.query(POAckOutbox).filter(POAckOutbox.message_key == po_id).count() == 0
+        )
     finally:
         db.close()
 
@@ -2000,9 +1745,9 @@ def test_repeated_approved_po_acknowledgement_does_not_duplicate_outbox_event(
 
     db = SessionLocal()
     try:
-        assert db.query(POAckOutbox).filter(
-            POAckOutbox.message_key == po_id
-        ).count() == 1
+        assert (
+            db.query(POAckOutbox).filter(POAckOutbox.message_key == po_id).count() == 1
+        )
     finally:
         db.close()
 
@@ -2023,24 +1768,22 @@ def test_internal_user_cannot_acknowledge_approved_po(
 
     assert "errors" in result
     assert (
-        "Only suppliers can acknowledge approved POs"
-        in result["errors"][0]["message"]
+        "Only suppliers can acknowledge approved POs" in result["errors"][0]["message"]
     )
 
     db = SessionLocal()
     try:
-        saved_po = db.query(POMirror).filter(
-            POMirror.po_id == po_id
-        ).one()
+        saved_po = db.query(POMirror).filter(POMirror.po_id == po_id).one()
 
         assert saved_po.status == "approved"
         assert saved_po.acknowledged_at is None
 
-        assert db.query(POAckOutbox).filter(
-            POAckOutbox.message_key == po_id
-        ).count() == 0
+        assert (
+            db.query(POAckOutbox).filter(POAckOutbox.message_key == po_id).count() == 0
+        )
     finally:
         db.close()
+
 
 def test_acknowledge_unknown_purchase_order_returns_null(
     supplier_client,
@@ -2049,18 +1792,13 @@ def test_acknowledge_unknown_purchase_order_returns_null(
         supplier_client,
         ACKNOWLEDGE_MUTATION,
         {
-            "poNumber":
-                "DOES-NOT-EXIST",
+            "poNumber": "DOES-NOT-EXIST",
         },
     )
 
     assert "errors" not in result
 
-    assert (
-        result["data"]
-        ["acknowledgePurchaseOrder"]
-        is None
-    )
+    assert result["data"]["acknowledgePurchaseOrder"] is None
 
 
 def test_supplier_cannot_acknowledge_other_supplier_purchase_order(
@@ -2076,25 +1814,15 @@ def test_supplier_cannot_acknowledge_other_supplier_purchase_order(
         supplier_client,
         ACKNOWLEDGE_MUTATION,
         {
-            "poNumber":
-                "PO-SUP002-ACK-001",
+            "poNumber": "PO-SUP002-ACK-001",
         },
     )
 
     assert "errors" not in result
 
-    assert (
-        result["data"]
-        ["acknowledgePurchaseOrder"]
-        is None
-    )
+    assert result["data"]["acknowledgePurchaseOrder"] is None
 
-    assert (
-        purchase_orders[
-            "PO-SUP002-ACK-001"
-        ]["status"]
-        == PurchaseOrderStatus.sent
-    )
+    assert purchase_orders["PO-SUP002-ACK-001"]["status"] == PurchaseOrderStatus.sent
 
 
 def test_cross_supplier_acknowledge_does_not_modify_purchase_order(
@@ -2106,43 +1834,25 @@ def test_cross_supplier_acknowledge_does_not_modify_purchase_order(
         status=PurchaseOrderStatus.sent,
     )
 
-    original_history = list(
-        po["history"]
-    )
+    original_history = list(po["history"])
 
     result = graphql(
         supplier_client,
         ACKNOWLEDGE_MUTATION,
         {
-            "poNumber":
-                "PO-SUP002-ACK-002",
+            "poNumber": "PO-SUP002-ACK-002",
         },
     )
 
     assert "errors" not in result
 
-    assert (
-        result["data"]
-        ["acknowledgePurchaseOrder"]
-        is None
-    )
+    assert result["data"]["acknowledgePurchaseOrder"] is None
 
     # Unauthorized mutation must not change
     # the target PO.
-    assert (
-        purchase_orders[
-            "PO-SUP002-ACK-002"
-        ]["status"]
-        == PurchaseOrderStatus.sent
-    )
+    assert purchase_orders["PO-SUP002-ACK-002"]["status"] == PurchaseOrderStatus.sent
 
-    assert (
-        purchase_orders[
-            "PO-SUP002-ACK-002"
-        ]["history"]
-        == original_history
-        == []
-    )
+    assert purchase_orders["PO-SUP002-ACK-002"]["history"] == original_history == []
 
 
 def test_supplier_b_can_acknowledge_own_purchase_order(
@@ -2158,34 +1868,21 @@ def test_supplier_b_can_acknowledge_own_purchase_order(
         supplier_b_client,
         ACKNOWLEDGE_MUTATION,
         {
-            "poNumber":
-                "PO-SUP002-ACK-003",
+            "poNumber": "PO-SUP002-ACK-003",
         },
     )
 
     assert "errors" not in result
 
-    po = (
-        result["data"]
-        ["acknowledgePurchaseOrder"]
-    )
+    po = result["data"]["acknowledgePurchaseOrder"]
 
     assert po is not None
 
-    assert (
-        po["poNumber"]
-        == "PO-SUP002-ACK-003"
-    )
+    assert po["poNumber"] == "PO-SUP002-ACK-003"
 
-    assert (
-        po["supplierId"]
-        == "SUP-00002"
-    )
+    assert po["supplierId"] == "SUP-00002"
 
-    assert (
-        po["status"]
-        == "ACKNOWLEDGED"
-    )
+    assert po["status"] == "ACKNOWLEDGED"
 
 
 # ============================================================
@@ -2227,11 +1924,14 @@ mutation AcknowledgeApprovedPurchaseOrder($poId: String!) {
     }
 }
 """
+
+
 @pytest.fixture(autouse=True)
 def approved_po_db(po_db, monkeypatch):
     """Point this module's SessionLocal at the in-memory po_db."""
     monkeypatch.setitem(globals(), "SessionLocal", po_db)
     yield po_db
+
 
 def seed_approved_po(
     po_id: str,
@@ -2244,17 +1944,15 @@ def seed_approved_po(
 
     try:
         # Keep repeated test runs deterministic for this PO ID.
-        db.query(POAckOutbox).filter(
-            POAckOutbox.message_key == po_id
-        ).delete(synchronize_session=False)
-
-        db.query(POMirror).filter(
-            POMirror.po_id == po_id
-        ).delete(synchronize_session=False)
-
-        approved_at = datetime(
-            2026, 10, 21, 10, 0, tzinfo=timezone.utc
+        db.query(POAckOutbox).filter(POAckOutbox.message_key == po_id).delete(
+            synchronize_session=False
         )
+
+        db.query(POMirror).filter(POMirror.po_id == po_id).delete(
+            synchronize_session=False
+        )
+
+        approved_at = datetime(2026, 10, 21, 10, 0, tzinfo=timezone.utc)
 
         po = POMirror(
             po_id=po_id,
@@ -2300,6 +1998,7 @@ def seed_approved_po(
 # ============================================================
 # 9. CROSS-SUPPLIER COMBINED SECURITY TEST
 # ============================================================
+
 
 def test_supplier_a_cannot_access_supplier_b_graphql_resources(
     supplier_client,
@@ -2371,32 +2070,21 @@ def test_supplier_a_cannot_access_supplier_b_graphql_resources(
     assert "errors" not in documents_result
 
     # Supplier A cannot access Supplier B's PO.
-    assert (
-        po_result["data"]["purchaseOrder"]
-        is None
-    )
+    assert po_result["data"]["purchaseOrder"] is None
 
     # Supplier A cannot access Supplier B's invoice.
-    assert (
-        invoice_result["data"]["invoice"]
-        is None
-    )
+    assert invoice_result["data"]["invoice"] is None
 
     # Supplier A's document list must not contain
     # Supplier B's document.
     document_ids = {
         edge["node"]["documentId"]
-        for edge in (
-            documents_result["data"]
-            ["documents"]
-            ["edges"]
-        )
+        for edge in (documents_result["data"]["documents"]["edges"])
     }
 
-    assert (
-        "DOC-SUP002-SECURITY"
-        not in document_ids
-    )
+    assert "DOC-SUP002-SECURITY" not in document_ids
+
+
 # ============================================================
 # 10. PAGINATION MUST HAPPEN AFTER SUPPLIER FILTERING
 # ============================================================
@@ -2440,26 +2128,15 @@ def test_purchase_order_pagination_is_applied_after_supplier_scoping(
 
     assert "errors" not in result
 
-    connection = (
-        result["data"]
-        ["purchaseOrders"]
-    )
+    connection = result["data"]["purchaseOrders"]
 
-    assert len(
-        connection["edges"]
-    ) == 2
+    assert len(connection["edges"]) == 2
 
     assert all(
-        edge["node"]["supplierId"]
-        == "SUP-00001"
-        for edge in connection["edges"]
+        edge["node"]["supplierId"] == "SUP-00001" for edge in connection["edges"]
     )
 
-    assert (
-        connection["pageInfo"]
-        ["hasNextPage"]
-        is False
-    )
+    assert connection["pageInfo"]["hasNextPage"] is False
 
 
 def test_invoice_pagination_is_applied_after_supplier_scoping(
@@ -2498,26 +2175,15 @@ def test_invoice_pagination_is_applied_after_supplier_scoping(
 
     assert "errors" not in result
 
-    connection = (
-        result["data"]
-        ["invoices"]
-    )
+    connection = result["data"]["invoices"]
 
-    assert len(
-        connection["edges"]
-    ) == 2
+    assert len(connection["edges"]) == 2
 
     assert all(
-        edge["node"]["supplierId"]
-        == "SUP-00001"
-        for edge in connection["edges"]
+        edge["node"]["supplierId"] == "SUP-00001" for edge in connection["edges"]
     )
 
-    assert (
-        connection["pageInfo"]
-        ["hasNextPage"]
-        is False
-    )
+    assert connection["pageInfo"]["hasNextPage"] is False
 
 
 def test_document_pagination_is_applied_after_supplier_scoping(
@@ -2556,26 +2222,16 @@ def test_document_pagination_is_applied_after_supplier_scoping(
 
     assert "errors" not in result
 
-    connection = (
-        result["data"]
-        ["documents"]
-    )
+    connection = result["data"]["documents"]
 
-    assert len(
-        connection["edges"]
-    ) == 2
+    assert len(connection["edges"]) == 2
 
     assert all(
-        edge["node"]["supplierId"]
-        == "SUP-00001"
-        for edge in connection["edges"]
+        edge["node"]["supplierId"] == "SUP-00001" for edge in connection["edges"]
     )
 
-    assert (
-        connection["pageInfo"]
-        ["hasNextPage"]
-        is False
-    )
+    assert connection["pageInfo"]["hasNextPage"] is False
+
 
 def test_internal_role_cannot_acknowledge_purchase_order(
     procurement_client,
@@ -2593,19 +2249,12 @@ def test_internal_role_cannot_acknowledge_purchase_order(
     )
 
     assert "errors" in result
-    assert "supplier access required" in (
-        result["errors"][0]["message"]
-    )
+    assert "supplier access required" in (result["errors"][0]["message"])
 
-    assert (
-        purchase_orders["PO-SUP001-ACK-INT"]["status"]
-        == PurchaseOrderStatus.sent
-    )
+    assert purchase_orders["PO-SUP001-ACK-INT"]["status"] == PurchaseOrderStatus.sent
 
-    assert (
-        purchase_orders["PO-SUP001-ACK-INT"]["history"]
-        == []
-    )
+    assert purchase_orders["PO-SUP001-ACK-INT"]["history"] == []
+
 
 def test_supplier_invoice_ignores_client_supplier_id(
     supplier_client,
@@ -2684,8 +2333,7 @@ def test_internal_user_requires_supplier_id_for_single_invoice(
     assert "errors" in result
 
     assert (
-        "supplierId is required for internal users."
-        in result["errors"][0]["message"]
+        "supplierId is required for internal users." in result["errors"][0]["message"]
     )
 
     assert result["data"]["invoice"] is None
@@ -2790,6 +2438,7 @@ def test_internal_user_gets_correct_invoice_when_invoice_number_is_shared(
     assert invoice["supplierId"] == "SUP-00002"
     assert invoice["amount"] == 2000
 
+
 # ============================================================
 # 11. ROUND-14 COMPLIANCE ACCESS ENFORCEMENT
 # ============================================================
@@ -2812,8 +2461,7 @@ def test_cleared_supplier_can_query_purchase_order(
         supplier_client,
         PURCHASE_ORDER_QUERY,
         {
-            "poNumber":
-                "PO-R14-CLEAR-001",
+            "poNumber": "PO-R14-CLEAR-001",
         },
     )
 
@@ -2842,8 +2490,7 @@ def test_needs_review_supplier_can_query_purchase_order(
         supplier_client,
         PURCHASE_ORDER_QUERY,
         {
-            "poNumber":
-                "PO-R14-REVIEW-001",
+            "poNumber": "PO-R14-REVIEW-001",
         },
     )
 
@@ -2872,8 +2519,7 @@ def test_suspended_supplier_cannot_query_purchase_order(
         supplier_client,
         PURCHASE_ORDER_QUERY,
         {
-            "poNumber":
-                "PO-R14-BLOCK-001",
+            "poNumber": "PO-R14-BLOCK-001",
         },
     )
 
@@ -2884,10 +2530,8 @@ def test_suspended_supplier_cannot_query_purchase_order(
         in result["errors"][0]["message"]
     )
 
-    assert (
-        result["data"]["purchaseOrder"]
-        is None
-    )
+    assert result["data"]["purchaseOrder"] is None
+
 
 def test_suspended_supplier_cannot_query_purchase_order_list(
     supplier_client,
@@ -2934,8 +2578,7 @@ def test_needs_review_supplier_can_query_invoices(
         supplier_client,
         INVOICE_QUERY,
         {
-            "invoiceNumber":
-                "INV-R14-REVIEW-001",
+            "invoiceNumber": "INV-R14-REVIEW-001",
         },
     )
 
@@ -2964,8 +2607,7 @@ def test_suspended_supplier_cannot_query_invoice(
         supplier_client,
         INVOICE_QUERY,
         {
-            "invoiceNumber":
-                "INV-R14-BLOCK-001",
+            "invoiceNumber": "INV-R14-BLOCK-001",
         },
     )
 
@@ -2976,10 +2618,8 @@ def test_suspended_supplier_cannot_query_invoice(
         in result["errors"][0]["message"]
     )
 
-    assert (
-        result["data"]["invoice"]
-        is None
-    )
+    assert result["data"]["invoice"] is None
+
 
 def test_suspended_supplier_cannot_query_invoice_list(
     supplier_client,
@@ -3006,6 +2646,7 @@ def test_suspended_supplier_cannot_query_invoice_list(
 
     assert result["data"] is None
 
+
 def test_needs_review_supplier_can_query_documents(
     supplier_client,
 ):
@@ -3029,18 +2670,12 @@ def test_needs_review_supplier_can_query_documents(
 
     assert "errors" not in result
 
-    edges = (
-        result["data"]
-        ["documents"]
-        ["edges"]
-    )
+    edges = result["data"]["documents"]["edges"]
 
     assert len(edges) == 1
 
-    assert (
-        edges[0]["node"]["supplierId"]
-        == "SUP-00001"
-    )
+    assert edges[0]["node"]["supplierId"] == "SUP-00001"
+
 
 def test_suspended_supplier_cannot_query_documents(
     supplier_client,
@@ -3066,7 +2701,8 @@ def test_suspended_supplier_cannot_query_documents(
     )
 
     assert result["data"] is None
-    
+
+
 def test_needs_review_supplier_cannot_acknowledge_purchase_order(
     supplier_client,
 ):
@@ -3085,32 +2721,22 @@ def test_needs_review_supplier_cannot_acknowledge_purchase_order(
         supplier_client,
         ACKNOWLEDGE_MUTATION,
         {
-            "poNumber":
-                "PO-R14-REVIEW-ACK-001",
+            "poNumber": "PO-R14-REVIEW-ACK-001",
         },
     )
 
     assert "errors" in result
 
     assert (
-        "Supplier account is under compliance review"
-        in result["errors"][0]["message"]
+        "Supplier account is under compliance review" in result["errors"][0]["message"]
     )
 
     # The PO must remain unchanged.
     assert (
-        purchase_orders[
-            "PO-R14-REVIEW-ACK-001"
-        ]["status"]
-        == PurchaseOrderStatus.sent
+        purchase_orders["PO-R14-REVIEW-ACK-001"]["status"] == PurchaseOrderStatus.sent
     )
 
-    assert (
-        purchase_orders[
-            "PO-R14-REVIEW-ACK-001"
-        ]["history"]
-        == []
-    )
+    assert purchase_orders["PO-R14-REVIEW-ACK-001"]["history"] == []
 
 
 def test_suspended_supplier_cannot_acknowledge_purchase_order(
@@ -3131,8 +2757,7 @@ def test_suspended_supplier_cannot_acknowledge_purchase_order(
         supplier_client,
         ACKNOWLEDGE_MUTATION,
         {
-            "poNumber":
-                "PO-R14-BLOCK-ACK-001",
+            "poNumber": "PO-R14-BLOCK-ACK-001",
         },
     )
 
@@ -3144,19 +2769,9 @@ def test_suspended_supplier_cannot_acknowledge_purchase_order(
     )
 
     # The PO must remain unchanged.
-    assert (
-        purchase_orders[
-            "PO-R14-BLOCK-ACK-001"
-        ]["status"]
-        == PurchaseOrderStatus.sent
-    )
+    assert purchase_orders["PO-R14-BLOCK-ACK-001"]["status"] == PurchaseOrderStatus.sent
 
-    assert (
-        purchase_orders[
-            "PO-R14-BLOCK-ACK-001"
-        ]["history"]
-        == []
-    )
+    assert purchase_orders["PO-R14-BLOCK-ACK-001"]["history"] == []
 
 
 def test_cleared_supplier_can_acknowledge_purchase_order_after_compliance_check(
@@ -3177,29 +2792,20 @@ def test_cleared_supplier_can_acknowledge_purchase_order_after_compliance_check(
         supplier_client,
         ACKNOWLEDGE_MUTATION,
         {
-            "poNumber":
-                "PO-R14-CLEAR-ACK-001",
+            "poNumber": "PO-R14-CLEAR-ACK-001",
         },
     )
 
     assert "errors" not in result
 
-    po = (
-        result["data"]
-        ["acknowledgePurchaseOrder"]
-    )
+    po = result["data"]["acknowledgePurchaseOrder"]
 
     assert po is not None
 
-    assert (
-        po["status"]
-        == "ACKNOWLEDGED"
-    )
+    assert po["status"] == "ACKNOWLEDGED"
 
     assert (
-        purchase_orders[
-            "PO-R14-CLEAR-ACK-001"
-        ]["status"]
+        purchase_orders["PO-R14-CLEAR-ACK-001"]["status"]
         == PurchaseOrderStatus.acknowledged
     )
 
@@ -3242,8 +2848,7 @@ def test_suspended_supplier_cannot_access_any_graphql_resource(
         supplier_client,
         PURCHASE_ORDER_QUERY,
         {
-            "poNumber":
-                "PO-R14-COMBINED-001",
+            "poNumber": "PO-R14-COMBINED-001",
         },
     )
 
@@ -3259,8 +2864,7 @@ def test_suspended_supplier_cannot_access_any_graphql_resource(
         supplier_client,
         INVOICE_QUERY,
         {
-            "invoiceNumber":
-                "INV-R14-COMBINED-001",
+            "invoiceNumber": "INV-R14-COMBINED-001",
         },
     )
 
@@ -3280,10 +2884,7 @@ def test_suspended_supplier_cannot_access_any_graphql_resource(
         },
     )
 
-    expected_message = (
-        "Supplier account is suspended due to "
-        "compliance status"
-    )
+    expected_message = "Supplier account is suspended due to compliance status"
 
     for result in [
         po_result,
@@ -3293,10 +2894,7 @@ def test_suspended_supplier_cannot_access_any_graphql_resource(
         document_result,
     ]:
         assert "errors" in result
-        assert (
-            expected_message
-            in result["errors"][0]["message"]
-        )
+        assert expected_message in result["errors"][0]["message"]
 
 
 def test_suspended_supplier_cannot_access_other_supplier_resources(
@@ -3331,8 +2929,7 @@ def test_suspended_supplier_cannot_access_other_supplier_resources(
         supplier_client,
         PURCHASE_ORDER_QUERY,
         {
-            "poNumber":
-                "PO-R14-OTHER-001",
+            "poNumber": "PO-R14-OTHER-001",
         },
     )
 
@@ -3340,8 +2937,7 @@ def test_suspended_supplier_cannot_access_other_supplier_resources(
         supplier_client,
         INVOICE_QUERY,
         {
-            "invoiceNumber":
-                "INV-R14-OTHER-001",
+            "invoiceNumber": "INV-R14-OTHER-001",
         },
     )
 
@@ -3353,26 +2949,13 @@ def test_suspended_supplier_cannot_access_other_supplier_resources(
         },
     )
 
-    expected_message = (
-        "Supplier account is suspended due to "
-        "compliance status"
-    )
+    expected_message = "Supplier account is suspended due to compliance status"
 
     assert "errors" in po_result
-    assert (
-        expected_message
-        in po_result["errors"][0]["message"]
-    )
+    assert expected_message in po_result["errors"][0]["message"]
 
     assert "errors" in invoice_result
-    assert (
-        expected_message
-        in invoice_result["errors"][0]["message"]
-    )
+    assert expected_message in invoice_result["errors"][0]["message"]
 
     assert "errors" in documents_result
-    assert (
-        expected_message
-        in documents_result["errors"][0]["message"]
-    )
-
+    assert expected_message in documents_result["errors"][0]["message"]

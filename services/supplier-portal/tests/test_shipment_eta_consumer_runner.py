@@ -88,9 +88,7 @@ def test_runner_restarts_after_consumer_failure():
             second_consumer,
         ]
 
-        first_consumer.run.side_effect = RuntimeError(
-            "Kafka connection failed"
-        )
+        first_consumer.run.side_effect = RuntimeError("Kafka connection failed")
 
         second_consumer.run.side_effect = stop_event.set
 
@@ -100,4 +98,3 @@ def test_runner_restarts_after_consumer_failure():
         first_consumer.run.assert_called_once()
         second_consumer.run.assert_called_once()
         wait_mock.assert_called_once_with(5)
-

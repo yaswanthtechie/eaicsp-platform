@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import logging
@@ -30,9 +29,7 @@ class POApprovedConsumerRunner:
                     self.consumer.run()
                 except Exception:
                     if not self._stopping.is_set():
-                        logger.exception(
-                            "Approved-PO consumer failed; restarting"
-                        )
+                        logger.exception("Approved-PO consumer failed; restarting")
                         self._stopping.wait(2)
 
         self._thread = Thread(

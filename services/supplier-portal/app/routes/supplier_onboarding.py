@@ -9,30 +9,37 @@ from fastapi import (
 )
 
 from app.core.auth import (
+    enforce_not_suspended_with_resolved_identity,
     require_roles,
     verify_token,
-    enforce_not_suspended_with_resolved_identity,
 )
-
 from app.core.config import settings
-
 from app.schemas.supplier_onboarding import (
+    SupplierActivationResponse,
     SupplierApprovalRequest,
     SupplierApprovalResponse,
-    SupplierDocumentResponse,
     SupplierDocumentDownloadResponse,
+    SupplierDocumentResponse,
     SupplierOnboardingHistory,
     SupplierOnboardingResponse,
     SupplierRegistration,
     SupplierStatusResponse,
-    SupplierActivationResponse,
     SupplierVerificationResponse,
 )
-
+from app.services.compliance_client import (
+    ComplianceBlockedError,
+    ComplianceServiceError,
+    ComplianceServiceUnavailableError,
+)
+from app.services.document_storage_service import (
+    DocumentStorageError,
+    document_storage_service,
+)
 from app.services.supplier_onboarding_service import (
     activate_supplier,
     approve_supplier,
     get_supplier,
+    get_supplier_document,
     get_supplier_history,
     get_supplier_status,
     list_supplier_documents,
@@ -40,31 +47,18 @@ from app.services.supplier_onboarding_service import (
     register_supplier,
     upload_supplier_document,
     verify_supplier,
-    get_supplier_document,
-)
-
-from app.services.document_storage_service import (
-    DocumentStorageError,
-    document_storage_service,
-)
-
-from app.services.compliance_client import (
-    ComplianceBlockedError,
-    ComplianceServiceError,
-    ComplianceServiceUnavailableError,
 )
 
 router = APIRouter(
     prefix="/suppliers",
-    dependencies=[
-        Depends(enforce_not_suspended_with_resolved_identity)
-    ],
+    dependencies=[Depends(enforce_not_suspended_with_resolved_identity)],
 )
 
 
 # ============================================================
 # COMMON SUPPLIER IDENTITY VALIDATION
 # ============================================================
+
 
 def validate_supplier_identity(user: dict):
     """
@@ -88,6 +82,7 @@ def validate_supplier_identity(user: dict):
 # ============================================================
 # COMMON SUPPLIER SCOPING
 # ============================================================
+
 
 def check_supplier_access(
     supplier_id: str,
@@ -122,6 +117,7 @@ def check_supplier_access(
 # COMMON ACTOR VALIDATION
 # ============================================================
 
+
 def get_actor_details(user: dict):
     """
     Get authenticated actor information from Platform auth.
@@ -150,6 +146,7 @@ def get_actor_details(user: dict):
 # 1. REGISTER SUPPLIER
 # ============================================================
 
+
 @router.post(
     "/register",
     response_model=SupplierOnboardingResponse,
@@ -157,9 +154,7 @@ def get_actor_details(user: dict):
 )
 def register_supplier_endpoint(
     registration: SupplierRegistration,
-    user=Depends(
-        require_roles("procurement_manager")
-    ),
+    user=Depends(require_roles("procurement_manager")),
 ):
     actor_id, actor_name, role = get_actor_details(user)
 
@@ -175,12 +170,13 @@ def register_supplier_endpoint(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
-        )
+        ) from exc
 
 
 # ============================================================
 # 2. GET SUPPLIER DETAILS
 # ============================================================
+
 
 @router.get(
     "/{supplier_id}",
@@ -202,15 +198,13 @@ def get_supplier_endpoint(
 
     # Only after authorization, check whether the supplier exists.
     try:
-        supplier = get_supplier(
-            supplier_id
-        )
+        supplier = get_supplier(supplier_id)
 
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
-        )
+        ) from exc
 
     return supplier
 
@@ -246,7 +240,7 @@ def upload_document_endpoint(
     )
 
     actor_id, actor_name, _ = get_actor_details(user)
-    
+
     # DocumentStorageError covers DocumentUploadError AND failures before
     # the upload starts (e.g. ensure_bucket() when MinIO is unreachable).
     try:
@@ -257,7 +251,7 @@ def upload_document_endpoint(
             actor_id=actor_id,
             actor_name=actor_name,
         )
-    
+
     except DocumentStorageError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -271,16 +265,18 @@ def upload_document_endpoint(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=message,
-            )
+            ) from exc
 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=message,
         ) from exc
 
+
 # ============================================================
 # 4. LIST SUPPLIER DOCUMENTS
 # ============================================================
+
 
 @router.get(
     "/{supplier_id}/documents",
@@ -302,15 +298,13 @@ def list_documents_endpoint(
 
     # Only after authorization, check the resource.
     try:
-        documents = list_supplier_documents(
-            supplier_id
-        )
+        documents = list_supplier_documents(supplier_id)
 
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
-        )
+        ) from exc
 
     return documents
 
@@ -318,9 +312,7 @@ def list_documents_endpoint(
 @router.get(
     "/{supplier_id}/documents/{document_id}/download",
     response_model=SupplierDocumentDownloadResponse,
-    dependencies=[
-        Depends(enforce_not_suspended_with_resolved_identity)
-    ],
+    dependencies=[Depends(enforce_not_suspended_with_resolved_identity)],
 )
 def download_document_endpoint(
     supplier_id: str,
@@ -361,10 +353,8 @@ def download_document_endpoint(
 
         # Generate the URL only after authorization, ownership,
         # and object-existence checks have succeeded.
-        download_url = (
-            document_storage_service.generate_download_url(
-                object_key=document["document_path"],
-            )
+        download_url = document_storage_service.generate_download_url(
+            object_key=document["document_path"],
         )
 
     except DocumentStorageError as exc:
@@ -381,9 +371,11 @@ def download_document_endpoint(
         "expires_in_seconds": settings.MINIO_PRESIGNED_EXPIRY_SECONDS,
     }
 
+
 # ============================================================
 # 5. MOCK VERIFICATION
 # ============================================================
+
 
 @router.post(
     "/{supplier_id}/verify",
@@ -392,9 +384,7 @@ def download_document_endpoint(
 )
 def verify_supplier_endpoint(
     supplier_id: str,
-    user=Depends(
-        require_roles("procurement_manager")
-    ),
+    user=Depends(require_roles("procurement_manager")),
 ):
     actor_id, actor_name, role = get_actor_details(user)
 
@@ -413,17 +403,18 @@ def verify_supplier_endpoint(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=message,
-            )
+            ) from exc
 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=message,
-        )
+        ) from exc
 
 
 # ============================================================
 # 6. APPROVE SUPPLIER
 # ============================================================
+
 
 @router.post(
     "/{supplier_id}/approve",
@@ -433,9 +424,7 @@ def verify_supplier_endpoint(
 def approve_supplier_endpoint(
     supplier_id: str,
     approval: SupplierApprovalRequest,
-    user=Depends(
-        require_roles("procurement_manager")
-    ),
+    user=Depends(require_roles("procurement_manager")),
 ):
     actor_id, actor_name, role = get_actor_details(user)
 
@@ -455,16 +444,18 @@ def approve_supplier_endpoint(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=message,
-            )
+            ) from exc
 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=message,
-        )
+        ) from exc
+
 
 # ============================================================
 # 7. ACTIVATE SUPPLIER
 # ============================================================
+
 
 @router.post(
     "/{supplier_id}/activate",
@@ -473,9 +464,7 @@ def approve_supplier_endpoint(
 )
 def activate_supplier_endpoint(
     supplier_id: str,
-    user=Depends(
-        require_roles("procurement_manager")
-    ),
+    user=Depends(require_roles("procurement_manager")),
 ):
     actor_id, actor_name, role = get_actor_details(user)
 
@@ -494,14 +483,14 @@ def activate_supplier_endpoint(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
-        )
+        ) from exc
 
     # Compliance could not be reached.
     except ComplianceServiceUnavailableError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
-        )
+        ) from exc
 
     # Compliance returned an HTTP error, invalid response,
     # invalid decision, or contradictory result.
@@ -509,7 +498,7 @@ def activate_supplier_endpoint(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
-        )
+        ) from exc
 
     # Supplier not found or invalid onboarding transition.
     except ValueError as exc:
@@ -519,26 +508,25 @@ def activate_supplier_endpoint(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=message,
-            )
+            ) from exc
 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=message,
-        )
+        ) from exc
 
 
 # ============================================================
 # 8. LIST ALL SUPPLIERS
 # ============================================================
 
+
 @router.get(
     "",
     response_model=list[SupplierOnboardingResponse],
 )
 def list_suppliers_endpoint(
-    user=Depends(
-        require_roles("procurement_manager")
-    ),
+    user=Depends(require_roles("procurement_manager")),
 ):
     return list_suppliers()
 
@@ -546,6 +534,7 @@ def list_suppliers_endpoint(
 # ============================================================
 # 9. GET SUPPLIER ONBOARDING STATUS
 # ============================================================
+
 
 @router.get(
     "/{supplier_id}/status",
@@ -567,15 +556,13 @@ def supplier_status_endpoint(
 
     # Only after authorization, check resource existence.
     try:
-        result = get_supplier_status(
-            supplier_id
-        )
+        result = get_supplier_status(supplier_id)
 
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
-        )
+        ) from exc
 
     return result
 
@@ -583,6 +570,7 @@ def supplier_status_endpoint(
 # ============================================================
 # 10. GET SUPPLIER ONBOARDING HISTORY
 # ============================================================
+
 
 @router.get(
     "/{supplier_id}/history",
@@ -604,14 +592,12 @@ def supplier_history_endpoint(
 
     # Only after authorization, check resource existence.
     try:
-        history = get_supplier_history(
-            supplier_id
-        )
+        history = get_supplier_history(supplier_id)
 
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
-        )
+        ) from exc
 
     return history

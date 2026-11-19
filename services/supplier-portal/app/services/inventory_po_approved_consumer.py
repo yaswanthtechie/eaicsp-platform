@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import json
 import logging
 import time
@@ -86,8 +87,7 @@ class POApprovedConsumer:
 
         if pending > 0 or delivery_errors:
             raise RuntimeError(
-                "DLQ delivery failed; "
-                f"pending={pending}, errors={delivery_errors}"
+                f"DLQ delivery failed; pending={pending}, errors={delivery_errors}"
             )
 
         self._commit(message)
@@ -103,10 +103,7 @@ class POApprovedConsumer:
     def _persist_event(self, event: POApprovedEvent) -> None:
         """Persist one approved PO idempotently in a database transaction."""
         payload = event.payload
-        event_lines = [
-            line.model_dump(mode="json")
-            for line in payload.lines
-        ]
+        event_lines = [line.model_dump(mode="json") for line in payload.lines]
 
         with SessionLocal() as db:
             try:
@@ -138,8 +135,7 @@ class POApprovedConsumer:
                         existing_po.po_number == payload.po_number
                         and existing_po.supplier_id == payload.supplier_id
                         and existing_po.warehouse_id == payload.warehouse_id
-                        and existing_po.approval_status
-                        == payload.approval_status
+                        and existing_po.approval_status == payload.approval_status
                         and existing_po.approved_by == payload.approved_by
                         and existing_po.approved_at == payload.approved_at
                         and existing_po.total_amount == payload.total_amount
@@ -254,8 +250,7 @@ class POApprovedConsumer:
                 # source offset uncommitted.
                 self._publish_dlq(
                     message,
-                    "Persistence failed after "
-                    f"{max_retries} attempts: {exc}",
+                    f"Persistence failed after {max_retries} attempts: {exc}",
                 )
                 return
 
@@ -335,8 +330,7 @@ class POApprovedConsumer:
 
                     if isinstance(remaining, int) and remaining > 0:
                         logger.warning(
-                            "PO Kafka producer shutdown with %s "
-                            "pending messages",
+                            "PO Kafka producer shutdown with %s pending messages",
                             remaining,
                         )
                 except Exception:

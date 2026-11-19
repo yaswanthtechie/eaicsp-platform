@@ -1,30 +1,29 @@
+import re
 from datetime import datetime, timezone
+from threading import Lock
 from uuid import uuid4
 
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+
+from app.core.config import settings
+from app.database import SessionLocal
+from app.models.po_mirror import POMirror
+from app.models.shipment import Shipment
+from app.models.shipment_outbox import ShipmentOutbox
 from app.schemas.purchase_order import PurchaseOrderStatus
 from app.schemas.shipment import (
     ShipmentCreate,
     ShipmentStatus,
 )
-
 from app.services.po_p2p_state_machine import (
     P2PState,
     get_p2p_state,
     transition_p2p,
 )
-
 from app.services.purchase_order_service import (
     get_purchase_order_by_id,
 )
-import re
-from threading import Lock
-from app.core.config import settings
-from app.database import SessionLocal
-from app.models.po_mirror import POMirror
-from app.models.shipment_outbox import ShipmentOutbox
-from app.models.shipment import Shipment
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 
 # ============================================================
 # IN-MEMORY SHIPMENT STORAGE
@@ -58,14 +57,13 @@ def _next_shipment_id(db) -> str:
         .limit(1)
     ).first()
 
-    next_sequence = int(latest[len(prefix):]) + 1 if latest else 1
+    next_sequence = int(latest[len(prefix) :]) + 1 if latest else 1
 
     if next_sequence > 999999:
-        raise ValueError(
-            "Shipment ID sequence exhausted for this year."
-        )
+        raise ValueError("Shipment ID sequence exhausted for this year.")
 
     return f"{prefix}{next_sequence:06d}"
+
 
 def _build_shipment_dispatched_event(
     shipment_data: dict,
@@ -91,15 +89,12 @@ def _build_shipment_dispatched_event(
             "po_number": po_number,
             "supplier_id": shipment_data["supplier_id"],
             "origin": shipment_data["origin"],
-            "destination_warehouse": shipment_data[
-                "destination_warehouse"
-            ],
+            "destination_warehouse": shipment_data["destination_warehouse"],
             "carrier": shipment_data["carrier"],
-            "dispatched_at": shipment_data[
-                "dispatched_at"
-            ].isoformat(),
+            "dispatched_at": shipment_data["dispatched_at"].isoformat(),
         },
     }
+
 
 def _save_shipment_and_dispatch_event(
     shipment_data: dict,
@@ -123,15 +118,11 @@ def _save_shipment_and_dispatch_event(
                     po_number=shipment_data["po_number"],
                     supplier_id=shipment_data["supplier_id"],
                     shipment_date=shipment_data["shipment_date"],
-                    expected_delivery_date=shipment_data[
-                        "expected_delivery_date"
-                    ],
+                    expected_delivery_date=shipment_data["expected_delivery_date"],
                     carrier=shipment_data["carrier"],
                     tracking_number=shipment_data["tracking_number"],
                     origin=shipment_data["origin"],
-                    destination_warehouse=shipment_data[
-                        "destination_warehouse"
-                    ],
+                    destination_warehouse=shipment_data["destination_warehouse"],
                     items=shipment_data["items"],
                     status=shipment_data["status"].value,
                     created_by=shipment_data["created_by"],
@@ -171,6 +162,10 @@ def _save_shipment_and_dispatch_event(
             finally:
                 db.close()
 
+    raise RuntimeError(
+        "Unable to allocate a unique shipment ID after maximum attempts."
+    )
+
 
 def _get_acknowledged_inventory_po(
     po_number: str,
@@ -187,8 +182,7 @@ def _get_acknowledged_inventory_po(
     try:
         mirror = db.scalars(
             select(POMirror).where(
-                (POMirror.po_id == po_number)
-                | (POMirror.po_number == po_number)
+                (POMirror.po_id == po_number) | (POMirror.po_number == po_number)
             )
         ).first()
 
@@ -196,14 +190,11 @@ def _get_acknowledged_inventory_po(
             return None
 
         if mirror.supplier_id != supplier_id:
-            raise ValueError(
-                "Supplier does not own this Purchase Order."
-            )
+            raise ValueError("Supplier does not own this Purchase Order.")
 
         if mirror.status != "acknowledged":
             raise ValueError(
-                "Shipment can be created only for an "
-                "acknowledged Purchase Order."
+                "Shipment can be created only for an acknowledged Purchase Order."
             )
 
         # The database is the record for Inventory POs, so this
@@ -235,9 +226,11 @@ def _get_acknowledged_inventory_po(
     finally:
         db.close()
 
+
 # ============================================================
 # CREATE SHIPMENT NOTICE
 # ============================================================
+
 
 def create_shipment(
     shipment: ShipmentCreate,
@@ -258,9 +251,7 @@ def create_shipment(
     # 1. GET PURCHASE ORDER
     # --------------------------------------------------------
 
-    purchase_order = get_purchase_order_by_id(
-        shipment.po_number
-    )
+    purchase_order = get_purchase_order_by_id(shipment.po_number)
     is_inventory_po = False
 
     if not purchase_order:
@@ -271,47 +262,33 @@ def create_shipment(
         is_inventory_po = purchase_order is not None
 
     if not purchase_order:
-        raise ValueError(
-            "Purchase Order not found."
-        )
+        raise ValueError("Purchase Order not found.")
 
     # --------------------------------------------------------
     # 2. VERIFY SUPPLIER OWNERSHIP
     # --------------------------------------------------------
 
     if purchase_order["supplier_id"] != supplier_id:
-        raise ValueError(
-            "Supplier does not own this Purchase Order."
-        )
+        raise ValueError("Supplier does not own this Purchase Order.")
 
     if not is_inventory_po:
-
         # ----------------------------------------------------
         # 3. PO MUST BE ACKNOWLEDGED
         # ----------------------------------------------------
 
-        if (
-            purchase_order["status"]
-            != PurchaseOrderStatus.acknowledged
-        ):
+        if purchase_order["status"] != PurchaseOrderStatus.acknowledged:
             raise ValueError(
-                "Shipment can be created only for an "
-                "acknowledged Purchase Order."
+                "Shipment can be created only for an acknowledged Purchase Order."
             )
 
         # ----------------------------------------------------
         # 4. CHECK SHARED P2P STATE
         # ----------------------------------------------------
 
-        current_p2p_state = get_p2p_state(
-            shipment.po_number
-        )
+        current_p2p_state = get_p2p_state(shipment.po_number)
 
         if current_p2p_state != P2PState.acknowledged:
-            raise ValueError(
-                "Purchase Order is not in the acknowledged "
-                "P2P state."
-            )
+            raise ValueError("Purchase Order is not in the acknowledged P2P state.")
 
     # --------------------------------------------------------
     # 5. VALIDATE SHIPMENT ITEMS AGAINST PO
@@ -322,10 +299,7 @@ def create_shipment(
 
     line_field = "sku_id" if is_inventory_po else "item_code"
 
-    po_items = {
-        item[line_field]: item["quantity"]
-        for item in purchase_order["items"]
-    }
+    po_items = {item[line_field]: item["quantity"] for item in purchase_order["items"]}
 
     shipment_item_codes = set()
 
@@ -334,10 +308,7 @@ def create_shipment(
 
         # Duplicate items are not allowed
         if item_key in shipment_item_codes:
-            raise ValueError(
-                f"Duplicate shipment item "
-                f"'{item_key}'."
-            )
+            raise ValueError(f"Duplicate shipment item '{item_key}'.")
 
         shipment_item_codes.add(item_key)
 
@@ -369,15 +340,10 @@ def create_shipment(
         "destination_warehouse": shipment.destination_warehouse,
         "dispatched_at": datetime.now(timezone.utc),
         "shipment_date": shipment.shipment_date,
-        "expected_delivery_date": (
-            shipment.expected_delivery_date
-        ),
+        "expected_delivery_date": (shipment.expected_delivery_date),
         "carrier": shipment.carrier,
         "tracking_number": shipment.tracking_number,
-        "items": [
-            item.model_dump(exclude_none=True)
-            for item in shipment.items
-        ],
+        "items": [item.model_dump(exclude_none=True) for item in shipment.items],
         "status": ShipmentStatus.created,
         "created_at": datetime.now(timezone.utc),
         "created_by": created_by,
@@ -419,6 +385,7 @@ def create_shipment(
 
     return shipment_data
 
+
 def get_shipment_by_id(shipment_id: str):
     db = SessionLocal()
 
@@ -447,9 +414,7 @@ def get_all_shipments():
     db = SessionLocal()
 
     try:
-        statement = select(Shipment).order_by(
-            Shipment.created_at.desc()
-        )
+        statement = select(Shipment).order_by(Shipment.created_at.desc())
 
         return list(db.scalars(statement).all())
     finally:

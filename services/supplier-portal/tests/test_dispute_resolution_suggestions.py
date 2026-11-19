@@ -4,10 +4,10 @@ from app.services.three_way_match_service import (
     three_way_matches,
 )
 
-
 # ============================================================
 # HELPERS
 # ============================================================
+
 
 def seed_match(
     match_id: str,
@@ -17,9 +17,7 @@ def seed_match(
     discrepancies: list[str],
     resolution_reason: str | None = None,
 ):
-    three_way_matches[
-        (supplier_id, invoice_number)
-    ] = {
+    three_way_matches[(supplier_id, invoice_number)] = {
         "match_id": match_id,
         "supplier_id": supplier_id,
         "invoice_number": invoice_number,
@@ -59,6 +57,7 @@ def reset_matches():
 # ============================================================
 # SERVICE TESTS
 # ============================================================
+
 
 def test_price_mismatch_suggests_correct_invoice():
     """
@@ -225,20 +224,11 @@ def test_multiple_discrepancies_generate_multiple_suggestions():
 
     assert len(result["suggestions"]) == 2
 
-    suggestions = {
-        item["discrepancy_type"]: item
-        for item in result["suggestions"]
-    }
+    suggestions = {item["discrepancy_type"]: item for item in result["suggestions"]}
 
-    assert (
-        suggestions["quantity_mismatch"]["suggested_action"]
-        == "credit_note"
-    )
+    assert suggestions["quantity_mismatch"]["suggested_action"] == "credit_note"
 
-    assert (
-        suggestions["price_mismatch"]["suggested_action"]
-        == "correct_invoice"
-    )
+    assert suggestions["price_mismatch"]["suggested_action"] == "correct_invoice"
 
 
 def test_no_historical_cases_returns_no_suggestion():
@@ -439,19 +429,13 @@ def test_suggestion_service_is_read_only():
         get_dispute_resolution_suggestions,
     )
 
-    before = dict(
-        three_way_matches[
-            ("SUP-00001", "INV1009")
-        ]
-    )
+    before = dict(three_way_matches[("SUP-00001", "INV1009")])
 
     get_dispute_resolution_suggestions(
         supplier_id="SUP-00001",
         invoice_number="INV1009",
     )
 
-    after = three_way_matches[
-        ("SUP-00001", "INV1009")
-    ]
+    after = three_way_matches[("SUP-00001", "INV1009")]
 
     assert after == before

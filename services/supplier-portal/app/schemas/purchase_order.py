@@ -1,9 +1,11 @@
+from datetime import date, datetime
 from enum import Enum
 from typing import List
 
-from pydantic import BaseModel, Field, ConfigDict
-from datetime import datetime, date
+from pydantic import BaseModel, ConfigDict, Field
+
 from app.schemas.ids import SUPPLIER_ID_PATTERN
+
 
 class PurchaseOrderStatus(str, Enum):
     draft = "draft"
@@ -11,6 +13,7 @@ class PurchaseOrderStatus(str, Enum):
     acknowledged = "acknowledged"
     fulfilled = "fulfilled"
     cancelled = "cancelled"
+
 
 class PurchaseOrderHistory(BaseModel):
     po_number: str
@@ -20,11 +23,13 @@ class PurchaseOrderHistory(BaseModel):
     to_status: PurchaseOrderStatus
     timestamp: datetime
 
+
 class PurchaseOrderItem(BaseModel):
     item_code: str
     description: str
     quantity: int = Field(gt=0)
     unit_price: float = Field(gt=0)
+
 
 class PurchaseOrderCreate(BaseModel):
     model_config = ConfigDict(
@@ -37,39 +42,32 @@ class PurchaseOrderCreate(BaseModel):
                         "item_code": "LAP001",
                         "description": "Laptop",
                         "quantity": 10,
-                        "unit_price": 50000
+                        "unit_price": 50000,
                     },
                     {
                         "item_code": "MOU001",
                         "description": "Wireless Mouse",
                         "quantity": 10,
-                        "unit_price": 1500
-                    }
+                        "unit_price": 1500,
+                    },
                 ],
                 "total_amount": 515000,
                 "created_at": "2026-08-06T10:00:00",
-                "expected_delivery": "2026-08-30"
+                "expected_delivery": "2026-08-30",
             }
         }
     )
 
-    po_number: str = Field(
-        pattern=r"^[A-Za-z0-9_-]+$"
-    )
+    po_number: str = Field(pattern=r"^[A-Za-z0-9_-]+$")
 
-    supplier_id: str = Field(
-        pattern=SUPPLIER_ID_PATTERN
-    )
+    supplier_id: str = Field(pattern=SUPPLIER_ID_PATTERN)
 
-    items: List[PurchaseOrderItem] = Field(
-        min_length=1
-    )
+    items: List[PurchaseOrderItem] = Field(min_length=1)
 
-    total_amount: float = Field(
-        gt=0
-    )
+    total_amount: float = Field(gt=0)
     created_at: datetime
     expected_delivery: date
+
 
 class PurchaseOrderUpdate(BaseModel):
     supplier_id: str | None = Field(
@@ -79,6 +77,8 @@ class PurchaseOrderUpdate(BaseModel):
     items: List[PurchaseOrderItem] | None = None
     total_amount: float | None = None
     expected_delivery: date | None = None
+
+
 class PurchaseOrderResponse(BaseModel):
     po_number: str
     supplier_id: str
@@ -90,13 +90,14 @@ class PurchaseOrderResponse(BaseModel):
     actual_delivery_date: date | None = None
     history: List[PurchaseOrderHistory] = Field(default_factory=list)
 
-#responce when po deleted successfully
+
+# responce when po deleted successfully
 class MessageResponse(BaseModel):
     message: str
 
 
 class PurchaseOrderTransition(BaseModel):
-    target_state : PurchaseOrderStatus
+    target_state: PurchaseOrderStatus
     actor: str
 
 
@@ -104,26 +105,17 @@ class PurchaseOrderTransition(BaseModel):
 # BULK SEND PURCHASE ORDERS
 # ============================================================
 
+
 class BulkPOSendRequest(BaseModel):
     """
     Request body for sending multiple Purchase Orders at once.
     """
 
-    po_numbers: List[str] = Field(
-        min_length=1
-    )
-    
-    
+    po_numbers: List[str] = Field(min_length=1)
+
     model_config = ConfigDict(
         json_schema_extra={
-            "example": {
-                "po_numbers": [
-                    "PO1001",
-                    "PO1002",
-                    "PO1003",
-                    "PO9999"
-                ]
-            }
+            "example": {"po_numbers": ["PO1001", "PO1002", "PO1003", "PO9999"]}
         }
     )
 
@@ -148,4 +140,3 @@ class BulkPOSendResponse(BaseModel):
     successful: int
     failed: int
     results: List[BulkPOSendResult]
-

@@ -1,13 +1,15 @@
 from datetime import date
-from typing import List
 from enum import Enum
+from typing import List
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
 from app.schemas.ids import SUPPLIER_ID_PATTERN
 
 # ============================================================
 # INVOICE STATUS
 # ============================================================
+
 
 class InvoiceStatus(str, Enum):
     submitted = "submitted"
@@ -20,6 +22,7 @@ class InvoiceStatus(str, Enum):
 # ============================================================
 # DISPUTE INFORMATION
 # ============================================================
+
 
 class InvoiceDispute(BaseModel):
     """
@@ -55,9 +58,7 @@ class InvoiceLineItem(BaseModel):
     Inventory-backed invoices may use sku_id.
     """
 
-    po_number: str = Field(
-        pattern=r"^[A-Za-z0-9_-]+$"
-    )
+    po_number: str = Field(pattern=r"^[A-Za-z0-9_-]+$")
 
     item_code: str | None = Field(
         default=None,
@@ -78,9 +79,7 @@ class InvoiceLineItem(BaseModel):
     @model_validator(mode="after")
     def validate_item_identifier(self):
         if not self.item_code and not self.sku_id:
-            raise ValueError(
-                "Either item_code or sku_id must be provided."
-            )
+            raise ValueError("Either item_code or sku_id must be provided.")
         return self
 
 
@@ -88,8 +87,8 @@ class InvoiceLineItem(BaseModel):
 # CREATE INVOICE
 # ============================================================
 
-class InvoiceCreate(BaseModel):
 
+class InvoiceCreate(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -101,30 +100,22 @@ class InvoiceCreate(BaseModel):
                         "item_code": "LAP001",
                         "description": "Laptop",
                         "quantity": 5,
-                        "unit_price": 50000
+                        "unit_price": 50000,
                     }
                 ],
                 "amount": 250000,
-                "invoice_date": "2026-08-06"
+                "invoice_date": "2026-08-06",
             }
         }
     )
 
-    invoice_number: str = Field(
-        pattern=r"^[A-Za-z0-9_-]+$"
-    )
+    invoice_number: str = Field(pattern=r"^[A-Za-z0-9_-]+$")
 
-    supplier_id: str = Field(
-        pattern=SUPPLIER_ID_PATTERN
-    )
+    supplier_id: str = Field(pattern=SUPPLIER_ID_PATTERN)
 
-    items: List[InvoiceLineItem] = Field(
-        min_length=1
-    )
+    items: List[InvoiceLineItem] = Field(min_length=1)
 
-    amount: float = Field(
-        gt=0
-    )
+    amount: float = Field(gt=0)
 
     invoice_date: date
 
@@ -132,6 +123,7 @@ class InvoiceCreate(BaseModel):
 # ============================================================
 # ADJUSTMENT REQUEST
 # ============================================================
+
 
 class InvoiceAdjustment(BaseModel):
     """
@@ -141,9 +133,7 @@ class InvoiceAdjustment(BaseModel):
     the authenticated Platform user.
     """
 
-    items: List[InvoiceLineItem] = Field(
-        min_length=1
-    )
+    items: List[InvoiceLineItem] = Field(min_length=1)
 
     reason: str
 
@@ -156,10 +146,10 @@ class InvoiceAdjustment(BaseModel):
                         "item_code": "LAP001",
                         "description": "Laptop",
                         "quantity": 5,
-                        "unit_price": 48000
+                        "unit_price": 48000,
                     }
                 ],
-                "reason": "Corrected unit price according to PO"
+                "reason": "Corrected unit price according to PO",
             }
         }
     )
@@ -168,6 +158,7 @@ class InvoiceAdjustment(BaseModel):
 # ============================================================
 # ADJUSTMENT AUDIT
 # ============================================================
+
 
 class InvoiceAdjustmentAudit(BaseModel):
     """
@@ -187,9 +178,11 @@ class InvoiceAdjustmentAudit(BaseModel):
     old_items: List[InvoiceLineItem]
     new_items: List[InvoiceLineItem]
 
+
 # ============================================================
 # INVOICE STATUS HISTORY
 # ============================================================
+
 
 class InvoiceHistory(BaseModel):
     """
@@ -213,8 +206,8 @@ class InvoiceHistory(BaseModel):
 # INVOICE RESPONSE
 # ============================================================
 
-class InvoiceResponse(BaseModel):
 
+class InvoiceResponse(BaseModel):
     invoice_number: str
 
     supplier_id: str
@@ -232,13 +225,13 @@ class InvoiceResponse(BaseModel):
     adjustment: InvoiceAdjustmentAudit | None = None
 
     document_url: str | None = None
-    history: List[InvoiceHistory] = Field(
-       default_factory=list
-   )
+    history: List[InvoiceHistory] = Field(default_factory=list)
+
 
 # ============================================================
 # INVOICE DOCUMENT DOWNLOAD RESPONSE
 # ============================================================
+
 
 class InvoiceDocumentDownloadResponse(BaseModel):
     invoice_number: str
@@ -247,9 +240,11 @@ class InvoiceDocumentDownloadResponse(BaseModel):
     download_url: str
     expires_in_seconds: int
 
+
 # ============================================================
 # NORMAL STATUS TRANSITION REQUEST
 # ============================================================
+
 
 class InvoiceTransition(BaseModel):
     """

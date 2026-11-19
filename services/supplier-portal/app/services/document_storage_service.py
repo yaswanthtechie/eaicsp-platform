@@ -72,8 +72,7 @@ class DocumentStorageService:
             OSError,
         ) as exc:
             raise DocumentStorageError(
-                f"Unable to initialize MinIO bucket "
-                f"'{self.bucket_name}'."
+                f"Unable to initialize MinIO bucket '{self.bucket_name}'."
             ) from exc
 
     # ============================================================
@@ -83,21 +82,13 @@ class DocumentStorageService:
     @staticmethod
     def _safe_path_component(value: str, field_name: str) -> str:
         """Extract a safe filename component from either path format."""
-        if (
-            not value
-            or not value.strip()
-            or value.endswith(("/", "\\"))
-        ):
-            raise ValueError(
-                f"{field_name} must contain a valid filename."
-            )
+        if not value or not value.strip() or value.endswith(("/", "\\")):
+            raise ValueError(f"{field_name} must contain a valid filename.")
 
         safe_name = PureWindowsPath(value).name
 
         if safe_name in {"", ".", ".."} or "\x00" in safe_name:
-            raise ValueError(
-                f"{field_name} must contain a valid filename."
-            )
+            raise ValueError(f"{field_name} must contain a valid filename.")
 
         return safe_name
 
@@ -120,10 +111,7 @@ class DocumentStorageService:
             file_name, "file_name"
         )
 
-        return (
-            f"suppliers/{supplier_id}/"
-            f"onboarding/{document_id}_{safe_file_name}"
-        )
+        return f"suppliers/{supplier_id}/onboarding/{document_id}_{safe_file_name}"
 
     @staticmethod
     def build_invoice_object_key(
@@ -146,10 +134,7 @@ class DocumentStorageService:
             invoice_number, "invoice_number"
         )
 
-        return (
-            f"suppliers/{supplier_id}/"
-            f"invoices/{safe_invoice_number}.pdf"
-        )
+        return f"suppliers/{supplier_id}/invoices/{safe_invoice_number}.pdf"
 
     # ============================================================
     # UPLOAD ONBOARDING DOCUMENT
@@ -191,10 +176,7 @@ class DocumentStorageService:
                 data=file.file,
                 length=-1,
                 part_size=10 * 1024 * 1024,
-                content_type=(
-                    file.content_type
-                    or "application/octet-stream"
-                ),
+                content_type=(file.content_type or "application/octet-stream"),
             )
 
             return object_key
@@ -206,8 +188,7 @@ class DocumentStorageService:
             ValueError,
         ) as exc:
             raise DocumentUploadError(
-                f"Unable to upload document for "
-                f"supplier '{supplier_id}'."
+                f"Unable to upload document for supplier '{supplier_id}'."
             ) from exc
 
     # ============================================================
@@ -263,8 +244,7 @@ class DocumentStorageService:
             ValueError,
         ) as exc:
             raise DocumentUploadError(
-                f"Unable to upload invoice document "
-                f"for supplier '{supplier_id}'."
+                f"Unable to upload invoice document for supplier '{supplier_id}'."
             ) from exc
 
     # ============================================================
@@ -285,16 +265,12 @@ class DocumentStorageService:
         """
 
         try:
-            expiry_seconds = (
-                settings.MINIO_PRESIGNED_EXPIRY_SECONDS
-            )
+            expiry_seconds = settings.MINIO_PRESIGNED_EXPIRY_SECONDS
 
             return self.client.presigned_get_object(
                 bucket_name=self.bucket_name,
                 object_name=object_key,
-                expires=timedelta(
-                    seconds=expiry_seconds
-                ),
+                expires=timedelta(seconds=expiry_seconds),
             )
 
         except (
@@ -303,8 +279,7 @@ class DocumentStorageService:
             ValueError,
         ) as exc:
             raise DocumentDownloadError(
-                "Unable to generate document "
-                "download URL."
+                "Unable to generate document download URL."
             ) from exc
 
     # ============================================================
@@ -342,8 +317,7 @@ class DocumentStorageService:
                 return False
 
             raise DocumentStorageError(
-                "Unable to check document existence "
-                "in MinIO."
+                "Unable to check document existence in MinIO."
             ) from exc
 
         except (
@@ -351,8 +325,7 @@ class DocumentStorageService:
             OSError,
         ) as exc:
             raise DocumentStorageError(
-                "Unable to check document existence "
-                "in MinIO."
+                "Unable to check document existence in MinIO."
             ) from exc
 
     # ============================================================
@@ -379,9 +352,7 @@ class DocumentStorageService:
             Urllib3HTTPError,
             OSError,
         ) as exc:
-            raise DocumentStorageError(
-                "Unable to delete document from MinIO."
-            ) from exc
+            raise DocumentStorageError("Unable to delete document from MinIO.") from exc
 
     # ============================================================
     # LIST OBJECTS
@@ -414,9 +385,7 @@ class DocumentStorageService:
             Urllib3HTTPError,
             OSError,
         ) as exc:
-            raise DocumentStorageError(
-                "Unable to list documents in MinIO."
-            ) from exc
+            raise DocumentStorageError("Unable to list documents in MinIO.") from exc
 
 
 document_storage_service = DocumentStorageService()

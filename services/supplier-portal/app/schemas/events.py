@@ -1,10 +1,8 @@
-﻿from enum import Enum
+from datetime import date
+from enum import Enum
 from typing import List
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
-from datetime import date
-from pydantic import model_validator
-
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 # ============================================================
 # SUPPLIER COMPLIANCE STATUS
@@ -88,6 +86,7 @@ class SupplierComplianceAudit(BaseModel):
     occurred_at: AwareDatetime
     processed_at: AwareDatetime
 
+
 # ============================================================
 # R15: INVENTORY PURCHASE ORDER APPROVED EVENT
 # ============================================================
@@ -131,6 +130,7 @@ class POApprovedEvent(BaseModel):
     trace_id: str | None = None
     payload: ApprovedPOPayload
 
+
 # ============================================================
 # R15: ETA SHIPMENT PREDICTED EVENT
 # ============================================================
@@ -140,15 +140,12 @@ class ETATopFeature(BaseModel):
     feature: str = Field(min_length=1, pattern=r"\S")
     shap_value: float
 
+
 class ETAShipmentPredictedPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    shipment_id: str = Field(
-        pattern=r"^SHP-[0-9]{4}-[0-9]{6}$"
-    )
-    po_number: str = Field(
-        pattern=r"^PO-[0-9]{4}-[0-9]{6}$"
-    )
+    shipment_id: str = Field(pattern=r"^SHP-[0-9]{4}-[0-9]{6}$")
+    po_number: str = Field(pattern=r"^PO-[0-9]{4}-[0-9]{6}$")
     eta_days: float = Field(ge=0)
     confidence_low: float = Field(ge=0)
     confidence_high: float = Field(ge=0)
@@ -163,9 +160,7 @@ class ETAShipmentPredictedPayload(BaseModel):
     @model_validator(mode="after")
     def validate_confidence_interval(self):
         if self.confidence_low > self.confidence_high:
-            raise ValueError(
-                "confidence_low must be <= confidence_high"
-            )
+            raise ValueError("confidence_low must be <= confidence_high")
         return self
 
 
@@ -178,9 +173,7 @@ class ETAShipmentPredictedEvent(BaseModel):
             r"[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
         )
     )
-    event_type: str = Field(
-        pattern=r"^eta\.shipment\.predicted$"
-    )
+    event_type: str = Field(pattern=r"^eta\.shipment\.predicted$")
     event_version: int = Field(ge=1, le=1)
     occurred_at: AwareDatetime
     producer: str = Field(pattern=r"^eta-prediction$")

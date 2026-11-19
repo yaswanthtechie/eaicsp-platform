@@ -102,9 +102,7 @@ class SupplierComplianceService:
     def __init__(self, db_path: str | Path | None = None) -> None:
         self._lock = RLock()
         self._db_path = (
-            Path(db_path)
-            if db_path is not None
-            else Path(settings.COMPLIANCE_DB_PATH)
+            Path(db_path) if db_path is not None else Path(settings.COMPLIANCE_DB_PATH)
         )
 
     # ---------------------------------------------------------
@@ -174,7 +172,6 @@ class SupplierComplianceService:
             and normalize_supplier_key(supplier["company_name"]) == supplier_key
         ]
 
-
     # ---------------------------------------------------------
     # WRITE PATH: KAFKA EVENT
     # ---------------------------------------------------------
@@ -200,10 +197,7 @@ class SupplierComplianceService:
                 "Event payload has an empty supplier_name."
             )
 
-        if (
-            event.occurred_at.tzinfo is None
-            or event.occurred_at.utcoffset() is None
-        ):
+        if event.occurred_at.tzinfo is None or event.occurred_at.utcoffset() is None:
             raise InvalidComplianceStatusError(
                 "Event occurred_at must include a timezone."
             )
@@ -245,23 +239,17 @@ class SupplierComplianceService:
                             old_status = SupplierComplianceStatus.cleared
                         else:
                             try:
-                                old_status = SupplierComplianceStatus(
-                                    row["status"]
-                                )
+                                old_status = SupplierComplianceStatus(row["status"])
                             except ValueError:
                                 # Corrupt state must never grant access.
-                                old_status = (
-                                    SupplierComplianceStatus.suspended
-                                )
+                                old_status = SupplierComplianceStatus.suspended
 
                         # Reject older events and preserve restrictive status
                         # when two events have the same timestamp.
                         if row is not None:
                             try:
                                 last_occurred_at = self._utc_datetime(
-                                    datetime.fromisoformat(
-                                        row["last_occurred_at"]
-                                    )
+                                    datetime.fromisoformat(row["last_occurred_at"])
                                 )
                             except (ValueError, TypeError) as exc:
                                 raise ComplianceDatabaseError(
@@ -369,12 +357,10 @@ class SupplierComplianceService:
                 # The SQLite transaction has committed successfully.
                 # Mirror the state onto all matching onboarded suppliers.
                 for supplier_id in self._supplier_ids_for_key(supplier_key):
-                    suppliers[supplier_id][
-                        "compliance_access_status"
-                    ] = new_status.value
-                    suppliers[supplier_id][
-                        "compliance_updated_at"
-                    ] = processed_at
+                    suppliers[supplier_id]["compliance_access_status"] = (
+                        new_status.value
+                    )
+                    suppliers[supplier_id]["compliance_updated_at"] = processed_at
 
                 return True
 
@@ -558,9 +544,7 @@ class SupplierComplianceService:
             return None
 
         try:
-            return self._utc_datetime(
-                datetime.fromisoformat(row["last_occurred_at"])
-            )
+            return self._utc_datetime(datetime.fromisoformat(row["last_occurred_at"]))
         except (ValueError, TypeError) as exc:
             raise ComplianceDatabaseError(
                 "Stored compliance timestamp is invalid."

@@ -8,7 +8,6 @@ from app.services.compliance_client import (
     check_supplier_compliance,
 )
 
-
 # ============================================================
 # TEST DATA
 # ============================================================
@@ -21,6 +20,7 @@ COUNTRY = "India"
 # FIXTURES
 # ============================================================
 
+
 @pytest.fixture(autouse=True)
 def configure_service_api_key(monkeypatch):
     monkeypatch.setattr(
@@ -28,6 +28,7 @@ def configure_service_api_key(monkeypatch):
         "SUPPLIER_PORTAL_SERVICE_API_KEY",
         "test-supplier-portal-api-key",
     )
+
 
 def make_response(
     *,
@@ -144,9 +145,7 @@ def test_compliance_client_returns_clear_response(monkeypatch):
 
     assert result["cleared"] is True
     assert result["decision"] == "CLEAR"
-    assert result["reason"] == (
-        "No sanctions or watchlist match found."
-    )
+    assert result["reason"] == ("No sanctions or watchlist match found.")
 
 
 @pytest.mark.parametrize(
@@ -262,8 +261,7 @@ def test_compliance_client_uses_correct_url(
     client = FakeClient.last_instance
 
     assert client.post_calls[0]["url"] == (
-        "http://127.0.0.1:8000"
-        "/api/v1/compliance/internal-check"
+        "http://127.0.0.1:8000/api/v1/compliance/internal-check"
     )
 
 
@@ -303,8 +301,7 @@ def test_compliance_client_removes_trailing_slash_from_base_url(
     client = FakeClient.last_instance
 
     assert client.post_calls[0]["url"] == (
-        "http://compliance-service:8000"
-        "/api/v1/compliance/internal-check"
+        "http://compliance-service:8000/api/v1/compliance/internal-check"
     )
 
 
@@ -409,9 +406,11 @@ def test_compliance_client_uses_five_second_timeout(
 
     assert client.kwargs["timeout"] == 5.0
 
+
 # ============================================================
 # SERVICE UNAVAILABLE CASES
 # ============================================================
+
 
 @pytest.mark.parametrize(
     "exception",
@@ -453,6 +452,8 @@ def test_compliance_client_maps_network_failures_to_503_error(
             supplier_name=SUPPLIER_NAME,
             country=COUNTRY,
         )
+
+
 # ============================================================
 # HTTP ERROR CASES
 # ============================================================
@@ -683,6 +684,7 @@ def test_compliance_client_rejects_missing_cleared_value(
             supplier_name=SUPPLIER_NAME,
             country=COUNTRY,
         )
+
 
 @pytest.mark.parametrize(
     "decision,cleared",

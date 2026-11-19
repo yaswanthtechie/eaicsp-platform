@@ -1,4 +1,3 @@
-
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -8,7 +7,6 @@ from app.core.auth import (
     enforce_not_suspended,
     require_supplier_view_access,
     require_supplier_write_access,
-    verify_token,
 )
 from app.database import get_db
 from app.models.po_mirror import POMirror
@@ -63,8 +61,7 @@ def list_approved_purchase_orders(
         query = query.filter(POMirror.supplier_id == supplier_id.strip())
 
     return [
-        _po_response(po)
-        for po in query.order_by(POMirror.approved_at.desc()).all()
+        _po_response(po) for po in query.order_by(POMirror.approved_at.desc()).all()
     ]
 
 

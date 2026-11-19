@@ -1,4 +1,4 @@
-﻿from datetime import datetime, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -6,9 +6,8 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app
 from app.database import get_db
-from app.core.auth import verify_token
+from app.main import app
 from app.services.supplier_compliance_service import (
     SupplierComplianceStatus,
     supplier_compliance_service,
@@ -134,9 +133,7 @@ def test_get_own_approved_purchase_order(
     po = make_po(supplier_id="SUP-00001")
     query.one_or_none.return_value = po
 
-    response = supplier_client.get(
-        f"/approved-purchase-orders/{po.po_id}"
-    )
+    response = supplier_client.get(f"/approved-purchase-orders/{po.po_id}")
 
     assert response.status_code == 200
     assert response.json()["po_id"] == po.po_id
@@ -153,9 +150,7 @@ def test_get_other_suppliers_po_returns_404(
     # Simulate the result after supplier scoping is applied.
     query.one_or_none.return_value = None
 
-    response = supplier_client.get(
-        "/approved-purchase-orders/PO-2026-999999"
-    )
+    response = supplier_client.get("/approved-purchase-orders/PO-2026-999999")
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Approved PO not found"
@@ -168,9 +163,7 @@ def test_get_nonexistent_po_returns_404(
     client, db, query = mock_po_api
     query.one_or_none.return_value = None
 
-    response = supplier_client.get(
-        "/approved-purchase-orders/PO-2026-999998"
-    )
+    response = supplier_client.get("/approved-purchase-orders/PO-2026-999998")
 
     assert response.status_code == 404
 
@@ -179,9 +172,7 @@ def test_supplier_without_supplier_id_cannot_list(
     supplier_no_id_client,
     mock_po_api,
 ):
-    response = supplier_no_id_client.get(
-        "/approved-purchase-orders"
-    )
+    response = supplier_no_id_client.get("/approved-purchase-orders")
 
     assert response.status_code == 403
     assert response.json()["detail"] == "Supplier identity is missing"
@@ -191,9 +182,7 @@ def test_supplier_without_supplier_id_cannot_get_po(
     supplier_no_id_client,
     mock_po_api,
 ):
-    response = supplier_no_id_client.get(
-        "/approved-purchase-orders/PO-2026-000123"
-    )
+    response = supplier_no_id_client.get("/approved-purchase-orders/PO-2026-000123")
 
     assert response.status_code == 403
     assert response.json()["detail"] == "Supplier identity is missing"
@@ -215,9 +204,7 @@ def test_acknowledge_own_approved_po(
         acknowledge,
     )
 
-    response = supplier_client.post(
-        f"/approved-purchase-orders/{po.po_id}/acknowledge"
-    )
+    response = supplier_client.post(f"/approved-purchase-orders/{po.po_id}/acknowledge")
 
     assert response.status_code == 200
     assert response.json()["status"] == "acknowledged"
@@ -306,11 +293,7 @@ def test_acknowledge_response_serializes_decimal_amount(
         MagicMock(return_value=po),
     )
 
-    response = supplier_client.post(
-        f"/approved-purchase-orders/{po.po_id}/acknowledge"
-    )
+    response = supplier_client.post(f"/approved-purchase-orders/{po.po_id}/acknowledge")
 
     assert response.status_code == 200
     assert response.json()["total_amount"] == 1250.50
-
-

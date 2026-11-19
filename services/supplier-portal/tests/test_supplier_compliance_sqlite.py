@@ -1,5 +1,5 @@
-from datetime import datetime, timedelta, timezone
 import sqlite3
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -44,22 +44,24 @@ def make_event(
     if occurred_at is None:
         occurred_at = datetime.now(timezone.utc)
 
-    return SupplierStatusChangedEvent.model_validate({
-        "event_id": event_id,
-        "event_type": "compliance.supplier.status_changed",
-        "event_version": 1,
-        "occurred_at": occurred_at.isoformat(),
-        "producer": "compliance-service",
-        "payload": {
-            "supplier_name": "ABC Supplies",
-            "country": "India",
-            "old_status": "CLEAR",
-            "new_status": new_status,
-            "matched_list": ["test-watchlist"],
-            "reason": "Test compliance decision",
-            "screening_run_id": f"screen-{event_id}",
-        },
-    })
+    return SupplierStatusChangedEvent.model_validate(
+        {
+            "event_id": event_id,
+            "event_type": "compliance.supplier.status_changed",
+            "event_version": 1,
+            "occurred_at": occurred_at.isoformat(),
+            "producer": "compliance-service",
+            "payload": {
+                "supplier_name": "ABC Supplies",
+                "country": "India",
+                "old_status": "CLEAR",
+                "new_status": new_status,
+                "matched_list": ["test-watchlist"],
+                "reason": "Test compliance decision",
+                "screening_run_id": f"screen-{event_id}",
+            },
+        }
+    )
 
 
 def test_block_status_survives_service_restart(compliance_db):
@@ -182,6 +184,4 @@ def test_audit_failure_rolls_back_state_and_processed_event(compliance_db):
     assert audit is None
 
     # No durable BLOCK state was committed.
-    assert service.get_access_status("SUP-00001") == (
-        SupplierComplianceStatus.cleared
-    )
+    assert service.get_access_status("SUP-00001") == (SupplierComplianceStatus.cleared)

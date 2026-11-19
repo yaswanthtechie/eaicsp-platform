@@ -1,8 +1,11 @@
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from jsonschema import Draft202012Validator, FormatChecker
 
 from app.core.config import settings
 from app.models.po_ack_outbox import POAckOutbox
@@ -11,9 +14,7 @@ from app.services.po_acknowledgement_service import (
     POAcknowledgementError,
     acknowledge_approved_po,
 )
-import json
-from pathlib import Path
-from jsonschema import Draft202012Validator, FormatChecker
+
 
 def make_po(
     *,
@@ -205,6 +206,7 @@ def test_query_is_locked_and_scoped_to_requested_po_and_supplier(
     query.with_for_update.assert_called_once()
     query.one_or_none.assert_called_once()
 
+
 ACK_CONTRACT = (
     Path(__file__).resolve().parents[3]
     / "contracts"
@@ -236,4 +238,3 @@ def test_outbox_payload_matches_acknowledged_contract(
 
     errors = [error.message for error in validator.iter_errors(event)]
     assert errors == []
-

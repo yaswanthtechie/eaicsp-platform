@@ -3,10 +3,10 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
-
 # ============================================================
 # THREE-WAY MATCH STATUS
 # ============================================================
+
 
 class ThreeWayMatchStatus(str, Enum):
     matched = "matched"
@@ -17,6 +17,7 @@ class ThreeWayMatchStatus(str, Enum):
 # DISCREPANCY TYPES
 # ============================================================
 
+
 class DiscrepancyType(str, Enum):
     quantity_mismatch = "quantity_mismatch"
     price_mismatch = "price_mismatch"
@@ -25,6 +26,7 @@ class DiscrepancyType(str, Enum):
 # ============================================================
 # MATCH LINE RESULT
 # ============================================================
+
 
 class ThreeWayMatchLine(BaseModel):
     po_number: str
@@ -44,14 +46,13 @@ class ThreeWayMatchLine(BaseModel):
     quantity_matched: bool
     price_matched: bool
 
-    discrepancies: list[DiscrepancyType] = Field(
-        default_factory=list
-    )
+    discrepancies: list[DiscrepancyType] = Field(default_factory=list)
 
 
 # ============================================================
 # THREE-WAY MATCH RESPONSE
 # ============================================================
+
 
 class ThreeWayMatchResponse(BaseModel):
     match_id: str
@@ -63,9 +64,7 @@ class ThreeWayMatchResponse(BaseModel):
 
     lines: list[ThreeWayMatchLine]
 
-    discrepancies: list[DiscrepancyType] = Field(
-        default_factory=list
-    )
+    discrepancies: list[DiscrepancyType] = Field(default_factory=list)
 
     created_at: datetime
     created_by: str
@@ -75,12 +74,14 @@ class ThreeWayMatchResponse(BaseModel):
 # DISCREPANCY RESOLUTION REQUEST
 # ============================================================
 
+
 class ThreeWayMatchResolution(BaseModel):
     reason: str = Field(
         ...,
         min_length=3,
         max_length=1000,
     )
+
 
 class ResolutionSuggestion(BaseModel):
     discrepancy_type: DiscrepancyType
@@ -103,13 +104,13 @@ class DisputeResolutionSuggestionResponse(BaseModel):
     supplier_id: str
     invoice_number: str
 
-    suggestions: list[ResolutionSuggestion] = Field(
-        default_factory=list
-    )
+    suggestions: list[ResolutionSuggestion] = Field(default_factory=list)
+
 
 # ============================================================
 # PAYMENT APPROVAL RESPONSE
 # ============================================================
+
 
 class PaymentApprovalResponse(BaseModel):
     supplier_id: str

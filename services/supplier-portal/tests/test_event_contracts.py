@@ -3,8 +3,7 @@ import json
 from pathlib import Path
 
 import pytest
-from jsonschema import Draft202012Validator, ValidationError, FormatChecker
-
+from jsonschema import Draft202012Validator, FormatChecker, ValidationError
 
 ROOT = Path(__file__).resolve().parents[3]
 EVENTS_DIR = ROOT / "contracts" / "events"
@@ -159,6 +158,7 @@ def test_shipment_rejects_wrong_event_version():
 
     with pytest.raises(ValidationError):
         validator.validate(invalid_event)
+
 
 @pytest.mark.parametrize(
     ("schema_name", "example_name"),

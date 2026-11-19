@@ -1,4 +1,3 @@
-
 from fastapi.routing import APIRoute
 
 from app.core.auth import (
@@ -12,7 +11,6 @@ from app.main import app
 from app.schemas.events import SupplierStatusChangedEvent
 from app.services.supplier_compliance_service import supplier_compliance_service
 from app.services.supplier_onboarding_service import suppliers
-
 from tests.test_kafka_consumer import make_event
 
 SUSPENSION_ENFORCEMENT_DEPENDENCIES = {
@@ -22,6 +20,7 @@ SUSPENSION_ENFORCEMENT_DEPENDENCIES = {
     require_supplier_view_access,
     require_supplier_write_access,
 }
+
 
 def _suspend(
     supplier_id="SUP-00001",
@@ -78,6 +77,7 @@ def test_suspended_supplier_gets_no_onboarding_presigned_url(
     assert "suspended" in response.json()["detail"].lower()
     assert generated == []
 
+
 # Only routes that are intentionally public or protected per resolver.
 
 PUBLIC_PATHS = {
@@ -85,10 +85,9 @@ PUBLIC_PATHS = {
     "/api/v1/auth/refresh",
     "/api/v1/auth/logout",
     "/graphql",
-    "/",          # Public root health/info endpoint
-    "/health",    # Public health-check endpoint
+    "/",  # Public root health/info endpoint
+    "/health",  # Public health-check endpoint
 }
-
 
 
 def _dependency_calls(dependant):
@@ -109,7 +108,4 @@ def test_every_supplier_facing_route_blocks_suspended_suppliers():
         )
     )
 
-    assert missing == [], (
-        "Routes missing enforce_not_suspended: "
-        f"{missing}"
-    )
+    assert missing == [], f"Routes missing enforce_not_suspended: {missing}"

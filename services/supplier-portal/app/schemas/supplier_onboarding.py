@@ -1,12 +1,14 @@
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
 from app.schemas.ids import SUPPLIER_ID_PATTERN
 
 # ============================================================
 # SUPPLIER ONBOARDING STATUS
 # ============================================================
+
 
 class SupplierOnboardingStatus(str, Enum):
     pending_documents = "pending_documents"
@@ -20,6 +22,7 @@ class SupplierOnboardingStatus(str, Enum):
 # DOCUMENT STATUS
 # ============================================================
 
+
 class SupplierDocumentStatus(str, Enum):
     submitted = "submitted"
     verified = "verified"
@@ -30,6 +33,7 @@ class SupplierDocumentStatus(str, Enum):
 # DOCUMENT RESPONSE
 # ============================================================
 
+
 class SupplierDocumentResponse(BaseModel):
     document_id: str
     supplier_id: str
@@ -39,6 +43,7 @@ class SupplierDocumentResponse(BaseModel):
     status: SupplierDocumentStatus
     uploaded_at: datetime
     uploaded_by: str
+
 
 class SupplierDocumentDownloadResponse(BaseModel):
     document_id: str
@@ -51,6 +56,7 @@ class SupplierDocumentDownloadResponse(BaseModel):
 # ============================================================
 # SUPPLIER REGISTRATION
 # ============================================================
+
 
 class SupplierRegistration(BaseModel):
     model_config = ConfigDict(
@@ -66,59 +72,34 @@ class SupplierRegistration(BaseModel):
                 "required_documents": [
                     "gst_certificate",
                     "pan_card",
-                    "bank_certificate"
-                ]
+                    "bank_certificate",
+                ],
             }
         }
     )
 
     supplier_id: str = Field(
-        ...,
-        min_length=1,
-        max_length=100,
-        pattern=SUPPLIER_ID_PATTERN
+        ..., min_length=1, max_length=100, pattern=SUPPLIER_ID_PATTERN
     )
 
-    company_name: str = Field(
-        ...,
-        min_length=2,
-        max_length=200
-    )
+    company_name: str = Field(..., min_length=2, max_length=200)
 
-    contact_name: str = Field(
-        ...,
-        min_length=2,
-        max_length=200
-    )
+    contact_name: str = Field(..., min_length=2, max_length=200)
 
-    email: str = Field(
-        ...,
-        min_length=5,
-        max_length=255
-    )
+    email: str = Field(..., min_length=5, max_length=255)
 
-    phone: str = Field(
-        ...,
-        min_length=5,
-        max_length=30
-    )
+    phone: str = Field(..., min_length=5, max_length=30)
 
-    address: str = Field(
-        ...,
-        min_length=5,
-        max_length=500
-    )
+    address: str = Field(..., min_length=5, max_length=500)
 
     country: str = Field(..., min_length=2, max_length=100)
-    required_documents: list[str] = Field(
-        ...,
-        min_length=1
-    )
+    required_documents: list[str] = Field(..., min_length=1)
 
 
 # ============================================================
 # SUPPLIER RESPONSE
 # ============================================================
+
 
 class SupplierOnboardingResponse(BaseModel):
     supplier_id: str
@@ -138,6 +119,7 @@ class SupplierOnboardingResponse(BaseModel):
 # VERIFICATION RESPONSE
 # ============================================================
 
+
 class SupplierVerificationResponse(BaseModel):
     supplier_id: str
     status: SupplierOnboardingStatus
@@ -150,6 +132,7 @@ class SupplierVerificationResponse(BaseModel):
 # APPROVAL REQUEST
 # ============================================================
 
+
 class SupplierApprovalRequest(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
@@ -159,15 +142,13 @@ class SupplierApprovalRequest(BaseModel):
         }
     )
 
-    reason: str | None = Field(
-        default=None,
-        max_length=1000
-    )
+    reason: str | None = Field(default=None, max_length=1000)
 
 
 # ============================================================
 # APPROVAL RESPONSE
 # ============================================================
+
 
 class SupplierApprovalResponse(BaseModel):
     supplier_id: str
@@ -181,6 +162,7 @@ class SupplierApprovalResponse(BaseModel):
 # ACTIVATION RESPONSE
 # ============================================================
 
+
 class SupplierActivationResponse(BaseModel):
     supplier_id: str
     status: SupplierOnboardingStatus
@@ -191,6 +173,7 @@ class SupplierActivationResponse(BaseModel):
 # ============================================================
 # STATUS RESPONSE
 # ============================================================
+
 
 class SupplierStatusResponse(BaseModel):
     supplier_id: str
@@ -204,6 +187,7 @@ class SupplierStatusResponse(BaseModel):
 # AUDIT HISTORY
 # ============================================================
 
+
 class SupplierOnboardingHistory(BaseModel):
     history_id: str
     supplier_id: str
@@ -214,4 +198,3 @@ class SupplierOnboardingHistory(BaseModel):
     role: str
     reason: str | None
     timestamp: datetime
-

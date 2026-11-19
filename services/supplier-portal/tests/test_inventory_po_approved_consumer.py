@@ -1,4 +1,3 @@
-
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -7,7 +6,6 @@ import pytest
 
 from app.models.po_mirror import POMirror
 from app.services.inventory_po_approved_consumer import POApprovedConsumer
-
 
 INVENTORY_EXAMPLE = (
     Path(__file__).resolve().parents[3]
@@ -19,9 +17,7 @@ INVENTORY_EXAMPLE = (
 
 
 def load_inventory_example():
-    return json.loads(
-        INVENTORY_EXAMPLE.read_text(encoding="utf-8-sig")
-    )
+    return json.loads(INVENTORY_EXAMPLE.read_text(encoding="utf-8-sig"))
 
 
 @pytest.fixture
@@ -92,16 +88,14 @@ def mock_session():
     return factory, db
 
 
-def test_valid_event_is_persisted_before_offset_commit(
-    consumer, valid_event
-):
+def test_valid_event_is_persisted_before_offset_commit(consumer, valid_event):
     message = make_message(valid_event)
     factory, db = mock_session()
     call_order = []
 
     db.commit.side_effect = lambda: call_order.append("db_commit")
-    consumer.consumer.commit.side_effect = (
-        lambda **kwargs: call_order.append("kafka_commit")
+    consumer.consumer.commit.side_effect = lambda **kwargs: call_order.append(
+        "kafka_commit"
     )
 
     with patch(
@@ -163,9 +157,7 @@ def test_invalid_event_is_sent_to_dlq(consumer):
     session_factory.assert_not_called()
 
 
-def test_database_failure_is_retried_then_sent_to_dlq(
-    consumer, valid_event
-):
+def test_database_failure_is_retried_then_sent_to_dlq(consumer, valid_event):
     message = make_message(valid_event)
     factory, db = mock_session()
 
@@ -186,12 +178,8 @@ def test_database_failure_is_retried_then_sent_to_dlq(
             "app.services.inventory_po_approved_consumer.SessionLocal",
             factory,
         ),
-        patch(
-            "app.services.inventory_po_approved_consumer.settings"
-        ) as mock_settings,
-        patch(
-            "app.services.inventory_po_approved_consumer.time.sleep"
-        ) as mock_sleep,
+        patch("app.services.inventory_po_approved_consumer.settings") as mock_settings,
+        patch("app.services.inventory_po_approved_consumer.time.sleep") as mock_sleep,
         patch.object(consumer, "_publish_dlq") as publish_dlq,
     ):
         mock_settings.PO_MAX_RETRIES = 2
@@ -207,12 +195,11 @@ def test_database_failure_is_retried_then_sent_to_dlq(
     mock_sleep.assert_called_once_with(0)
     publish_dlq.assert_called_once()
     assert publish_dlq.call_args.args[0] is message
-    assert "Persistence failed after 2 attempts" in (
-        publish_dlq.call_args.args[1]
-    )
+    assert "Persistence failed after 2 attempts" in (publish_dlq.call_args.args[1])
 
     # The mocked DLQ does not commit the source offset.
     consumer.consumer.commit.assert_not_called()
+
 
 def test_inventory_example_event_is_persisted(consumer, po_db):
     """Balaji's published example must go into po_mirror unchanged."""
@@ -247,8 +234,7 @@ def test_mirror_columns_fit_inventory_example_values():
     payload = load_inventory_example()["payload"]
     columns = POMirror.__table__.c
 
-    for field in ("po_id", "po_number", "supplier_id", "warehouse_id",
-                  "approved_by"):
+    for field in ("po_id", "po_number", "supplier_id", "warehouse_id", "approved_by"):
         assert len(payload[field]) <= columns[field].type.length, field
 
 
@@ -263,9 +249,7 @@ def test_replayed_example_event_is_stored_once(consumer, po_db):
     assert consumer.consumer.commit.call_count == 2
 
 
-def test_conflicting_event_for_same_po_goes_to_dlq_without_retry(
-    consumer, po_db
-):
+def test_conflicting_event_for_same_po_goes_to_dlq_without_retry(consumer, po_db):
     first = load_inventory_example()
     consumer._process_message(make_message(first))
 
@@ -275,9 +259,7 @@ def test_conflicting_event_for_same_po_goes_to_dlq_without_retry(
 
     with (
         patch.object(consumer, "_publish_dlq") as publish_dlq,
-        patch(
-            "app.services.inventory_po_approved_consumer.time.sleep"
-        ) as mock_sleep,
+        patch("app.services.inventory_po_approved_consumer.time.sleep") as mock_sleep,
     ):
         consumer._process_message(make_message(conflicting))
 
@@ -287,5 +269,3 @@ def test_conflicting_event_for_same_po_goes_to_dlq_without_retry(
 
     with po_db() as db:
         assert float(db.query(POMirror).one().total_amount) == 45000.0
-
-

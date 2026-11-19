@@ -1,11 +1,9 @@
-
 import logging
 
 from app.services.supplier_risk_client import (
-    get_supplier_risk_score,
     SupplierRiskServiceError,
+    get_supplier_risk_score,
 )
-
 
 logger = logging.getLogger(__name__)
 

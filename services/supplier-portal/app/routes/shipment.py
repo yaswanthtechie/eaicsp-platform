@@ -8,23 +8,19 @@ from app.core.auth import (
     enforce_not_suspended,
     verify_token,
 )
-
 from app.schemas.shipment import (
     ShipmentCreate,
     ShipmentResponse,
 )
-
+from app.services.purchase_order_service import (
+    get_purchase_order_by_id,
+)
 from app.services.shipment_service import (
     create_shipment,
     get_all_shipments,
     get_shipment_by_id,
     get_shipments_by_po,
 )
-
-from app.services.purchase_order_service import (
-    get_purchase_order_by_id,
-)
-
 
 router = APIRouter(
     dependencies=[Depends(enforce_not_suspended)],
@@ -33,6 +29,7 @@ router = APIRouter(
 # ============================================================
 # CREATE SHIPMENT NOTICE
 # ============================================================
+
 
 @router.post(
     "/shipments",
@@ -104,21 +101,24 @@ def create_shipment_notice(
             raise HTTPException(
                 status_code=404,
                 detail=message,
-            )
+            ) from e
 
         if "does not own" in message:
             raise HTTPException(
                 status_code=403,
                 detail=message,
-            )
+            ) from e
 
         raise HTTPException(
             status_code=400,
             detail=message,
-        )
+        ) from e
+
+
 # ============================================================
 # GET SHIPMENT BY ID
 # ============================================================
+
 
 @router.get(
     "/shipments/{shipment_id}",
@@ -151,7 +151,6 @@ def get_shipment(
     # --------------------------------------------------------
 
     if user.get("role") == "supplier":
-
         supplier_id = user.get("supplier_id")
 
         if not supplier_id:
@@ -194,9 +193,11 @@ def get_shipment(
 
     return shipment
 
+
 # ============================================================
 # GET SHIPMENTS FOR PURCHASE ORDER
 # ============================================================
+
 
 @router.get(
     "/purchase-orders/{po_number}/shipments",
@@ -242,7 +243,6 @@ def get_po_shipments(
     # could be returned without checking ownership.
 
     if user.get("role") == "supplier":
-
         supplier_id = user.get("supplier_id")
 
         if not supplier_id:
@@ -278,13 +278,10 @@ def get_po_shipments(
     # never accidentally leak through inconsistent storage.
 
     if user.get("role") == "supplier":
-
         supplier_id = user.get("supplier_id")
 
         return [
-            shipment
-            for shipment in po_shipments
-            if shipment.supplier_id == supplier_id
+            shipment for shipment in po_shipments if shipment.supplier_id == supplier_id
         ]
 
     # --------------------------------------------------------
@@ -297,6 +294,7 @@ def get_po_shipments(
 # ============================================================
 # GET ALL SHIPMENTS
 # ============================================================
+
 
 @router.get(
     "/shipments",
@@ -323,7 +321,6 @@ def list_shipments(
     # --------------------------------------------------------
 
     if user.get("role") == "supplier":
-
         supplier_id = user.get("supplier_id")
 
         if not supplier_id:

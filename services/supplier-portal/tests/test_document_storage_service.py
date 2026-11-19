@@ -92,10 +92,7 @@ def test_build_onboarding_object_key_uses_supplier_scope():
         file_name="pan_card.pdf",
     )
 
-    assert object_key == (
-        "suppliers/SUP-00001/onboarding/"
-        "DOC001_pan_card.pdf"
-    )
+    assert object_key == ("suppliers/SUP-00001/onboarding/DOC001_pan_card.pdf")
 
 
 def test_build_onboarding_object_key_preserves_supplier_prefix():
@@ -105,13 +102,9 @@ def test_build_onboarding_object_key_preserves_supplier_prefix():
         file_name="gst_certificate.pdf",
     )
 
-    assert object_key.startswith(
-        "suppliers/SUP-00002/onboarding/"
-    )
+    assert object_key.startswith("suppliers/SUP-00002/onboarding/")
 
-    assert object_key.endswith(
-        "DOC999_gst_certificate.pdf"
-    )
+    assert object_key.endswith("DOC999_gst_certificate.pdf")
 
 
 def test_build_onboarding_object_key_strips_unix_directory_from_filename():
@@ -121,10 +114,7 @@ def test_build_onboarding_object_key_strips_unix_directory_from_filename():
         file_name="../../secret/pan_card.pdf",
     )
 
-    assert object_key == (
-        "suppliers/SUP-00001/onboarding/"
-        "DOC001_pan_card.pdf"
-    )
+    assert object_key == ("suppliers/SUP-00001/onboarding/DOC001_pan_card.pdf")
 
     assert "../" not in object_key
 
@@ -136,9 +126,7 @@ def test_build_onboarding_object_key_strips_windows_directory_from_filename():
         file_name=r"C:\temp\pan_card.pdf",
     )
 
-    assert object_key.endswith(
-        "DOC001_pan_card.pdf"
-    )
+    assert object_key.endswith("DOC001_pan_card.pdf")
 
     assert r"C:\temp" not in object_key
 
@@ -174,13 +162,9 @@ def test_different_suppliers_get_different_object_prefixes():
 
     assert supplier_a_key != supplier_b_key
 
-    assert supplier_a_key.startswith(
-        "suppliers/SUP-00001/"
-    )
+    assert supplier_a_key.startswith("suppliers/SUP-00001/")
 
-    assert supplier_b_key.startswith(
-        "suppliers/SUP-00002/"
-    )
+    assert supplier_b_key.startswith("suppliers/SUP-00002/")
 
 
 # ============================================================
@@ -195,9 +179,7 @@ def test_ensure_bucket_does_not_create_bucket_when_it_exists(
 
     storage_service.ensure_bucket()
 
-    storage_service.client.bucket_exists.assert_called_once_with(
-        "supplier-documents"
-    )
+    storage_service.client.bucket_exists.assert_called_once_with("supplier-documents")
 
     storage_service.client.make_bucket.assert_not_called()
 
@@ -209,21 +191,15 @@ def test_ensure_bucket_creates_bucket_when_missing(
 
     storage_service.ensure_bucket()
 
-    storage_service.client.bucket_exists.assert_called_once_with(
-        "supplier-documents"
-    )
+    storage_service.client.bucket_exists.assert_called_once_with("supplier-documents")
 
-    storage_service.client.make_bucket.assert_called_once_with(
-        "supplier-documents"
-    )
+    storage_service.client.make_bucket.assert_called_once_with("supplier-documents")
 
 
 def test_ensure_bucket_raises_storage_error_on_minio_failure(
     storage_service,
 ):
-    storage_service.client.bucket_exists.side_effect = (
-        make_s3_error("AccessDenied")
-    )
+    storage_service.client.bucket_exists.side_effect = make_s3_error("AccessDenied")
 
     with pytest.raises(DocumentStorageError):
         storage_service.ensure_bucket()
@@ -246,10 +222,7 @@ def test_upload_onboarding_document_returns_object_key(
         file=pdf_upload_file,
     )
 
-    assert object_key == (
-        "suppliers/SUP-00001/onboarding/"
-        "DOC001_pan_card.pdf"
-    )
+    assert object_key == ("suppliers/SUP-00001/onboarding/DOC001_pan_card.pdf")
 
 
 def test_upload_onboarding_document_creates_bucket_if_needed(
@@ -264,9 +237,7 @@ def test_upload_onboarding_document_creates_bucket_if_needed(
         file=pdf_upload_file,
     )
 
-    storage_service.client.make_bucket.assert_called_once_with(
-        "supplier-documents"
-    )
+    storage_service.client.make_bucket.assert_called_once_with("supplier-documents")
 
 
 def test_upload_onboarding_document_calls_minio_put_object(
@@ -283,9 +254,7 @@ def test_upload_onboarding_document_calls_minio_put_object(
 
     storage_service.client.put_object.assert_called_once()
 
-    call_kwargs = (
-        storage_service.client.put_object.call_args.kwargs
-    )
+    call_kwargs = storage_service.client.put_object.call_args.kwargs
 
     assert call_kwargs["bucket_name"] == "supplier-documents"
     assert call_kwargs["object_name"] == object_key
@@ -308,14 +277,9 @@ def test_upload_onboarding_document_uses_default_content_type(
 
     storage_service.client.put_object.assert_called_once()
 
-    call_kwargs = (
-        storage_service.client.put_object.call_args.kwargs
-    )
+    call_kwargs = storage_service.client.put_object.call_args.kwargs
 
-    assert (
-        call_kwargs["content_type"]
-        == "application/octet-stream"
-    )
+    assert call_kwargs["content_type"] == "application/octet-stream"
 
 
 def test_upload_onboarding_document_resets_file_pointer(
@@ -341,9 +305,7 @@ def test_upload_onboarding_document_raises_upload_error_on_s3_failure(
 ):
     storage_service.client.bucket_exists.return_value = True
 
-    storage_service.client.put_object.side_effect = (
-        make_s3_error("AccessDenied")
-    )
+    storage_service.client.put_object.side_effect = make_s3_error("AccessDenied")
 
     with pytest.raises(DocumentUploadError):
         storage_service.upload_onboarding_document(
@@ -377,9 +339,7 @@ def test_upload_onboarding_document_raises_upload_error_on_value_error(
 ):
     storage_service.client.bucket_exists.return_value = True
 
-    storage_service.client.put_object.side_effect = ValueError(
-        "Invalid upload"
-    )
+    storage_service.client.put_object.side_effect = ValueError("Invalid upload")
 
     with pytest.raises(DocumentUploadError):
         storage_service.upload_onboarding_document(
@@ -404,15 +364,10 @@ def test_generate_download_url_returns_presigned_url(
         "?X-Amz-Signature=test"
     )
 
-    storage_service.client.presigned_get_object.return_value = (
-        expected_url
-    )
+    storage_service.client.presigned_get_object.return_value = expected_url
 
     url = storage_service.generate_download_url(
-        object_key=(
-            "suppliers/SUP-00001/onboarding/"
-            "DOC001_pan_card.pdf"
-        )
+        object_key=("suppliers/SUP-00001/onboarding/DOC001_pan_card.pdf")
     )
 
     assert url == expected_url
@@ -425,10 +380,7 @@ def test_generate_download_url_calls_minio_with_correct_object_key(
         "http://example.com/presigned"
     )
 
-    object_key = (
-        "suppliers/SUP-00001/onboarding/"
-        "DOC001_pan_card.pdf"
-    )
+    object_key = "suppliers/SUP-00001/onboarding/DOC001_pan_card.pdf"
 
     result = storage_service.generate_download_url(
         object_key=object_key,
@@ -438,9 +390,7 @@ def test_generate_download_url_calls_minio_with_correct_object_key(
 
     storage_service.client.presigned_get_object.assert_called_once()
 
-    call_kwargs = (
-        storage_service.client.presigned_get_object.call_args.kwargs
-    )
+    call_kwargs = storage_service.client.presigned_get_object.call_args.kwargs
 
     assert call_kwargs["bucket_name"] == "supplier-documents"
     assert call_kwargs["object_name"] == object_key
@@ -455,21 +405,15 @@ def test_generate_download_url_uses_configured_expiry(
     )
 
     monkeypatch.setattr(
-        "app.services.document_storage_service.settings."
-        "MINIO_PRESIGNED_EXPIRY_SECONDS",
+        "app.services.document_storage_service.settings.MINIO_PRESIGNED_EXPIRY_SECONDS",
         300,
     )
 
     storage_service.generate_download_url(
-        object_key=(
-            "suppliers/SUP-00001/onboarding/"
-            "DOC001_pan_card.pdf"
-        ),
+        object_key=("suppliers/SUP-00001/onboarding/DOC001_pan_card.pdf"),
     )
 
-    call_kwargs = (
-        storage_service.client.presigned_get_object.call_args.kwargs
-    )
+    call_kwargs = storage_service.client.presigned_get_object.call_args.kwargs
 
     assert call_kwargs["expires"] == timedelta(seconds=300)
 
@@ -477,32 +421,24 @@ def test_generate_download_url_uses_configured_expiry(
 def test_generate_download_url_raises_download_error_on_s3_failure(
     storage_service,
 ):
-    storage_service.client.presigned_get_object.side_effect = (
-        make_s3_error("NoSuchKey")
-    )
+    storage_service.client.presigned_get_object.side_effect = make_s3_error("NoSuchKey")
 
     with pytest.raises(DocumentDownloadError):
         storage_service.generate_download_url(
-            object_key=(
-                "suppliers/SUP-00001/onboarding/"
-                "DOC001_pan_card.pdf"
-            ),
+            object_key=("suppliers/SUP-00001/onboarding/DOC001_pan_card.pdf"),
         )
 
 
 def test_generate_download_url_raises_download_error_on_value_error(
     storage_service,
 ):
-    storage_service.client.presigned_get_object.side_effect = (
-        ValueError("Invalid expiry")
+    storage_service.client.presigned_get_object.side_effect = ValueError(
+        "Invalid expiry"
     )
 
     with pytest.raises(DocumentDownloadError):
         storage_service.generate_download_url(
-            object_key=(
-                "suppliers/SUP-00001/onboarding/"
-                "DOC001_pan_card.pdf"
-            ),
+            object_key=("suppliers/SUP-00001/onboarding/DOC001_pan_card.pdf"),
         )
 
 
@@ -514,30 +450,19 @@ def test_generate_download_url_raises_download_error_on_value_error(
 def test_object_exists_returns_true_when_object_exists(
     storage_service,
 ):
-    storage_service.client.stat_object.return_value = (
-        SimpleNamespace(
-            object_name=(
-                "suppliers/SUP-00001/onboarding/"
-                "DOC001_pan_card.pdf"
-            )
-        )
+    storage_service.client.stat_object.return_value = SimpleNamespace(
+        object_name=("suppliers/SUP-00001/onboarding/DOC001_pan_card.pdf")
     )
 
     result = storage_service.object_exists(
-        object_key=(
-            "suppliers/SUP-00001/onboarding/"
-            "DOC001_pan_card.pdf"
-        ),
+        object_key=("suppliers/SUP-00001/onboarding/DOC001_pan_card.pdf"),
     )
 
     assert result is True
 
     storage_service.client.stat_object.assert_called_once_with(
         bucket_name="supplier-documents",
-        object_name=(
-            "suppliers/SUP-00001/onboarding/"
-            "DOC001_pan_card.pdf"
-        ),
+        object_name=("suppliers/SUP-00001/onboarding/DOC001_pan_card.pdf"),
     )
 
 
@@ -558,10 +483,7 @@ def test_object_exists_returns_false_for_missing_object(
     storage_service.client.stat_object.side_effect = error
 
     result = storage_service.object_exists(
-        object_key=(
-            "suppliers/SUP-00001/onboarding/"
-            "DOC001_pan_card.pdf"
-        ),
+        object_key=("suppliers/SUP-00001/onboarding/DOC001_pan_card.pdf"),
     )
 
     assert result is False
@@ -576,10 +498,7 @@ def test_object_exists_raises_storage_error_for_unexpected_s3_failure(
 
     with pytest.raises(DocumentStorageError):
         storage_service.object_exists(
-            object_key=(
-                "suppliers/SUP-00001/onboarding/"
-                "DOC001_pan_card.pdf"
-            ),
+            object_key=("suppliers/SUP-00001/onboarding/DOC001_pan_card.pdf"),
         )
 
 
@@ -592,10 +511,7 @@ def test_object_exists_raises_storage_error_for_unexpected_exception(
 
     with pytest.raises(RuntimeError):
         storage_service.object_exists(
-            object_key=(
-                "suppliers/SUP-00001/onboarding/"
-                "DOC001_pan_card.pdf"
-            ),
+            object_key=("suppliers/SUP-00001/onboarding/DOC001_pan_card.pdf"),
         )
 
 

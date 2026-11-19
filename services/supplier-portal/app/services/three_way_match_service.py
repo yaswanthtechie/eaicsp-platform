@@ -21,8 +21,8 @@ from app.services.invoice_service import get_invoice_by_number
 from app.services.po_p2p_state_machine import (
     P2PState,
     get_p2p_state,
-    transition_p2p,
     p2p_states,
+    transition_p2p,
 )
 from app.services.purchase_order_service import get_purchase_order_by_id
 
@@ -38,6 +38,7 @@ three_way_matches: dict[tuple[str, str], dict] = {}
 # ============================================================
 # HELPERS
 # ============================================================
+
 
 def _value(value):
     """
@@ -72,13 +73,12 @@ def _get_purchase_order(
 
     if purchase_order is not None:
         if purchase_order.get("supplier_id") != supplier_id:
-            raise ValueError(
-                "Supplier does not own this Purchase Order."
-            )
+            raise ValueError("Supplier does not own this Purchase Order.")
         return purchase_order
 
     # 2. Fall back to the shared canonical Inventory PO lookup.
     return get_canonical_po(po_number, supplier_id)
+
 
 def _get_received_quantity(
     po_number: str,
@@ -96,8 +96,7 @@ def _get_received_quantity(
         return 0.0
 
     is_inventory_po = purchase_order.get("is_inventory_po") or any(
-        item.get("sku_id")
-        for item in purchase_order.get("items", [])
+        item.get("sku_id") for item in purchase_order.get("items", [])
     )
 
     if not is_inventory_po:
@@ -111,10 +110,8 @@ def _get_received_quantity(
     db = SessionLocal()
     try:
         statement = select(InventoryGoodsReceiptEvent).where(
-            InventoryGoodsReceiptEvent.po_id
-            == purchase_order.get("po_id", po_number),
-            InventoryGoodsReceiptEvent.supplier_id
-            == purchase_order.get("supplier_id"),
+            InventoryGoodsReceiptEvent.po_id == purchase_order.get("po_id", po_number),
+            InventoryGoodsReceiptEvent.supplier_id == purchase_order.get("supplier_id"),
         )
         events = db.scalars(statement).all()
 
@@ -132,7 +129,6 @@ def _get_received_quantity(
         return total
     finally:
         db.close()
-
 
 
 def _get_invoice_quantity(
@@ -153,6 +149,7 @@ def _get_invoice_quantity(
             total_invoiced += float(item.get("quantity", 0))
 
     return total_invoiced
+
 
 def _get_invoice_unit_price(
     invoice: dict,
@@ -185,9 +182,7 @@ def _price_difference_percentage(
 
         return 100.0
 
-    difference = abs(
-        invoice_price - po_price
-    )
+    difference = abs(invoice_price - po_price)
 
     return round(
         (difference / po_price) * 100,
@@ -228,6 +223,7 @@ def _rollback_p2p_states(
 # GET MATCH
 # ============================================================
 
+
 def get_three_way_match(
     supplier_id: str,
     invoice_number: str,
@@ -246,6 +242,7 @@ def get_three_way_match(
 # ============================================================
 # EXECUTE THREE-WAY MATCH
 # ============================================================
+
 
 def execute_three_way_match(
     supplier_id: str,
@@ -274,8 +271,7 @@ def execute_three_way_match(
 
     if invoice_status != InvoiceStatus.submitted.value:
         raise ValueError(
-            "Three-way match can only be performed "
-            "for submitted invoices."
+            "Three-way match can only be performed for submitted invoices."
         )
 
     # 3. Prevent repeated matching
@@ -285,18 +281,13 @@ def execute_three_way_match(
     )
 
     if existing_match:
-        raise ValueError(
-            "Three-way match has already been performed "
-            "for this invoice."
-        )
+        raise ValueError("Three-way match has already been performed for this invoice.")
 
     # 4. Find referenced Purchase Orders
     po_numbers = _get_invoice_po_numbers(invoice)
 
     if not po_numbers:
-        raise ValueError(
-            "Invoice does not reference any Purchase Orders."
-        )
+        raise ValueError("Invoice does not reference any Purchase Orders.")
 
     match_lines = []
     discrepancy_types = set()
@@ -306,18 +297,14 @@ def execute_three_way_match(
         purchase_order = _get_purchase_order(
             po_number=po_number,
             supplier_id=supplier_id,
-       )
+        )
 
         if not purchase_order:
-            raise ValueError(
-                f"Purchase Order '{po_number}' not found."
-            )
+            raise ValueError(f"Purchase Order '{po_number}' not found.")
 
         # Supplier ownership
         if purchase_order.get("supplier_id") != supplier_id:
-            raise ValueError(
-                "Supplier does not own this Purchase Order."
-            )
+            raise ValueError("Supplier does not own this Purchase Order.")
 
         # Preserve the existing lifecycle requirement
         po_status = _value(purchase_order.get("status"))
@@ -401,27 +388,17 @@ def execute_three_way_match(
                 invoice_price=invoice_unit_price,
             )
 
-            price_matched = (
-                price_difference <= PRICE_TOLERANCE_PERCENT
-            )
+            price_matched = price_difference <= PRICE_TOLERANCE_PERCENT
 
             line_discrepancies = []
 
             if not quantity_matched:
-                line_discrepancies.append(
-                    DiscrepancyType.quantity_mismatch
-                )
-                discrepancy_types.add(
-                    DiscrepancyType.quantity_mismatch
-                )
+                line_discrepancies.append(DiscrepancyType.quantity_mismatch)
+                discrepancy_types.add(DiscrepancyType.quantity_mismatch)
 
             if not price_matched:
-                line_discrepancies.append(
-                    DiscrepancyType.price_mismatch
-                )
-                discrepancy_types.add(
-                    DiscrepancyType.price_mismatch
-                )
+                line_discrepancies.append(DiscrepancyType.price_mismatch)
+                discrepancy_types.add(DiscrepancyType.price_mismatch)
 
             # Preserve item_code in legacy response records.
             # Canonical Inventory records expose sku_id instead.
@@ -474,9 +451,7 @@ def execute_three_way_match(
             P2PState.invoiced,
         )
 
-        raise ValueError(
-            f"Unable to complete three-way match: {exc}"
-        ) from exc
+        raise ValueError(f"Unable to complete three-way match: {exc}") from exc
 
     # 8. Create and store match record
     match_id = f"3WM-{uuid4().hex[:8].upper()}"
@@ -488,10 +463,7 @@ def execute_three_way_match(
         "invoice_number": invoice_number,
         "status": match_status.value,
         "lines": match_lines,
-        "discrepancies": [
-            discrepancy.value
-            for discrepancy in discrepancy_types
-        ],
+        "discrepancies": [discrepancy.value for discrepancy in discrepancy_types],
         "created_at": now,
         "created_by": created_by,
         "resolution": None,
@@ -508,10 +480,10 @@ def execute_three_way_match(
     return match_record
 
 
-
 # ============================================================
 # RESOLVE DISCREPANCY
 # ============================================================
+
 
 def resolve_three_way_discrepancy(
     supplier_id: str,
@@ -533,23 +505,15 @@ def resolve_three_way_discrepancy(
     )
 
     if not match:
-        raise ValueError(
-            "Three-way match record not found."
-        )
+        raise ValueError("Three-way match record not found.")
 
-    if (
-        match.get("status")
-        != ThreeWayMatchStatus.discrepancy.value
-    ):
+    if match.get("status") != ThreeWayMatchStatus.discrepancy.value:
         raise ValueError(
-            "Only a three-way match with discrepancy "
-            "status can be resolved."
+            "Only a three-way match with discrepancy status can be resolved."
         )
 
     if not reason or not reason.strip():
-        raise ValueError(
-            "Resolution reason is required."
-        )
+        raise ValueError("Resolution reason is required.")
 
     invoice = get_invoice_by_number(
         supplier_id=supplier_id,
@@ -557,33 +521,22 @@ def resolve_three_way_discrepancy(
     )
 
     if not invoice:
-        raise ValueError(
-            "Invoice not found."
-        )
+        raise ValueError("Invoice not found.")
 
-    po_numbers = _get_invoice_po_numbers(
-        invoice
-    )
+    po_numbers = _get_invoice_po_numbers(invoice)
 
     if not po_numbers:
-        raise ValueError(
-            "Invoice does not reference any Purchase Orders."
-        )
+        raise ValueError("Invoice does not reference any Purchase Orders.")
 
     transitioned = []
 
     try:
-
         for po_number in po_numbers:
-
-            current_state = get_p2p_state(
-                po_number
-            )
+            current_state = get_p2p_state(po_number)
 
             if current_state != P2PState.discrepancy:
                 raise ValueError(
-                    f"Purchase Order '{po_number}' "
-                    "is not in P2P state 'discrepancy'."
+                    f"Purchase Order '{po_number}' is not in P2P state 'discrepancy'."
                 )
 
             transition_p2p(
@@ -591,28 +544,19 @@ def resolve_three_way_discrepancy(
                 target_state=P2PState.matched,
             )
 
-            transitioned.append(
-                po_number
-            )
+            transitioned.append(po_number)
 
     except Exception as exc:
-
         _rollback_p2p_states(
             transitioned,
             P2PState.discrepancy,
         )
 
-        raise ValueError(
-            f"Unable to resolve discrepancy: {exc}"
-        )
+        raise ValueError(f"Unable to resolve discrepancy: {exc}") from exc
 
-    now = datetime.now(
-        timezone.utc
-    )
+    now = datetime.now(timezone.utc)
 
-    match["status"] = (
-        ThreeWayMatchStatus.matched.value
-    )
+    match["status"] = ThreeWayMatchStatus.matched.value
 
     match["resolution"] = {
         "reason": reason,
@@ -630,6 +574,7 @@ def resolve_three_way_discrepancy(
 # ============================================================
 # PAYMENT APPROVAL
 # ============================================================
+
 
 def approve_payment(
     supplier_id: str,
@@ -650,23 +595,15 @@ def approve_payment(
     )
 
     if not match:
-        raise ValueError(
-            "Three-way match record not found."
-        )
+        raise ValueError("Three-way match record not found.")
 
-    if (
-        match.get("status")
-        != ThreeWayMatchStatus.matched.value
-    ):
+    if match.get("status") != ThreeWayMatchStatus.matched.value:
         raise ValueError(
-            "Payment can only be approved "
-            "after the three-way match is matched."
+            "Payment can only be approved after the three-way match is matched."
         )
 
     if match.get("payment_approved"):
-        raise ValueError(
-            "Payment has already been approved."
-        )
+        raise ValueError("Payment has already been approved.")
 
     invoice = get_invoice_by_number(
         supplier_id=supplier_id,
@@ -674,28 +611,18 @@ def approve_payment(
     )
 
     if not invoice:
-        raise ValueError(
-            "Invoice not found."
-        )
+        raise ValueError("Invoice not found.")
 
-    po_numbers = _get_invoice_po_numbers(
-        invoice
-    )
+    po_numbers = _get_invoice_po_numbers(invoice)
 
     if not po_numbers:
-        raise ValueError(
-            "Invoice does not reference any Purchase Orders."
-        )
+        raise ValueError("Invoice does not reference any Purchase Orders.")
 
     transitioned = []
 
     try:
-
         for po_number in po_numbers:
-
-            current_state = get_p2p_state(
-                po_number
-            )
+            current_state = get_p2p_state(po_number)
 
             if current_state != P2PState.matched:
                 raise ValueError(
@@ -709,24 +636,17 @@ def approve_payment(
                 target_state=P2PState.payment_approved,
             )
 
-            transitioned.append(
-                po_number
-            )
+            transitioned.append(po_number)
 
     except Exception as exc:
-
         _rollback_p2p_states(
             transitioned,
             P2PState.matched,
         )
 
-        raise ValueError(
-            f"Unable to approve payment: {exc}"
-        )
+        raise ValueError(f"Unable to approve payment: {exc}") from exc
 
-    now = datetime.now(
-        timezone.utc
-    )
+    now = datetime.now(timezone.utc)
 
     match["payment_approved"] = True
     match["payment_approved_at"] = now
@@ -736,11 +656,8 @@ def approve_payment(
     return {
         "supplier_id": supplier_id,
         "invoice_number": invoice_number,
-        "payment_status": (
-            P2PState.payment_approved.value
-        ),
+        "payment_status": (P2PState.payment_approved.value),
         "approved_at": now,
         "approved_by": approved_by,
         "approved_role": approved_role,
     }
-

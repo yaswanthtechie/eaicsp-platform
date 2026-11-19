@@ -26,9 +26,7 @@ def test_health_returns_200_when_all_consumers_enabled(monkeypatch):
         main.inventory_goods_received_runner,
     )
     for runner in runners:
-        monkeypatch.setattr(
-            runner, "_thread", SimpleNamespace(is_alive=lambda: True)
-        )
+        monkeypatch.setattr(runner, "_thread", SimpleNamespace(is_alive=lambda: True))
 
     response = TestClient(main.app).get("/health")
 

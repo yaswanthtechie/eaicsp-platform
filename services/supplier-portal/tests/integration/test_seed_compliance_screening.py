@@ -1,4 +1,3 @@
-
 """Screen seed suppliers against the real Compliance Service.
 
 Requires Compliance running at COMPLIANCE_SERVICE_URL with sanctions
@@ -17,12 +16,7 @@ from app.services.supplier_seed_loader import load_supplier_csv
 
 pytestmark = pytest.mark.integration
 
-SEED_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "data"
-    / "seed"
-    / "suppliers.csv"
-)
+SEED_PATH = Path(__file__).resolve().parents[2] / "data" / "seed" / "suppliers.csv"
 
 SANCTIONED_IDS = ["SUP-00007", "SUP-00023", "SUP-00045"]
 
