@@ -46,7 +46,7 @@ describe("InventoryTable", () => {
   it("searches inventory by SKU", () => {
     render(<InventoryTable data={inventory} />);
 
-    const searchInput = screen.getByPlaceholderText("Search SKU");
+    const searchInput = screen.getByPlaceholderText("Search SKU or product");
 
     fireEvent.change(searchInput, {
       target: {
@@ -74,7 +74,7 @@ describe("InventoryTable", () => {
   it("shows empty message when SKU is not found", () => {
     render(<InventoryTable data={inventory} />);
 
-    const searchInput = screen.getByPlaceholderText("Search SKU");
+    const searchInput = screen.getByPlaceholderText("Search SKU or product");
 
     fireEvent.change(searchInput, {
       target: {
@@ -120,7 +120,7 @@ describe("InventoryTable", () => {
     render(<InventoryTable data={inventory} />);
 
     const searchInput = screen.getByLabelText(
-      "Search inventory items by SKU No"
+      "Search inventory items by SKU or product name"
     );
 
     expect(searchInput).toBeInTheDocument();
@@ -185,6 +185,52 @@ describe("InventoryTable", () => {
     fireEvent.click(retryButton);
 
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("displays product and warehouse names from C7 lookup maps", () => {
+    const item = {
+      ...inventory[0],
+      warehouse_id: "WH-HYD-01",
+  };
+    render(
+      <InventoryTable
+        data={[item]}
+        productNames={{
+          [item.sku_id]: "Steel Fastener Set 50pc",
+        }}
+        warehouseNames={{
+          [item.warehouse_id]: "Hyderabad Central DC",
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByText("Steel Fastener Set 50pc"),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByText("Hyderabad Central DC (WH-HYD-01)"),
+    ).toBeInTheDocument();
+  });
+
+  it("displays IDs when product and warehouse names are missing", () => {
+    const item = inventory[0];
+
+    render(
+      <InventoryTable
+        data={[item]}
+        productNames={{}}
+        warehouseNames={{}}
+      />,
+    );
+
+    expect(
+      screen.getAllByText(item.sku_id).length,
+    ).toBeGreaterThan(0);
+
+    expect(
+      screen.getAllByText(item.warehouse_id).length,
+    ).toBeGreaterThan(0);
   });
 });
 

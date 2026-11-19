@@ -16,12 +16,16 @@ interface InventoryHealthProps {
   inventory: InventoryItem[];
   warehouse: string;
   category: string;
+  productNames?: Record<string, string>;
+  warehouseNames?: Record<string, string>;
 }
 
 function InventoryHealth({
   inventory,
   warehouse,
   category,
+  productNames = {},
+  warehouseNames = {},
 }: InventoryHealthProps) {
   const [activeFilter, setActiveFilter] =
     useState<FilterType | null>(null);
@@ -249,16 +253,21 @@ function InventoryHealth({
                         fontWeight: 600,
                       }}
                     >
-                      {item.product_name}
+                      {productNames[item.sku_id]
+                        ? `${productNames[item.sku_id]} (${item.sku_id})`
+                        : item.sku_id}
                     </div>
-
                     <div
                       style={{
                         color: colors.textMuted,
                         fontSize: "11px",
                       }}
                     >
-                      {item.sku_id} · {item.warehouse_id}
+                      {item.warehouse_id
+                        ? `${warehouseNames[item.warehouse_id]
+                          ? `${warehouseNames[item.warehouse_id]} (${item.warehouse_id})`
+                          : item.warehouse_id}`
+                        : ""}
                     </div>
                   </div>
 

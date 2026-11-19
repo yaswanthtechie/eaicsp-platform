@@ -25,6 +25,7 @@ interface DashboardFiltersProps {
   }) => void;
   lockedWarehouse?: string;
   inventory: InventoryItem[];
+  warehouseNames?: Record<string, string>;
 }
 
 function DashboardFilters({
@@ -32,6 +33,7 @@ function DashboardFilters({
   onFilterChange,
   lockedWarehouse,
   inventory,
+  warehouseNames = {},
 }: DashboardFiltersProps) {
 
   const warehouses = useMemo(
@@ -100,11 +102,17 @@ function DashboardFilters({
         }}
       >
         <SelectTrigger
-          className="w-[180px] cursor-pointer"
+          className="w-[250px] cursor-pointer"
           aria-label="Warehouse filter"
         >
           <SelectValue>
-            {(value: string) => (value === "All" ? "All Warehouses" : value)}
+            {(value: string) =>
+              value === "All"
+                ? "All Warehouses"
+                : warehouseNames[value]
+                  ? `${warehouseNames[value]} (${value})`
+                  :value
+            }
           </SelectValue>
         </SelectTrigger>
 
@@ -118,7 +126,9 @@ function DashboardFilters({
               key={warehouseId}
               value={warehouseId}
             >
-              {warehouseId}
+              {warehouseNames[warehouseId]
+                ? `${warehouseNames[warehouseId]} (${warehouseId})`
+                : warehouseId}
             </SelectItem>
           ))}
         </SelectContent>

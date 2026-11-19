@@ -11,6 +11,7 @@ import {
 
 interface NarrativeInsightsProps {
     inventory: InventoryItem[];
+    warehouseNames: Record<string, string>;
     suppliers: SupplierRiskItem[];
     shipments: ShipmentStatus;
     showSupplierInsight: boolean;
@@ -18,6 +19,7 @@ interface NarrativeInsightsProps {
 
 export default function NarrativeInsights({
     inventory,
+    warehouseNames,
     suppliers,
     shipments,
     showSupplierInsight,
@@ -33,7 +35,7 @@ export default function NarrativeInsights({
                 </p>
 
                 <p className="text-sm text-muted-foreground">
-                    {generateWarehouseInsight(inventory)}
+                    {generateWarehouseInsight(inventory, warehouseNames)}
                 </p>
 
                 {showSupplierInsight && (

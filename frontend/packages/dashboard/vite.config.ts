@@ -75,6 +75,10 @@ export default defineConfig({
       target: "http://localhost:8000",
       changeOrigin: true,
       },
+      "/api/v1/inventory": {
+      target: "http://localhost:8000",
+      changeOrigin: true,
+      },
     },
   },
 });

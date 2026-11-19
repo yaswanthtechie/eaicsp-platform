@@ -15,8 +15,8 @@ describe("exportDashboardCsv", () => {
         const inventory: InventoryItem[] = [
             {
                 sku_id: "SKU-000001",
-                product_name: "Rice",
-                category: "Food",
+                product_name: "Kestrel Sticky Notes - Pack of 10 1",
+                category: "Stationery",
                 warehouse_id: "WH-BLR-01",
                 quantity_on_hand: 100,
                 reorder_point: 20,
@@ -39,7 +39,12 @@ describe("exportDashboardCsv", () => {
 
         vi.spyOn(document, "createElement").mockReturnValue(link);
 
-        exportDashboardCsv("inventory", inventory);
+        exportDashboardCsv("inventory", inventory, {
+            productNames: {
+                "SKU-000001": 'Kestrel Sticky Notes - Pack of 10 1, "Premium"\nPack (SKU-000001)"',
+            },
+            warehouseNames: {},
+        });
 
         expect(createObjectURL).toHaveBeenCalledTimes(1);
         expect(link.download).toBe("inventory-export.csv");
@@ -51,8 +56,8 @@ describe("exportDashboardCsv", () => {
         const inventory: InventoryItem[] = [
             {
                 sku_id: "SKU-000001",
-                product_name: 'Rice, "Premium"\nPack',
-                category: "Food",
+                product_name: 'Kestrel Sticky Notes - Pack of 10 1, "Premium"\nPack (SKU-000001)"',
+                category: "Stationery",
                 warehouse_id: "WH-BLR-01",
                 quantity_on_hand: 100,
                 reorder_point: 20,
@@ -72,12 +77,17 @@ describe("exportDashboardCsv", () => {
         const link = document.createElement("a");
         vi.spyOn(document, "createElement").mockReturnValue(link);
 
-        exportDashboardCsv("inventory", inventory);
+        exportDashboardCsv("inventory", inventory, {
+            productNames: {
+                "SKU-000001": 'Kestrel Sticky Notes - Pack of 10 1, "Premium"\nPack',
+            },
+            warehouseNames: {},
+        });
 
         const blob = createObjectURL.mock.calls[0][0] as Blob;
         const csv = await blob.text();
 
-        expect(csv).toContain('"Rice, ""Premium""\nPack"');
+        expect(csv).toContain('"Kestrel Sticky Notes - Pack of 10 1, ""Premium""\nPack (SKU-000001)"');
     });
 
     it("protects values starting with =", async () => {
@@ -85,7 +95,7 @@ describe("exportDashboardCsv", () => {
             {
                 sku_id: "SKU-000001",
                 product_name: "=SUM(A1:A2)",
-                category: "Food",
+                category: "Stationery",
                 warehouse_id: "WH-BLR-01",
                 quantity_on_hand: 100,
                 reorder_point: 20,
@@ -104,7 +114,10 @@ describe("exportDashboardCsv", () => {
         const link = document.createElement("a");
         vi.spyOn(document, "createElement").mockReturnValue(link);
 
-        exportDashboardCsv("inventory", inventory);
+        exportDashboardCsv("inventory", inventory, {
+            productNames: { "SKU-000001": "=SUM(A1:A2)" },
+            warehouseNames: {},
+        });
 
         const blob = createObjectURL.mock.calls[0][0] as Blob;
         const csv = await blob.text();
@@ -117,7 +130,7 @@ describe("exportDashboardCsv", () => {
             {
                 sku_id: "SKU-000001",
                 product_name: "+123",
-                category: "Food",
+                category: "Stationery",
                 warehouse_id: "WH-BLR-01",
                 quantity_on_hand: 100,
                 reorder_point: 20,
@@ -136,7 +149,10 @@ describe("exportDashboardCsv", () => {
         const link = document.createElement("a");
         vi.spyOn(document, "createElement").mockReturnValue(link);
 
-        exportDashboardCsv("inventory", inventory);
+        exportDashboardCsv("inventory", inventory, {
+            productNames: { "SKU-000001": "+123" },
+            warehouseNames: {},
+        });
 
         const blob = createObjectURL.mock.calls[0][0] as Blob;
         const csv = await blob.text();
@@ -149,7 +165,7 @@ describe("exportDashboardCsv", () => {
             {
                 sku_id: "SKU-000001",
                 product_name: "-123",
-                category: "Food",
+                category: "Stationery",
                 warehouse_id: "WH-BLR-01",
                 quantity_on_hand: 100,
                 reorder_point: 20,
@@ -168,7 +184,10 @@ describe("exportDashboardCsv", () => {
         const link = document.createElement("a");
         vi.spyOn(document, "createElement").mockReturnValue(link);
 
-        exportDashboardCsv("inventory", inventory);
+        exportDashboardCsv("inventory", inventory, {
+            productNames: { "SKU-000001": "-123" },
+            warehouseNames: {},
+        });
 
         const blob = createObjectURL.mock.calls[0][0] as Blob;
         const csv = await blob.text();
@@ -181,7 +200,7 @@ describe("exportDashboardCsv", () => {
             {
                 sku_id: "SKU-000001",
                 product_name: "@SUM(A1:A2)",
-                category: "Food",
+                category: "Stationery",
                 warehouse_id: "WH-BLR-01",
                 quantity_on_hand: 100,
                 reorder_point: 20,
@@ -200,7 +219,10 @@ describe("exportDashboardCsv", () => {
         const link = document.createElement("a");
         vi.spyOn(document, "createElement").mockReturnValue(link);
 
-        exportDashboardCsv("inventory", inventory);
+        exportDashboardCsv("inventory", inventory, {
+            productNames: { "SKU-000001": "@SUM(A1:A2)" },
+            warehouseNames: {},
+        });
 
         const blob = createObjectURL.mock.calls[0][0] as Blob;
         const csv = await blob.text();
@@ -285,8 +307,8 @@ describe("exportDashboardCsv", () => {
         const inventory: InventoryItem[] = [
             {
                 sku_id: "SKU-000001",
-                product_name: "Rice",
-                category: "Food",
+                product_name: "Kestrel Sticky Notes - Pack of 10 1",
+                category: "Stationery",
                 warehouse_id: "WH-BLR-01",
                 quantity_on_hand: -5,
                 reorder_point: 20,
@@ -314,5 +336,89 @@ describe("exportDashboardCsv", () => {
 
         expect(csv).toContain(",-5,");
         expect(csv).not.toContain("'-5");
+    });
+
+
+    it("exports product and warehouse names along with their IDs", async () => {
+        const inventory: InventoryItem[] = [
+            {
+                sku_id: "SKU-000001",
+                product_name: "Kestrel Sticky Notes - Pack of 10 1",
+                category: "Stationery",
+                warehouse_id: "WH-BLR-01",
+                quantity_on_hand: 120,
+                reorder_point: 50,
+                needs_reorder: false,
+                avg_daily_demand: 10,
+            },
+        ];
+
+        const createObjectURL = vi.fn();
+
+        vi.stubGlobal("URL", {
+            createObjectURL,
+            revokeObjectURL: vi.fn(),
+        });
+
+        const link = document.createElement("a");
+        vi.spyOn(document, "createElement").mockReturnValue(link);
+
+        exportDashboardCsv("inventory", inventory, {
+            productNames: {
+                "SKU-000001": "Kestrel Sticky Notes - Pack of 10 1",
+            },
+            warehouseNames: {
+                "WH-BLR-01": "Bangalore Warehouse",
+            },
+        });
+
+        const blob = createObjectURL.mock.calls[0][0] as Blob;
+        const csv = await blob.text();
+
+        expect(csv).toContain(
+            "Kestrel Sticky Notes - Pack of 10 1 (SKU-000001)",
+        );
+        expect(csv).toContain(
+            "Bangalore Warehouse (WH-BLR-01)",
+        );
+    });
+
+    it("falls back to IDs when product and warehouse names are missing", async () => {
+        const inventory: InventoryItem[] = [
+            {
+                sku_id: "SKU-000001",
+                product_name: "Kestrel Sticky Notes - Pack of 10 1",
+                category: "Stationery",
+                warehouse_id: "WH-BLR-01",
+                quantity_on_hand: 120,
+                reorder_point: 50,
+                needs_reorder: false,
+                avg_daily_demand: 10,
+            },
+        ];
+
+        const createObjectURL = vi.fn();
+
+        vi.stubGlobal("URL", {
+            createObjectURL,
+            revokeObjectURL: vi.fn(),
+        });
+
+        const link = document.createElement("a");
+        vi.spyOn(document, "createElement").mockReturnValue(link);
+
+        exportDashboardCsv("inventory", inventory, {
+            productNames: {},
+            warehouseNames: {},
+        });
+
+        const blob = createObjectURL.mock.calls[0][0] as Blob;
+        const csv = await blob.text();
+
+        expect(csv).toContain("SKU-000001");
+        expect(csv).toContain("WH-BLR-01");
+        expect(csv).not.toContain(
+            "Kestrel Sticky Notes - Pack of 10 1",
+        );
     });
 });

@@ -2,10 +2,11 @@ import type {jsPDF} from "jspdf";
 import type { InventoryItem } from "../types/forecast";
 import type { SupplierRiskItem, ShipmentStatus } from "../types/dashboard";
 import type { UserRole } from "../mocks/user";
-
 interface PdfExportData {
     role: UserRole;
     inventory: InventoryItem[];
+    productNames: Record<string, string>;
+    warehouseNames: Record<string, string>;
     suppliers: SupplierRiskItem[];
     shipments: ShipmentStatus;
     filters: {
@@ -61,6 +62,8 @@ const checkPageSpace = (
 export const exportDashboardPdf = async ({
     role,
     inventory,
+    productNames,
+    warehouseNames,
     suppliers,
     shipments,
     filters,
@@ -98,7 +101,11 @@ export const exportDashboardPdf = async ({
 
     y = addText(
         doc,
-        `Warehouse: ${filters.warehouse}`,
+        `Warehouse: ${
+            warehouseNames[filters.warehouse]
+                ? `${warehouseNames[filters.warehouse]} (${filters.warehouse})`
+                :filters.warehouse
+        }`,
         y
     );
 
@@ -254,9 +261,16 @@ export const exportDashboardPdf = async ({
     inventory.slice(0, 40).forEach((item) => {
         y = checkPageSpace(doc, y);
 
+        const productLabel = productNames[item.sku_id]
+            ? `${productNames[item.sku_id]} (${item.sku_id})`
+            : item.sku_id;
+
+        const warehouseLabel = warehouseNames[item.warehouse_id]
+            ? `${warehouseNames[item.warehouse_id]} (${item.warehouse_id})`
+            : item.warehouse_id;
         const line =
-            `${item.sku_id} | ${item.product_name} | ` +
-            `${item.warehouse_id} | Qty: ${item.quantity_on_hand}`;
+            `${productLabel} | ${warehouseLabel} | ` +
+            `Qty: ${item.quantity_on_hand}`;
 
         y = addText(doc, line, y);
     });

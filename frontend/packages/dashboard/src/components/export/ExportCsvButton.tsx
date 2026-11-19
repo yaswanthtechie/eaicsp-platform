@@ -15,6 +15,8 @@ import { colors, radius, space } from "../../tokens";
 interface ExportButtonsProps {
     role: UserRole;
     inventory: InventoryItem[];
+    productNames: Record<string, string>;
+    warehouseNames: Record<string, string>;
     suppliers: SupplierRiskItem[];
     shipments: ShipmentStatus;
 }
@@ -37,6 +39,8 @@ const ExportButtons = ({
     inventory,
     suppliers,
     shipments,
+    productNames,
+    warehouseNames,
 }: ExportButtonsProps) => {
     const [view, setView] = useState<CsvExportView>("inventory");
 
@@ -50,7 +54,10 @@ const ExportButtons = ({
 
     const handleCsvExport = (): void => {
         if (activeView === "inventory") {
-            exportDashboardCsv("inventory", inventory);
+            exportDashboardCsv("inventory", inventory, {
+                productNames,
+                warehouseNames,
+            });
             return;
         }
 
