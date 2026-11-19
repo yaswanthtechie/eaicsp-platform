@@ -11,6 +11,7 @@
     "origin": "Supplier Warehouse, Bengaluru",
     "destination_warehouse": "WH-BLR-01",
     "carrier": "BlueDart",
-    "dispatched_at": "2026-10-15T06:30:00Z"
+    "dispatched_at": "2026-10-15T06:30:00Z",
+    "planned_delivery_date": "2026-10-20"
   }
 }

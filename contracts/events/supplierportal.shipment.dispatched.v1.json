@@ -77,6 +77,11 @@
         "dispatched_at": {
           "type": "string",
           "format": "date-time"
+        },
+        "planned_delivery_date": {
+           "type": "string",
+           "format": "date",
+            "description": "Optional planned delivery date in YYYY-MM-DD format."
         }
       }
     }
