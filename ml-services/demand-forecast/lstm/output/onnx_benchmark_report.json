@@ -11,49 +11,49 @@
     "1": {
       "fp32": {
         "batch_size": 1,
-        "p50_batch_latency_ms": 0.20994999977119733,
-        "p95_batch_latency_ms": 0.3014250021806219,
-        "throughput_samples_per_sec": 3917.3440382354024,
+        "p50_batch_latency_ms": 0.23914999974294915,
+        "p95_batch_latency_ms": 0.37441000049511786,
+        "throughput_samples_per_sec": 2980.3594313690814,
         "speedup_vs_fp32": 1.0
       },
       "int8": {
         "batch_size": 1,
-        "p50_batch_latency_ms": 0.3312499993626261,
-        "p95_batch_latency_ms": 0.4590750015267977,
-        "throughput_samples_per_sec": 2669.246939685457,
-        "speedup_vs_fp32": 0.6813920129639264
+        "p50_batch_latency_ms": 0.26269999989381176,
+        "p95_batch_latency_ms": 0.5765850005445827,
+        "throughput_samples_per_sec": 1980.7647930466828,
+        "speedup_vs_fp32": 0.6646060110061232
       }
     },
     "32": {
       "fp32": {
         "batch_size": 32,
-        "p50_batch_latency_ms": 1.8700499986152863,
-        "p95_batch_latency_ms": 7.5575449998723325,
-        "throughput_samples_per_sec": 11989.462012666654,
+        "p50_batch_latency_ms": 2.165549999972427,
+        "p95_batch_latency_ms": 18.225999999776807,
+        "throughput_samples_per_sec": 6606.519809303245,
         "speedup_vs_fp32": 1.0
       },
       "int8": {
         "batch_size": 32,
-        "p50_batch_latency_ms": 2.057599998806836,
-        "p95_batch_latency_ms": 4.4532500007335285,
-        "throughput_samples_per_sec": 13736.169394832523,
-        "speedup_vs_fp32": 1.1456868857268578
+        "p50_batch_latency_ms": 2.8225999999449414,
+        "p95_batch_latency_ms": 36.118135000242354,
+        "throughput_samples_per_sec": 3680.0155204747784,
+        "speedup_vs_fp32": 0.5570278492607578
       }
     },
     "256": {
       "fp32": {
         "batch_size": 256,
-        "p50_batch_latency_ms": 15.144349999900442,
-        "p95_batch_latency_ms": 31.79958500113564,
-        "throughput_samples_per_sec": 14535.023188761876,
+        "p50_batch_latency_ms": 31.676300000071933,
+        "p95_batch_latency_ms": 103.90294000007997,
+        "throughput_samples_per_sec": 6089.182910258747,
         "speedup_vs_fp32": 1.0
       },
       "int8": {
         "batch_size": 256,
-        "p50_batch_latency_ms": 16.540300000997377,
-        "p95_batch_latency_ms": 39.0151549967413,
-        "throughput_samples_per_sec": 12446.184533354684,
-        "speedup_vs_fp32": 0.8562892794679385
+        "p50_batch_latency_ms": 27.212599999984377,
+        "p95_batch_latency_ms": 130.37780000067863,
+        "throughput_samples_per_sec": 5531.060925765036,
+        "speedup_vs_fp32": 0.9083420562792726
       }
     }
   },

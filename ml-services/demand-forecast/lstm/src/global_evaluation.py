@@ -19,8 +19,9 @@ from src.config import (
 )
 
 
-CHECKPOINT_PATH = Path("output/global_best_model.pt")
-SUMMARY_PATH = Path("output/global_vs_per_sku_summary.json")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+CHECKPOINT_PATH = PROJECT_ROOT / "output" / "global_best_model.pt"
+SUMMARY_PATH = PROJECT_ROOT / "output" / "global_vs_per_sku_summary.json"
 
 
 
@@ -71,7 +72,7 @@ def run_evaluation():
         raise ValueError("Invalid scaler parameters in checkpoint.")
 
     data = load_global_data(
-        DATA_PATH,
+        PROJECT_ROOT / DATA_PATH,
         lookback=LOOKBACK,
         horizon=HORIZON,
     )

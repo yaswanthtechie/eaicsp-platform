@@ -29,7 +29,8 @@ from src.config import (
 )
 
 
-OUTPUT_DIR = Path("output")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+OUTPUT_DIR = PROJECT_ROOT / "output"
 
 
 MLFLOW_EXPERIMENT = "Demand-Forecast-LSTM-Global"
@@ -46,7 +47,7 @@ def run_training():
     print("Device:", device)
 
     data = load_global_data(
-        DATA_PATH,
+        PROJECT_ROOT / DATA_PATH,
         lookback=LOOKBACK,
         horizon=HORIZON,
     )

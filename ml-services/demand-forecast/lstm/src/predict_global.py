@@ -36,6 +36,15 @@ def make_input(history, lookback, scaler_mean, scaler_scale):
         )
 
     dates = pd.to_datetime(history["date"])
+
+    # Training rejects series with gaps, so inference must too.
+    if dates.duplicated().any():
+        raise ValueError("History has duplicate dates.")
+    if not dates.diff().dropna().eq(pd.Timedelta(days=1)).all():
+        raise ValueError(
+            f"The last {lookback} days of history must be continuous "
+            "daily rows. Reindex and impute missing days first."
+        )
     sales = history["sales"].to_numpy(dtype=np.float32)
 
     # Use the exact scaler parameters learned during training.

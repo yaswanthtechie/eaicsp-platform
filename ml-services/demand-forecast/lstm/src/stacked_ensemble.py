@@ -28,7 +28,7 @@ DEFAULT_BLOCK_SIZE = 28
 META_ALPHA = 1.0
 
 
-def _predict_base_models(history_df, forecast_df):
+def _predict_base_models(history_df, forecast_df, seed=RANDOM_SEED):
     """Predict a future block using history strictly before that block."""
     check_contiguous(history_df, forecast_df)
 
@@ -37,10 +37,10 @@ def _predict_base_models(history_df, forecast_df):
             fit_prophet_and_predict(history_df, forecast_df)
         ).reshape(-1),
         "XGBoost": np.asarray(
-            fit_xgboost_and_predict(history_df, forecast_df)
+            fit_xgboost_and_predict(history_df, forecast_df, seed=seed)
         ).reshape(-1),
         "LSTM": np.asarray(
-            fit_lstm_and_predict(history_df, forecast_df)
+            fit_lstm_and_predict(history_df, forecast_df, seed=seed)
         ).reshape(-1),
     }
 
@@ -62,6 +62,7 @@ def generate_oof_predictions(
     start_idx,
     end_idx,
     block_size=DEFAULT_BLOCK_SIZE,
+    seed=RANDOM_SEED,
 ):
     """
     Generate time-ordered out-of-fold predictions.
@@ -85,7 +86,7 @@ def generate_oof_predictions(
         if history_df.empty or forecast_df.empty:
             raise ValueError("History and forecast blocks must be non-empty.")
 
-        predictions = _predict_base_models(history_df, forecast_df)
+        predictions = _predict_base_models(history_df, forecast_df, seed=seed)
 
         block = pd.DataFrame({
             "Date": forecast_df["Date"].to_numpy(),
@@ -131,6 +132,18 @@ def evaluate_test_predictions(test_predictions, meta_model):
         result[BASE_COLUMNS].to_numpy(dtype=float)
     )
 
+    # Explanation per row: Ridge is linear, so each base model's
+    # contribution is coef * prediction, and the contributions plus the
+    # intercept add up exactly to StackedRidge.
+    for name, coef in zip(BASE_COLUMNS, meta_model.coef_):
+        result[f"{name}_contribution"] = coef * result[name]
+    result["intercept"] = float(meta_model.intercept_)
+    contribution_columns = [f"{name}_contribution" for name in BASE_COLUMNS]
+    result["top_contributor"] = (
+        result[contribution_columns].abs().idxmax(axis=1)
+        .str.replace("_contribution", "", regex=False)
+    )
+
     actual = result["Actual"].to_numpy(dtype=float)
     methods = BASE_COLUMNS + ["EqualWeightAverage", "StackedRidge"]
 
@@ -171,7 +184,7 @@ def run_stacked_ensemble(block_size=DEFAULT_BLOCK_SIZE, data_seed=42, model_seed
 
     # Every OOF block is predicted using only the history before that block.
     oof_predictions = generate_oof_predictions(
-        df, oof_start, test_start, block_size
+        df, oof_start, test_start, block_size, seed=model_seed
     )
 
     # Final test rows are not used to fit or tune the meta-learner.
@@ -180,7 +193,7 @@ def run_stacked_ensemble(block_size=DEFAULT_BLOCK_SIZE, data_seed=42, model_seed
     # Rolling-origin test: later blocks may use actual observations from
     # earlier test blocks as history, but never actuals inside their own block.
     test_predictions = generate_oof_predictions(
-        df, test_start, n_rows, block_size
+        df, test_start, n_rows, block_size, seed=model_seed
     )
 
     test_results, metrics = evaluate_test_predictions(
@@ -365,6 +378,7 @@ def run_multi_series_stacked_ensemble(
             start_idx=oof_start,
             end_idx=test_start,
             block_size=block_size,
+            seed=model_seed,
         )
 
         # Each SKU gets its own meta-learner, fitted only on its OOF rows.
@@ -377,6 +391,7 @@ def run_multi_series_stacked_ensemble(
             start_idx=test_start,
             end_idx=n_rows,
             block_size=block_size,
+            seed=model_seed,
         )
 
         test_results, sku_metrics = evaluate_test_predictions(
@@ -458,7 +473,7 @@ def run_multi_series_stacked_ensemble(
     )
 
     report = {
-        "dataset": str(source_path),
+        "dataset": os.path.relpath(source_path, ROOT),
         "series_count": len(per_sku_metrics),
         "eligible_skus": sorted(per_sku_metrics),
         "excluded_skus": exclusions,
@@ -490,6 +505,25 @@ def run_multi_series_stacked_ensemble(
         all_test.to_csv(test_path, index=False)
         with open(metrics_path, "w", encoding="utf-8") as file:
             json.dump(report, file, indent=2)
+
+        mlflow.set_tracking_uri("sqlite:///mlflow.db")
+        mlflow.set_experiment("Demand-Forecast-Stacked-Ensemble")
+        with mlflow.start_run(run_name="multi-series-stacked-ridge"):
+            mlflow.log_params({
+                "model_seed": model_seed,
+                "block_size_days": block_size,
+                "meta_alpha": META_ALPHA,
+                "min_initial_history": min_initial_history,
+                "series_count": len(per_sku_metrics),
+            })
+            for model_name, values in macro_metrics.items():
+                mlflow.log_metrics({
+                    f"macro_{model_name}_{key}": float(value)
+                    for key, value in values.items()
+                    if value is not None
+                })
+            mlflow.log_artifact(metrics_path)
+            mlflow.log_artifact(test_path)
 
     print("\n=== Multi-Series Leakage-Free Stacked Ensemble ===")
     print(f"Eligible SKUs: {len(per_sku_metrics)}")

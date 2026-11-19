@@ -114,6 +114,16 @@ def predict_sku(model, dataset, device, scaler):
     return inverse_scale(scaler, np.concatenate(actuals)), inverse_scale(scaler, np.concatenate(predictions))
 
 
+EMPTY_METRICS = {"MAE": None, "RMSE": None, "MAPE": None}
+
+
+def safe_metrics(actual, predicted):
+    """Return None metrics when there is nothing to score."""
+    if len(actual) == 0:
+        return dict(EMPTY_METRICS)
+    return calculate_metrics(actual, predicted)
+
+
 def log_metric_values(prefix, metric_values, step):
     for name, value in metric_values.items():
         if value is not None and np.isfinite(float(value)):
@@ -206,7 +216,7 @@ def run_walk_forward():
                 for name, dataset in split_datasets.items()
             }
             mask = global_skus == sku_id
-            metrics = calculate_metrics(global_actual[mask], global_predicted[mask])
+            metrics = safe_metrics(global_actual[mask], global_predicted[mask])
             global_sku_rows.append({
                 "row_type": "global_sku_detail", "fold": fold, "sku_id": sku,
                 "status": "evaluated" if mask.any() else "not_evaluated",
@@ -255,8 +265,8 @@ def run_walk_forward():
             })
 
         common_mask = np.isin(global_skus, list(eligible_ids))
-        global_common = calculate_metrics(global_actual[common_mask], global_predicted[common_mask])
-        per_common = calculate_metrics(
+        global_common = safe_metrics(global_actual[common_mask], global_predicted[common_mask])
+        per_common = safe_metrics(
             np.concatenate(per_actual_parts) if per_actual_parts else [],
             np.concatenate(per_pred_parts) if per_pred_parts else [],
         )

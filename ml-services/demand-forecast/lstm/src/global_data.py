@@ -204,17 +204,21 @@ def load_global_data(
         for sku in sorted(df["sku_id"].unique())
     }
 
+    # Build category/warehouse IDs from training rows only.
+    # Values first seen after train_cut map to UNK (0), the same as untrained SKUs.
+    train_rows = df[df["date"] <= train_cut]
+
     category_mapping = {
         value: idx + 1
         for idx, value in enumerate(
-            sorted(df["category"].astype(str).unique())
+            sorted(train_rows["category"].astype(str).unique())
         )
     }
 
     warehouse_mapping = {
         value: idx + 1
         for idx, value in enumerate(
-            sorted(df["warehouse_id"].astype(str).unique())
+            sorted(train_rows["warehouse_id"].astype(str).unique())
         )
     }
 
@@ -222,6 +226,7 @@ def load_global_data(
         df["category"]
         .astype(str)
         .map(category_mapping)
+        .fillna(UNK)
         .astype("int64")
     )
 
@@ -229,6 +234,7 @@ def load_global_data(
         df["warehouse_id"]
         .astype(str)
         .map(warehouse_mapping)
+        .fillna(UNK)
         .astype("int64")
     )
 

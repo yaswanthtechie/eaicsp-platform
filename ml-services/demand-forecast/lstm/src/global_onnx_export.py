@@ -68,7 +68,13 @@ def main():
 
     # Confirm that inference data uses the same categorical IDs as training.
     for key in ("sku_mapping", "category_mapping", "warehouse_mapping"):
-        if getattr(data, key) != checkpoint[key]:
+        current_mapping = {
+            str(k): int(v) for k, v in getattr(data, key).items()
+        }
+        saved_mapping = {
+            str(k): int(v) for k, v in checkpoint[key].items()
+        }
+        if current_mapping != saved_mapping:
             raise ValueError(
                 f"{key} differs between checkpoint and current dataset."
             )
@@ -86,32 +92,8 @@ def main():
         warehouse[:2],
     )
 
-    OUTPUT.mkdir(parents=True, exist_ok=True)
+    export_model(model, sample, ONNX_PATH)
 
-    torch.onnx.export(
-        model,
-        sample,
-        str(ONNX_PATH),
-        input_names=[
-            "input_sequence",
-            "sku_id",
-            "category_id",
-            "warehouse_id",
-        ],
-        output_names=["forecast"],
-        dynamic_axes={
-            "input_sequence": {0: "batch"},
-            "sku_id": {0: "batch"},
-            "category_id": {0: "batch"},
-            "warehouse_id": {0: "batch"},
-            "forecast": {0: "batch"},
-        },
-        opset_version=17,
-        dynamo=False,
-    )
-
-    graph = onnx.load(str(ONNX_PATH))
-    onnx.checker.check_model(graph)
 
     # Verify ONNX output against PyTorch on real held-out windows.
     import onnxruntime as ort

@@ -32,13 +32,13 @@
       "MAE": 7.354849007016137,
       "RMSE": 9.625318267593068,
       "MAPE": 17.443140500916925,
-      "training_seconds": 209.0968535000029
+      "training_seconds": 405.54599640000015
     },
     "global_lstm_with_embeddings": {
       "MAE": 9.793579573858352,
       "RMSE": 12.291633683442784,
       "MAPE": 25.420172474129316,
-      "training_seconds": 49.94877660000202
+      "training_seconds": 120.3433071999998
     },
     "last_value_baseline": {
       "MAE": 10.199999993944925,

@@ -6,9 +6,9 @@
   "validation_end": "2026-06-12",
   "total_test_windows": 1296,
   "global_lstm_full_test_metrics": {
-    "MAE": 9.290378068069511,
-    "RMSE": 12.836312694793731,
-    "MAPE": 14.550423812751042
+    "MAE": 9.552551856116644,
+    "RMSE": 13.183152804538834,
+    "MAPE": 15.169243422884987
   },
   "last_value_full_test_metrics": {
     "MAE": 13.875109967310802,
@@ -38,10 +38,10 @@
       "SKU013"
     ]
   },
-  "global_checkpoint_training_seconds": 169.97,
-  "best_epoch": 32,
-  "best_validation_mse": 0.10445311251613829,
-  "note": "Compare model metrics only on common eligible test windows.",
+  "global_checkpoint_training_seconds": 353.76703259999977,
+  "best_epoch": 34,
+  "best_validation_mse": 0.105116109467215,
+  "note": "Full-test metrics use all test windows. Any global-vs-per-SKU comparison must use the same common eligible test windows. The test set was not used for checkpoint selection.",
   "evaluation": "chronological sliding-window test; common eligible windows",
   "common_test_windows": 1040,
   "eligible_skus": 10,

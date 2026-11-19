@@ -21,7 +21,7 @@ def test_robustness_run_writes_no_files(tmp_path, monkeypatch):
         lambda days, seed: data.copy(),
     )
 
-    def fake_predictions(df, start, end, block_size):
+    def fake_predictions(df, start, end, block_size, seed=None):
         return df.iloc[start:end].copy()
 
     monkeypatch.setattr(

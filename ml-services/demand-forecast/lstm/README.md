@@ -781,11 +781,11 @@ Ensemble (unconstrained)   2.4004   weights 1.00 / 0.00 / 0.00
 
 
 Round 12-13 (Track B): status
-- M1 Global vs per-SKU: Completed. Five-fold expanding-window walk-forward evaluation: global LSTM mean common-SKU MAE 10.1780 vs per-SKU MAE 11.0448. Global training took longer on average (1,409.76 s vs 866.12 s per fold).
+- M1 Global vs per-SKU: Completed. Five-fold expanding-window walk-forward evaluation: global LSTM mean common-SKU MAE 10.1780 vs per-SKU MAE 11.0448. Global training took longer on average (104.44 s vs 87.06 s per fold).
 - M2 Stacked ensemble: Completed. Ridge meta-learner trained on time-ordered OOF predictions. Single-seed results and five-seed robustness results are documented below.
 - M3 ONNX + INT8: Completed for both the single-series model and the global SKU model. The global model was benchmarked using 1,296 held-out test windows, including dynamic INT8 quantization.
 - Cold-start: Completed. The no-embedding global LSTM achieved the lowest MAE and RMSE among the three evaluated approaches.
-- Known limits: Synthetic data only; stacking uses one series. ONNX timing results are CPU- and environment-dependent.
+- Known limits: Synthetic data only; multi-series stacking fits one Ridge per SKU (no shared meta-learner). ONNX timing results are CPU- and environment-dependent.
 LSTM Demand Forecasting — Evaluation Results
 Milestone 1  LSTM Forecasting Pipeline
 Evaluation Results
@@ -940,6 +940,18 @@ For data_seed=42, Prophet achieved lower MAE and MAPE than StackedRidge, while S
 | Prophet | 2.3696 +/- 0.0819 | 3.0092 +/- 0.0928 | 1.7684 +/- 0.0623 |
 | StackedRidge | 2.3741 +/- 0.0867 | 3.0093 +/- 0.0820 | 1.7719 +/- 0.0655 |
 | XGBoost | 3.4768 +/- 0.1701 | 4.3865 +/- 0.2384 | 2.5817 +/- 0.1411 |
+
+### Multi-series stacking (12 SKUs, macro average)
+
+| Model | MAE | RMSE | MAPE |
+|---|---:|---:|---:|
+| Prophet | 9.3588 | 11.8189 | 13.0381 |
+| XGBoost | 9.6246 | 12.0689 | 12.8531 |
+| LSTM | 10.0464 | 12.6934 | 13.7363 |
+| EqualWeightAverage | 9.1524 | 11.5184 | 12.4423 |
+| StackedRidge | 9.4674 | 11.9141 | 12.5605 |
+
+One Ridge meta-learner per SKU. SKU012, SKU013 and SKU014 are excluded (initial history under 104 rows). Across SKUs, equal-weight averaging beats StackedRidge on all three metrics.
 
 ### Ridge coefficients
 

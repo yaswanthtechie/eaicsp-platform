@@ -1,6 +1,7 @@
-
+﻿
 import numpy as np
 import pandas as pd
+import torch
 import pytest
 
 from src.global_data import UNK, load_global_data
@@ -91,7 +92,7 @@ def test_gap_raises(small_df, tmp_path):
 def test_sku_without_train_windows_maps_to_unk(small_df, tmp_path):
     # Base SKUs cover the full 40 days. LATE_SKU starts on day 26,
     # after the training cutoff, but has enough rows for later windows.
-    dates = pd.date_range("2026-01-26", periods=15, freq="D")
+    dates = pd.date_range("2026-01-30", periods=11, freq="D")
 
     late_rows = pd.DataFrame(
         {
@@ -99,7 +100,7 @@ def test_sku_without_train_windows_maps_to_unk(small_df, tmp_path):
             "sku_id": "LATE_SKU",
             "category": "CAT_LATE",
             "warehouse_id": "WH_2",
-            "sales": np.arange(200.0, 215.0),
+            "sales": np.arange(200.0, 211.0),
             "promotion": 0,
             "day_of_week": [int(d.dayofweek) for d in dates],
         }
@@ -115,6 +116,17 @@ def test_sku_without_train_windows_maps_to_unk(small_df, tmp_path):
     assert data.sku_mapping.get("LATE_SKU", UNK) == UNK
     assert "LATE_SKU" in data.skus_mapped_to_unk
     assert "LATE_SKU" not in data.too_short_skipped
+
+    # Categories and warehouses first seen after train_cut must map to UNK.
+    assert "CAT_LATE" not in data.category_mapping
+    assert "WH_2" not in data.warehouse_mapping
+
+    _, test_skus, test_categories, test_warehouses, _ = data.test.tensors
+    late_mask = test_skus == UNK
+
+    assert late_mask.any()
+    assert torch.all(test_categories[late_mask] == UNK)
+    assert torch.all(test_warehouses[late_mask] == UNK)
 
 def test_explicit_fold_dates_are_used(small_df, tmp_path):
     csv_path = tmp_path / "small.csv"
@@ -162,3 +174,4 @@ def test_bad_sales_value_raises(small_df, tmp_path):
 
     with pytest.raises(ValueError):
         read_global_csv(csv_path)
+

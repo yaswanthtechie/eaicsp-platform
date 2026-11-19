@@ -16,7 +16,7 @@ def test_oof_blocks_use_only_prior_history(monkeypatch):
     df = sample_data()
     calls = []
 
-    def fake_predict(history, forecast):
+    def fake_predict(history, forecast, seed=None):
         assert history["Date"].max() < forecast["Date"].min()
         assert history["Date"].max() + pd.Timedelta(days=1) == (
             forecast["Date"].min()
