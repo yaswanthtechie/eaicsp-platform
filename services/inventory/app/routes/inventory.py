@@ -6,9 +6,11 @@ from fastapi import (
     Depends,
     File,
     HTTPException,
+    Query,
     UploadFile,
     status,
 )
+from fastapi.exceptions import RequestValidationError
 from sqlalchemy.orm import Session
 
 from app.core.auth import (
@@ -33,6 +35,13 @@ from app.schemas.inventory import (
     WhatIfRequest,
     WhatIfResponse,
 )
+from app.schemas.master_data import (
+    ProductListResponse,
+    WarehouseListResponse,
+)
+from app.schemas.supplier_performance import (
+    SupplierPerformanceResponse,
+)
 from app.services.cache_service import (
     get_all_inventory_generation,
     get_cached_all_inventory,
@@ -56,6 +65,11 @@ from app.services.inventory_service import (
     update_inventory,
     what_if_simulation,
 )
+from app.services.master_data_service import (
+    list_products,
+    list_warehouses,
+    parse_ids,
+)
 from app.services.multi_echelon_service import (
     fulfill_shortage,
 )
@@ -69,6 +83,10 @@ from app.services.reorder_service import (
 )
 from app.services.simulation_service import (
     simulate_demand_growth,
+)
+from app.services.supplier_performance_service import (
+    calculate_all_suppliers_performance,
+    get_supplier_performance,
 )
 from app.services.transfer_service import (
     find_transfer_suggestion,
@@ -261,6 +279,180 @@ def low_stock_route(
             status_code=400,
             detail=str(exc),
         ) from exc
+
+
+# =========================================================
+# SUPPLIER ON-TIME DELIVERY PERFORMANCE (R15 / #325)
+# Permission: inventory:read
+# =========================================================
+
+
+@router.get(
+    "/suppliers/performance",
+    response_model=list[SupplierPerformanceResponse],
+    dependencies=[Depends(require_permission("inventory:read"))],
+    summary="Get supplier on-time delivery performance",
+)
+def get_all_suppliers_performance_route(
+    supplier_id: str | None = None,
+    db: Session = Depends(get_db),
+):
+    return calculate_all_suppliers_performance(db, supplier_id=supplier_id)
+
+
+@router.get(
+    "/suppliers/{supplier_id}/performance",
+    response_model=SupplierPerformanceResponse,
+    responses={404: {"description": "Supplier not found"}},
+    dependencies=[Depends(require_permission("inventory:read"))],
+    summary="Get supplier on-time delivery performance by supplier ID",
+)
+def get_supplier_performance_route(
+    supplier_id: str,
+    db: Session = Depends(get_db),
+):
+    perf = get_supplier_performance(db, supplier_id=supplier_id)
+    if perf is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Supplier '{supplier_id}' not found",
+        )
+    return perf
+
+
+# =========================================================
+# PRODUCTS & WAREHOUSES MASTER DATA (R15 / #353 / #354)
+# Permission: inventory:read
+# =========================================================
+
+# Largest OFFSET the database accepts (signed 64-bit integer).
+MAX_OFFSET = 2**63 - 1
+
+
+def _ids_validation_error(exc: ValueError) -> RequestValidationError:
+    """Same 422 body as every other query validation error in the contract."""
+    return RequestValidationError(
+        [{"type": "value_error", "loc": ("query", "ids"), "msg": str(exc)}]
+    )
+
+
+@router.get(
+    "/products",
+    response_model=ProductListResponse,
+    dependencies=[Depends(require_permission("inventory:read"))],
+    summary="Get list of products",
+    description="Retrieve a paginated list of products with optional canonical ID filtering.",
+    responses={
+        200: {
+            "description": "List of products with total count",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "items": [
+                            {
+                                "sku_id": "SKU-000001",
+                                "name": "Product 1",
+                                "category": "Electronics",
+                                "unit_of_measure": "PCS",
+                            }
+                        ],
+                        "total": 1,
+                    }
+                }
+            },
+        },
+        401: {"description": "Missing or invalid token"},
+        403: {"description": "Insufficient permissions"},
+    },
+)
+def get_products_route(
+    limit: int = Query(
+        default=500,
+        ge=1,
+        le=1000,
+        description="Maximum number of products to return",
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+        le=MAX_OFFSET,
+        description="Number of products to skip",
+    ),
+    ids: str | None = Query(
+        default=None,
+        description=(
+            "Optional comma-separated list of canonical SKU IDs, at most 1000. "
+            "Results are still paged by limit and offset."
+        ),
+    ),
+    db: Session = Depends(get_db),
+):
+    try:
+        id_list = parse_ids(ids)
+    except ValueError as exc:
+        raise _ids_validation_error(exc) from exc
+    items, total = list_products(db, ids=id_list, limit=limit, offset=offset)
+    return ProductListResponse(items=items, total=total)
+
+
+@router.get(
+    "/warehouses",
+    response_model=WarehouseListResponse,
+    dependencies=[Depends(require_permission("inventory:read"))],
+    summary="Get list of warehouses",
+    description="Retrieve a paginated list of warehouses with optional canonical ID filtering.",
+    responses={
+        200: {
+            "description": "List of warehouses with total count",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "items": [
+                            {
+                                "warehouse_id": "WH-BLR-01",
+                                "name": "Bangalore Warehouse",
+                                "city": "Bangalore",
+                                "state": "Karnataka",
+                                "country": "India",
+                            }
+                        ],
+                        "total": 1,
+                    }
+                }
+            },
+        },
+        401: {"description": "Missing or invalid token"},
+        403: {"description": "Insufficient permissions"},
+    },
+)
+def get_warehouses_route(
+    limit: int = Query(
+        default=500,
+        ge=1,
+        le=1000,
+        description="Maximum number of warehouses to return",
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+        le=MAX_OFFSET,
+        description="Number of warehouses to skip",
+    ),
+    ids: str | None = Query(
+        default=None,
+        description=(
+            "Optional comma-separated list of canonical warehouse IDs, at most 1000. "
+            "Results are still paged by limit and offset."
+        ),
+    ),
+    db: Session = Depends(get_db),
+):
+    try:
+        id_list = parse_ids(ids)
+    except ValueError as exc:
+        raise _ids_validation_error(exc) from exc
+    items, total = list_warehouses(db, ids=id_list, limit=limit, offset=offset)
+    return WarehouseListResponse(items=items, total=total)
 
 
 # =========================================================
