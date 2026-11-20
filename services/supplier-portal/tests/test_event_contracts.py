@@ -242,3 +242,24 @@ def test_shipment_rejects_blank_text_field(field):
 
     with pytest.raises(ValidationError):
         validator.validate(invalid_event)
+
+
+def test_shipment_accepts_event_without_planned_delivery_date():
+    validator, example = load_contract_and_example(*CONTRACT_CASES[1])
+    event = copy.deepcopy(example)
+    event["payload"].pop("planned_delivery_date", None)
+
+    validator.validate(event)
+
+
+@pytest.mark.parametrize(
+    "invalid_value",
+    ["20-10-2026", "2026-02-30", "2026-10-20T00:00:00Z", "20261020", 20261020, None],
+)
+def test_shipment_rejects_invalid_planned_delivery_date(invalid_value):
+    validator, example = load_contract_and_example(*CONTRACT_CASES[1])
+    invalid_event = copy.deepcopy(example)
+    invalid_event["payload"]["planned_delivery_date"] = invalid_value
+
+    with pytest.raises(ValidationError):
+        validator.validate(invalid_event)
