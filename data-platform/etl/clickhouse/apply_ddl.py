@@ -15,6 +15,9 @@ TABLE_FILES = (
     "purchase_orders.sql",
     "po_lines.sql",
     "goods_receipt_lines.sql",
+    "client_daily_sales.sql",
+    "client_stock_cover.sql",
+    "client_supplier_on_time.sql",
 )
 
 VIEW_FILES = (
@@ -38,7 +41,10 @@ def _database():
 def _client():
     import clickhouse_connect
 
-    password = os.getenv("CLICKHOUSE_PASSWORD")
+    from dotenv import load_dotenv
+    load_dotenv(DDL_DIR.parent / '.env')
+
+    password = os.getenv('CLICKHOUSE_PASSWORD')
     if not password:
         raise ValueError("CLICKHOUSE_PASSWORD must be set.")
 
@@ -150,3 +156,6 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+from dotenv import load_dotenv
+load_dotenv(DDL_DIR.parent / '.env')
