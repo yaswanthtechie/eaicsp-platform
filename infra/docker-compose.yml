@@ -1,3 +1,55 @@
+x-airflow-env: &airflow-env
+  AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow_user:${AIRFLOW_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+  AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow_user:${AIRFLOW_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+  AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/1
+  AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:?Set AIRFLOW_FERNET_KEY in .env}
+  AIRFLOW__API__SECRET_KEY: ${AIRFLOW_API_SECRET_KEY:?Set AIRFLOW_API_SECRET_KEY in .env}
+  AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_WEBSERVER_SECRET_KEY:?Set AIRFLOW_WEBSERVER_SECRET_KEY in .env}
+  AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+
+x-airflow-common: &airflow-common
+  image: eaicsp-airflow:2.10.5
+  build:
+    context: ../data-platform/etl
+  environment:
+    <<: *airflow-env
+    AIRFLOW__WEBSERVER__WORKERS: "1"
+    AIRFLOW__CELERY__WORKER_CONCURRENCY: "2"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+    DB_HOST: postgres
+    DB_PORT: "5432"
+    DB_NAME: ${POSTGRES_DB}
+    DB_USER: etl_user
+    DB_PASSWORD: ${ETL_DB_PASSWORD}
+    CLICKHOUSE_HOST: clickhouse
+    CLICKHOUSE_PORT: "8123"
+    CLICKHOUSE_DATABASE: ${CLICKHOUSE_DB}
+    CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+    CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+    KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    MLFLOW_TRACKING_URI: http://mlflow:5000
+    PYTHONPATH: /opt/airflow:/opt/airflow/etl/src
+  volumes:
+    - ../data-platform/etl/dags:/opt/airflow/dags
+    - ../data-platform/etl/logs:/opt/airflow/logs
+    - ../data-platform/etl/etl:/opt/airflow/etl
+    - ../data-platform/etl/data:/opt/airflow/data
+    - ../data-platform/etl/pipeline_config.yaml:/opt/airflow/pipeline_config.yaml
+    - ../data-platform/etl/scripts:/opt/airflow/scripts
+    - ../data-platform/etl/spark:/opt/airflow/spark
+    - ../data-platform/etl/dbt:/opt/airflow/dbt
+    - ../data-platform/etl/client_ingest:/opt/airflow/client_ingest
+    - ../data-platform/seed:/opt/seed
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  networks:
+    - shared
 services:
   postgres:
     image: postgres:16-alpine
@@ -24,8 +76,149 @@ services:
     networks:
       - shared
 
+  airflow-db-bootstrap:
+    image: postgres:16-alpine
+    command: ["bash", "/scripts/bootstrap-airflow-client.sh"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      AIRFLOW_DB_PASSWORD: ${AIRFLOW_DB_PASSWORD}
+      CLIENT_INGEST_DB_PASSWORD: ${CLIENT_INGEST_DB_PASSWORD}
+      ETL_DB_PASSWORD: ${ETL_DB_PASSWORD}
+    volumes:
+      - ./postgres/bootstrap-airflow-client.sh:/scripts/bootstrap-airflow-client.sh:ro
+      - ../data-platform/etl/sql/client_ingest_schema.sql:/sql/client_ingest_schema.sql:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - shared
+  airflow-init:
+    <<: *airflow-common
+    environment:
+      <<: *airflow-env
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_ADMIN_USERNAME:-airflow}
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:?Set AIRFLOW_ADMIN_PASSWORD in .env}
+      _PIP_ADDITIONAL_REQUIREMENTS: ""
+    command: version
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      airflow-db-bootstrap:
+        condition: service_completed_successfully
+    restart: "no"
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "${AIRFLOW_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://localhost:8974/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-worker:
+    <<: *airflow-common
+    command: celery worker
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'celery --app airflow.providers.celery.executors.celery_executor.app inspect ping -d "celery@$${HOSTNAME}"'
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-triggerer:
+    <<: *airflow-common
+    command: triggerer
+    healthcheck:
+      test: ["CMD-SHELL", "airflow jobs check --job-type TriggererJob --hostname \"$${HOSTNAME}\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+
+  client-data-loader:
+    image: eaicsp-airflow:2.10.5
+    build:
+      context: ../data-platform/etl
+    profiles:
+      - client-ingest
+    command:
+      - python
+      - -m
+      - client_ingest.load_client_data
+      - --dir
+      - /opt/airflow/client_ingest/samples/client_format
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: client_ingest_user
+      DB_PASSWORD: ${CLIENT_INGEST_DB_PASSWORD}
+      PYTHONPATH: /opt/airflow:/opt/airflow/etl/src
+    volumes:
+      - ../data-platform/etl/client_ingest:/opt/airflow/client_ingest
+      - ../data-platform/etl/etl:/opt/airflow/etl
+      - ../data-platform/seed:/opt/seed
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-db-bootstrap:
+        condition: service_completed_successfully
+    restart: "no"
+    networks:
+      - shared
   kafka:
-    image: apache/kafka:4.0.0
+    image: apache/kafka:4.0.2
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
@@ -46,9 +239,9 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
       interval: 15s
-      timeout: 10s
+      timeout: 30s
       retries: 10
-      start_period: 30s
+      start_period: 60s
     networks:
       - shared
 
@@ -98,9 +291,10 @@ services:
       - mongo_data:/data/db
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
-      interval: 10s
-      timeout: 5s
+      interval: 15s
+      timeout: 20s
       retries: 10
+      start_period: 60s
     networks:
       - shared
 
