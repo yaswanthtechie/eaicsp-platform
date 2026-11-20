@@ -63,3 +63,18 @@ DRIFT_CAT_THRESHOLD = 0.1
 # A warning is logged when at least this share of the two columns drifted
 # (0.5 = either one).
 DRIFT_ALERT_SHARE = 0.5
+
+# Stock shrinkage check (R15-K7)
+# Between two inventory snapshots: expected on-hand = start on-hand + received
+# - sold; unexplained drop (gap) = expected - actual. A pair is flagged when the
+# gap is at least SHRINK_MIN_UNITS units AND at least SHRINK_MIN_PCT of the
+# expected on-hand. Design values: there is no labelled loss data yet, so they
+# are not calibrated (see README).
+SHRINK_MIN_UNITS = 10
+SHRINK_MIN_PCT = 0.05
+
+# Severity needs BOTH the units and the share of its level.
+SHRINK_MEDIUM_UNITS = 25
+SHRINK_MEDIUM_PCT = 0.10
+SHRINK_HIGH_UNITS = 50
+SHRINK_HIGH_PCT = 0.20
