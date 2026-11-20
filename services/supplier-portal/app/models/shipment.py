@@ -6,6 +6,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     Float,
+    Integer,
     String,
     func,
 )
@@ -38,6 +39,7 @@ class Shipment(Base):
     )
 
     eta_days: Mapped[float | None] = mapped_column(Float, nullable=True)
+    predicted_delay_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     confidence_low: Mapped[float | None] = mapped_column(Float, nullable=True)
     confidence_high: Mapped[float | None] = mapped_column(Float, nullable=True)
     model_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
