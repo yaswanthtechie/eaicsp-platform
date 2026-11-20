@@ -23,6 +23,8 @@ def valid_eta_event():
             "confidence_high": 7.0,
             "model_version": "eta_pipeline/3",
             "predicted_at": datetime.now(timezone.utc).isoformat(),
+            "planned_delivery_date": "2026-11-25",
+            "predicted_delay_days": 2,
         },
     }
 
@@ -32,6 +34,8 @@ def test_valid_eta_event(valid_eta_event):
 
     assert event.event_type == "eta.shipment.predicted"
     assert event.payload.shipment_id == "SHP-2026-000001"
+    assert event.payload.planned_delivery_date.isoformat() == "2026-11-25"
+    assert event.payload.predicted_delay_days == 2
 
 
 def test_invalid_confidence_interval(valid_eta_event):
