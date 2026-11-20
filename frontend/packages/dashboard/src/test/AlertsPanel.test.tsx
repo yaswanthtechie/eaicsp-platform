@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import AlertsPanel from "../components/AlertsPanel";
 import type { AlertMessage } from "../types/forecast";
@@ -26,6 +26,26 @@ const defaultProps = {
   failed: false,
   onRemove: vi.fn(),
 };
+
+function getMockAlert(): AlertMessage {
+  return {
+    id: "test-alert-1",
+    type: "low-stock",
+    severity: "warning",
+    title: "Low Stock Item Alert",
+    message: "Stock is running low for SKU-000123 at WH-BLR-01.",
+    timestamp: "2026-11-16T10:30:00.000Z",
+    eventType: "inventory.stock.low",
+    producer: "inventory-service",
+    eventVersion: "1.0",
+    payload: {
+      sku_id: "SKU-000123",
+      warehouse_id: "WH-BLR-01",
+      quantity_on_hand: 35,
+      reorder_point: 15,
+    },
+  };
+}
 
 describe("AlertsPanel", () => {
   it("shows loading skeleton while connecting", () => {
@@ -312,5 +332,71 @@ describe("AlertsPanel", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("displays product and warehouse names in the alert and drawer", () => {
+    const alert = getMockAlert();
+
+    render(
+      <AlertsPanel
+        {...defaultProps}
+        alerts={[alert]}
+        onRemove={vi.fn()}
+        productNames={{
+          "SKU-000123": "Steel Fastener Set 50pc",
+        }}
+        warehouseNames={{
+          "WH-BLR-01": "Bangalore Central DC",
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByText(/Steel Fastener Set 50pc/),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByText(/Bangalore Central DC/),
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /press enter to view details/i,
+      }),
+    );
+
+    const dialog = screen.getByRole("dialog");
+
+    expect(dialog).toHaveTextContent("Steel Fastener Set 50pc (SKU-000123)");
+    expect(dialog).toHaveTextContent("Bangalore Central DC (WH-BLR-01)");
+  });
+
+  it("falls back to IDs when product and warehouse names are missing", () => {
+    const alert = getMockAlert();
+
+    render(
+      <AlertsPanel
+        {...defaultProps}
+        alerts={[alert]}
+        onRemove={vi.fn()}
+        productNames={{}}
+        warehouseNames={{}}
+      />,
+    );
+
+    expect(screen.getByText(/SKU-000123/)).toBeInTheDocument();
+    expect(screen.getByText(/WH-BLR-01/)).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /press enter to view details/i,
+      }),
+    );
+
+    const dialog = screen.getByRole("dialog");
+
+    expect(dialog).toHaveTextContent("SKU-000123");
+    expect(dialog).toHaveTextContent("WH-BLR-01");
+    expect(dialog).not.toHaveTextContent("undefined");
   });
 });

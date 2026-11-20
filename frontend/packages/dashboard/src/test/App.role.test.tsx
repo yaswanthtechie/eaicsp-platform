@@ -53,7 +53,23 @@ vi.mock("../components/InventoryHeatmap", () => ({
 }));
 
 vi.mock("../components/InventoryTable", () => ({
-  default: () => <div>Inventory Table</div>,
+  default: ({ productNames }: { productNames: Record<string, string> }) => (
+    <>
+      <div>Inventory Table</div>
+      <div data-testid="table-product-names">
+        {Object.values(productNames).join(", ")}
+      </div>
+    </>
+  ),
+}));
+
+vi.mock("../api/inventory", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/inventory")>()),
+  fetchInventoryNames: () =>
+    Promise.resolve({
+      products: { "SKU-000123": "Steel Fastener Set 50pc" },
+      warehouses: {},
+    }),
 }));
 
 vi.mock("../components/ForecastChart", () => ({
@@ -234,6 +250,16 @@ describe("App role-based views", () => {
 
     const warehouseSelect = await screen.findByLabelText("Warehouse filter");
     expect(warehouseSelect).toBeDisabled();
+  });
+
+  it("passes the looked-up product names to the inventory table", async () => {
+    window.history.replaceState({}, "", "/?role=ceo");
+
+    render(<App />);
+
+    expect(
+      await screen.findByText("Steel Fastener Set 50pc"),
+    ).toBeInTheDocument();
   });
 
   it("lets the CEO change the warehouse filter", async () => {

@@ -1,6 +1,10 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  formatProductLabel,
+  formatWarehouseLabel,
+} from "../api/inventory";
 import type { InventoryItem } from "../types/forecast";
 import { colors, radius, space } from "../tokens";
 
@@ -16,12 +20,16 @@ interface InventoryHealthProps {
   inventory: InventoryItem[];
   warehouse: string;
   category: string;
+  productNames?: Record<string, string>;
+  warehouseNames?: Record<string, string>;
 }
 
 function InventoryHealth({
   inventory,
   warehouse,
   category,
+  productNames = {},
+  warehouseNames = {},
 }: InventoryHealthProps) {
   const [activeFilter, setActiveFilter] =
     useState<FilterType | null>(null);
@@ -249,16 +257,17 @@ function InventoryHealth({
                         fontWeight: 600,
                       }}
                     >
-                      {item.product_name}
+                      {formatProductLabel(item.sku_id, productNames, item.product_name)}
                     </div>
-
                     <div
                       style={{
                         color: colors.textMuted,
                         fontSize: "11px",
                       }}
                     >
-                      {item.sku_id} · {item.warehouse_id}
+                      {item.warehouse_id
+                        ? formatWarehouseLabel(item.warehouse_id, warehouseNames)
+                        : ""}
                     </div>
                   </div>
 

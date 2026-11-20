@@ -38,6 +38,7 @@ import KpiGrid from "./components/KpiGrid";
 import OfflineBanner from "./components/OfflineBanner";
 import { mergeAlert } from "./utils/mergeAlert";
 import AnalyticsKpiPanel from "./components/AnalyticsKpiPanel";
+import { fetchInventoryNames, type InventoryNameMaps } from "./api/inventory";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { mockUser, type UserRole } from "./mocks/user";
@@ -131,6 +132,11 @@ function DashboardApp({
     () => authRole ?? roleFromUrl(),
   );
   const [alerts, setAlerts] = useState<AlertMessage[]>([]);
+  const [inventoryNames, setInventoryNames] =
+  useState<InventoryNameMaps>({
+    products: {},
+    warehouses: {},
+  });
   const latestEtaRef = useRef(new Map<string, number>());
   const [liveInventory, setLiveInventory] =
     useState<InventoryItem[]>(() => dashboardData?.dashboard.inventory ?? []);
@@ -191,6 +197,35 @@ function DashboardApp({
         "popstate",
         updateFiltersFromUrl,
       );
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let retryTimer: number | undefined;
+
+    const loadNames = (attempt: number) => {
+    void fetchInventoryNames().then((names) => {
+      if (cancelled) {
+        return;
+      }
+      setInventoryNames(names);
+
+      const nothingFound =
+          Object.keys(names.products).length === 0 ||
+          Object.keys(names.warehouses).length === 0;
+
+        // One retry after 30 s, in case Inventory was restarting.
+        if (nothingFound && attempt === 0) {
+          retryTimer = window.setTimeout(() => loadNames(1), 30_000);
+        }
+      });
+    };
+    loadNames(0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(retryTimer);
     };
   }, []);
 
@@ -588,6 +623,7 @@ function DashboardApp({
           role === "warehouse_manager" ? effectiveWarehouse : undefined
         }
         inventory={dashboardData?.dashboard.inventory ?? []}
+        warehouseNames={inventoryNames.warehouses}
       />
 
       <div
@@ -601,6 +637,8 @@ function DashboardApp({
         <ExportCsvButton
           role={role}
           inventory={filteredInventory}
+          productNames={inventoryNames.products}
+          warehouseNames={inventoryNames.warehouses}
           suppliers={dashboardData?.dashboard.supplierRisk ?? []}
           shipments=
             {dashboardData?.dashboard.shipmentStatus ?? {
@@ -617,6 +655,8 @@ function DashboardApp({
         <ExportPdfButton
           role={role}
           inventory={filteredInventory}
+          productNames={inventoryNames.products}
+          warehouseNames={inventoryNames.warehouses}
           suppliers={dashboardData?.dashboard.supplierRisk ?? []}
           shipments=
             {dashboardData?.dashboard.shipmentStatus ?? {
@@ -659,6 +699,7 @@ function DashboardApp({
         <ErrorBoundary>
           <NarrativeInsights
             inventory={baseFilteredInventory}
+            warehouseNames={inventoryNames.warehouses}
             suppliers={dashboardData?.dashboard.supplierRisk ?? []}
             shipments=
               {dashboardData?.dashboard.shipmentStatus ?? {
@@ -734,6 +775,8 @@ function DashboardApp({
               failed={failed}
               onRemove={removeAlert}
               onRetry={retryConnection}
+              productNames={inventoryNames.products}
+              warehouseNames={inventoryNames.warehouses}
             />
           </ErrorBoundary>
         </div>
@@ -758,6 +801,8 @@ function DashboardApp({
             inventory={liveInventory}
             warehouse={effectiveWarehouse}
             category={filters.category}
+            productNames={inventoryNames.products}
+            warehouseNames={inventoryNames.warehouses}
           />
         </ErrorBoundary>
 
@@ -806,6 +851,8 @@ function DashboardApp({
             >
               <InventoryTable
                 data={filteredInventory}
+                productNames={inventoryNames.products}
+                warehouseNames={inventoryNames.warehouses}
               />
             </Profiler>
           </ErrorBoundary>
@@ -828,6 +875,8 @@ function DashboardApp({
             >
               <InventoryHeatmap
                 data={filteredInventory}
+                productNames={inventoryNames.products}
+                warehouseNames={inventoryNames.warehouses}
               />
             </Profiler>
           </ErrorBoundary>

@@ -425,4 +425,64 @@ describe("DashboardFilters", () => {
       }),
     ).not.toBeInTheDocument();
   });
+
+  it("displays warehouse names with IDs in the filter options", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <DashboardFilters
+        filters={defaultFilters}
+        onFilterChange={onFilterChange}
+        inventory={mockInventory}
+        warehouseNames={{
+          "WH-BLR-01": "Bangalore Central DC",
+          "WH-BOM-01": "Mumbai Central DC",
+          "WH-CCU-01": "Kolkata Central DC",
+        }}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("combobox", {
+        name: "Warehouse filter",
+      }),
+    );
+
+    expect(
+      await screen.findByRole("option", {
+        name: "Bangalore Central DC (WH-BLR-01)",
+      }),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByRole("option", {
+        name: "Mumbai Central DC (WH-BOM-01)",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("falls back to warehouse IDs when names are missing", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <DashboardFilters
+        filters={defaultFilters}
+        onFilterChange={onFilterChange}
+        inventory={mockInventory}
+        warehouseNames={{}}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("combobox", {
+        name: "Warehouse filter",
+      }),
+    );
+
+    expect(
+      await screen.findByRole("option", {
+        name: "WH-BLR-01",
+      }),
+    ).toBeInTheDocument();
+  });
 });

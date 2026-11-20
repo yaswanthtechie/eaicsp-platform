@@ -98,7 +98,7 @@ describe("InventoryHeatmap", () => {
 
    // ...but only a small window of item rows is in the DOM.
    // Each row is a button whose accessible name starts with "SKU ".
-   const renderedRows = screen.getAllByRole("button", { name: /^SKU / });
+   const renderedRows = screen.getAllByRole("button", { name: /^Product / });
 
    expect(renderedRows.length).toBeGreaterThan(0);
    expect(renderedRows.length).toBeLessThan(500);
@@ -120,7 +120,7 @@ describe("InventoryHeatmap", () => {
 
     expect(
       screen.getByText(
-        `Product: ${item.product_name}`)).toBeInTheDocument();
+        `Product: ${item.sku_id}`)).toBeInTheDocument();
 
     expect(
       screen.getByText(
@@ -142,7 +142,7 @@ describe("InventoryHeatmap", () => {
     expect(row).toHaveAttribute("tabindex", "0");
     expect(row).toHaveAttribute(
       "aria-label",
-      `SKU ${item.sku_id}, ${item.product_name}, stock ${item.quantity_on_hand}, reorder point ${item.reorder_point}`
+      `Product ${item.sku_id}, stock ${item.quantity_on_hand}, reorder point ${item.reorder_point}`
     );
   });
 
@@ -160,7 +160,7 @@ describe("InventoryHeatmap", () => {
       screen.getByText(`SKU: ${item.sku_id}`)).toBeInTheDocument();
 
     expect(
-      screen.getByText(`Product: ${item.product_name}`)).toBeInTheDocument();
+      screen.getByText(`Product: ${item.sku_id}`)).toBeInTheDocument();
   });
 
   it("shows product details when Enter is pressed on an inventory item", async () => {
@@ -213,6 +213,63 @@ describe("InventoryHeatmap", () => {
 
     expect(
       screen.queryByText(`SKU: ${item.sku_id}`)).not.toBeInTheDocument();
+  });
+
+  it("displays warehouse names from C7 lookup maps", () => {
+    const hyderabadItem = {
+      ...inventory[0],
+      warehouse_id: "WH-HYD-01",
+    };
+
+    render(
+      <InventoryHeatmap
+        data={[hyderabadItem]}
+        warehouseNames={{
+          "WH-HYD-01": "Hyderabad Central DC",
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByText("Hyderabad Central DC (WH-HYD-01)"),
+    ).toBeInTheDocument();
+  });
+
+  it("displays product names from C7 lookup maps", () => {
+    const item = inventory[0];
+
+    render(
+      <InventoryHeatmap
+        data={[item]}
+        productNames={{
+          [item.sku_id]: "Steel Fastener Set 50pc",
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByText(`Steel Fastener Set 50pc (${item.sku_id})`),
+    ).toBeInTheDocument();
+  });
+
+  it("falls back to IDs when C7 names are missing", () => {
+    const item = inventory[0];
+
+    render(
+      <InventoryHeatmap
+        data={[item]}
+        productNames={{}}
+        warehouseNames={{}}
+      />,
+    );
+
+    expect(
+      screen.getByText(item.sku_id),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByText("WH-BLR-01"),
+    ).toBeInTheDocument();
   });
 });
 

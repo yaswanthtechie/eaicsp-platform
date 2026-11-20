@@ -8,6 +8,10 @@ import {
   CheckCircle2,
   X,
 } from "lucide-react";
+import {
+  formatProductLabel,
+  formatWarehouseLabel,
+} from "../api/inventory";
 import { useEffect, useRef, useState } from "react";
 import { colors, radius, space } from "../tokens";
 import type { AlertMessage } from "../types/forecast";
@@ -21,6 +25,8 @@ interface AlertsPanelProps {
   failed: boolean;
   onRemove: (id: string) => void;
   onRetry?: () => void;
+  productNames?: Record<string, string>;
+  warehouseNames?: Record<string, string>;
 }
 
 // Payload fields defined by the six supported WebSocket event types.
@@ -133,6 +139,34 @@ function formatDateTime(timestamp: string | undefined): string {
   return Number.isNaN(date.getTime()) ? "Not available" : date.toLocaleString();
 }
 
+function formatAlertMessage(
+  alert: AlertMessage,
+  productNames: Record<string, string>,
+  warehouseNames: Record<string, string>,
+): string {
+  let message = alert.message;
+  const payload = alert.payload ?? {};
+
+  const skuId = payload.sku_id;
+  const warehouseId = payload.warehouse_id;
+
+  if (typeof skuId === "string" && productNames[skuId]) {
+    message = message.replaceAll(
+      skuId,
+      formatProductLabel(skuId, productNames),
+    );
+  }
+
+  if (typeof warehouseId === "string" && warehouseNames[warehouseId]) {
+    message = message.replaceAll(
+      warehouseId,
+      formatWarehouseLabel(warehouseId, warehouseNames),
+    );
+  }
+
+  return message;
+}
+
 function normalizeSeverity(
   severity: AlertMessage["severity"],
 ): "critical" | "warning" | "info" | "success" {
@@ -148,7 +182,15 @@ function normalizeSeverity(
   return "info";
 }
 
-function AlertPayloadDetails({ alert }: { alert: AlertMessage }) {
+function AlertPayloadDetails({
+  alert,
+  productNames,
+  warehouseNames,
+}: {
+  alert: AlertMessage;
+  productNames: Record<string, string>;
+  warehouseNames: Record<string, string>;
+}) {
   const eventType = alert.eventType ?? "";
   const payload = alert.payload ?? {};
 
@@ -199,7 +241,11 @@ function AlertPayloadDetails({ alert }: { alert: AlertMessage }) {
               fontFamily: "inherit",
             }}
           >
-            {formatFieldValue(value)}
+            {key === "sku_id" && typeof value === "string"
+              ? formatProductLabel(value, productNames)
+              : key === "warehouse_id" && typeof value === "string"
+                ? formatWarehouseLabel(value, warehouseNames)
+                : formatFieldValue(value)}
           </pre>
         </div>
       ))}
@@ -214,6 +260,8 @@ export default function AlertsPanel({
   failed,
   onRemove,
   onRetry,
+  productNames = {},
+  warehouseNames = {},
 }: AlertsPanelProps) {
   const [fadingAlerts, setFadingAlerts] = useState<string[]>([]);
   const [severityFilter, setSeverityFilter] = useState<
@@ -582,6 +630,11 @@ export default function AlertsPanel({
             ) : (
               visibleAlerts.map((alert) => {
                 const isFading = fadingAlerts.includes(alert.id);
+                const displayMessage = formatAlertMessage(
+                  alert,
+                  productNames,
+                  warehouseNames,
+                );
                 const severityBadge = getSeverityBadge(
                   normalizeSeverity(alert.severity),
                 );
@@ -615,7 +668,7 @@ export default function AlertsPanel({
                       type="button"
                       tabIndex={isFading ? -1 : 0}
                       aria-haspopup="dialog"
-                      aria-label={`${getTitle(alert)}: ${alert.message}. Press Enter to view details`}
+                      aria-label={`${getTitle(alert)}: ${displayMessage}. Press Enter to view details`}
                       onClick={(event) => openAlert(alert, event.currentTarget)}
                       style={{
                         display: "block",
@@ -656,7 +709,7 @@ export default function AlertsPanel({
                           lineHeight: 1.5,
                         }}
                       >
-                        {alert.message}
+                        {displayMessage}
                       </p>
 
                       <span
@@ -764,7 +817,11 @@ export default function AlertsPanel({
                     lineHeight: 1.5,
                   }}
                 >
-                  {selectedAlert.message}
+                  {formatAlertMessage(
+                    selectedAlert,
+                    productNames,
+                    warehouseNames,
+                  )}
                 </p>
 
                 <div
@@ -838,7 +895,11 @@ export default function AlertsPanel({
                     Event Payload
                   </h3>
 
-                  <AlertPayloadDetails alert={selectedAlert} />
+                  <AlertPayloadDetails
+                    alert={selectedAlert}
+                    productNames={productNames}
+                    warehouseNames={warehouseNames}
+                  />
                 </div>
               </>
             )}

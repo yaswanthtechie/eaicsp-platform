@@ -1,4 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  formatProductLabel,
+  formatWarehouseLabel,
+} from "../api/inventory";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
@@ -13,6 +17,8 @@ interface InventoryTableProps {
   loading?: boolean;
   error?: boolean;
   onRetry?: () => void;
+  productNames?: Record<string, string>;
+  warehouseNames?: Record<string, string>;
 }
 interface InventoryRow extends InventoryItem {
   daysRemaining: number;
@@ -28,6 +34,8 @@ function InventoryTable({
   loading = false,
   error = false,
   onRetry,
+  productNames = {},
+  warehouseNames = {},
 }: InventoryTableProps) {
   const inventoryData = data;
   const [showLowStock, setShowLowStock] = useState(false);
@@ -135,7 +143,8 @@ function InventoryTable({
 
   const searchedInventory: InventoryRow[] = filteredInventory
     .filter((item) =>
-      item.sku_id.toLowerCase().includes(search.toLowerCase())
+      item.sku_id.toLowerCase().includes(search.toLowerCase()) ||
+      (productNames[item.sku_id] ?? "").toLowerCase().includes(search.toLowerCase())
     )
     .map((item) => {
       const daysRemaining =
@@ -195,17 +204,21 @@ function InventoryTable({
           ...style,
           display: "grid",
           gridTemplateColumns:
-            "100px 180px 120px 120px 100px 120px 130px 160px 120px",
+            "100px 400px 120px 300px 100px 120px 130px 160px 120px",
           color: colors.text,
         }}
       >
         <div  role="cell" style={cellStyle}>{item.sku_id}</div>
 
-        <div  role="cell" style={cellStyle}>{item.product_name}</div>
+        <div  role="cell" style={cellStyle}>
+          {formatProductLabel(item.sku_id, productNames, item.product_name)}
+        </div>
 
         <div  role="cell" style={cellStyle}>{item.category}</div>
 
-        <div  role="cell" style={cellStyle}>{item.warehouse_id}</div>
+        <div  role="cell" style={cellStyle}>
+          {formatWarehouseLabel(item.warehouse_id, warehouseNames)}
+        </div>
 
         <div  role="cell" style={cellStyle}>{item.quantity_on_hand}</div>
 
@@ -255,12 +268,12 @@ function InventoryTable({
             fontWeight: 600,
           }}
         >
-          Search inventory items by SKU No
+          Search inventory items by SKU or product name
         </label>
         <Input
           id="inventory-search"
           type="text"
-          placeholder="Search SKU"
+          placeholder="Search SKU or product"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="w-[180px]"
@@ -296,13 +309,13 @@ function InventoryTable({
           borderRadius: radius.sm,
         }}
       >
-        <div style={{ minWidth: 1150 }}>
+        <div style={{ minWidth: 1410 }}>
           <div
             role="row"
             style={{
               display: "grid",
               gridTemplateColumns:
-                "100px 180px 120px 120px 100px 120px 130px 160px 120px",
+                "100px 400px 120px 300px 100px 120px 130px 160px 120px",
             }}
           >
             <div role="columnheader" style={headerStyle}>SKU</div>

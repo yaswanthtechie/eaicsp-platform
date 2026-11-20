@@ -16,7 +16,13 @@ const shipments: ShipmentStatus = {
 describe("ExportCsvButton role access", () => {
   it("offers supplier export to the CEO", () => {
     render(
-      <ExportCsvButton role="ceo" inventory={[]} suppliers={[]} shipments={shipments} />,
+      <ExportCsvButton
+        role="ceo"
+        inventory={[]}
+        productNames={{}}
+        warehouseNames={{}}
+        suppliers={[]}
+        shipments={shipments} />,
     );
 
     expect(screen.getByRole("option", { name: "Suppliers" })).toBeInTheDocument();
@@ -27,6 +33,8 @@ describe("ExportCsvButton role access", () => {
       <ExportCsvButton
         role="warehouse_manager"
         inventory={[]}
+        productNames={{}}
+        warehouseNames={{}}
         suppliers={[]}
         shipments={shipments}
       />,

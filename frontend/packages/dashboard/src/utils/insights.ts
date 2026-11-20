@@ -1,5 +1,6 @@
 import type { InventoryItem } from "../types/forecast";
 import type { SupplierRiskItem, ShipmentStatus } from "../types/dashboard";
+import { formatWarehouseLabel } from "../api/inventory";
 
 export function generateInventoryInsight(
   inventory: InventoryItem[],
@@ -21,10 +22,14 @@ export function generateInventoryInsight(
 
 export function generateWarehouseInsight(
   inventory: InventoryItem[],
+  warehouseNames: Record<string, string> = {},
 ): string {
   if (inventory.length === 0) {
     return "No inventory data is currently available.";
   }
+
+  const getWarehouseLabel = (warehouseId: string) =>
+    formatWarehouseLabel(warehouseId, warehouseNames);
 
   const warehouseCounts = new Map<string, number>();
 
@@ -77,16 +82,18 @@ export function generateWarehouseInsight(
   const percentage = Math.round((runningCount / totalLowStock) * 100);
 
   if (topWarehouses.length === 1) {
-    return `${topWarehouses[0]} holds ${percentage}% of low-stock items.`;
+    return `${getWarehouseLabel(topWarehouses[0])} holds ${percentage}% of low-stock items.`;
   }
-
   if (topWarehouses.length === 2) {
-    return `${topWarehouses[0]} and ${topWarehouses[1]} hold ${percentage}% of low-stock items.`;
+    return `${getWarehouseLabel(topWarehouses[0])} and ${getWarehouseLabel(topWarehouses[1])} hold ${percentage}% of low-stock items.`;
   }
 
-  return `${topWarehouses.slice(0, -1).join(", ")}, and ${
+  return `${topWarehouses
+    .slice(0, -1)
+    .map(getWarehouseLabel)
+    .join(", ")}, and ${getWarehouseLabel(
     topWarehouses[topWarehouses.length - 1]
-  } hold ${percentage}% of low-stock items.`;
+  )} hold ${percentage}% of low-stock items.`;
 }
 
 export function generateSupplierInsight(

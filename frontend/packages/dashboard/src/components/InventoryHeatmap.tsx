@@ -1,6 +1,10 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  formatProductLabel,
+  formatWarehouseLabel,
+} from "../api/inventory";
 import { memo, useCallback, useMemo, useState, type KeyboardEvent } from "react";
 import { List, type RowComponentProps } from "react-window";
 import { colors, radius, space } from "../tokens";
@@ -12,6 +16,8 @@ interface InventoryHeatmapProps {
   loading?: boolean;
   error?: boolean;
   onRetry?: () => void;
+  productNames?: Record<string, string>;
+  warehouseNames?: Record<string, string>;
 }
 
 interface CategorySummary {
@@ -31,6 +37,7 @@ interface InventoryItemRowProps {
   ) => string;
   hovered: string | null;
   setHovered: (sku: string | null) => void;
+  productNames: Record<string, string>;
 }
 
 function InventoryItemRow({
@@ -41,6 +48,7 @@ function InventoryItemRow({
   getStatus,
   hovered,
   setHovered,
+  productNames,
 }: RowComponentProps<InventoryItemRowProps>) {
   const item = items[index];
 
@@ -94,13 +102,18 @@ function InventoryItemRow({
       }}
       role="button"
       tabIndex={0}
-      aria-label={`SKU ${item.sku_id}, ${item.product_name}, stock ${item.quantity_on_hand}, reorder point ${item.reorder_point}`}
+      aria-label={`Product ${formatProductLabel(
+        item.sku_id,
+        productNames,
+      )}, stock ${item.quantity_on_hand}, reorder point ${item.reorder_point}`}
       onMouseEnter={() => setHovered(item.sku_id)}
       onMouseLeave={() => setHovered(null)}
       onFocus={() => setHovered(item.sku_id)}
       onKeyDown={handleKeyDown}
     >
-      <span>{item.sku_id}</span>
+      <span>
+        {formatProductLabel(item.sku_id, productNames)}
+      </span>
 
       <span
         style={{
@@ -119,6 +132,8 @@ function InventoryHeatmap({
   loading = false,
   error = false,
   onRetry,
+  productNames = {},
+  warehouseNames = {},
 }: InventoryHeatmapProps) {
   const inventoryData = data;
 
@@ -385,7 +400,7 @@ function InventoryHeatmap({
                       color: colors.text,
                     }}
                   >
-                    {warehouse}
+                    {formatWarehouseLabel(warehouse, warehouseNames)}
                   </strong>
 
                   {reorderCount > 0 ? (
@@ -533,6 +548,7 @@ function InventoryHeatmap({
                             getStatus,
                             hovered,
                             setHovered,
+                            productNames,
                           }}
                           overscanCount={5}
                           style={{
@@ -562,9 +578,7 @@ function InventoryHeatmap({
 
                             <div>
                               Product:{" "}
-                              {
-                                hoveredItem.product_name
-                              }
+                              {formatProductLabel(hoveredItem.sku_id, productNames)}
                             </div>
 
                             <div>
