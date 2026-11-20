@@ -1,0 +1,111 @@
+name: Demand Forecast CI
+
+# Adapted from Platform Service CI. See docs/ci-template.md.
+# No docker-trivy job: neither lstm/ nor prophet/ has a Dockerfile yet.
+# Prophet is packaged with BentoML (bentofile.yaml).
+
+on:
+  push:
+    branches:
+      - develop
+    paths:
+      - "ml-services/demand-forecast/**"
+      - "data-platform/seed/**"
+      - ".github/workflows/demand-forecast-ci.yml"
+  pull_request:
+    paths:
+      - "ml-services/demand-forecast/**"
+      - "data-platform/seed/**"
+      - ".github/workflows/demand-forecast-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  quality-security-unit:
+    name: Lint, type check, security and unit tests (${{ matrix.model }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - model: lstm
+            cov_floor: 33
+          - model: prophet
+            cov_floor: 53
+    defaults:
+      run:
+        working-directory: ml-services/demand-forecast/${{ matrix.model }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: ml-services/demand-forecast/${{ matrix.model }}/requirements.txt
+
+      - name: Install dependencies and CI tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install ruff==0.17.4 mypy==1.14.0 bandit==1.8.2 pip-audit==2.7.3 pytest-cov==6.0.0
+
+      # Report-only until the owner issue linked in the PR is closed.
+      - name: Ruff lint (report-only)
+        continue-on-error: true
+        run: python -m ruff check --output-format=github .
+
+      - name: Ruff format check (report-only)
+        continue-on-error: true
+        run: python -m ruff format --check .
+
+      - name: Mypy (report-only)
+        continue-on-error: true
+        run: python -m mypy src --ignore-missing-imports
+
+      - name: Python syntax check
+        run: python -m compileall -q src
+
+      - name: Bandit (code security)
+        run: python -m bandit -r src -ll
+
+      - name: pip-audit (report-only)
+        continue-on-error: true
+        run: python -m pip_audit --desc --skip-editable
+
+      - name: Unit tests with coverage
+        id: unit-tests
+        run: |
+          python -m pytest -o addopts= \
+            --tb=short -ra \
+            --cov=src \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-fail-under=${{ matrix.cov_floor }}
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          echo "## Coverage Summary - demand-forecast ${{ matrix.model }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f .coverage ]; then
+            python -m coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: demand-forecast-${{ matrix.model }}-coverage
+          path: ml-services/demand-forecast/${{ matrix.model }}/coverage.xml
+          if-no-files-found: warn
