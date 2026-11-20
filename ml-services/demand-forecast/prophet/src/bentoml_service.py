@@ -102,9 +102,10 @@ def health(request: Request) -> dict:
         )
 
     return {
-        "status": status,
+        # Keep the values /health had before: "healthy", or "degraded" from cache.
+        "status": "healthy" if status == "ready" else status,
         "model_loaded": True,
-        "model_name": getattr(model, "model_name", None) or "demand_forecast",
+        "model_name": model.model_name,
         "model_version": model.model_version,
     }
 
@@ -135,7 +136,7 @@ def service_metrics(request: Request) -> dict:
     )
 
     return {
-        "model_name": getattr(model, "model_name", None) or "demand_forecast",
+        "model_name": model.model_name,
         "model_version": model.model_version,
         "model_status": _model_status(service),
         "model_loaded": model.is_loaded,
@@ -176,8 +177,7 @@ def reload_model(
 
     return {
         "status": "reloaded",
-        "model_name": getattr(service.production_model, "model_name", None)
-        or "demand_forecast",
+        "model_name": service.production_model.model_name,
         "model_version": service.production_model.model_version,
     }
 
@@ -217,7 +217,7 @@ def forecast(
             sku_id=sku_id,
             warehouse_id=warehouse_id,
             horizon=horizon,
-            model_name=getattr(model, "model_name", None) or "demand_forecast",
+            model_name=model.model_name,
             model_version=model.model_version,
             generated_at=datetime.now(timezone.utc),
             forecast=points,

@@ -254,3 +254,135 @@ def test_predict_rejects_invalid_forecast_bounds():
 
     with pytest.raises(ValueError, match="Forecast bounds"):
         model.predict("SKU-000123", "WH-BLR-01", 1)
+
+
+def test_cached_version_is_reused_without_artifact_download(
+    monkeypatch, tmp_path
+):
+    configure_model(monkeypatch, tmp_path)
+
+    cache_dir = tmp_path / "demand_forecast" / "7"
+    cache_dir.mkdir(parents=True)
+    (cache_dir / "MLmodel").write_text("cached model")
+
+    downloads = []
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            pass
+
+        def get_model_version_by_alias(self, name, alias):
+            return SimpleNamespace(version="7")
+
+    class FakePyfuncModel:
+        pass
+
+    def unexpected_download(*args, **kwargs):
+        downloads.append(args)
+        raise AssertionError("Cached model should not be downloaded again")
+
+    monkeypatch.setattr(
+        "src.production_model.mlflow.set_tracking_uri", lambda uri: None
+    )
+    monkeypatch.setattr("src.production_model.MlflowClient", FakeClient)
+    monkeypatch.setattr(
+        "src.production_model.mlflow.artifacts.download_artifacts",
+        unexpected_download,
+    )
+    monkeypatch.setattr(
+        "src.production_model.mlflow.pyfunc.load_model",
+        lambda uri: FakePyfuncModel(),
+    )
+
+    model = ProductionForecastModel()
+    model.load()
+
+    assert model.model_version == "7"
+    assert model.load_status == "ready"
+    assert downloads == []
+
+
+def test_forecasts_continue_while_model_reload_downloads(
+    monkeypatch, tmp_path
+):
+    from threading import Event, Thread
+
+    configure_model(monkeypatch, tmp_path)
+
+    download_started = Event()
+    release_download = Event()
+    reload_errors = []
+
+    class ExistingModel:
+        def predict(self, frame):
+            return [{
+                "date": "2026-11-20",
+                "predicted": 10,
+                "lower_bound": 8,
+                "upper_bound": 12,
+            }]
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            pass
+
+        def get_model_version_by_alias(self, name, alias):
+            return SimpleNamespace(version="2")
+
+    class NewModel:
+        pass
+
+    def slow_download(artifact_uri, dst_path):
+        download_started.set()
+        if not release_download.wait(timeout=5):
+            raise TimeoutError("Test download release timed out")
+
+        artifact_dir = Path(dst_path)
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        (artifact_dir / "MLmodel").write_text("new model")
+        return str(artifact_dir)
+
+    monkeypatch.setattr(
+        "src.production_model.mlflow.set_tracking_uri", lambda uri: None
+    )
+    monkeypatch.setattr("src.production_model.MlflowClient", FakeClient)
+    monkeypatch.setattr(
+        "src.production_model.mlflow.artifacts.download_artifacts",
+        slow_download,
+    )
+    monkeypatch.setattr(
+        "src.production_model.mlflow.pyfunc.load_model",
+        lambda uri: NewModel(),
+    )
+
+    model = ProductionForecastModel()
+    model.model = ExistingModel()
+    model.model_version = "1"
+    model.load_status = "ready"
+
+    def reload_model():
+        try:
+            model.load()
+        except Exception as exc:
+            reload_errors.append(exc)
+
+    worker = Thread(target=reload_model, daemon=True)
+    worker.start()
+
+    try:
+        assert download_started.wait(timeout=3), "Reload did not start downloading"
+
+        # This forecast must complete while the reload download is still blocked.
+        result = model.predict("SKU-000123", "WH-BLR-01", 1)
+
+        assert len(result) == 1
+        assert result[0]["predicted"] == 10
+        assert model.model_version == "1"
+    finally:
+        release_download.set()
+        worker.join(timeout=5)
+
+    assert not worker.is_alive(), "Reload thread did not finish"
+    assert reload_errors == []
+    assert model.model_version == "2"
+    assert model.load_status == "ready"

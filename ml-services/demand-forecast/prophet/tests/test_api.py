@@ -250,3 +250,9 @@ def test_forecast_succeeds_when_cached_model_is_degraded(monkeypatch):
     assert response.status_code == 200
     assert response.json()["model_name"] == "demand_forecast"
     assert response.json()["model_version"] == "7"
+
+def test_health_reports_healthy_when_model_is_ready(monkeypatch):
+    response = make_client(monkeypatch).get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "healthy"

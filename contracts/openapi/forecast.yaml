@@ -16,6 +16,43 @@ security:
   - ServiceApiKey: []
 
 paths:
+  /admin/reload-model:
+    post:
+      operationId: reloadProductionForecastModel
+      summary: Reload the production forecast model from the MLflow alias
+      description: >
+        Authenticated service-to-service operation. Resolves the production
+        alias and loads its current model version before returning success.
+      responses:
+        "200":
+          description: Production forecast model reloaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReloadResponse"
+              example:
+                status: reloaded
+                model_name: demand_forecast
+                model_version: "7"
+        "401":
+          description: Missing or invalid service API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error_code: UNAUTHORIZED
+                message: "Missing or invalid API key"
+        "503":
+          description: Production model could not be reloaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error_code: MODEL_RELOAD_FAILED
+                message: "Could not load the production forecast model"
+
   /api/v1/demand/forecast/{sku_id}:
     get:
       operationId: getDemandForecast
@@ -149,6 +186,24 @@ components:
       description: Service API key issued by Platform (platform.api_keys). Not a user JWT.
 
   schemas:
+    ReloadResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - model_name
+        - model_version
+      properties:
+        status:
+          type: string
+          const: reloaded
+        model_name:
+          type: string
+          minLength: 1
+        model_version:
+          type: string
+          minLength: 1
+
     SkuId:
       type: string
       pattern: "^SKU-[0-9]{6}$"
@@ -200,7 +255,7 @@ components:
         model_version:
           type: string
           minLength: 1
-          description: Version assigned to the MLflow production alias "Production" model that produced this forecast
+          description: Registry version the MLflow "production" alias pointed to when this forecast was produced
         generated_at:
           type: string
           format: date-time
@@ -270,5 +325,6 @@ components:
             - WAREHOUSE_NOT_FOUND
             - FORECAST_NOT_AVAILABLE
             - MODEL_UNAVAILABLE
+            - MODEL_RELOAD_FAILED
         message:
           type: string

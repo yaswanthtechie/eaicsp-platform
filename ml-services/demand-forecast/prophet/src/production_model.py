@@ -1,4 +1,4 @@
-﻿"""Load and invoke the registered MLflow production forecast model."""
+"""Load and invoke the registered MLflow production forecast model."""
 
 import json
 import logging
@@ -9,10 +9,16 @@ from pathlib import Path
 from threading import RLock
 
 import mlflow
+import mlflow.artifacts
+import mlflow.pyfunc
 import pandas as pd
 from mlflow.tracking import MlflowClient
 
 logger = logging.getLogger(__name__)
+# Limit retries when MLflow is unavailable so cache fallback starts quickly.
+# Values in .env can override these defaults.
+os.environ.setdefault("MLFLOW_HTTP_REQUEST_MAX_RETRIES", "2")
+os.environ.setdefault("MLFLOW_HTTP_REQUEST_TIMEOUT", "10")
 
 
 class ProductionForecastModel:
@@ -32,14 +38,12 @@ class ProductionForecastModel:
         self.load_status = "unhealthy"
         self.load_error = None
         self._lock = RLock()
+        self._load_lock = RLock()
 
     @property
     def is_loaded(self) -> bool:
         return self.model is not None and self.model_version is not None
 
-    @property
-    def model_name_value(self) -> str | None:
-        return self.model_name or None
 
     def _validate_config(self) -> None:
         if not self.tracking_uri:
@@ -73,6 +77,12 @@ class ProductionForecastModel:
         target_dir = self.cache_dir / self.model_name / version
         target_dir.parent.mkdir(parents=True, exist_ok=True)
 
+        # Registry versions are immutable; reuse an existing version cache.
+        if target_dir.is_dir():
+            loaded_model = mlflow.pyfunc.load_model(str(target_dir))
+            self._save_cache(loaded_model, version, target_dir)
+            return loaded_model
+
         temporary_root = Path(
             tempfile.mkdtemp(prefix="mlflow-download-", dir=self.cache_dir)
         )
@@ -85,23 +95,19 @@ class ProductionForecastModel:
                 )
             )
 
-            if target_dir.is_dir():
-                # Registry versions are immutable; reuse an existing version cache.
+            replacement_dir = target_dir.with_name(target_dir.name + ".new")
+            if replacement_dir.exists():
+                shutil.rmtree(replacement_dir)
+
+            shutil.move(str(downloaded_path), str(replacement_dir))
+            replacement_dir.replace(target_dir)
+
+            try:
+                # Load from the permanent path, not the temporary download path.
                 loaded_model = mlflow.pyfunc.load_model(str(target_dir))
-            else:
-                replacement_dir = target_dir.with_name(target_dir.name + ".new")
-                if replacement_dir.exists():
-                    shutil.rmtree(replacement_dir)
-
-                shutil.move(str(downloaded_path), str(replacement_dir))
-                replacement_dir.replace(target_dir)
-
-                try:
-                    # Load from the permanent path, not the temporary download path.
-                    loaded_model = mlflow.pyfunc.load_model(str(target_dir))
-                except Exception:
-                    shutil.rmtree(target_dir, ignore_errors=True)
-                    raise
+            except Exception:
+                shutil.rmtree(target_dir, ignore_errors=True)
+                raise
 
             self._save_cache(loaded_model, version, target_dir)
             return loaded_model
@@ -131,16 +137,59 @@ class ProductionForecastModel:
         loaded_model = mlflow.pyfunc.load_model(str(model_path))
         return loaded_model, str(metadata["model_version"])
 
-    def load(self):
-        """Load the production alias, or use the last-known-good local cache."""
-        self._validate_config()
+    def _fall_back(self, exc: Exception):
+        """Keep the current model or load the last-known-good disk cache."""
+        self.load_error = str(exc)
+        logger.warning(
+            "Unable to load MLflow production alias %s for %s: %s",
+            self.model_alias,
+            self.model_name,
+            exc,
+        )
 
         with self._lock:
+            if self.is_loaded:
+                self.load_status = "degraded"
+                return self
+
+        try:
+            cached_model, cached_version = self._load_cache()
+
+            with self._lock:
+                self.model = cached_model
+                self.model_version = cached_version
+                self.load_status = "degraded"
+
+            logger.warning(
+                "Using cached MLflow model %s version %s; registry is unavailable.",
+                self.model_name,
+                cached_version,
+            )
+            return self
+
+        except Exception as cache_exc:
+            with self._lock:
+                self.load_status = "unhealthy"
+
+            logger.exception(
+                "MLflow is unavailable and no usable cached model exists."
+            )
+            raise RuntimeError(
+                "Could not load the production forecast model from MLflow "
+                "or the local cache. "
+                f"Registry error: {exc}. Cache error: {cache_exc}"
+            ) from exc
+
+    def load(self):
+        """Load the production alias without blocking forecasts during downloads."""
+        self._validate_config()
+
+        # Serialize reloads, but do not hold the prediction lock during I/O.
+        with self._load_lock:
             try:
                 mlflow.set_tracking_uri(self.tracking_uri)
                 client = MlflowClient(tracking_uri=self.tracking_uri)
 
-                # Resolve the production alias to a concrete registry version.
                 selected = client.get_model_version_by_alias(
                     self.model_name,
                     self.model_alias,
@@ -148,12 +197,15 @@ class ProductionForecastModel:
                 version = str(selected.version)
                 model_uri = f"models:/{self.model_name}/{version}"
 
+                # Download and load outside self._lock.
                 loaded_model = self._download_and_cache(model_uri, version)
 
-                self.model = loaded_model
-                self.model_version = version
-                self.load_status = "ready"
-                self.load_error = None
+                # Atomically swap the model only after it has loaded successfully.
+                with self._lock:
+                    self.model = loaded_model
+                    self.model_version = version
+                    self.load_status = "ready"
+                    self.load_error = None
 
                 logger.info(
                     "Loaded MLflow model %s version %s through alias %s",
@@ -164,42 +216,7 @@ class ProductionForecastModel:
                 return self
 
             except Exception as exc:
-                self.load_error = str(exc)
-                logger.warning(
-                    "Unable to load MLflow production alias %s for %s: %s",
-                    self.model_alias,
-                    self.model_name,
-                    exc,
-                )
-
-                # Never discard a working in-memory model on a failed reload.
-                if self.is_loaded:
-                    self.load_status = "degraded"
-                    return self
-
-                try:
-                    cached_model, cached_version = self._load_cache()
-                    self.model = cached_model
-                    self.model_version = cached_version
-                    self.load_status = "degraded"
-
-                    logger.warning(
-                        "Using cached MLflow model %s version %s; registry is unavailable.",
-                        self.model_name,
-                        cached_version,
-                    )
-                    return self
-
-                except Exception as cache_exc:
-                    self.load_status = "unhealthy"
-                    logger.exception(
-                        "MLflow is unavailable and no usable cached model exists."
-                    )
-                    raise RuntimeError(
-                        "Could not load the production forecast model from MLflow "
-                        "or the local cache. "
-                        f"Registry error: {exc}. Cache error: {cache_exc}"
-                    ) from exc
+                return self._fall_back(exc)
 
     def predict(self, sku_id: str, warehouse_id: str, horizon: int) -> list[dict]:
         """Request a forecast and enforce the A2 daily-point contract."""
