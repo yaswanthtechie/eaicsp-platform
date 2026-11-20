@@ -25,6 +25,11 @@ export interface InventoryNameMaps {
   warehouses: Record<string, string>;
 }
 
+// Leave empty to use the Vite dev proxy to the API Gateway on :8000.
+const INVENTORY_API_BASE_URL: string = (
+  import.meta.env.VITE_INVENTORY_API_BASE_URL ?? ""
+).replace(/\/+$/, "");
+
 const PAGE_LIMIT = 1000;
 const REQUEST_TIMEOUT_MS = 10000;
 
@@ -56,11 +61,12 @@ async function fetchInventoryPages<T>(
       REQUEST_TIMEOUT_MS,
     );
 
-    let response: Response;
+    let payload: unknown;
 
+    // The timeout covers the body too, not only the headers.
     try {
-      response = await fetch(
-        `${endpoint}?limit=${PAGE_LIMIT}&offset=${offset}`,
+      const response = await fetch(
+        `${INVENTORY_API_BASE_URL}${endpoint}?limit=${PAGE_LIMIT}&offset=${offset}`,
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,
@@ -69,17 +75,17 @@ async function fetchInventoryPages<T>(
           signal: controller.signal,
         },
       );
-    } finally {
-      clearTimeout(timeoutId);
-    }
 
-    if (!response.ok) {
-      throw new Error(
-        `Inventory lookup failed (HTTP ${response.status}).`,
+      if (!response.ok) {
+        throw new Error(
+          `Inventory lookup failed (HTTP ${response.status}).`,
       );
     }
 
-    const payload: unknown = await response.json();
+    payload = await response.json();
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (
       typeof payload !== "object" ||
@@ -197,9 +203,15 @@ export async function fetchInventoryNames(): Promise<InventoryNameMaps> {
 export function formatProductLabel(
   skuId: string,
   productNames: Record<string, string>,
+  fallbackName?: string,
 ): string {
   const name = productNames[skuId];
-  return name ? `${name} (${skuId})` : skuId;
+
+  if (name) {
+    return `${name} (${skuId})`;
+  }
+
+  return fallbackName || skuId;
 }
 
 export function formatWarehouseLabel(

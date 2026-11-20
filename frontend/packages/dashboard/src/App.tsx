@@ -206,13 +206,13 @@ function DashboardApp({
 
     const loadNames = (attempt: number) => {
     void fetchInventoryNames().then((names) => {
-      if (!cancelled) {
+      if (cancelled) {
         return;
       }
       setInventoryNames(names);
 
       const nothingFound =
-          Object.keys(names.products).length === 0 &&
+          Object.keys(names.products).length === 0 ||
           Object.keys(names.warehouses).length === 0;
 
         // One retry after 30 s, in case Inventory was restarting.

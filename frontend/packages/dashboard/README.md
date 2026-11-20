@@ -13,6 +13,7 @@ frontend/
             ├──api/
             |    ├── auth.ts
             |    ├── kpis.ts
+            |    ├── inventory.ts
             |    └── dashboardGraphql.ts
             ├── components/
             │   ├── AlertsPanel.tsx
@@ -63,6 +64,7 @@ frontend/
             |   ├── forecastAccuracy.ts
             │   ├── inventory.ts
             │   ├── inventoryHealth.ts
+            |   ├── inventoryResponses.ts
             │   ├── shipments.ts
             │   ├── supplierRisk.ts
             |   ├── user.ts
@@ -88,6 +90,7 @@ frontend/
             │   ├── DashboardFilters.test.tsx
             │   ├── ForecastAccuracy.test.tsx
             │   ├── InventoryHealth.test.tsx
+            |   ├── inventory.test.ts
             |   ├── kpiSnapshot.test.tsx
             |   ├── kpis.test.ts
             |   ├── mergeAlerts.test.ts
@@ -103,7 +106,7 @@ frontend/
             |   ├── exportPdf.ts
             |   ├── insights.ts
             |   ├── alertMapper.ts
-            |    ├── mergeAlert.ts
+            |   ├── mergeAlert.ts
             │   └── kpiSnapshot.ts
             │
             ├── App.tsx
@@ -1232,11 +1235,11 @@ npm run test:e2e
 
 Test verification completed successfully.
 
-* Vitest: 26 test files, 252/252 tests passed
+* Vitest: 26 test files, 254/254 tests passed
 * Playwright Dashboard E2E: 4/4 tests passed
 * Authentication E2E: 14/14 passed with valid credentials.
 * Live Alerts WebSocket: 1/1 test  passed.
-* Total: 271 tests passed across the three reported test groups.
+* Total: 273 tests passed across the three reported test groups.
 
 The authentication tests are run separately using
 npm run test:e2e:auth.

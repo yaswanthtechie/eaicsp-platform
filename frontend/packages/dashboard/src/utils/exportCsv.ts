@@ -115,7 +115,11 @@ export function exportDashboardCsv(
 
         const rows = inventory.map((item) => [
             item.sku_id,
-            formatProductLabel(item.sku_id, names?.productNames ?? {}),
+            formatProductLabel(
+                item.sku_id,
+                names?.productNames ?? {},
+                item.product_name,
+            ),
             item.category,
             formatWarehouseLabel(item.warehouse_id, names?.warehouseNames ?? {}),
             item.quantity_on_hand,

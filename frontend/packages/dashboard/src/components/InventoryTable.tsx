@@ -211,7 +211,7 @@ function InventoryTable({
         <div  role="cell" style={cellStyle}>{item.sku_id}</div>
 
         <div  role="cell" style={cellStyle}>
-          {formatProductLabel(item.sku_id, productNames)}
+          {formatProductLabel(item.sku_id, productNames, item.product_name)}
         </div>
 
         <div  role="cell" style={cellStyle}>{item.category}</div>

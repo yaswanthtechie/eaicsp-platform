@@ -232,5 +232,15 @@ describe("InventoryTable", () => {
       screen.getAllByText(item.warehouse_id).length,
     ).toBeGreaterThan(0);
   });
+
+  it("falls back to the product name from the dashboard data", () => {
+    const item = inventory[0];
+
+    render(
+      <InventoryTable data={[item]} productNames={{}} warehouseNames={{}} />,
+    );
+
+    expect(screen.getByText(item.product_name)).toBeInTheDocument();
+  });
 });
 

@@ -17,7 +17,7 @@ interface InventoryItem {
 const mockInventory: InventoryItem[] = [
   {
     sku_id: "SKU-000010",
-    product_name: "Lumina Glass Cleaner - 1 L (SKU-000010)",
+    product_name: "Lumina Glass Cleaner - 1 L",
     category: "Cleaning",
     warehouse_id: "WH-BOM-01",
     quantity_on_hand: 60,
@@ -27,7 +27,7 @@ const mockInventory: InventoryItem[] = [
   },
   {
     sku_id: "SKU-000011",
-    product_name: "Kestrel Hi-Vis Vest - Pack of 10 (SKU-000011)",
+    product_name: "Kestrel Hi-Vis Vest - Pack of 10",
     category: "Safety",
     warehouse_id: "WH-CCU-01",
     quantity_on_hand: 110,
@@ -37,7 +37,7 @@ const mockInventory: InventoryItem[] = [
   },
   {
     sku_id: "SKU-000012",
-    product_name: "Brightline Bubble Wrap - Pack of 100 (SKU-000012)",
+    product_name: "Brightline Bubble Wrap - Pack of 100",
     category: "Packaging",
     warehouse_id: "WH-CCU-01",
     quantity_on_hand: 60,
@@ -47,7 +47,7 @@ const mockInventory: InventoryItem[] = [
   },
   {
     sku_id: "SKU-000013",
-    product_name: "Ardent Face Mask - Pack of 10 (SKU-000013)",
+    product_name: "Ardent Face Mask - Pack of 10",
     category: "Safety",
     warehouse_id: "WH-CCU-01",
     quantity_on_hand: 85,
@@ -57,7 +57,7 @@ const mockInventory: InventoryItem[] = [
   },
   {
     sku_id: "SKU-000014",
-    product_name: "Ardent Bubble Wrap - Pack of 100 (SKU-000014)",
+    product_name: "Ardent Bubble Wrap - Pack of 100",
     category: "Packaging",
     warehouse_id: "WH-CCU-01",
     quantity_on_hand: 20,
@@ -138,7 +138,7 @@ describe("InventoryHealth", () => {
     ).toBeInTheDocument();
 
     expect(
-      screen.getByText("SKU-000011")
+      screen.getByText("Kestrel Hi-Vis Vest - Pack of 10")
     ).toBeInTheDocument();
 
     expect(
@@ -160,15 +160,15 @@ describe("InventoryHealth", () => {
     ).toBeInTheDocument();
 
     expect(
-      screen.getByText("SKU-000010")
+      screen.getByText("Lumina Glass Cleaner - 1 L")
     ).toBeInTheDocument();
 
     expect(
-      screen.getByText("SKU-000012")
+      screen.getByText("Brightline Bubble Wrap - Pack of 100")
     ).toBeInTheDocument();
 
     expect(
-      screen.getByText("SKU-000013")
+      screen.getByText("Ardent Face Mask - Pack of 10")
     ).toBeInTheDocument();
 
     expect(
@@ -198,7 +198,7 @@ describe("InventoryHealth", () => {
     ).toBeInTheDocument();
 
     expect(
-      screen.getByText("SKU-000014")
+      screen.getByText("Ardent Bubble Wrap - Pack of 100")
     ).toBeInTheDocument();
 
     expect(
@@ -220,7 +220,7 @@ describe("InventoryHealth", () => {
     ).toBeInTheDocument();
 
     expect(
-      screen.getByText("SKU-000014")
+      screen.getByText("Ardent Bubble Wrap - Pack of 100")
     ).toBeInTheDocument();
 
     expect(
@@ -337,7 +337,7 @@ describe("InventoryHealth", () => {
     ).toBeInTheDocument();
   });
 
-  it("falls back to IDs when product and warehouse names are missing", () => {
+  it("falls back to the product name and warehouse ID when names are missing", () => {
     render(
       <InventoryHealth
         {...defaultProps}
@@ -353,7 +353,7 @@ describe("InventoryHealth", () => {
   );
 
     expect(
-      screen.getByText("SKU-000010"),
+      screen.getByText("Lumina Glass Cleaner - 1 L"),
     ).toBeInTheDocument();
 
     expect(

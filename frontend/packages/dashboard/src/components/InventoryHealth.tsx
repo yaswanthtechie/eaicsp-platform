@@ -257,7 +257,7 @@ function InventoryHealth({
                         fontWeight: 600,
                       }}
                     >
-                      {formatProductLabel(item.sku_id, productNames)}
+                      {formatProductLabel(item.sku_id, productNames, item.product_name)}
                     </div>
                     <div
                       style={{

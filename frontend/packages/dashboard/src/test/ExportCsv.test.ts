@@ -383,7 +383,7 @@ describe("exportDashboardCsv", () => {
         );
     });
 
-    it("falls back to IDs when product and warehouse names are missing", async () => {
+    it("falls back to the product names and warehouse ID when names are missing", async () => {
         const inventory: InventoryItem[] = [
             {
                 sku_id: "SKU-000001",
@@ -417,8 +417,6 @@ describe("exportDashboardCsv", () => {
 
         expect(csv).toContain("SKU-000001");
         expect(csv).toContain("WH-BLR-01");
-        expect(csv).not.toContain(
-            "Kestrel Sticky Notes - Pack of 10 1",
-        );
+        expect(csv).toContain("Kestrel Sticky Notes - Pack of 10 1");
     });
 });
