@@ -1,4 +1,4 @@
-##  LSTM Demand Forecasting Service (LSTM + Ensemble & Temporal Attention)
+﻿##  LSTM Demand Forecasting Service (LSTM + Ensemble & Temporal Attention)
 
 - A production-grade multi-step demand forecasting "microservice built with PyTorch, ONNX Runtime, and BentoML. Evaluated across 5-fold expanding walk-forward cross-validation", tracked using MLflow, and served with monte carlo dropout (MC_Dropout) for empirical uncertainty quantification.
 
@@ -61,7 +61,7 @@ Evaluated across inner chronological validation folds (val_fraction=0.2) with fi
 
 ### Sweep results table
 
-Run: `python src/sweep.py`
+Run: `python -m src.sweep`
 
 ```
 ===============================================================================================
@@ -116,7 +116,7 @@ Rank  Architecture Hidden   Layers   Dropout   LR       Val MAE    Test MAE(Ref)
 ---
 ##  Production ONNX Export & Export & Strict Numerical Parity
 ```bash
-python src/onnx_export.py
+python -m src.onnx_export
 
 ```
 - The model is exported to ONNX (opset_version=18) with dynamic batch dimensioning. Parity is evaluated by executing both runtimes against the identical trained checkpoint
@@ -133,7 +133,7 @@ python src/onnx_export.py
 `AttentionMultiStepLSTM` adds additive (Bahdanau-style) attention across all lookback timesteps. `src/attention_compare.py` compares both architectures across all 5 walk-forward folds under identical conditions
 
 
-Run: `python src/attention_compare.py`
+Run: `python -m src.attention_compare`
 
 ```
 =================================================================
@@ -156,7 +156,7 @@ Verdict: Plain LSTM Won
 
 Run the demo:
 ```bash
-python src/uncertainty.py
+python -m src.uncertainty
 ```
 7-Day Forecast & Bounds (Demand Units):
 Day 1: Mean = 142.63 | 90% CI = [133.99, 148.93] | Std = 4.95
@@ -256,13 +256,13 @@ data's actual noise, with the cost (and quantile-crossing risk) paid upfront.
 
 ---
 
-## 🛡️ R4: Robustness & Guardrail Verification
+## R4: Robustness & Guardrail Verification
 
 `src/robustness_test.py` validates incoming requests against non-finite values, sequence length mismatches, and out-of-distribution (OOD) extremes before scaling:
 
 Run it:
 ```bash
-python src/robustness_test.py
+python -m src.robustness_test
 ```
 ---
 =================================================================
@@ -299,7 +299,7 @@ service.py BEFORE scaling any incoming request -- scale only after validation pa
 ---
 ## Investigation:Diagnostics Checks & Loss Curves
 ---
-Run: `python src/diagnostics_check.py`
+Run: `python -m src.diagnostics_check`
 Check 1 (Data Volume): Fold 1 trains on only 130 sequences (<180 days), which is less than half of the 365-day seasonal cycle.
 Check 2 (Baseline Sanity): Folds 2–5 consistently beat Naive Persistence once training data exceeds one seasonal cycle.
 Check 3 (Loss Convergence): All folds drop loss by >80% with smooth convergence, saved directly to output/loss_curve.png.
@@ -312,7 +312,7 @@ for **both** `MultiStepLSTM` and `AttentionMultiStepLSTM`.
 
 ```bash
 pip install onnx onnxruntime
-python src/onnx_export.py           # writes output/model.onnx
+python -m src.onnx_export           # writes output/model.onnx
 python -m pytest tests/test_onnx.py -v
 python -m pytest -v
 ```
@@ -355,7 +355,7 @@ Direct 7-day multi-step daily demand forecasting service using stacked LSTM arch
 
 - Sequence-attention mechanism benchmarked against the standard LSTM across walk-forward folds
 
-Run: `python src/attention_compare.py`
+Run: `python -m src.attention_compare`
 
 ```
 =================================================================
@@ -375,7 +375,7 @@ Verdict: Plain LSTM Won
 ## Standalone Inference Demo 
 Run the demo:
 ```bash
-python src/uncertainty.py
+python -m src.uncertainty
 ```
 ```text
 ============================================================
@@ -401,7 +401,7 @@ Inference Overhead | N x times stochastic forward passes | Single deterministic 
 
 Run the demo:
 ```bash
-python src/uncertainty.py
+python -m src.uncertainty
 ```
 --- 
 MC-Dropout Evaluation Sample (Last Test Window) ---
@@ -486,13 +486,13 @@ data's actual noise, with the cost (and quantile-crossing risk) paid upfront.
 
 ---
 
-## 🛡️ Adversarial Robustness & Guardrail Verification
+## Adversarial Robustness & Guardrail Verification
 - Robustness & Adversarial Testing
 `src/predict.py`  executes input sanitization (NaN/Inf interpolation, non-negative bounding, and outlier winsorization):
 ---
 Run it:
 ```bash
-python src/robustness_test.py
+python -m src.robustness_test
 ```
 ```text
 ======================================================================
@@ -531,7 +531,7 @@ ROBUSTNESS BATTERY COMPLETE
 
 ## Investigation:Diagnostics Checks & Loss Curves
 ---
-Run: `python src/diagnostics_check.py`
+Run: `python -m src.diagnostics_check`
 Check 1 (Data Volume): Fold 1 trains on only 130 sequences (<180 days), which is less than half of the 365-day seasonal cycle.
 Check 2 (Baseline Sanity): Folds 2–5 consistently beat Naive Persistence once training data exceeds one seasonal cycle.
 Check 3 (Loss Convergence): All folds drop loss by >80% with smooth convergence, saved directly to output/loss_curve.png.
@@ -539,14 +539,22 @@ Check 3 (Loss Convergence): All folds drop loss by >80% with smooth convergence,
 
 ```bash
 pip install onnx onnxruntime
-python src/onnx_export.py           # writes output/model.onnx
+python -m src.onnx_export           # writes output/model.onnx
 python -m pytest tests/test_onnx.py -v
 python -m pytest -v
 ```
 ---
 ```text
 ============================================== test session starts ===============================================
-platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0 -- C:\Users\katravath akash\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.12_qbz5n2kfra8p0\python.exe
+### Running Tests
+
+Run the test suite from the `ml-services/demand-forecast/lstm` directory:
+
+```powershell
+pytest -m "not integration" -q
+```
+
+This runs the non-integration tests in the current Python environment. Test results may vary depending on installed dependencies and the project version.
 cachedir: .pytest_cache
 rootdir: C:\Users\katravath akash\OneDrive\Desktop\lstm_forecast\eaicsp-platform\ml-services\demand-forecast\lstm
 configfile: pytest.ini
@@ -608,49 +616,49 @@ python -m pytest tests/ -v
 
 **Run training & walk-forward evaluation**
 ```bash
-python src/train.py
+python -m src.train
 ```
 
 **View the full 5-fold comparative matrix against baselines**
 ```bash
-python src/evaluate_all.py
+python -m src.evaluate_all
 ```
 
 **Run hyperparameter sweep (MLflow, R4)**
 ```bash
-python src/sweep.py
+python -m src.sweep
 python -m mlflow ui --backend-store-uri sqlite:///mlflow.db --host 127.0.0.1 --port 5000 --workers 1
 ```
 
 **Run attention vs. plain LSTM comparison (R4)**
 ```bash
-python src/attention_compare.py
+python -m src.attention_compare
 ```
 
 **Run MC-Dropout uncertainty demo (R4)**
 ```bash
-python src/uncertainty.py
+python -m src.uncertainty
 ```
 
 **Run robustness test (R4)**
 ```bash
-python src/robustness_test.py
+python -m src.robustness_test
 ```
 
 **Run data-volume / naive-vs-LSTM / loss-curve investigation**
 ```bash
-python src/diagnostics_check.py
+python -m src.diagnostics_check
 ```
 
 **Standalone inference using saved PyTorch weights**
 ```bash
-python src/predict.py
+python -m src.predict
 ```
 
 **Launch BentoML production service**
 ```bash
 
-python -m bentoml serve service.py:DemandForecastService
+python -m bentoml serve src.service:DemandForecastService
 ```
 ```bash
 curl  -X POST http://localhost:3001/predict \
@@ -659,7 +667,7 @@ curl  -X POST http://localhost:3001/predict \
 
 ```
 
-## 📁 Project Structure
+## Project Structure
 
 ```text
 ml-services/demand-forecast/lstm/
@@ -761,3 +769,368 @@ Ensemble (unconstrained)   2.4004   weights 1.00 / 0.00 / 0.00
 - Without the forced minimum, the best weights are **100% Prophet**: XGBoost and the LSTM add nothing over 150-day forecasts on this data.
 - The LSTM was built to forecast 7 days ahead and degrades badly when it has to predict 150 days on its own forecasts.
 - This is an honest ensemble result: adding more models does not automatically improve forecast accuracy.
+
+
+### Cold-start (held-out SKUs)
+
+| Model | MAE | RMSE | MAPE |
+|---|---:|---:|---:|
+| global_lstm_no_embeddings | 7.3548 | 9.6253 | 17.4431 |
+| global_lstm_with_embeddings | 9.7936 | 12.2916 | 25.4202 |
+| last_value_baseline | 10.2000 | 13.4300 | 23.1070 |
+
+
+Round 12-13 (Track B): status
+- Not re-run after the S2/S3 fixes (19/11): global vs per-SKU common-window comparison, five-fold walk-forward, multi-series stacking. These results come from the 18/11 code. Single-series stacking, global evaluation and the global ONNX benchmark were re-run on the current checkpoint.
+- M1 Global vs per-SKU: Completed. Five-fold expanding-window walk-forward evaluation: global LSTM mean common-SKU MAE 10.1780 vs per-SKU MAE 11.0448. Global training took longer on average (104.44 s vs 87.06 s per fold).
+- M2 Stacked ensemble: Completed. Ridge meta-learner trained on time-ordered OOF predictions. Single-seed results and five-seed robustness results are documented below.
+- M3 ONNX + INT8: Completed for both the single-series model and the global SKU model. The global model was benchmarked using 1,296 held-out test windows, including dynamic INT8 quantization.
+- Cold-start: Completed. The no-embedding global LSTM achieved the lowest MAE and RMSE among the three evaluated approaches.
+- Known limits: Synthetic data only; multi-series stacking fits one Ridge per SKU (no shared meta-learner). ONNX timing results are CPU- and environment-dependent.
+LSTM Demand Forecasting — Evaluation Results
+Milestone 1  LSTM Forecasting Pipeline
+Evaluation Results
+The LSTM forecasting pipeline was evaluated using 5-fold expanding-window walk-forward validation. The model was compared against a naive persistence baseline, which repeats the last observed demand value.
+
+| Metric | LSTM | Naive Baseline |
+
+|---|---:|---:|
+
+| Average MAE | 3.51 | 8.78 |
+
+| Average RMSE | 4.37 | 10.77 |
+
+Using the recorded rounded averages, LSTM achieved approximately 60.0% lower MAE and 59.4% lower RMSE than the naive baseline.
+These results belong to the original single-series forecasting experiment. The global SKU experiment below uses a separate multi-SKU synthetic dataset and reports its own metrics.
+
+Selected Model Configuration
+| Parameter | Value |
+
+|---|---|
+
+| Architecture | Plain LSTM |
+
+| Lookback | 45 days |
+
+| Forecast horizon | 7 days |
+
+| Hidden size | 32 |
+
+| Number of layers | 2 |
+
+| Dropout | 0.1 |
+
+| Learning rate | 0.005 |
+
+| Batch size | 32 |
+
+| Maximum epochs | 50 |
+Hyperparameter Selection
+A systematic sweep evaluated 32 configurations and selected the winning configuration using validation MAE.
+- Winning configuration: Plain LSTM, hidden size 32, two layers, dropout 0.1, learning rate 0.005.
+- Recorded validation MAE: 3.59.
+- Recorded test MAE reference: 4.43.
+Test metrics were reported for reference and were not used to select the winning configuration.
+Global SKU LSTM — Training Results
+The global model was trained using data/global_sku_demand_synthetic.csv, which contains demand histories across multiple SKUs, categories, and warehouses.
+
+| Metric | Latest training run |
+
+|---|---:|
+
+| Best validation MSE | 0.105116 |
+
+| Best epoch | 34 |
+
+| Epochs completed | 42 |
+
+| Training time | 353.77 seconds |
+
+| Device | CPU |
+
+| Checkpoint | output/global_best_model.pt |
+
+| Scaler | Stored inside checkpoint |
+
+The model completed 42 epochs and recorded its best validation MSE at epoch 34.
+Global SKU LSTM  Walk-Forward Evaluation
+Evaluation setup
+The global demand forecasting model was compared against individual per-SKU LSTM models using five-fold expanding-window walk-forward validation.
+- Dataset: data/global_sku_demand_synthetic.csv
+- Dataset size: 6,390 rows, 15 SKUs, 730 dates
+- Number of folds: 5
+- Lookback window: 45 days
+- Forecast horizon: 7 days
+- Evaluation metrics: MAE, RMSE, and MAPE
+- Scaler fitting: Training period only
+- Evaluation: Chronological splits, comparing common eligible SKU test windows
+Mean metrics across five folds
+The following aggregate metrics are from the latest output/walk_forward_summary.json.
+
+| Metric | Global LSTM (common eligible SKUs) | Per-SKU LSTM (common eligible SKUs) |
+|---|---:|---:|
+| MAE | 10.1780 | 11.0448 |
+| RMSE | 13.8194 | 15.1516 |
+| MAPE | 12.7128% | 13.6397% |
+
+For additional context, the latest global-model evaluation across all test SKUs recorded MAE 9.5526, RMSE 13.1832, and MAPE 15.1692%. This all-SKU result is reported separately from the common-eligible-SKU comparison.
+Fold-level MAE
+| Fold | Global LSTM MAE | Global MAPE | Per-SKU LSTM MAE | Per-SKU MAPE | Eligible SKUs |
+|---|---:|---:|---:|---:|---:|
+| 1 | 9.5605 | 11.6215% | 10.4845 | 12.8139% | 7 |
+| 2 | 10.7574 | 12.8397% | 11.7435 | 14.0378% | 9 |
+| 3 | 10.6822 | 13.0048% | 10.7549 | 13.3288% | 9 |
+| 4 | 9.9785 | 13.0988% | 11.3472 | 14.5293% | 10 |
+| 5 | 9.9114 | 12.9990% | 10.8939 | 13.4886% | 11 |
+
+| Model | Mean training time per fold |
+
+|---|---:|
+
+| Global LSTM | 115.18 seconds |
+
+| Per-SKU LSTM training | 97.48 seconds |
+
+Training time varies by fold and by the number of eligible SKUs. In this run, the global model achieved better aggregate error metrics, but its mean training time per fold was higher than the per-SKU approach. Therefore, the accuracy improvement should not be described as a training-time improvement.
+Conclusion
+Across the latest five-fold evaluation, the global LSTM achieved lower MAE, RMSE, and MAPE than the per-SKU models on common eligible SKU test windows. The eligible SKU count varied from 7 to 11 across folds, reflecting the availability of sufficient training history.
+
+The evaluation uses chronological splits and training-only scaler fitting to reduce leakage risk. Results should be interpreted in the context of this synthetic dataset and the tested configuration.
+
+Results artifact: output/walk_forward_summary.json
+
+Fold-level results: output/walk_forward_fold_metrics.csv
+Milestone 1  Test Status
+The following test command completed successfully in the latest reported run:
+
+pytest -q
+
+Result: 52 passed, 8 warnings.
+
+---
+
+## Milestone 2  Leakage-Free Stacked Ensemble
+
+### Approach
+- Generated chronological out-of-fold (OOF) predictions for Prophet, XGBoost, and LSTM using the existing single-series synthetic dataset.
+- Trained a Ridge meta-learner using OOF predictions only.
+- Evaluated on a separate final test period of 150 rows.
+- Compared Prophet, XGBoost, LSTM, equal-weight averaging, and Stacked Ridge using MAE, RMSE, and MAPE.
+### Final test results
+
+Stacked ensemble (data_seed=42):
+
+| Model | MAE | RMSE | MAPE |
+|---|---:|---:|---:|
+| Prophet | 2.4142 | 3.0514 | 1.7817 |
+| XGBoost | 3.4777 | 4.3930 | 2.5706 |
+| LSTM | 4.2409 | 5.3526 | 3.1658 |
+| EqualWeightAverage | 2.9736 | 3.6997 | 2.2105 |
+| StackedRidge | 2.4189 | 3.0467 | 1.7885 |
+
+### Conclusion
+
+For data_seed=42, Prophet achieved lower MAE and MAPE than StackedRidge, while StackedRidge achieved a slightly lower RMSE. Five-seed results show Prophet with marginally better mean metrics and lower variability. StackedRidge has not demonstrated a consistent improvement over Prophet.
+
+### Stacking robustness (5 seeds)
+
+| Model | MAE mean +/- std | RMSE mean +/- std | MAPE mean +/- std |
+|---|---:|---:|---:|
+| EqualWeightAverage | 2.9114 +/- 0.1722 | 3.6349 +/- 0.1600 | 2.1692 +/- 0.1217 |
+| LSTM | 4.0058 +/- 0.6505 | 4.9748 +/- 0.7353 | 2.9794 +/- 0.4799 |
+| Prophet | 2.3696 +/- 0.0819 | 3.0092 +/- 0.0928 | 1.7684 +/- 0.0623 |
+| StackedRidge | 2.3741 +/- 0.0867 | 3.0093 +/- 0.0820 | 1.7719 +/- 0.0655 |
+| XGBoost | 3.4768 +/- 0.1701 | 4.3865 +/- 0.2384 | 2.5817 +/- 0.1411 |
+
+### Multi-series stacking (12 SKUs, macro average)
+
+| Model | MAE | RMSE | MAPE |
+|---|---:|---:|---:|
+| Prophet | 9.3588 | 11.8189 | 13.0381 |
+| XGBoost | 9.6246 | 12.0689 | 12.8531 |
+| LSTM | 10.0464 | 12.6934 | 13.7363 |
+| EqualWeightAverage | 9.1524 | 11.5184 | 12.4423 |
+| StackedRidge | 9.4674 | 11.9141 | 12.5605 |
+
+One Ridge meta-learner per SKU. SKU012, SKU013 and SKU014 are excluded (initial history under 104 rows). Across SKUs, equal-weight averaging beats StackedRidge on all three metrics.
+
+### Ridge coefficients
+
+| Base model | Ridge coefficient |
+|---|---:|
+| Prophet | 0.9603759743 |
+| XGBoost | -0.0064776526 |
+| LSTM | 0.0283012708 |
+
+These coefficients are specific to this experiment and should not be interpreted as universally optimal weights.
+
+### Artifacts
+- output/stacked_oof_predictions.csv
+- output/stacked_test_predictions.csv
+- output/stacked_ensemble_metrics.json
+---
+
+## Milestone 3  Production Inference: Speed and Model Size
+
+### Objective
+
+Benchmark the original FP32 ONNX model against a dynamically quantized INT8 ONNX model using ONNX Runtime CPU inference.
+
+### Benchmark setup
+- Execution provider: ONNX Runtime CPU
+- Test windows: 144
+- Warm-up calls: 20
+- Timed calls: 200 per batch size
+- Batch sizes: 1, 32, and 256
+### Latency and throughput
+
+The following values come from the latest python -m src.benchmark_onnx run.
+
+| Batch size | Model | p50 latency (ms) | p95 latency (ms) | Throughput (samples/s) |
+
+|---:|---|---:|---:|---:|
+
+| 1 | FP32 | 0.201 | 0.394 | 3,757.64 |
+
+| 1 | INT8 | 0.245 | 0.485 | 3,134.65 |
+
+| 32 | FP32 | 2.024 | 6.440 | 11,715.28 |
+
+| 32 | INT8 | 2.259 | 4.456 | 12,620.47 |
+
+| 256 | FP32 | 15.380 | 26.944 | 14,872.69 |
+
+| 256 | INT8 | 15.814 | 27.335 | 14,692.54 |
+
+### Model size
+
+| Version | Size |
+
+|---|---:|
+
+| FP32 ONNX | 55.50 KB |
+
+| Dynamic INT8 ONNX | 21.71 KB |
+
+| Size reduction | 60.88% |
+
+### Accuracy
+
+| Metric | FP32 | INT8 |
+
+|---|---:|---:|
+
+| MAE | 2.73825 | 2.73572 |
+
+| RMSE | 3.42759 | 3.42065 |
+
+| MAPE | 2.00264% | 2.00101% |
+
+The observed accuracy differences were small on the evaluated test windows. The recorded INT8 prediction difference relative to FP32 was:
+- MAE: 0.07901 demand units
+- RMSE: 0.09835 demand units
+- MAPE: 0.05933 percentage points
+INT8 recorded slightly lower MAE, RMSE, and MAPE than FP32 in this run. This does not guarantee that quantization will improve accuracy on other datasets or workloads.
+
+### Production decision
+
+Decision: ship FP32 ONNX. Dynamic INT8 makes the file 60.9% smaller (55.5 KB to 21.7 KB) with negligible accuracy change (MAE -0.09%), but gives no consistent speedup: 0.83x at batch 1, 1.08x at batch 32, 0.99x at batch 256. At this model size the file-size saving does not matter, so INT8 adds risk for no gain. Revisit INT8 only if the model grows or memory becomes a constraint.
+
+### Benchmark limitations
+
+These measurements are environment-dependent and should be repeated before production deployment. The benchmark uses ONNX Runtime's CPU execution provider, 20 warm-up calls, 200 timed calls per batch size, and 144 test windows. The results do not establish performance on GPU, under concurrent production traffic, or on different hardware.
+
+Results artifact: output/onnx_benchmark_report.json
+
+---
+
+**
+Track B — 11C: Global SKU LSTM ONNX Runtime Benchmark
+Objective
+Export the trained global SKU LSTM checkpoint to ONNX and benchmark FP32 against dynamically quantized INT8 using actual preprocessed held-out test windows.
+
+### Export and validation
+
+| Item | Result |
+|---|---:|
+| PyTorch checkpoint | output/global_best_model.pt |
+| ONNX model | output/global_best_model.onnx |
+| Input windows | 1,296 |
+| Input shape | (1296, 45, 4) |
+| Output shape | (1296, 7) |
+| Maximum PyTorch/ONNX difference | 5.00679016e-06 |
+| FP32 ONNX model size | 229.74 KB |
+| Dynamic INT8 ONNX model size | 70.06 KB |
+| File-size reduction | Approximately 69.5% |
+| Quantized operators | 4 |
+
+### Accuracy
+
+| Metric | FP32 | INT8 |
+|---|---:|---:|
+| MAE | 9.55255 | 9.54259 |
+| RMSE | 13.18315 | 13.16491 |
+| MAPE | 15.16924% | 15.12094% |
+
+FP32-to-INT8 prediction difference: MAE 0.18253, RMSE 0.23891, and MAPE 0.28870%.
+
+### Latency and throughput
+
+| Batch size | Runtime | Mean latency (ms) | p50 (ms) | p95 (ms) | Throughput (samples/s) |
+|---:|---|---:|---:|---:|---:|
+| 1 | FP32 | 0.479 | 0.307 | 0.965 | 2,088.87 |
+| 1 | INT8 | 0.427 | 0.271 | 1.042 | 2,341.20 |
+| 32 | FP32 | 5.161 | 4.992 | 8.664 | 6,200.74 |
+| 32 | INT8 | 6.905 | 5.304 | 13.428 | 4,634.26 |
+| 256 | FP32 | 35.359 | 32.328 | 50.959 | 7,239.97 |
+| 256 | INT8 | 34.839 | 30.914 | 55.459 | 7,348.14 |
+
+
+### Production decision
+
+Decision: keep FP32 ONNX for the global SKU model. On 1,296 held-out windows, dynamic INT8 reduced model size by approximately 69.5% (229.74 KB to 70.06 KB). FP32 and INT8 achieved MAE values of 9.55255 and 9.54259 respectively. However, INT8 did not show consistent throughput improvement across batch sizes. INT8 was faster at batch 1 and batch 256 in this run, but slower at batch 32. Therefore, retain FP32 until INT8 performance is more consistent.
+
+The single-series model also stays on FP32 because INT8 showed no consistent speedup.
+
+### Benchmark limitations
+
+Measurements use ONNX Runtime CPU and are environment-dependent. They do not establish production performance under concurrent traffic or on other hardware.
+
+Results artifact: output/global_onnx_benchmark_report.json
+
+Reproduction Commands**
+
+Run the following commands from the LSTM service directory:
+
+python -m src.global_train
+python -m src.global_evaluation
+python -m src.walk_forward_comparison
+python -m src.per_sku_train
+python -m src.cold_start_evaluation
+python -m src.stacked_ensemble
+python -m src.stacking_robustness
+python -m src.benchmark_onnx
+python -m src.global_onnx_export
+python -m src.benchmark_global_onnx
+python scripts/render_results.py
+python -m pytest -q
+
+The scripts regenerate training, walk-forward, stacked ensemble, and ONNX benchmark outputs. Execution time and benchmark measurements may vary by machine and runtime environment.
+
+## Current Verification Summary
+
+| Area | Latest recorded status |
+
+|---|---|
+
+| Global LSTM training | Completed |
+
+| Five-fold global vs per-SKU comparison | Completed |
+
+| Leakage-free stacked ensemble | Completed |
+
+| FP32 vs dynamic INT8 ONNX benchmark | Completed |
+
+| Automated tests | 52 passed, 8 warnings |
+
+The results above describe the experiments and runs recorded here. They should not be interpreted as proof that every deployment or production acceptance criterion has been met.

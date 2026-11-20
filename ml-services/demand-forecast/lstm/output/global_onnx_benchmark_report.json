@@ -1,0 +1,207 @@
+{
+  "dataset": "data\\global_sku_demand_synthetic.csv",
+  "test_windows": 1296,
+  "lookback": 45,
+  "horizon": 7,
+  "device": "CPUExecutionProvider",
+  "warmup_runs": 10,
+  "rounds": 5,
+  "runs_per_round": 40,
+  "model_size_bytes": {
+    "fp32": 235254,
+    "int8": 71738
+  },
+  "graph": {
+    "fp32": {
+      "node_count": 43,
+      "operator_counts": {
+        "Cast": 3,
+        "Shape": 1,
+        "Constant": 18,
+        "Gather": 5,
+        "Unsqueeze": 1,
+        "Concat": 3,
+        "ConstantOfShape": 1,
+        "Transpose": 1,
+        "Slice": 4,
+        "LSTM": 2,
+        "Squeeze": 1,
+        "Gemm": 2,
+        "Relu": 1
+      },
+      "quantized_operator_count": 0
+    },
+    "int8": {
+      "node_count": 56,
+      "operator_counts": {
+        "Constant": 18,
+        "Cast": 5,
+        "Shape": 1,
+        "Transpose": 1,
+        "Gather": 5,
+        "DequantizeLinear": 3,
+        "Unsqueeze": 1,
+        "Concat": 3,
+        "ConstantOfShape": 1,
+        "Slice": 4,
+        "DynamicQuantizeLSTM": 2,
+        "Squeeze": 1,
+        "DynamicQuantizeLinear": 2,
+        "Mul": 4,
+        "MatMulInteger": 2,
+        "Add": 2,
+        "Relu": 1
+      },
+      "quantized_operator_count": 4
+    }
+  },
+  "accuracy_original_sales_units": {
+    "fp32": {
+      "MAE": 9.55255168918159,
+      "RMSE": 13.183152160975869,
+      "MAPE": 15.169244380534375
+    },
+    "int8": {
+      "MAE": 9.54258616681242,
+      "RMSE": 13.164913662478655,
+      "MAPE": 15.120939474625308
+    },
+    "int8_vs_fp32_prediction_difference": {
+      "MAE": 0.1825285849327343,
+      "RMSE": 0.23891124582422987,
+      "MAPE": 0.28870045999558425
+    }
+  },
+  "benchmark": {
+    "1": {
+      "fp32": {
+        "batch_size": 1,
+        "rounds": 5,
+        "runs_per_round": 40,
+        "total_measured_calls": 200,
+        "mean_batch_latency_ms": 0.4787285000747943,
+        "std_batch_latency_ms": 0.4437080640617557,
+        "min_batch_latency_ms": 0.2882000007957686,
+        "max_batch_latency_ms": 4.970900001353584,
+        "p50_batch_latency_ms": 0.30655000045953784,
+        "p95_batch_latency_ms": 0.9651150008721715,
+        "round_mean_latency_ms": [
+          0.7842600000003586,
+          0.4437474999576807,
+          0.40651750005054055,
+          0.3715025001838512,
+          0.3876150001815404
+        ],
+        "throughput_samples_per_sec": 2088.8666537374834
+      },
+      "int8": {
+        "batch_size": 1,
+        "rounds": 5,
+        "runs_per_round": 40,
+        "total_measured_calls": 200,
+        "mean_batch_latency_ms": 0.4271304999383574,
+        "std_batch_latency_ms": 0.3106502306530063,
+        "min_batch_latency_ms": 0.2423999976599589,
+        "max_batch_latency_ms": 2.8228000010130927,
+        "p50_batch_latency_ms": 0.27144999876327347,
+        "p95_batch_latency_ms": 1.0420349999549217,
+        "round_mean_latency_ms": [
+          0.4364800002804259,
+          0.3071649995035841,
+          0.5461900000227615,
+          0.3738925001016469,
+          0.47192499978336855
+        ],
+        "throughput_samples_per_sec": 2341.204854592023,
+        "throughput_speedup_vs_fp32": 1.120801488406666
+      }
+    },
+    "32": {
+      "fp32": {
+        "batch_size": 32,
+        "rounds": 5,
+        "runs_per_round": 40,
+        "total_measured_calls": 200,
+        "mean_batch_latency_ms": 5.160677999883774,
+        "std_batch_latency_ms": 1.6973723276365835,
+        "min_batch_latency_ms": 3.2529999989492353,
+        "max_batch_latency_ms": 11.787999999796739,
+        "p50_batch_latency_ms": 4.992199999833247,
+        "p95_batch_latency_ms": 8.664359998874714,
+        "round_mean_latency_ms": [
+          5.31717999947432,
+          4.665712500263908,
+          4.573217500092142,
+          5.49575749964788,
+          5.75152249994062
+        ],
+        "throughput_samples_per_sec": 6200.735639914114
+      },
+      "int8": {
+        "batch_size": 32,
+        "rounds": 5,
+        "runs_per_round": 40,
+        "total_measured_calls": 200,
+        "mean_batch_latency_ms": 6.905100499952823,
+        "std_batch_latency_ms": 6.709743526945162,
+        "min_batch_latency_ms": 3.260299999965355,
+        "max_batch_latency_ms": 84.60070000000997,
+        "p50_batch_latency_ms": 5.304249998516752,
+        "p95_batch_latency_ms": 13.427715000761953,
+        "round_mean_latency_ms": [
+          5.590687499989144,
+          6.410147499718732,
+          12.81184999998004,
+          5.96542249995764,
+          3.7473950001185585
+        ],
+        "throughput_samples_per_sec": 4634.2555043505345,
+        "throughput_speedup_vs_fp32": 0.7473718883481901
+      }
+    },
+    "256": {
+      "fp32": {
+        "batch_size": 256,
+        "rounds": 5,
+        "runs_per_round": 40,
+        "total_measured_calls": 200,
+        "mean_batch_latency_ms": 35.35927350008933,
+        "std_batch_latency_ms": 7.634788327681366,
+        "min_batch_latency_ms": 28.52750000238302,
+        "max_batch_latency_ms": 82.126999997854,
+        "p50_batch_latency_ms": 32.328000001143664,
+        "p95_batch_latency_ms": 50.95885000009727,
+        "round_mean_latency_ms": [
+          34.92761250008698,
+          36.422952500015526,
+          35.5188275004366,
+          36.24744750031823,
+          33.67952749958931
+        ],
+        "throughput_samples_per_sec": 7239.967755540941
+      },
+      "int8": {
+        "batch_size": 256,
+        "rounds": 5,
+        "runs_per_round": 40,
+        "total_measured_calls": 200,
+        "mean_batch_latency_ms": 34.838733000033244,
+        "std_batch_latency_ms": 9.211425201464406,
+        "min_batch_latency_ms": 26.946800000587245,
+        "max_batch_latency_ms": 83.8069000019459,
+        "p50_batch_latency_ms": 30.913950002286583,
+        "p95_batch_latency_ms": 55.45861499977036,
+        "round_mean_latency_ms": [
+          33.32181000014316,
+          35.2489400000195,
+          34.10841499980961,
+          34.916455000256974,
+          36.598044999936974
+        ],
+        "throughput_samples_per_sec": 7348.143228967475,
+        "throughput_speedup_vs_fp32": 1.014941430276916
+      }
+    }
+  },
+  "size_reduction_percent": 69.50615079871118
+}

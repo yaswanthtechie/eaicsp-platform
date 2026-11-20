@@ -13,11 +13,10 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 import mlflow
 
-from data import generate_data, get_walk_forward_folds
-from model import MultiStepLSTM
-from evaluate import calculate_metrics, predict_naive_baseline
-from config import LOOKBACK, HORIZON, HIDDEN_SIZE, NUM_LAYERS, DROPOUT, LR, EPOCHS, BATCH_SIZE,SCALER_PATH
-
+from src.data import generate_data, get_walk_forward_folds
+from src.model import MultiStepLSTM
+from src.evaluate import calculate_metrics, predict_naive_baseline
+from src.config import LOOKBACK, HORIZON, HIDDEN_SIZE, NUM_LAYERS, DROPOUT, LR, EPOCHS, BATCH_SIZE, SCALER_PATH
 torch.manual_seed(42)  # For reproducibility
 
 

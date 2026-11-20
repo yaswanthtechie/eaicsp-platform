@@ -32,7 +32,7 @@ from sklearn.preprocessing import MinMaxScaler
 from torch.utils.data import DataLoader, TensorDataset
 from xgboost import XGBRegressor
 
-from config import (
+from src.config import (
     BATCH_SIZE,
     DATASET_DAYS,
     DROPOUT,
@@ -45,9 +45,9 @@ from config import (
     OUTPUT_DIR,
     RANDOM_SEED,
 )
-from data import create_sequences, generate_data
-from evaluate import calculate_metrics
-from model import MultiStepLSTM
+from src.data import create_sequences, generate_data
+from src.evaluate import calculate_metrics
+from src.model import MultiStepLSTM
 
 
 MODEL_NAMES = ("Prophet", "XGBoost", "LSTM")
@@ -191,6 +191,7 @@ def create_xgb_features(df: pd.DataFrame) -> pd.DataFrame:
 def fit_xgboost_and_predict(
     history_df: pd.DataFrame,
     forecast_df: pd.DataFrame,
+    seed: int = RANDOM_SEED,
 ) -> np.ndarray:
     """
     Train XGBoost on history_df and generate recursive multi-step forecasts
@@ -219,7 +220,7 @@ def fit_xgboost_and_predict(
         max_depth=5,
         subsample=0.8,
         colsample_bytree=0.8,
-        random_state=RANDOM_SEED,
+        random_state=seed,
         objective="reg:squarederror",
     )
     model.fit(train_features[XGB_FEATURES], train_features["Demand"])
@@ -257,7 +258,7 @@ def fit_xgboost_and_predict(
 # LSTM
 # ---------------------------------------------------------------------------
 
-def train_lstm(history_df: pd.DataFrame):
+def train_lstm(history_df: pd.DataFrame, seed: int = RANDOM_SEED):
     """
     Train a fresh LSTM on history_df only.
 
@@ -266,7 +267,7 @@ def train_lstm(history_df: pd.DataFrame):
     The scaler is also fit on history_df only.
     """
 
-    set_seeds()
+    set_seeds(seed)
 
     values = history_df["Demand"].to_numpy(dtype=np.float32).reshape(-1, 1)
 
@@ -310,6 +311,7 @@ def train_lstm(history_df: pd.DataFrame):
 def fit_lstm_and_predict(
     history_df: pd.DataFrame,
     forecast_df: pd.DataFrame,
+    seed: int = RANDOM_SEED,
 ) -> np.ndarray:
     """
     Train the LSTM on history_df, then forecast recursively in HORIZON-day
@@ -324,7 +326,7 @@ def fit_lstm_and_predict(
     if len(history_df) < LOOKBACK:
         raise ValueError("Not enough historical observations for the LSTM lookback.")
 
-    model, scaler = train_lstm(history_df)
+    model, scaler = train_lstm(history_df, seed=seed)
 
     window = scaler.transform(
         history_df["Demand"].to_numpy(dtype=np.float64).reshape(-1, 1)
@@ -443,9 +445,10 @@ def evaluate_all(actual: np.ndarray, predictions: dict, title: str) -> dict:
     for name, pred in predictions.items():
         metrics = calculate_metrics(actual, pred)
         results[name] = metrics
+        mape_text = "n/a" if metrics["MAPE"] is None else f"{metrics['MAPE']:.4f}"
         print(
             f"{name:<26} MAE: {metrics['MAE']:.4f} | "
-            f"RMSE: {metrics['RMSE']:.4f} | MAPE: {metrics['MAPE']:.4f}"
+            f"RMSE: {metrics['RMSE']:.4f} | MAPE: {mape_text}"
         )
     return results
 

@@ -8,7 +8,7 @@ import numpy as np
 import onnxruntime as ort
 import torch
 
-from config import (
+from src.config import (
     DROPOUT,
     HIDDEN_SIZE,
     HORIZON,
@@ -19,7 +19,7 @@ from config import (
     RANDOM_SEED,
     SCALER_PATH,
 )
-from model import MultiStepLSTM
+from src.model import MultiStepLSTM
 
 
 def sanitize_input_sequence(

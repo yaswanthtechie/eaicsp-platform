@@ -1,0 +1,61 @@
+{
+  "dataset_type": "synthetic",
+  "lookback_days": 45,
+  "forecast_horizon_days": 7,
+  "train_end": "2026-02-22",
+  "validation_end": "2026-06-12",
+  "total_test_windows": 1296,
+  "global_lstm_full_test_metrics": {
+    "MAE": 9.552551856116644,
+    "RMSE": 13.183152804538834,
+    "MAPE": 15.169243422884987
+  },
+  "last_value_full_test_metrics": {
+    "MAE": 13.875109967310802,
+    "RMSE": 19.314774255844515,
+    "MAPE": 19.94678444573481
+  },
+  "sku_coverage": {
+    "skus_with_train_windows": [
+      "SKU001",
+      "SKU002",
+      "SKU003",
+      "SKU004",
+      "SKU005",
+      "SKU006",
+      "SKU007",
+      "SKU008",
+      "SKU009",
+      "SKU010"
+    ],
+    "skus_mapped_to_unk": [
+      "SKU011",
+      "SKU012",
+      "SKU014",
+      "SKU015"
+    ],
+    "too_short_skipped_skus": [
+      "SKU013"
+    ]
+  },
+  "global_checkpoint_training_seconds": 353.76703259999977,
+  "best_epoch": 34,
+  "best_validation_mse": 0.105116109467215,
+  "note": "Full-test metrics use all test windows. Any global-vs-per-SKU comparison must use the same common eligible test windows. The test set was not used for checkpoint selection.",
+  "evaluation": "chronological sliding-window test; common eligible windows",
+  "common_test_windows": 1040,
+  "eligible_skus": 10,
+  "skipped_skus": [],
+  "global_lstm_metrics": {
+    "MAE": 9.803830312896562,
+    "RMSE": 13.60448986833006,
+    "MAPE": 12.11816972409368
+  },
+  "per_sku_lstm_metrics": {
+    "MAE": 11.923810604116419,
+    "RMSE": 16.589155673155233,
+    "MAPE": 14.768550833282621
+  },
+  "per_sku_total_training_seconds": 574.68,
+  "per_sku_wall_clock_seconds": 581.67
+}

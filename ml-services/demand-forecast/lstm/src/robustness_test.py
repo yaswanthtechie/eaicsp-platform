@@ -7,8 +7,8 @@ import sys
 import numpy as np
 import torch
 
-from config import LOOKBACK, MODEL_PATH, SCALER_PATH
-from predict import forecast_demand
+from src.config import LOOKBACK, MODEL_PATH, SCALER_PATH
+from src.predict import forecast_demand
 
 
 def run_robustness_battery():

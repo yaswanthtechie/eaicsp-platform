@@ -1,0 +1,612 @@
+{
+  "dataset": "C:\\Users\\DELL\\OneDrive\\Desktop\\LSTM\\eaicsp-platform\\ml-services\\demand-forecast\\lstm\\data\\global_sku_demand_synthetic.csv",
+  "series_count": 12,
+  "eligible_skus": [
+    "SKU001",
+    "SKU002",
+    "SKU003",
+    "SKU004",
+    "SKU005",
+    "SKU006",
+    "SKU007",
+    "SKU008",
+    "SKU009",
+    "SKU010",
+    "SKU011",
+    "SKU015"
+  ],
+  "excluded_skus": {
+    "SKU012": "Initial history has 36 rows; requires at least 104.",
+    "SKU013": "Initial history has 27 rows; requires at least 104.",
+    "SKU014": "Initial history has 54 rows; requires at least 104."
+  },
+  "min_initial_history_rows": 104,
+  "split": {
+    "initial_history": "60%",
+    "oof": "25%",
+    "final_test": "15%",
+    "method": "independent chronological split per SKU"
+  },
+  "block_size_days": 28,
+  "meta_learner": "independent Ridge per SKU",
+  "meta_alpha": 1.0,
+  "aggregation": "macro average; equal weight per eligible SKU",
+  "total_oof_rows": 1546,
+  "total_test_rows": 932,
+  "per_sku_split": {
+    "SKU001": {
+      "series_rows": 730,
+      "initial_history_rows": 438,
+      "oof_rows": 182,
+      "test_rows": 110,
+      "initial_history_start": "2024-10-01",
+      "initial_history_end": "2025-12-12",
+      "oof_start": "2025-12-13",
+      "oof_end": "2026-06-12",
+      "test_start": "2026-06-13",
+      "test_end": "2026-09-30",
+      "ridge_coefficients": {
+        "Prophet": 0.8847532434808543,
+        "XGBoost": -0.42375508391075967,
+        "LSTM": 0.15439217380879156
+      },
+      "ridge_intercept": 22.702783432313474
+    },
+    "SKU002": {
+      "series_rows": 650,
+      "initial_history_rows": 390,
+      "oof_rows": 162,
+      "test_rows": 98,
+      "initial_history_start": "2024-12-20",
+      "initial_history_end": "2026-01-13",
+      "oof_start": "2026-01-14",
+      "oof_end": "2026-06-24",
+      "test_start": "2026-06-25",
+      "test_end": "2026-09-30",
+      "ridge_coefficients": {
+        "Prophet": 0.9075415180547312,
+        "XGBoost": 0.07551397629575364,
+        "LSTM": 0.08489679360080224
+      },
+      "ridge_intercept": -2.6324263369458905
+    },
+    "SKU003": {
+      "series_rows": 540,
+      "initial_history_rows": 324,
+      "oof_rows": 135,
+      "test_rows": 81,
+      "initial_history_start": "2025-04-09",
+      "initial_history_end": "2026-02-26",
+      "oof_start": "2026-02-27",
+      "oof_end": "2026-07-11",
+      "test_start": "2026-07-12",
+      "test_end": "2026-09-30",
+      "ridge_coefficients": {
+        "Prophet": 0.19925195599824022,
+        "XGBoost": 0.40676375987974617,
+        "LSTM": -0.17224558473698262
+      },
+      "ridge_intercept": 49.946460756753766
+    },
+    "SKU004": {
+      "series_rows": 730,
+      "initial_history_rows": 438,
+      "oof_rows": 182,
+      "test_rows": 110,
+      "initial_history_start": "2024-10-01",
+      "initial_history_end": "2025-12-12",
+      "oof_start": "2025-12-13",
+      "oof_end": "2026-06-12",
+      "test_start": "2026-06-13",
+      "test_end": "2026-09-30",
+      "ridge_coefficients": {
+        "Prophet": 0.9215773474857076,
+        "XGBoost": 0.04489190637797271,
+        "LSTM": -0.10244155692913645
+      },
+      "ridge_intercept": 16.381271865530493
+    },
+    "SKU005": {
+      "series_rows": 710,
+      "initial_history_rows": 426,
+      "oof_rows": 177,
+      "test_rows": 107,
+      "initial_history_start": "2024-10-21",
+      "initial_history_end": "2025-12-20",
+      "oof_start": "2025-12-21",
+      "oof_end": "2026-06-15",
+      "test_start": "2026-06-16",
+      "test_end": "2026-09-30",
+      "ridge_coefficients": {
+        "Prophet": 0.4379644621233616,
+        "XGBoost": 0.2756107097196262,
+        "LSTM": 0.043281410787265225
+      },
+      "ridge_intercept": 32.48438665363041
+    },
+    "SKU006": {
+      "series_rows": 420,
+      "initial_history_rows": 252,
+      "oof_rows": 105,
+      "test_rows": 63,
+      "initial_history_start": "2025-08-07",
+      "initial_history_end": "2026-04-15",
+      "oof_start": "2026-04-16",
+      "oof_end": "2026-07-29",
+      "test_start": "2026-07-30",
+      "test_end": "2026-09-30",
+      "ridge_coefficients": {
+        "Prophet": -0.037351828415399434,
+        "XGBoost": 0.7496096817536231,
+        "LSTM": 0.48484001704228025
+      },
+      "ridge_intercept": -45.36645138433366
+    },
+    "SKU007": {
+      "series_rows": 600,
+      "initial_history_rows": 360,
+      "oof_rows": 150,
+      "test_rows": 90,
+      "initial_history_start": "2025-02-08",
+      "initial_history_end": "2026-02-02",
+      "oof_start": "2026-02-03",
+      "oof_end": "2026-07-02",
+      "test_start": "2026-07-03",
+      "test_end": "2026-09-30",
+      "ridge_coefficients": {
+        "Prophet": 0.5876218180813941,
+        "XGBoost": 0.26456798534470727,
+        "LSTM": -0.6369806349233774
+      },
+      "ridge_intercept": 41.52867054011712
+    },
+    "SKU008": {
+      "series_rows": 365,
+      "initial_history_rows": 219,
+      "oof_rows": 91,
+      "test_rows": 55,
+      "initial_history_start": "2025-10-01",
+      "initial_history_end": "2026-05-07",
+      "oof_start": "2026-05-08",
+      "oof_end": "2026-08-06",
+      "test_start": "2026-08-07",
+      "test_end": "2026-09-30",
+      "ridge_coefficients": {
+        "Prophet": 0.4488776370890804,
+        "XGBoost": 0.385363203735943,
+        "LSTM": -1.031568389317288
+      },
+      "ridge_intercept": 70.52497125016063
+    },
+    "SKU009": {
+      "series_rows": 730,
+      "initial_history_rows": 438,
+      "oof_rows": 182,
+      "test_rows": 110,
+      "initial_history_start": "2024-10-01",
+      "initial_history_end": "2025-12-12",
+      "oof_start": "2025-12-13",
+      "oof_end": "2026-06-12",
+      "test_start": "2026-06-13",
+      "test_end": "2026-09-30",
+      "ridge_coefficients": {
+        "Prophet": 0.6324244733735808,
+        "XGBoost": 0.12211231027397867,
+        "LSTM": 0.06150178434756429
+      },
+      "ridge_intercept": 19.373833162447653
+    },
+    "SKU010": {
+      "series_rows": 300,
+      "initial_history_rows": 180,
+      "oof_rows": 75,
+      "test_rows": 45,
+      "initial_history_start": "2025-12-05",
+      "initial_history_end": "2026-06-02",
+      "oof_start": "2026-06-03",
+      "oof_end": "2026-08-16",
+      "test_start": "2026-08-17",
+      "test_end": "2026-09-30",
+      "ridge_coefficients": {
+        "Prophet": -0.0008573814901358121,
+        "XGBoost": 0.44100583398238996,
+        "LSTM": -0.8505023754714345
+      },
+      "ridge_intercept": 116.70724405505167
+    },
+    "SKU011": {
+      "series_rows": 180,
+      "initial_history_rows": 108,
+      "oof_rows": 45,
+      "test_rows": 27,
+      "initial_history_start": "2026-04-04",
+      "initial_history_end": "2026-07-20",
+      "oof_start": "2026-07-21",
+      "oof_end": "2026-09-03",
+      "test_start": "2026-09-04",
+      "test_end": "2026-09-30",
+      "ridge_coefficients": {
+        "Prophet": 0.14601582730234908,
+        "XGBoost": -0.02409593999108565,
+        "LSTM": -1.0093110341772062
+      },
+      "ridge_intercept": 50.825127794335714
+    },
+    "SKU015": {
+      "series_rows": 240,
+      "initial_history_rows": 144,
+      "oof_rows": 60,
+      "test_rows": 36,
+      "initial_history_start": "2026-02-03",
+      "initial_history_end": "2026-06-26",
+      "oof_start": "2026-06-27",
+      "oof_end": "2026-08-25",
+      "test_start": "2026-08-26",
+      "test_end": "2026-09-30",
+      "ridge_coefficients": {
+        "Prophet": 0.6110885501664507,
+        "XGBoost": 0.028627791632584314,
+        "LSTM": 3.757901426832576
+      },
+      "ridge_intercept": -172.68657766139407
+    }
+  },
+  "per_sku_metrics": {
+    "SKU001": {
+      "Prophet": {
+        "MAE": 8.15980031951686,
+        "RMSE": 9.995041208061163,
+        "MAPE": 11.849992501517173
+      },
+      "XGBoost": {
+        "MAE": 10.471698171442204,
+        "RMSE": 12.583787245050697,
+        "MAPE": 14.370686604170576
+      },
+      "LSTM": {
+        "MAE": 10.757449348308482,
+        "RMSE": 12.943151274014216,
+        "MAPE": 14.785463279867505
+      },
+      "EqualWeightAverage": {
+        "MAE": 9.504708044496166,
+        "RMSE": 11.405932481453835,
+        "MAPE": 13.231035106306319
+      },
+      "StackedRidge": {
+        "MAE": 9.145577408411981,
+        "RMSE": 11.119060196993882,
+        "MAPE": 12.820763474438207
+      }
+    },
+    "SKU002": {
+      "Prophet": {
+        "MAE": 3.740933092189314,
+        "RMSE": 4.70350129498532,
+        "MAPE": 12.190361486152957
+      },
+      "XGBoost": {
+        "MAE": 3.901866912841797,
+        "RMSE": 4.810281705405888,
+        "MAPE": 12.469415886556176
+      },
+      "LSTM": {
+        "MAE": 3.991227159660093,
+        "RMSE": 4.858769098107517,
+        "MAPE": 12.47079643032922
+      },
+      "EqualWeightAverage": {
+        "MAE": 3.63781738180413,
+        "RMSE": 4.43495128741115,
+        "MAPE": 11.614355580381517
+      },
+      "StackedRidge": {
+        "MAE": 3.6640534909511944,
+        "RMSE": 4.56105440023452,
+        "MAPE": 11.73183297152858
+      }
+    },
+    "SKU003": {
+      "Prophet": {
+        "MAE": 12.797695741669912,
+        "RMSE": 16.444681162335918,
+        "MAPE": 14.63506568458009
+      },
+      "XGBoost": {
+        "MAE": 13.156774167661313,
+        "RMSE": 17.563411593186817,
+        "MAPE": 13.679890440672295
+      },
+      "LSTM": {
+        "MAE": 12.622078284925005,
+        "RMSE": 17.36940168551978,
+        "MAPE": 13.236081302573602
+      },
+      "EqualWeightAverage": {
+        "MAE": 11.98692010173564,
+        "RMSE": 16.186156157782357,
+        "MAPE": 12.88021343559712
+      },
+      "StackedRidge": {
+        "MAE": 12.02687071685851,
+        "RMSE": 16.189572230159182,
+        "MAPE": 12.906320094701213
+      }
+    },
+    "SKU004": {
+      "Prophet": {
+        "MAE": 12.730478506386955,
+        "RMSE": 16.490202435224184,
+        "MAPE": 10.888795078932922
+      },
+      "XGBoost": {
+        "MAE": 13.994579870050604,
+        "RMSE": 17.629104597924577,
+        "MAPE": 11.761565654559949
+      },
+      "LSTM": {
+        "MAE": 12.68953650818935,
+        "RMSE": 16.812751651829444,
+        "MAPE": 10.708105340832759
+      },
+      "EqualWeightAverage": {
+        "MAE": 12.797282553321878,
+        "RMSE": 16.47766153123478,
+        "MAPE": 10.828575518326032
+      },
+      "StackedRidge": {
+        "MAE": 12.570289708773124,
+        "RMSE": 16.396486583658252,
+        "MAPE": 10.799762730011903
+      }
+    },
+    "SKU005": {
+      "Prophet": {
+        "MAE": 9.227538406690883,
+        "RMSE": 11.480015137980374,
+        "MAPE": 7.658167792976169
+      },
+      "XGBoost": {
+        "MAE": 9.935909877313632,
+        "RMSE": 12.440697305940965,
+        "MAPE": 8.282600485788846
+      },
+      "LSTM": {
+        "MAE": 11.375058485895385,
+        "RMSE": 13.432633560132244,
+        "MAPE": 9.706674711420318
+      },
+      "EqualWeightAverage": {
+        "MAE": 9.89618288619265,
+        "RMSE": 12.034360493947476,
+        "MAPE": 8.305677102415983
+      },
+      "StackedRidge": {
+        "MAE": 10.417031592491885,
+        "RMSE": 12.507664460972025,
+        "MAPE": 8.913811319389664
+      }
+    },
+    "SKU006": {
+      "Prophet": {
+        "MAE": 17.36999727194049,
+        "RMSE": 22.291207140687174,
+        "MAPE": 12.53492586548148
+      },
+      "XGBoost": {
+        "MAE": 18.58319103907025,
+        "RMSE": 23.629796719230768,
+        "MAPE": 13.214884832358761
+      },
+      "LSTM": {
+        "MAE": 21.20287281401477,
+        "RMSE": 26.93835092353959,
+        "MAPE": 15.74880914666502
+      },
+      "EqualWeightAverage": {
+        "MAE": 18.35417683264513,
+        "RMSE": 23.298223224901047,
+        "MAPE": 13.37506315880692
+      },
+      "StackedRidge": {
+        "MAE": 21.951786630315222,
+        "RMSE": 27.65376657175654,
+        "MAPE": 14.413738977627844
+      }
+    },
+    "SKU007": {
+      "Prophet": {
+        "MAE": 5.138790785644495,
+        "RMSE": 6.735826103981342,
+        "MAPE": 11.617709550272208
+      },
+      "XGBoost": {
+        "MAE": 6.117501576741536,
+        "RMSE": 7.553381989878781,
+        "MAPE": 13.462966424093615
+      },
+      "LSTM": {
+        "MAE": 6.548880644738643,
+        "RMSE": 8.364033963636212,
+        "MAPE": 15.089966450043358
+      },
+      "EqualWeightAverage": {
+        "MAE": 5.5063993037533345,
+        "RMSE": 7.180146697783202,
+        "MAPE": 12.526854109805349
+      },
+      "StackedRidge": {
+        "MAE": 5.40653843033804,
+        "RMSE": 6.997969203725051,
+        "MAPE": 12.285341062983157
+      }
+    },
+    "SKU008": {
+      "Prophet": {
+        "MAE": 11.404252796166782,
+        "RMSE": 14.822576185210336,
+        "MAPE": 18.07316478581314
+      },
+      "XGBoost": {
+        "MAE": 9.643025138161399,
+        "RMSE": 12.289389785902433,
+        "MAPE": 16.835189159062143
+      },
+      "LSTM": {
+        "MAE": 10.169917933731528,
+        "RMSE": 13.22830948528017,
+        "MAPE": 18.844371516346634
+      },
+      "EqualWeightAverage": {
+        "MAE": 9.468609545580597,
+        "RMSE": 12.266230244942967,
+        "MAPE": 16.12135808385427
+      },
+      "StackedRidge": {
+        "MAE": 9.398075377180891,
+        "RMSE": 12.63331833583693,
+        "MAPE": 15.866934561048081
+      }
+    },
+    "SKU009": {
+      "Prophet": {
+        "MAE": 8.79557809061848,
+        "RMSE": 10.80344314825662,
+        "MAPE": 8.429277952534092
+      },
+      "XGBoost": {
+        "MAE": 9.981195137717506,
+        "RMSE": 12.58097420031017,
+        "MAPE": 9.474258560615773
+      },
+      "LSTM": {
+        "MAE": 10.268281423473546,
+        "RMSE": 12.768838856681006,
+        "MAPE": 9.572560517880826
+      },
+      "EqualWeightAverage": {
+        "MAE": 8.885918494666237,
+        "RMSE": 11.215305337038696,
+        "MAPE": 8.399831161746375
+      },
+      "StackedRidge": {
+        "MAE": 8.765235344522866,
+        "RMSE": 10.775930515228863,
+        "MAPE": 8.373511918132829
+      }
+    },
+    "SKU010": {
+      "Prophet": {
+        "MAE": 10.450907995933399,
+        "RMSE": 12.475685898540496,
+        "MAPE": 12.413034580722938
+      },
+      "XGBoost": {
+        "MAE": 8.979851786295573,
+        "RMSE": 10.483757574260524,
+        "MAPE": 11.143046822173247
+      },
+      "LSTM": {
+        "MAE": 9.001585635628649,
+        "RMSE": 10.681646969750489,
+        "MAPE": 11.054839962154286
+      },
+      "EqualWeightAverage": {
+        "MAE": 8.718315742142691,
+        "RMSE": 10.053491302013931,
+        "MAPE": 10.589138701589059
+      },
+      "StackedRidge": {
+        "MAE": 8.824814544727843,
+        "RMSE": 10.270128270381209,
+        "MAPE": 10.8519671211769
+      }
+    },
+    "SKU011": {
+      "Prophet": {
+        "MAE": 4.792257021853118,
+        "RMSE": 5.9136734339807235,
+        "MAPE": 17.78803191607785
+      },
+      "XGBoost": {
+        "MAE": 4.4166994448061345,
+        "RMSE": 5.700861406132294,
+        "MAPE": 15.208372587155047
+      },
+      "LSTM": {
+        "MAE": 4.365905337863499,
+        "RMSE": 5.588985110369118,
+        "MAPE": 14.986846367407114
+      },
+      "EqualWeightAverage": {
+        "MAE": 4.271181901037225,
+        "RMSE": 5.484113971750977,
+        "MAPE": 15.11100086526863
+      },
+      "StackedRidge": {
+        "MAE": 4.385369306954369,
+        "RMSE": 5.5840147926784685,
+        "MAPE": 15.712425692319021
+      }
+    },
+    "SKU015": {
+      "Prophet": {
+        "MAE": 7.697841293897107,
+        "RMSE": 9.670553856050063,
+        "MAPE": 18.37859462465929
+      },
+      "XGBoost": {
+        "MAE": 6.312859217325847,
+        "RMSE": 7.561855126355065,
+        "MAPE": 14.334809722971876
+      },
+      "LSTM": {
+        "MAE": 7.564408888560466,
+        "RMSE": 9.334368202161599,
+        "MAPE": 18.63159833219482
+      },
+      "EqualWeightAverage": {
+        "MAE": 6.8007364076504455,
+        "RMSE": 8.184432338100077,
+        "MAPE": 16.3245200937469
+      },
+      "StackedRidge": {
+        "MAE": 7.05267992371956,
+        "RMSE": 8.280831595594224,
+        "MAPE": 16.049346321704512
+      }
+    }
+  },
+  "macro_metrics": {
+    "Prophet": {
+      "MAE": 9.35883927687565,
+      "RMSE": 11.818867250441144,
+      "MAPE": 13.038093484976692
+    },
+    "XGBoost": {
+      "MAE": 9.62459602828565,
+      "RMSE": 12.068941604131581,
+      "MAPE": 12.85314059834819
+    },
+    "LSTM": {
+      "MAE": 10.046433538749119,
+      "RMSE": 12.69343673175178,
+      "MAPE": 13.73634277980962
+    },
+    "EqualWeightAverage": {
+      "MAE": 9.15235409958551,
+      "RMSE": 11.51841708903004,
+      "MAPE": 12.442301909820374
+    },
+    "StackedRidge": {
+      "MAE": 9.467360206270458,
+      "RMSE": 11.914149763101596,
+      "MAPE": 12.560479687088494
+    }
+  },
+  "artifacts": {
+    "oof_predictions": "output\\multi_series_stacked_oof_predictions.csv",
+    "test_predictions": "output\\multi_series_stacked_test_predictions.csv",
+    "metrics": "output\\multi_series_stacked_metrics.json"
+  }
+}
