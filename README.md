@@ -1,4 +1,4 @@
-﻿# EAICSP Platform
+# EAICSP Platform
 Enterprise AI-Powered Supply Chain Platform.
 
 ## Structure
@@ -20,7 +20,77 @@ Enterprise AI-Powered Supply Chain Platform.
 2. `git checkout -b yourname/your-service`
 3. Work in your assigned folder only
 4. Push, open PR, wait for review
-﻿# UI Library
+
+## Run the client data stack locally
+
+Use the root Docker Compose environment for the integrated platform, Airflow, and client-data workflow.
+
+### Configure environment
+
+Create your local environment file:
+
+    Copy-Item .env.example .env
+
+If you already have a `.env` file, copy any new required keys from `.env.example` into it. The root Compose file validates required variables when Compose commands run, so missing values can prevent even unrelated `make` commands from working.
+
+Generate three separate secrets and place their output in `.env`:
+
+    python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+Use the generated value for `AIRFLOW_FERNET_KEY`.
+
+    python -c "import secrets; print(secrets.token_urlsafe(32))"
+
+Generate a separate value for each of `AIRFLOW_API_SECRET_KEY` and `AIRFLOW_WEBSERVER_SECRET_KEY`.
+
+If Python's `cryptography` package is unavailable locally, generate the Fernet key with Docker:
+
+    docker run --rm apache/airflow:2.10.5 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+On Linux or WSL, set `AIRFLOW_UID` in `.env` to the current user's ID. This helps prevent root-owned files in the bind-mounted Airflow logs directory:
+
+    echo "AIRFLOW_UID=$(id -u)" >> .env
+
+Run this only once; do not add duplicate `AIRFLOW_UID` entries.
+
+Set strong, unique local passwords for:
+
+- `AIRFLOW_ADMIN_PASSWORD`
+- `AIRFLOW_DB_PASSWORD`
+- `CLIENT_INGEST_DB_PASSWORD`
+- `ETL_DB_PASSWORD`
+
+Generate each password with `python -c "import secrets; print(secrets.token_urlsafe(32))"`. Characters such as `@`, `/` and `:` break the Airflow database URL.
+
+Also fill in the other required database credentials in your local `.env` file. Never commit `.env` or share its secret values.
+
+### Start the environment
+
+    make up
+
+The Compose startup waits for configured service health checks.
+
+Airflow: http://localhost:8080
+
+MLflow: http://localhost:5000
+
+Sign in to Airflow using `AIRFLOW_ADMIN_USERNAME` and `AIRFLOW_ADMIN_PASSWORD` from `.env`.
+
+### Load synthetic client data
+
+    make demo-client-data
+
+The loader reads samples from `data-platform/etl/client_ingest/samples/client_format/` and loads them into the `client_ingest` PostgreSQL schema.
+
+### Stop the environment
+
+    make down
+
+### Standalone ETL
+
+`data-platform/etl/docker-compose.yml` is legacy and is not kept in sync with the shared stack. Use `make up` from the repo root for all client data work.
+
+# UI Library
 
 ## Overview
 

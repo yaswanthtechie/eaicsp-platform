@@ -3,10 +3,10 @@ FULL_COMPOSE = $(COMPOSE) --profile full
 LOW_MEMORY_COMPOSE = $(COMPOSE) -f infra/docker-compose.low-memory.yml
 
 STORES = postgres kafka redis clickhouse mongodb minio influxdb mlflow
-APP_SERVICES = platform compliance inventory logistics supplier-portal api-gateway
+APP_SERVICES = platform compliance inventory logistics supplier-portal api-gateway airflow-webserver airflow-scheduler airflow-worker airflow-triggerer
 PYTHON ?= python
 
-.PHONY: up down up-low-memory down-low-memory buckets seed e2e demo-anomaly logs ps reset reset-data e2e-alerts contract-monitor
+.PHONY: up down up-low-memory down-low-memory buckets seed e2e demo-anomaly logs ps reset reset-data e2e-alerts contract-monitor demo-client-data
 
 # Start infrastructure, create buckets, then start applications.
 up:
@@ -72,6 +72,10 @@ e2e-alerts:
 # Needs `make up`. Writes contracts/contract-monitor-report.md.
 contract-monitor:
 	cd contracts && "$(PYTHON)" live_monitor.py --out contract-monitor-report.md
+
+# R15 client data: load synthetic client-format samples into staging.
+demo-client-data:
+	$(FULL_COMPOSE) --profile client-ingest run --rm --build client-data-loader
 
 # R15-V7: Load client files into staging.
 .PHONY: load-client-data
