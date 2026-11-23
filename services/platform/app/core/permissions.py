@@ -56,6 +56,8 @@ ROLE_PERMISSIONS = {
         "logistics:write",
     },
     "procurement_manager": {
+        "inventory:read",
+        "purchase_order:create",
         "supplier:read",
         "supplier:write",
     },
