@@ -7,18 +7,14 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from dotenv import load_dotenv
-
 ETL_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ETL_DIR / "etl" / "src"))
 sys.path.insert(0, str(ETL_DIR))
 sys.path.insert(0, str(ETL_DIR / "clickhouse"))
-load_dotenv(ETL_DIR / ".env")
-
 from database import get_engine
 from sqlalchemy import text
 
-from apply_ddl import _client, _database
+from apply_ddl import IDENTIFIER, _client, _database
 
 
 DAILY_COLUMNS = (
@@ -139,15 +135,20 @@ def calculate_supplier_on_time(records):
 
 
 def _replace_dates(client, database, table, column, values):
-    dates = sorted({value.isoformat() for value in values})
+    """Delete existing rows for these dates using bound date parameters."""
+    for name in (database, table, column):
+        if not IDENTIFIER.fullmatch(name):
+            raise ValueError(f"Invalid ClickHouse identifier: {name!r}")
+
+    dates = tuple(sorted(set(values)))
     if not dates:
         return
-    literals = ", ".join("'" + value + "'" for value in dates)
+
     client.command(
         f"ALTER TABLE `{database}`.`{table}` DELETE "
-        f"WHERE `{column}` IN ({literals}) SETTINGS mutations_sync = 1"
+        f"WHERE `{column}` IN %(dates)s SETTINGS mutations_sync = 1",
+        parameters={"dates": dates},
     )
-
 
 def build_client_kpis(engine, client, database):
     """Calculate and insert all client KPI snapshots."""
@@ -197,6 +198,9 @@ def build_client_kpis(engine, client, database):
 
 
 def main():
+    from dotenv import load_dotenv
+    load_dotenv(ETL_DIR / ".env")
+
     parser = argparse.ArgumentParser(description=__doc__)
     args = parser.parse_args()
 

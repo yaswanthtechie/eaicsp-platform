@@ -192,6 +192,58 @@ The first `eta.shipment.predicted` event supplies `predicted_eta` from
 Output: `warehouse_id`, `total_shipments`, `delivered_on_time`, `delayed`,
 `on_time_delivery_pct`. The percentage ranges from 0 to 100.
 
+## 9. client_daily_sales
+
+One row per sale date, SKU and warehouse.
+
+| Column | ClickHouse type | Description |
+|---|---|---|
+| sale_date | Date | Sales date |
+| sku_id | String | Canonical SKU ID |
+| warehouse_id | String | Canonical warehouse ID |
+| units_sold | Int64 | Total units sold |
+| revenue | Float64 | Total sales revenue |
+| computed_at | DateTime64(3, 'UTC') | Computation timestamp |
+| version | DateTime64(3, 'UTC') | Replacement version |
+
+Partition: `toYYYYMM(sale_date)`
+ORDER BY: `(sale_date, sku_id, warehouse_id)`
+
+## 10. client_stock_cover
+
+One row per snapshot date, SKU and warehouse. Stock cover is nullable when average daily sales is zero.
+
+| Column | ClickHouse type | Description |
+|---|---|---|
+| snapshot_date | Date | Stock snapshot date |
+| sku_id | String | Canonical SKU ID |
+| warehouse_id | String | Canonical warehouse ID |
+| quantity_on_hand | Int64 | Available stock quantity |
+| average_daily_sales | Float64 | Average daily sales |
+| stock_cover_days | Nullable(Float64) | Estimated days of stock cover |
+| computed_at | DateTime64(3, 'UTC') | Computation timestamp |
+| version | DateTime64(3, 'UTC') | Replacement version |
+
+Partition: `toYYYYMM(snapshot_date)`
+ORDER BY: `(snapshot_date, sku_id, warehouse_id)`
+
+## 11. client_supplier_on_time
+
+One row per supplier per metric month. The percentage measures on-time received purchase orders.
+
+| Column | ClickHouse type | Description |
+|---|---|---|
+| metric_month | Date | Metric month |
+| supplier_id | String | Canonical supplier ID |
+| received_pos | UInt64 | Number of received purchase orders |
+| on_time_pos | UInt64 | Number of received purchase orders delivered on time |
+| on_time_pct | Nullable(Float64) | On-time percentage; NULL when no eligible POs exist |
+| computed_at | DateTime64(3, 'UTC') | Computation timestamp |
+| version | DateTime64(3, 'UTC') | Replacement version |
+
+Partition: `toYYYYMM(metric_month)`
+ORDER BY: `(metric_month, supplier_id)`
+
 ## Applying the DDL and seed stock
 
 From the repository root, run:

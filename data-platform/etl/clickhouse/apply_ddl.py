@@ -41,9 +41,6 @@ def _database():
 def _client():
     import clickhouse_connect
 
-    from dotenv import load_dotenv
-    load_dotenv(DDL_DIR.parent / '.env')
-
     password = os.getenv('CLICKHOUSE_PASSWORD')
     if not password:
         raise ValueError("CLICKHOUSE_PASSWORD must be set.")
@@ -141,6 +138,9 @@ def apply_ddl(client=None):
 
 
 def main():
+    from dotenv import load_dotenv
+    load_dotenv(DDL_DIR.parent / ".env")
+
     try:
         applied = apply_ddl()
     except Exception as exc:
@@ -156,6 +156,3 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-from dotenv import load_dotenv
-load_dotenv(DDL_DIR.parent / '.env')
