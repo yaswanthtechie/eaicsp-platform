@@ -3040,7 +3040,7 @@ The following matrix documents all 18 executable roles and must remain synchroni
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ceo`                 | `inventory:read`, `inventory:write`, `compliance:read`, `compliance:write`, `supplier:read`, `supplier:write`, `logistics:read`, `logistics:write`                    |
 | `vp_operations`       | `inventory:read`, `inventory:write`, `compliance:read`, `compliance:write`, `supplier:read`, `supplier:write`, `logistics:read`, `logistics:write`                    |
-| `procurement_manager` | `supplier:read`, `supplier:write`                                                                                                                                     |
+| `procurement_manager` | `inventory:read`, `purchase_order:create`, `supplier:read`, `supplier:write`                                                                                         |
 | `logistics_manager`   | `logistics:read`, `logistics:write`                                                                                                                                   |
 | `compliance_officer`  | `compliance:read`, `compliance:write`                                                                                                                                 |
 | `warehouse_manager`   | `inventory:read`, `inventory:write`                                                                                                                                   |

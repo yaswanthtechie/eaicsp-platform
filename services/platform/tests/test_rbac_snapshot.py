@@ -86,9 +86,17 @@ def test_v1_roles_unchanged():
     for role, permissions in expected.items():
         assert role in ROLE_PERMISSIONS
 
-        assert set(ROLE_PERMISSIONS[role]) == set(permissions), (
+        expected_permissions = set(permissions)
+        if role == "procurement_manager":
+            # Issue #394 (RH7): Flow A addition to original baseline permissions.
+            expected_permissions = expected_permissions | {
+                "inventory:read",
+                "purchase_order:create",
+            }
+
+        assert set(ROLE_PERMISSIONS[role]) == expected_permissions, (
             f"V1 permissions changed for role '{role}'.\n"
-            f"Expected: {set(permissions)}\n"
+            f"Expected: {expected_permissions}\n"
             f"Actual:   {set(ROLE_PERMISSIONS[role])}"
         )
 

@@ -394,3 +394,78 @@ def test_every_admin_route_permission_exists():
 
     assert used, "expected admin_routes.py to use require_permission_or_role"
     assert used <= set(PERMISSIONS), used - set(PERMISSIONS)
+
+
+# ============================================================
+# 9. RH7 / Issue #394: Procurement Manager Permissions (Flow A)
+# ============================================================
+
+
+def test_procurement_manager_has_required_flow_a_permissions():
+    """
+    procurement_manager must have inventory:read and purchase_order:create
+    for Flow A (A1 recommendations and A2 draft PO).
+    """
+    procurement_permissions = ROLE_PERMISSIONS["procurement_manager"]
+    assert "inventory:read" in procurement_permissions
+    assert "purchase_order:create" in procurement_permissions
+
+
+def test_procurement_manager_retains_existing_supplier_permissions():
+    """
+    procurement_manager must retain its existing supplier:read and supplier:write permissions.
+    """
+    procurement_permissions = ROLE_PERMISSIONS["procurement_manager"]
+    assert "supplier:read" in procurement_permissions
+    assert "supplier:write" in procurement_permissions
+
+
+def test_procurement_manager_permissions_are_exact():
+    """
+    procurement_manager must have exactly the 4 required permissions:
+    inventory:read, purchase_order:create, supplier:read, supplier:write.
+    """
+    expected = {
+        "inventory:read",
+        "purchase_order:create",
+        "supplier:read",
+        "supplier:write",
+    }
+    assert ROLE_PERMISSIONS["procurement_manager"] == expected
+
+
+def test_supplier_does_not_receive_procurement_permissions():
+    """
+    The supplier role must not receive inventory:read or purchase_order:create.
+    """
+    supplier_permissions = ROLE_PERMISSIONS["supplier"]
+    assert "inventory:read" not in supplier_permissions
+    assert "purchase_order:create" not in supplier_permissions
+    assert supplier_permissions == {"supplier:read", "supplier:write"}
+
+
+def test_procurement_manager_dependency_check():
+    """
+    require_permission must allow procurement_manager for inventory:read,
+    purchase_order:create, supplier:read, and supplier:write, but reject supplier
+    for inventory:read and purchase_order:create.
+    """
+    from app.core.dependencies import require_permission
+
+    proc_user = _user("procurement_manager")
+    supplier_user = _user("supplier")
+
+    # Allowed for procurement_manager
+    assert require_permission("inventory:read")(proc_user)
+    assert require_permission("purchase_order:create")(proc_user)
+    assert require_permission("supplier:read")(proc_user)
+    assert require_permission("supplier:write")(proc_user)
+
+    # Denied for supplier
+    with pytest.raises(HTTPException) as exc_inv:
+        require_permission("inventory:read")(supplier_user)
+    assert exc_inv.value.status_code == 403
+
+    with pytest.raises(HTTPException) as exc_po:
+        require_permission("purchase_order:create")(supplier_user)
+    assert exc_po.value.status_code == 403
