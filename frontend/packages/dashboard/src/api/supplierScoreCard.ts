@@ -3,6 +3,8 @@
   refreshAuthSession,
 } from "./auth";
 
+import { supplierScorecardResponse } from "../mocks/supplierScorecardResponses";
+
 export interface SupplierPerformance {
   supplier_id: string;
   supplier_name: string | null;
@@ -41,6 +43,10 @@ export interface SupplierScorecardRow {
 }
 
 const API_TIMEOUT_MS = 30000;
+
+const USE_MOCK_SUPPLIER_SCORECARD =
+  import.meta.env.DEV &&
+  import.meta.env.VITE_USE_MOCK_SUPPLIER_SCORECARD === "true";
 
 async function fetchJson<T>(path: string): Promise<T> {
   const session = getAuthSession();
@@ -112,6 +118,10 @@ export async function fetchSupplierRisk(
 export async function fetchSupplierScorecard(): Promise<
   SupplierScorecardRow[]
 > {
+  // Return mock data when enabled in development.
+  if (USE_MOCK_SUPPLIER_SCORECARD) {
+    return supplierScorecardResponse;
+  }
   const suppliers = await fetchSupplierPerformance();
 
   return Promise.all(
