@@ -25,7 +25,7 @@ EXAMPLE_EVENT_PATH = (
     / "supplierportal.shipment.dispatched.v1.json"
 )
 
-VALID_EVENT = json.loads(EXAMPLE_EVENT_PATH.read_text())
+VALID_EVENT = json.loads(EXAMPLE_EVENT_PATH.read_text(encoding="utf-8"))
 
 
 def test_validate_event_accepts_valid_dispatched_event():
@@ -514,7 +514,7 @@ def test_real_route_prediction_matches_output_contract():
         / "eta.shipment.predicted.v1.json"
     )
 
-    schema = json.loads(contract_path.read_text())
+    schema = json.loads(contract_path.read_text(encoding="utf-8"))
     jsonschema.validate(
         result,
         schema,
@@ -690,7 +690,7 @@ ETA_CONTRACT_PATH = (
     / "eta.shipment.predicted.v1.json"
 )
 
-ETA_CONTRACT = json.loads(ETA_CONTRACT_PATH.read_text())
+ETA_CONTRACT = json.loads(ETA_CONTRACT_PATH.read_text(encoding="utf-8"))
 
 PREDICTION = {
     "eta_days": 5.2,
@@ -754,8 +754,11 @@ def test_prediction_event_delay_fields(planned_date, expected_delay):
 
 
 def test_prediction_event_omits_delay_fields_without_planned_date():
+    event = _event_with()
+    event["payload"].pop("planned_delivery_date", None)
+
     result = build_prediction_event(
-        VALID_EVENT,
+        event,
         PREDICTION,
         "eta_seed_routes/1",
     )
@@ -825,6 +828,7 @@ def test_prediction_event_contract_requires_delay_fields_together(
         20261019,
         "",
         None,
+        "２０２６-１０-１９",
     ],
 )
 def test_validate_event_rejects_invalid_planned_delivery_date(planned_date):
@@ -901,6 +905,7 @@ def test_run_publishes_prediction_with_valid_planned_date():
         message=message,
         asynchronous=False,
     )
+
 
 def test_run_sends_date_overflow_to_dlq_and_commits():
     event = _event_with(

@@ -147,7 +147,7 @@ def validate_event(event):
     if "planned_delivery_date" in payload:
         planned = payload["planned_delivery_date"]
         if not isinstance(planned, str) or not re.fullmatch(
-            r"\d{4}-\d{2}-\d{2}", planned
+            r"[0-9]{4}-[0-9]{2}-[0-9]{2}", planned
         ):
             raise ValueError(
                 "Invalid planned_delivery_date: expected YYYY-MM-DD."
