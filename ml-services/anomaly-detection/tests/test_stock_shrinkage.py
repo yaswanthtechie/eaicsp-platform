@@ -95,7 +95,7 @@ def test_planted_drop_is_flagged_with_its_numbers():
 
 
 def test_missing_snapshot_is_skipped_and_counted():
-    inv = inventory((START, P, W, 500))  # no end snapshot
+    inv = inventory((START, P, W, 500), (END, "PRD-10002", W, 1))  # no end row for P/W
     result = run(inv, sales((("2026-11-04"), P, W, 10)), NO_ORDERS)
 
     assert result.checked == 0
@@ -104,7 +104,9 @@ def test_missing_snapshot_is_skipped_and_counted():
 
 
 def test_missing_start_snapshot_is_skipped_and_counted():
-    inv = inventory((END, P, W, 500))
+    inv = inventory(
+        (END, P, W, 500), (START, "PRD-10002", W, 1)
+    )  # no start row for P/W
     result = run(inv, sales(("2026-11-04", P, W, 10)), NO_ORDERS)
 
     assert result.skipped["missing_start_snapshot"] == 1
@@ -172,7 +174,7 @@ def test_invalid_sales_row_skips_that_pair_only():
         (START, "PRD-10002", W, 50),
         (END, "PRD-10002", W, 50),
     )
-    sold = sales(("not-a-date", P, W, 10), ("2026-11-04", "PRD-10002", W, 0))
+    sold = sales(("2026-11-04", P, W, "abc"), ("2026-11-04", "PRD-10002", W, 0))
 
     result = run(inv, sold, NO_ORDERS)
 
@@ -187,14 +189,47 @@ def test_negative_sales_quantity_skips_the_pair():
     assert run(inv, sold, NO_ORDERS).skipped["bad_sales_row"] == 1
 
 
-def test_received_order_without_a_valid_date_skips_the_pair():
+def test_received_order_without_a_date_is_counted_as_undated():
     inv = inventory((START, P, W, 100), (END, P, W, 40))
     po = orders(("", P, W, 80, "Received"))
 
     result = run(inv, sales(("2026-11-04", P, W, 0)), po)
 
-    assert result.skipped["bad_po_row"] == 1
+    assert result.undated_rows == 1
+    assert result.skipped["bad_po_row"] == 0
+
+
+def test_undated_row_is_counted_and_does_not_skip_the_pair():
+    inv = inventory((START, P, W, 500), (END, P, W, 100))
+    sold = sales(("2026-11-04", P, W, 10), ("not-a-date", P, W, 8))
+
+    result = run(inv, sold, NO_ORDERS)
+
+    assert result.undated_rows == 1
+    assert result.skipped_total == 0
+    assert result.flags.iloc[0].gap == 390
+
+
+def test_window_date_with_no_snapshot_is_an_error():
+    with pytest.raises(ValueError, match="2026-11-01"):
+        check(*pair(500, 450, sold=150), "2026-11-01", END)
+
+
+def test_negative_expected_is_skipped_and_counted():
+    # 10 on hand, 50 sold: more was sold than was there.
+    result = run(*pair(10, 0, sold=50))
+
+    assert result.skipped["negative_expected"] == 1
+    assert result.checked == 0
     assert result.flags.empty
+
+
+def test_inventory_row_without_a_code_is_counted():
+    inv = pd.concat([pair(500, 450)[0], inventory((END, "", W, 5))], ignore_index=True)
+
+    result = run(inv, sales(("2026-11-04", P, W, 50)), NO_ORDERS)
+
+    assert result.unattributable_rows == 1
 
 
 def test_no_sales_rows_in_the_window_is_skipped_not_assumed_zero():
@@ -238,6 +273,22 @@ def test_latest_snapshot_dates_takes_the_two_most_recent():
     inv = inventory(("2026-10-26", P, W, 1), (START, P, W, 1), (END, P, W, 1))
 
     assert latest_snapshot_dates(inv) == (pd.Timestamp(START), pd.Timestamp(END))
+
+
+def test_start_without_end_is_an_error(tmp_path, capsys):
+    with pytest.raises(SystemExit) as stop:
+        main([*_write(tmp_path, *pair(500, 450)), "--start", START])
+
+    assert stop.value.code == 2
+    assert "go together" in capsys.readouterr().err
+
+
+def test_unwritable_output_exits_2(tmp_path, capsys):
+    args = _write(tmp_path, *pair(500, 380, sold=150, received=100))
+    args[args.index("--out") + 1] = str(tmp_path / "inventory.csv" / "flags.csv")
+
+    assert main(args) == 2
+    assert "Error" in capsys.readouterr().err
 
 
 def test_one_snapshot_date_is_an_error():

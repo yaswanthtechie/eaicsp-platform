@@ -2485,10 +2485,11 @@ A pair is skipped, and counted in the log and the summary line, when it has:
 - `missing_start_snapshot` / `missing_end_snapshot`: no row at that date
 - `duplicate_snapshot`: two rows for the pair at one date
 - `invalid_on_hand`: a blank, negative or non-numeric on-hand
-- `bad_sales_row` / `bad_po_row`: a sales row or a Received order for the pair in the window whose date or quantity is invalid
+- `bad_sales_row` / `bad_po_row`: a sales row or a Received order for the pair in the window whose quantity is invalid (blank, negative or not a whole number)
 - `no_sales_in_window`: no sales rows at all in the window (zero sales is not assumed)
+- `negative_expected`: more was sold than was ever there (start on-hand + received - sold is below 0), which is a data problem
 
-Rows in the window with no product or warehouse code cannot be matched to a pair; they are counted as `unmatched rows`. A pair that has more stock than expected is counted as `above expected` and is not flagged.
+Rows with no product or warehouse code (in the inventory snapshots, or in the sales and purchase orders of the window) cannot be matched to a pair; they are counted as `unmatched rows`. Sales and Received purchase order rows with no valid date cannot be placed in any window; they are counted as `undated rows` and left out of every window, so one bad date never disables a pair. A pair that has more stock than expected is counted as `above expected` and is not flagged.
 
 ## Run it
 
@@ -2496,7 +2497,7 @@ From `ml-services/anomaly-detection`:
 
     python -m src.stock_shrinkage --inventory <inventory.csv> --sales <sales_history.csv> --purchase-orders <purchase_order_history.csv>
 
-By default the window is the two latest snapshot dates in the inventory file; `--start` and `--end` set it. The flags go to `output/stock_shrinkage_flags.csv` (`--out` changes it). The exit code is 0, or 2 when a file or column is wrong or there are fewer than two snapshot dates.
+By default the window is the two latest snapshot dates in the inventory file; `--start` and `--end` set it (pass both or neither). A window date with no snapshot in the file is an error, not an empty run. The flags go to `output/stock_shrinkage_flags.csv` (`--out` changes it). The exit code is 0, or 2 when a file or column is wrong or there are fewer than two snapshot dates.
 
 The client sample has one snapshot date only. `python -m src.stock_shrinkage_demo --samples <client_format folder> --out output/demo` builds a synthetic earlier snapshot, balanced for every pair except three planted losses (one high, one medium, one low), and writes `output/demo/inventory_two_snapshots.csv`.
 
@@ -2508,10 +2509,11 @@ The 202 skipped pairs have no start snapshot because the demo only builds one fo
 
 ## MLflow
 
-The run is logged like the sales anomaly runs (experiment `anomaly-detection-r15-sales`, run name `stock-shrinkage`, tag `run_kind=shrinkage`): the `SHRINK_*` thresholds and the file names as parameters; `data_start` / `data_end` as the two snapshot dates; the metrics `anomalies_high`, `anomalies_medium`, `anomalies_low`, `anomalies_total`, `pairs_checked`, `pairs_skipped`, `above_expected`, `unmatched_rows`, `units_unexplained` and one `skipped_<reason>` per reason; and the flags as the artifact `flags.csv`. `MLFLOW_TRACKING_URI` is read from the environment; without it nothing is logged. To log to the compose server, set the variables as in "Running against the compose stack" above. The run also carries the sales thresholds, because the tracking helper adds them to every run.
+The run is logged like the sales anomaly runs (experiment `anomaly-detection-r15-sales`, run name `stock-shrinkage`, tag `run_kind=shrinkage`): the `SHRINK_*` thresholds and the file names as parameters; `data_start` / `data_end` as the two snapshot dates; the metrics `anomalies_high`, `anomalies_medium`, `anomalies_low`, `anomalies_total`, `pairs_checked`, `pairs_skipped`, `above_expected`, `unmatched_rows`, `undated_rows`, `units_unexplained` and one `skipped_<reason>` per reason; and the flags as the artifact `flags.csv`. `MLFLOW_TRACKING_URI` is read from the environment; without it nothing is logged. To log to the compose server, set the variables as in "Running against the compose stack" above. The run also carries the sales thresholds, because the tracking helper adds them to every run.
 
 ## Limits
 
+- About 200 of the 251 inventory pairs in the client sample have no sales history, so on real data they are all skipped as `no_sales_in_window`.
 - Files only: it reads the CSVs, not the database tables from #325 (that PR is still open).
 - It compares two snapshots at a time; a series of snapshots is not scored.
 - The thresholds are design values, not calibrated on real loss data.
@@ -2639,7 +2641,7 @@ The validated continuous-lifecycle results are:
 ## Test suite
 
 ```text
-940 passed
+946 passed
 3 warnings
 0 failures
 ```

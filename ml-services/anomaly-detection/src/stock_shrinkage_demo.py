@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .stock_shrinkage import _prepare, _window_totals
+from .stock_shrinkage import KEY, _prepare, _window_totals
 
 # Share of the expected on-hand planted as a loss: high, medium, low.
 PLANTED_SHARES = (0.25, 0.12, 0.06)
@@ -29,15 +29,19 @@ def build(inventory, sales, orders, days=14):
     end = snap["day"].max()
     start = end - pd.offsets.Day(days)
 
-    sold, bad_sales, _ = _window_totals(
+    sold, bad_sales, _, _ = _window_totals(
         _prepare(sales, "sales", "sale_date", "quantity_sold"), start, end
     )
 
     po_rows = _prepare(orders, "purchase orders", "received_date", "quantity_ordered")
     status = orders["po_status"].fillna("").astype(str).str.strip().str.lower()
-    received, bad_pos, _ = _window_totals(po_rows[status == "received"], start, end)
+    received, bad_pos, _, _ = _window_totals(po_rows[status == "received"], start, end)
 
     rows = inventory[snap["day"] == end].copy()
+
+    # A pair with two end rows would be a duplicate in the start snapshot too.
+    end_counts = snap[snap["day"] == end].groupby(KEY).size()
+    duplicated = set(end_counts[end_counts > 1].index)
     out = []
     planted = []
 
@@ -49,6 +53,7 @@ def build(inventory, sales, orders, days=14):
             key not in sold.index
             or key in bad_sales
             or key in bad_pos
+            or key in duplicated
             or pd.isna(actual)
             or actual < 0
         ):
@@ -59,12 +64,14 @@ def build(inventory, sales, orders, days=14):
         if len(planted) < len(PLANTED_SHARES) and actual >= 100:
             share = PLANTED_SHARES[len(planted)]
             loss = round(actual * share / (1 - share))
-            planted.append((key, loss))
 
         before = int(actual + sold[key] - received.get(key, 0) + loss)
 
         if before < 0:
             continue
+
+        if loss:
+            planted.append((key, loss))
 
         earlier = row._asdict()
         earlier["snapshot_date"] = start.date().isoformat()

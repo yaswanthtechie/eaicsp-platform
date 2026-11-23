@@ -63,6 +63,7 @@ SKIP_REASONS = (
     "bad_sales_row",
     "bad_po_row",
     "no_sales_in_window",
+    "negative_expected",
 )
 
 KEY = ["product_code", "warehouse_code"]
@@ -110,6 +111,7 @@ class Result:
     checked: int = 0
     above_expected: int = 0
     unattributable_rows: int = 0
+    undated_rows: int = 0
     skipped: Counter = field(default_factory=Counter)
 
     @property
@@ -178,32 +180,28 @@ def _prepare(df, name, date_col, qty_col):
     return out
 
 
-def _in_or_unknown_window(day, start, end):
-    """Rows that could belong to the window: dated inside it, or with no valid date."""
-
-    return day.isna() | ((day > start) & (day <= end))
-
-
 def _window_totals(rows, start, end):
     """
     Sum the quantity per product and warehouse over (start, end].
 
-    Returns (totals, bad_keys, unattributable): totals is a Series; bad_keys are
-    pairs that have a row in the window with an invalid date or quantity;
-    unattributable counts rows in the window with no product or warehouse.
+    Returns (totals, bad_keys, unattributable, undated): bad_keys are pairs with
+    a row in the window whose quantity is invalid; unattributable counts rows in
+    the window with no product or warehouse; undated counts rows with no valid
+    date, which cannot be placed in any window.
     """
 
-    relevant = rows[_in_or_unknown_window(rows["day"], start, end)]
+    undated = int(rows["day"].isna().sum())
+    relevant = rows[(rows["day"] > start) & (rows["day"] <= end)]
     unattributable = int((~relevant["has_codes"]).sum())
     relevant = relevant[relevant["has_codes"]]
 
-    bad = relevant[relevant["day"].isna() | relevant["qty"].isna()]
+    bad = relevant[relevant["qty"].isna()]
     bad_keys = set(zip(bad[KEY[0]], bad[KEY[1]], strict=True))
 
-    good = relevant[relevant["day"].notna() & relevant["qty"].notna()]
+    good = relevant[relevant["qty"].notna()]
     totals = good.groupby(KEY)["qty"].sum()
 
-    return totals, bad_keys, unattributable
+    return totals, bad_keys, unattributable, undated
 
 
 def check(inventory, sales, orders, start, end):
@@ -213,7 +211,7 @@ def check(inventory, sales, orders, start, end):
     inventory, sales and orders are DataFrames read as text (dtype=str).
     """
 
-    start, end = pd.Timestamp(start), pd.Timestamp(end)
+    start, end = pd.Timestamp(start).normalize(), pd.Timestamp(end).normalize()
 
     if not start < end:
         raise ValueError(
@@ -221,6 +219,16 @@ def check(inventory, sales, orders, start, end):
         )
 
     snap = _prepare(inventory, "inventory", "snapshot_date", "quantity_on_hand")
+
+    # A window date with no snapshot at all is a wrong date, not a clean run.
+    snapshot_days = set(snap.loc[snap["has_codes"], "day"].dropna())
+    no_snapshot = [d.date().isoformat() for d in (start, end) if d not in snapshot_days]
+
+    if no_snapshot:
+        raise ValueError(
+            f"The inventory file has no snapshot on {', '.join(no_snapshot)}."
+        )
+
     sold_rows = _prepare(sales, "sales", "sale_date", "quantity_sold")
     po_rows = _prepare(orders, "purchase orders", "received_date", "quantity_ordered")
 
@@ -231,11 +239,16 @@ def check(inventory, sales, orders, start, end):
 
     result = Result(start=start, end=end, flags=pd.DataFrame(columns=FLAG_COLUMNS))
 
-    sold, bad_sales, lost = _window_totals(sold_rows, start, end)
+    sold, bad_sales, lost, undated = _window_totals(sold_rows, start, end)
     result.unattributable_rows += lost
-    received, bad_pos, lost = _window_totals(po_rows, start, end)
+    result.undated_rows += undated
+    received, bad_pos, lost, undated = _window_totals(po_rows, start, end)
     result.unattributable_rows += lost
+    result.undated_rows += undated
 
+    result.unattributable_rows += int(
+        (~snap["has_codes"] & snap["day"].isin([start, end])).sum()
+    )
     snap = snap[snap["has_codes"] & snap["day"].isin([start, end])]
     sides = {}
 
@@ -281,6 +294,12 @@ def check(inventory, sales, orders, start, end):
         units_received = int(received.get(key, 0))
         units_sold = int(sold[key])
         expected = start_on_hand + units_received - units_sold
+
+        if expected < 0:
+            # More was sold than was ever there: a data problem.
+            result.skipped["negative_expected"] += 1
+            continue
+
         gap = expected - actual
         gap_pct = gap / expected if expected > 0 else 0.0
 
@@ -318,9 +337,16 @@ def check(inventory, sales, orders, start, end):
 
     if result.unattributable_rows:
         log.warning(
-            "%d sales or purchase order rows in the window have no product or "
-            "warehouse code and could not be matched to a pair.",
+            "%d inventory, sales or purchase order rows in the window have no "
+            "product or warehouse code and could not be matched to a pair.",
             result.unattributable_rows,
+        )
+
+    if result.undated_rows:
+        log.warning(
+            "%d sales or purchase order rows have no valid date and were not "
+            "counted in any window.",
+            result.undated_rows,
         )
 
     for reason in SKIP_REASONS:
@@ -364,7 +390,8 @@ def summary_line(result):
         f"(high {counts['high']}, medium {counts['medium']}, low {counts['low']})  "
         f"above expected: {result.above_expected}  "
         f"skipped: {result.skipped_total} ({skipped})  "
-        f"unmatched rows: {result.unattributable_rows}"
+        f"unmatched rows: {result.unattributable_rows}  "
+        f"undated rows: {result.undated_rows}"
     )
 
 
@@ -376,6 +403,7 @@ def log_to_mlflow(result, files):
         "pairs_skipped": result.skipped_total,
         "above_expected": result.above_expected,
         "unmatched_rows": result.unattributable_rows,
+        "undated_rows": result.undated_rows,
         "units_unexplained": int(result.flags["gap"].sum()) if len(result.flags) else 0,
     }
 
@@ -408,6 +436,9 @@ def main(argv=None):
     parser.add_argument("--out", default=str(DEFAULT_OUT), help="flags CSV to write")
     args = parser.parse_args(argv)
 
+    if bool(args.start) != bool(args.end):
+        parser.error("--start and --end go together: pass both or neither.")
+
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
     try:
@@ -421,14 +452,14 @@ def main(argv=None):
             start, end = latest_snapshot_dates(inventory)
 
         result = check(inventory, sales, orders, start, end)
+
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        result.flags.to_csv(out, index=False)
     except (OSError, ValueError) as error:
         print(f"Error: {error}", file=sys.stderr)
 
         return 2
-
-    out = Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    result.flags.to_csv(out, index=False)
 
     log_to_mlflow(
         result,
