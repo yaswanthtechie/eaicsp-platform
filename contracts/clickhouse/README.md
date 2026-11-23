@@ -1,4 +1,4 @@
-# ClickHouse Table Contracts
+﻿# ClickHouse Table Contracts
 
 Database: `CLICKHOUSE_DB`, falling back to `CLICKHOUSE_DATABASE` (default: `analytics`).
 
@@ -146,7 +146,7 @@ one all-warehouse total with `warehouse_id = ''`; `category` is always `''`.
 Rate totals are weighted (sum of numerators / sum of denominators), not an
 average of the warehouse rates. A rate with no data writes no row.
 
-### kpi_stockouts_by_warehouse → `stockout_count`
+### kpi_stockouts_by_warehouse â†’ `stockout_count`
 
 Reads the latest snapshot per SKU and warehouse from `inventory_snapshots`.
 A stockout is a position whose latest `quantity_on_hand` is zero or below.
@@ -164,7 +164,7 @@ Expected seed output for 2026-10-14: 3,000 positions and 55 stockouts.
 | WH-HYD-01 | 8 | 500 |
 | WH-MAA-01 | 9 | 500 |
 
-### kpi_open_pos_by_status → `open_pos`
+### kpi_open_pos_by_status â†’ `open_pos`
 
 Reads `purchase_orders`. Open statuses are `approved`, `acknowledged` and
 `in_transit`. Received POs are closed. Amounts are grouped by currency and
@@ -172,7 +172,7 @@ are not converted.
 
 Output: `warehouse_id`, `status`, `currency`, `open_po_count`, `open_po_value`.
 
-### kpi_fill_rate_by_warehouse → `fill_rate`
+### kpi_fill_rate_by_warehouse â†’ `fill_rate`
 
 Compares ordered quantities in `po_lines` with received quantities in
 `goods_receipt_lines`, matched by `po_id` and `sku_id`. Only POs with at least
@@ -182,7 +182,7 @@ fulfilled when total received quantity is at least the ordered quantity.
 Output: `warehouse_id`, `total_lines_ordered`, `lines_fulfilled`, `fill_rate`.
 `fill_rate` is a percentage from 0 to 100.
 
-### kpi_on_time_delivery_by_warehouse → `on_time_delivery_pct`
+### kpi_on_time_delivery_by_warehouse â†’ `on_time_delivery_pct`
 
 Reads delivered shipments from `transport_performance` with known `on_time`.
 The first `eta.shipment.predicted` event supplies `predicted_eta` from
@@ -195,6 +195,12 @@ Output: `warehouse_id`, `total_shipments`, `delivered_on_time`, `delayed`,
 ## 9. client_daily_sales
 
 One row per sale date, SKU and warehouse.
+
+Rules: `units_sold` is the sum of `quantity_sold`. `revenue` is the sum of
+`sales_amount`, or `quantity_sold * unit_price` when `sales_amount` is
+missing. Rows the client loader rejects are not counted.
+
+Example from the synthetic sample: 2025-05-10 / PRD-10482 / BLR-01 produces 8 units sold and 34992.0 revenue.
 
 | Column | ClickHouse type | Description |
 |---|---|---|
@@ -213,6 +219,15 @@ ORDER BY: `(sale_date, sku_id, warehouse_id)`
 
 One row per snapshot date, SKU and warehouse. Stock cover is nullable when average daily sales is zero.
 
+Rules: `average_daily_sales` is the units sold for that SKU and warehouse
+from `snapshot_date - 27 days` to `snapshot_date`, both days included,
+divided by 28. `stock_cover_days` is `quantity_on_hand / average_daily_sales`,
+rounded to 2 decimals, and NULL when the average is 0.
+
+Example from the synthetic sample: `PRD-10482` at `BLR-01` on 2026-11-09 has
+896 on hand and sold 288 units from 2026-10-13 to 2026-11-09, so
+`average_daily_sales = 10.2857` and `stock_cover_days = 87.11`.
+
 | Column | ClickHouse type | Description |
 |---|---|---|
 | snapshot_date | Date | Stock snapshot date |
@@ -230,6 +245,15 @@ ORDER BY: `(snapshot_date, sku_id, warehouse_id)`
 ## 11. client_supplier_on_time
 
 One row per supplier per metric month. The percentage measures on-time received purchase orders.
+
+Rules: only purchase orders with `po_status = Received` and both
+`received_date` and `expected_date` count; `Cancelled` and `Open` orders are
+excluded. `metric_month` is the first day of the month of `received_date`.
+An order is on time when `received_date <= expected_date`.
+`on_time_pct = 100 * on_time_pos / received_pos`, rounded to 2 decimals.
+
+Example from the synthetic sample: `SUP-2232` in 2025-12 has 2 received
+orders, 1 on time, so `on_time_pct = 50.0`.
 
 | Column | ClickHouse type | Description |
 |---|---|---|

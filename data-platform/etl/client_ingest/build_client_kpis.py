@@ -18,27 +18,46 @@ from apply_ddl import IDENTIFIER, _client, _database
 
 
 DAILY_COLUMNS = (
-    "sale_date", "sku_id", "warehouse_id", "units_sold",
-    "revenue", "computed_at", "version",
+    "sale_date",
+    "sku_id",
+    "warehouse_id",
+    "units_sold",
+    "revenue",
+    "computed_at",
+    "version",
 )
 STOCK_COLUMNS = (
-    "snapshot_date", "sku_id", "warehouse_id", "quantity_on_hand",
-    "average_daily_sales", "stock_cover_days", "computed_at", "version",
+    "snapshot_date",
+    "sku_id",
+    "warehouse_id",
+    "quantity_on_hand",
+    "average_daily_sales",
+    "stock_cover_days",
+    "computed_at",
+    "version",
 )
 SUPPLIER_COLUMNS = (
-    "metric_month", "supplier_id", "received_pos", "on_time_pos",
-    "on_time_pct", "computed_at", "version",
+    "metric_month",
+    "supplier_id",
+    "received_pos",
+    "on_time_pos",
+    "on_time_pct",
+    "computed_at",
+    "version",
 )
 
 
 def _records(engine, entity_type):
     with engine.connect() as conn:
-        result = conn.execute(text("""
+        result = conn.execute(
+            text("""
             SELECT canonical_record
             FROM client_ingest_staging
             WHERE entity_type = :entity
             ORDER BY id
-        """), {"entity": entity_type})
+        """),
+            {"entity": entity_type},
+        )
 
         for (record,) in result:
             if isinstance(record, str):
@@ -61,16 +80,14 @@ def calculate_daily_sales(records):
         )
         quantity = int(row["quantity_sold"])
         revenue = float(
-            row.get("sales_amount")
-            or quantity * float(row.get("unit_price") or 0)
+            row.get("sales_amount") or quantity * float(row.get("unit_price") or 0)
         )
         totals[key][0] += quantity
         totals[key][1] += revenue
 
     return [
         (day, sku, warehouse, units, round(revenue, 2))
-        for (day, sku, warehouse), (units, revenue)
-        in sorted(totals.items())
+        for (day, sku, warehouse), (units, revenue) in sorted(totals.items())
     ]
 
 
@@ -96,11 +113,16 @@ def calculate_stock_cover(inventory_records, daily_sales):
         average = units / 28.0
         cover = on_hand / average if average > 0 else None
 
-        output.append((
-            snapshot, sku, warehouse, on_hand,
-            round(average, 4),
-            round(cover, 2) if cover is not None else None,
-        ))
+        output.append(
+            (
+                snapshot,
+                sku,
+                warehouse,
+                on_hand,
+                round(average, 4),
+                round(cover, 2) if cover is not None else None,
+            )
+        )
 
     return output
 
@@ -126,10 +148,15 @@ def calculate_supplier_on_time(records):
     output = []
     for (month, supplier), (received, on_time) in sorted(totals.items()):
         percentage = 100.0 * on_time / received if received else None
-        output.append((
-            month, supplier, received, on_time,
-            round(percentage, 2) if percentage is not None else None,
-        ))
+        output.append(
+            (
+                month,
+                supplier,
+                received,
+                on_time,
+                round(percentage, 2) if percentage is not None else None,
+            )
+        )
 
     return output
 
@@ -150,20 +177,23 @@ def _replace_dates(client, database, table, column, values):
         parameters={"dates": dates},
     )
 
+
 def build_client_kpis(engine, client, database):
     """Calculate and insert all client KPI snapshots."""
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     sales = calculate_daily_sales(_records(engine, "sales_history"))
-    stock = calculate_stock_cover(
-        _records(engine, "inventory_snapshot"), sales
-    )
-    supplier = calculate_supplier_on_time(
-        _records(engine, "purchase_order_history")
-    )
+    stock = calculate_stock_cover(_records(engine, "inventory_snapshot"), sales)
+    supplier = calculate_supplier_on_time(_records(engine, "purchase_order_history"))
 
     if sales:
-        _replace_dates(client, database, "client_daily_sales", "sale_date", [row[0] for row in sales])
+        _replace_dates(
+            client,
+            database,
+            "client_daily_sales",
+            "sale_date",
+            [row[0] for row in sales],
+        )
         client.insert(
             "client_daily_sales",
             [(*row, now, now) for row in sales],
@@ -172,7 +202,13 @@ def build_client_kpis(engine, client, database):
         )
 
     if stock:
-        _replace_dates(client, database, "client_stock_cover", "snapshot_date", [row[0] for row in stock])
+        _replace_dates(
+            client,
+            database,
+            "client_stock_cover",
+            "snapshot_date",
+            [row[0] for row in stock],
+        )
         client.insert(
             "client_stock_cover",
             [(*row, now, now) for row in stock],
@@ -181,7 +217,13 @@ def build_client_kpis(engine, client, database):
         )
 
     if supplier:
-        _replace_dates(client, database, "client_supplier_on_time", "metric_month", [row[0] for row in supplier])
+        _replace_dates(
+            client,
+            database,
+            "client_supplier_on_time",
+            "metric_month",
+            [row[0] for row in supplier],
+        )
         client.insert(
             "client_supplier_on_time",
             [(*row, now, now) for row in supplier],
@@ -199,6 +241,7 @@ def build_client_kpis(engine, client, database):
 
 def main():
     from dotenv import load_dotenv
+
     load_dotenv(ETL_DIR / ".env")
 
     parser = argparse.ArgumentParser(description=__doc__)
