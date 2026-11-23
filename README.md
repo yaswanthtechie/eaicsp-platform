@@ -20,7 +20,7 @@ Enterprise AI-Powered Supply Chain Platform.
 2. `git checkout -b yourname/your-service`
 3. Work in your assigned folder only
 4. Push, open PR, wait for review
-﻿
+
 ## Run the client data stack locally
 
 Use the root Docker Compose environment for the integrated platform, Airflow, and client-data workflow.
@@ -60,6 +60,8 @@ Set strong, unique local passwords for:
 - `CLIENT_INGEST_DB_PASSWORD`
 - `ETL_DB_PASSWORD`
 
+Generate each password with `python -c "import secrets; print(secrets.token_urlsafe(32))"`. Characters such as `@`, `/` and `:` break the Airflow database URL.
+
 Also fill in the other required database credentials in your local `.env` file. Never commit `.env` or share its secret values.
 
 ### Start the environment
@@ -86,7 +88,7 @@ The loader reads samples from `data-platform/etl/client_ingest/samples/client_fo
 
 ### Standalone ETL
 
-The Compose files under `data-platform/etl/` are retained for standalone ETL development. They use `data-platform/etl/.env.example`. Use the root Compose file for the integrated shared environment.
+`data-platform/etl/docker-compose.yml` is legacy and is not kept in sync with the shared stack. Use `make up` from the repo root for all client data work.
 
 # UI Library
 

@@ -89,4 +89,13 @@ PGPASSWORD="$CLIENT_INGEST_DB_PASSWORD" psql \
   -v ON_ERROR_STOP=1 \
   -f /sql/client_ingest_schema.sql
 
-echo "Airflow and client-ingestion database bootstrap completed."
+echo "Creating ETL tables in analytics..."
+
+PGPASSWORD="$ETL_DB_PASSWORD" psql \
+  --host postgres \
+  --username etl_user \
+  --dbname "$POSTGRES_DB" \
+  -v ON_ERROR_STOP=1 \
+  -f /sql/etl_schema.sql
+
+echo "Airflow, ETL and client-ingestion database bootstrap completed."

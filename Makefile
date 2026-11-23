@@ -77,6 +77,7 @@ contract-monitor:
 # R15 client data: load synthetic client-format samples into staging.
 demo-client-data:
 	$(FULL_COMPOSE) --profile client-ingest run --rm --build client-data-loader
+
 # R15-V7: Load client files into staging.
 .PHONY: load-client-data
 load-client-data:
