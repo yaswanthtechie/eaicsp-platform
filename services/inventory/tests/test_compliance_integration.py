@@ -327,7 +327,7 @@ def test_po_is_created_on_next_movement_once_compliance_recovers(
     ],
 )
 def test_manual_draft_reports_compliance_outcome(
-    client,
+    client_procurement_manager,
     db_session,
     monkeypatch,
     setup,
@@ -350,7 +350,7 @@ def test_manual_draft_reports_compliance_outcome(
 
     setup(monkeypatch)
 
-    response = client.post(
+    response = client_procurement_manager.post(
         "/api/v1/inventory/purchase-orders/draft",
         json={"sku_id": SKU, "warehouse_id": WAREHOUSE},
     )
