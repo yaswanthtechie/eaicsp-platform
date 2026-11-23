@@ -42,7 +42,7 @@ Supports hierarchical distribution across warehouse tiers: **Central → Regiona
 When stock falls below the reorder point, a structured draft purchase order is generated for the lowest-cost compliant supplier:
 - Calculates suggested order quantity and expected purchase cost.
 - Checks supplier compliance before PO creation and prevents duplicate draft POs.
-- **Manual Draft Endpoint:** `POST /api/v1/inventory/purchase-orders/draft` (Permission: `inventory:write`).
+- **Manual Draft Endpoint:** `POST /api/v1/inventory/purchase-orders/draft` (Permission: `purchase_order:create`).
 
 ---
 
@@ -266,7 +266,7 @@ Conclusion: Redis caching provides approximately a 1.4x latency speedup.
 | `GET` | `/api/v1/inventory/reorder-plan` | View SKU reorder status | `inventory:read` |
 | `POST` | `/api/v1/inventory/transfer` | Warehouse-to-warehouse transfer | `inventory:write` |
 | `GET` | `/api/v1/inventory/network-optimization` | Network safety-stock calculation | `inventory:read` |
-| `POST` | `/api/v1/inventory/purchase-orders/draft` | Create draft purchase order | `inventory:write` |
+| `POST` | `/api/v1/inventory/purchase-orders/draft` | Create draft purchase order | `purchase_order:create` |
 | `POST` | `/api/v1/inventory/purchase-orders/{id}/approve` | Approve draft purchase order | `procurement_manager` |
 | `POST` | `/api/v1/inventory/purchase-orders/{id}/receive` | Receive approved purchase order | `inventory:write` |
 | `POST` | `/api/v1/inventory/what-if` | Run demand-spike simulation | `ceo` / `vp_operations` |

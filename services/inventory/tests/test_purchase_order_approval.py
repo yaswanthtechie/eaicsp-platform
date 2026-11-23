@@ -57,6 +57,7 @@ def test_draft_po_awaits_procurement_approval(client, db_session):
         db_session, unit_cost=1.0
     )  # small PO: no auto-approval any more.
 
+    app.dependency_overrides[verify_token] = _as_user("procurement_manager")
     response = client.post(
         "/api/v1/inventory/purchase-orders/draft",
         json={"sku_id": "SKU-000901", "warehouse_id": "WH-BLR-01"},
@@ -66,7 +67,6 @@ def test_draft_po_awaits_procurement_approval(client, db_session):
     po_id = response.json()["po_id"]
     assert response.json()["approval_status"] == "pending_vp_approval"
 
-    app.dependency_overrides[verify_token] = _as_user("procurement_manager")
     approved = client.post(f"/api/v1/inventory/purchase-orders/{po_id}/approve")
     assert approved.status_code == 200
     assert approved.json()["approval_status"] == "approved"
@@ -79,6 +79,7 @@ def test_draft_po_awaits_procurement_approval(client, db_session):
 def test_approval_requires_procurement_manager(client, db_session, role):
     _seed_reorderable_sku(db_session, unit_cost=100.0)
 
+    app.dependency_overrides[verify_token] = _as_user("procurement_manager")
     po_id = client.post(
         "/api/v1/inventory/purchase-orders/draft",
         json={"sku_id": "SKU-000901", "warehouse_id": "WH-BLR-01"},

@@ -1,10 +1,12 @@
 from datetime import UTC, datetime, timedelta
 
+from app.core.auth import verify_token
+from app.main import app
 from app.models.inventory import Inventory
 from app.models.inventory_cost_layer import InventoryCostLayer
 from app.models.supplier import Supplier
 from app.services.purchase_order_service import approve_purchase_order
-from tests.conftest import seed_sales_history
+from tests.conftest import _as_user, seed_sales_history
 
 # ============================================================
 # MILESTONE 1 — MULTI-ECHELON INVENTORY
@@ -300,6 +302,7 @@ def test_m2_automatic_draft_po_selects_lowest_cost_supplier(
         days=30,
     )
 
+    app.dependency_overrides[verify_token] = _as_user("procurement_manager")
     response = client.post(
         "/api/v1/inventory/purchase-orders/draft",
         json={
@@ -364,6 +367,7 @@ def test_m2_automatic_po_contains_expected_cost(
         days=30,
     )
 
+    app.dependency_overrides[verify_token] = _as_user("procurement_manager")
     response = client.post(
         "/api/v1/inventory/purchase-orders/draft",
         json={
@@ -384,6 +388,7 @@ def test_m2_automatic_po_contains_expected_cost(
 def test_m2_automatic_po_fails_when_inventory_not_found(
     client,
 ):
+    app.dependency_overrides[verify_token] = _as_user("procurement_manager")
     response = client.post(
         "/api/v1/inventory/purchase-orders/draft",
         json={
@@ -424,6 +429,7 @@ def test_m2_automatic_po_fails_when_no_supplier_exists(
         days=30,
     )
 
+    app.dependency_overrides[verify_token] = _as_user("procurement_manager")
     response = client.post(
         "/api/v1/inventory/purchase-orders/draft",
         json={
@@ -800,6 +806,7 @@ def test_m3_receive_purchase_order_creates_cost_layer(
         days=30,
     )
 
+    app.dependency_overrides[verify_token] = _as_user("procurement_manager")
     draft_response = client.post(
         "/api/v1/inventory/purchase-orders/draft",
         json={
@@ -818,6 +825,7 @@ def test_m3_receive_purchase_order_creates_cost_layer(
 
     approve_purchase_order(db=db_session, po_id=po_id, approved_by="7")
 
+    app.dependency_overrides[verify_token] = _as_user("warehouse_manager")
     receive_response = client.post(f"/api/v1/inventory/purchase-orders/{po_id}/receive")
 
     assert receive_response.status_code == 200
@@ -917,6 +925,7 @@ def test_m3_receive_purchase_order_updates_inventory_value(
         days=30,
     )
 
+    app.dependency_overrides[verify_token] = _as_user("procurement_manager")
     draft_response = client.post(
         "/api/v1/inventory/purchase-orders/draft",
         json={
@@ -934,6 +943,7 @@ def test_m3_receive_purchase_order_updates_inventory_value(
 
     approve_purchase_order(db=db_session, po_id=po_id, approved_by="7")
 
+    app.dependency_overrides[verify_token] = _as_user("warehouse_manager")
     receive_response = client.post(f"/api/v1/inventory/purchase-orders/{po_id}/receive")
 
     assert receive_response.status_code == 200
@@ -1001,6 +1011,7 @@ def test_m3_cannot_receive_purchase_order_twice(
         days=30,
     )
 
+    app.dependency_overrides[verify_token] = _as_user("procurement_manager")
     draft_response = client.post(
         "/api/v1/inventory/purchase-orders/draft",
         json={
@@ -1015,6 +1026,7 @@ def test_m3_cannot_receive_purchase_order_twice(
 
     approve_purchase_order(db=db_session, po_id=po_id, approved_by="7")
 
+    app.dependency_overrides[verify_token] = _as_user("warehouse_manager")
     first_receive = client.post(f"/api/v1/inventory/purchase-orders/{po_id}/receive")
 
     assert first_receive.status_code == 200
