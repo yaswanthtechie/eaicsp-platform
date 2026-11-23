@@ -3,11 +3,19 @@ import type {
     SupplierRiskItem,
     ShipmentStatus,
 } from "../types/dashboard";
+import {
+    formatProductLabel,
+    formatWarehouseLabel,
+} from "../api/inventory";
 
 export type CsvExportView =
     | "inventory"
     | "suppliers"
     | "shipments";
+export interface InventoryExportNames {
+    productNames: Record<string, string>;
+    warehouseNames: Record<string, string>;
+}
 
 const FORMULA_PREFIX = /^[=+\-@\t\r]/;
 
@@ -69,7 +77,8 @@ const downloadCsv = (
 
 export function exportDashboardCsv(
     view: "inventory",
-    data: InventoryItem[]
+    data: InventoryItem[],
+    names?: InventoryExportNames
 ): void;
 
 export function exportDashboardCsv(
@@ -87,7 +96,8 @@ export function exportDashboardCsv(
     data:
         | InventoryItem[]
         | SupplierRiskItem[]
-        | ShipmentStatus
+        | ShipmentStatus,
+    names?: InventoryExportNames
 ): void {
     if (view === "inventory") {
         const inventory = data as InventoryItem[];
@@ -105,9 +115,13 @@ export function exportDashboardCsv(
 
         const rows = inventory.map((item) => [
             item.sku_id,
-            item.product_name,
+            formatProductLabel(
+                item.sku_id,
+                names?.productNames ?? {},
+                item.product_name,
+            ),
             item.category,
-            item.warehouse_id,
+            formatWarehouseLabel(item.warehouse_id, names?.warehouseNames ?? {}),
             item.quantity_on_hand,
             item.reorder_point,
             item.needs_reorder,

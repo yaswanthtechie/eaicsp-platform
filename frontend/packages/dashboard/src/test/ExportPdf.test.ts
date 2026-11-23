@@ -31,8 +31,8 @@ describe("exportDashboardPdf", () => {
     const inventory = [
         {
             sku_id: "SKU-000001",
-            product_name: "Rice",
-            category: "Food",
+            product_name: "Kestrel Sticky Notes - Pack of 10 1",
+            category: "Stationery",
             warehouse_id: "WH-BLR-01",
             quantity_on_hand: 100,
             reorder_point: 20,
@@ -65,7 +65,7 @@ describe("exportDashboardPdf", () => {
 
     const filters = {
         warehouse: "WH-BLR-01",
-        category: "Food",
+        category: "Stationery",
         startDate: "2026-09-01",
         endDate: "2026-09-24",
     };
@@ -81,6 +81,12 @@ describe("exportDashboardPdf", () => {
         await exportDashboardPdf({
             role: "ceo",
             inventory,
+            productNames: {
+                "SKU-000001": "Kestrel Sticky Notes - Pack of 10 1",
+            },
+            warehouseNames: {
+                "WH-BLR-01": "Bangalore Warehouse",
+            },
             suppliers,
             shipments,
             filters,
@@ -102,6 +108,12 @@ describe("exportDashboardPdf", () => {
         await exportDashboardPdf({
             role: "warehouse_manager",
             inventory,
+            productNames: {
+                "SKU-000001": "Kestrel Sticky Notes - Pack of 10 1",
+            },
+            warehouseNames: {
+                "WH-BLR-01": "Bangalore Warehouse",
+            },
             suppliers,
             shipments,
             filters,
@@ -115,19 +127,19 @@ describe("exportDashboardPdf", () => {
         );
 
         expect(textMock).toHaveBeenCalledWith(
-            ["Warehouse: WH-BLR-01"],
+            ["Warehouse: Bangalore Warehouse (WH-BLR-01)"],
             20,
             50
         );
 
         expect(textMock).toHaveBeenCalledWith(
-            ["Category: Food"],
+            ["Category: Stationery"],
             20,
             56
         );
 
         expect(textMock).toHaveBeenCalledWith(
-            ["SKU-000001 | Rice | WH-BLR-01 | Qty: 100"],
+            ["Kestrel Sticky Notes - Pack of 10 1 (SKU-000001) | Bangalore Warehouse (WH-BLR-01) | Qty: 100"],
             20,
             190
         );

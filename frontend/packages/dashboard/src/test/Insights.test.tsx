@@ -37,6 +37,25 @@ describe("Insights", () => {
     );
   });
 
+  it("displays warehouse names with IDs in warehouse insight", () => {
+    const inventory = [
+      { warehouse_id: "WH-BLR-01", needs_reorder: true },
+      { warehouse_id: "WH-BLR-01", needs_reorder: true },
+      { warehouse_id: "WH-BOM-01", needs_reorder: true },
+      { warehouse_id: "WH-BOM-01", needs_reorder: true },
+      { warehouse_id: "WH-BOM-01", needs_reorder: true },
+    ] as InventoryItem[];
+
+    expect(
+      generateWarehouseInsight(inventory, {
+        "WH-BLR-01": "Bangalore Warehouse",
+        "WH-BOM-01": "Mumbai Distribution Centre",
+      }),
+    ).toBe(
+      "Mumbai Distribution Centre (WH-BOM-01) holds 60% of low-stock items.",
+    );
+  });
+
   it("groups warehouses with the most low-stock items", () => {
     const inventory = [
       { warehouse_id: "WH-HYD-01", needs_reorder: true },
@@ -115,6 +134,20 @@ describe("Insights", () => {
 
     expect(generateWarehouseInsight([])).toBe(
       "No inventory data is currently available.",
+    );
+  });
+
+  it("falls back to warehouse IDs when names are missing", () => {
+    const inventory = [
+      { warehouse_id: "WH-BLR-01", needs_reorder: true },
+      { warehouse_id: "WH-BLR-01", needs_reorder: true },
+      { warehouse_id: "WH-BOM-01", needs_reorder: true },
+      { warehouse_id: "WH-BOM-01", needs_reorder: true },
+      { warehouse_id: "WH-BOM-01", needs_reorder: true },
+    ] as InventoryItem[];
+
+    expect(generateWarehouseInsight(inventory, {})).toBe(
+      "WH-BOM-01 holds 60% of low-stock items.",
     );
   });
 });

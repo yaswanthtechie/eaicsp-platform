@@ -13,6 +13,7 @@ frontend/
             ├──api/
             |    ├── auth.ts
             |    ├── kpis.ts
+            |    ├── inventory.ts
             |    └── dashboardGraphql.ts
             ├── components/
             │   ├── AlertsPanel.tsx
@@ -63,6 +64,7 @@ frontend/
             |   ├── forecastAccuracy.ts
             │   ├── inventory.ts
             │   ├── inventoryHealth.ts
+            |   ├── inventoryResponses.ts
             │   ├── shipments.ts
             │   ├── supplierRisk.ts
             |   ├── user.ts
@@ -88,6 +90,7 @@ frontend/
             │   ├── DashboardFilters.test.tsx
             │   ├── ForecastAccuracy.test.tsx
             │   ├── InventoryHealth.test.tsx
+            |   ├── inventory.test.ts
             |   ├── kpiSnapshot.test.tsx
             |   ├── kpis.test.ts
             |   ├── mergeAlerts.test.ts
@@ -103,7 +106,7 @@ frontend/
             |   ├── exportPdf.ts
             |   ├── insights.ts
             |   ├── alertMapper.ts
-            |    ├── mergeAlert.ts
+            |   ├── mergeAlert.ts
             │   └── kpiSnapshot.ts
             │
             ├── App.tsx
@@ -1232,11 +1235,11 @@ npm run test:e2e
 
 Test verification completed successfully.
 
-* Vitest: 25 test files, 232/232 tests passed
+* Vitest: 26 test files, 254/254 tests passed
 * Playwright Dashboard E2E: 4/4 tests passed
 * Authentication E2E: 14/14 passed with valid credentials.
 * Live Alerts WebSocket: 1/1 test  passed.
-* Total: 251 tests passed across the three reported test groups.
+* Total: 273 tests passed across the three reported test groups.
 
 The authentication tests are run separately using
 npm run test:e2e:auth.
@@ -1623,3 +1626,75 @@ npx vitest run src/test/AlertsPanel.test.tsx src/test/AlertDetailsDrawer.test.ts
 ### 7. Outcome
 
 Planners can now click an alert and see why it was generated without leaving the dashboard. The drawer supports keyboard controls, displays event details, and safely handles missing or unknown data.
+
+## R15 [C7] – Inventory Product and Warehouse Name Integration
+
+### API Endpoints
+
+The dashboard uses these Inventory service endpoints through the API Gateway:
+
+- `GET /api/v1/inventory/products` – Fetches product IDs and names.
+- `GET /api/v1/inventory/warehouses` – Fetches warehouse IDs and names.
+
+### Implementation Flow
+
+1. `App.tsx` calls `fetchInventoryNames()` when the dashboard loads.
+2. `src/api/inventory.ts` sends authenticated GET requests to both endpoints using the access token.
+3. Requests use pagination (`limit=1000` and `offset`) to fetch all available records.
+4. The API responses contain an `items` array and `total` count.
+5. `inventory.ts` creates two lookup maps:
+   - Product map: `sku_id → product name`
+   - Warehouse map: `warehouse_id → warehouse name`
+6. The lookup results are cached for the current access-token session.
+7. `App.tsx` passes these maps to the dashboard components.
+8. Components display names alongside IDs. If a name is unavailable or an API request fails, the dashboard falls back to displaying the ID.
+
+### Data Flow Diagram
+
+```text
+        Dashboard Loads
+               |
+               v
+       App.tsx calls
+   fetchInventoryNames()
+               |
+               v
+        src/api/inventory.ts
+               |
+        Authenticated GET
+          Requests
+          /       \
+         v         v
+    Products    Warehouses
+     Endpoint    Endpoint
+         |         |
+         v         v
+     Product    Warehouse
+      Data        Data
+         \         /
+          v       v
+       Create Lookup Maps
+       SKU ID -> Name
+       Warehouse ID -> Name
+               |
+               v
+       Cache Lookup Data
+               |
+               v
+       Pass Maps to App
+               |
+               v
+       Dashboard Components
+               |
+               v
+       Display Name + ID
+       or ID Only (Fallback)
+```
+
+### Development Preview and API Configuration
+
+The dashboard supports two modes through VITE_USE_MOCK_INVENTORY_NAMES in `.env.`
+
+VITE_USE_MOCK_INVENTORY_NAMES=true – Uses synthetic mock product and warehouse names for development preview.
+
+VITE_USE_MOCK_INVENTORY_NAMES=false – Uses the real Inventory service endpoints through the API Gateway.

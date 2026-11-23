@@ -12,6 +12,8 @@ import { colors} from "../../tokens";
 interface ExportPdfButtonProps {
     role: UserRole;
     inventory: InventoryItem[];
+    productNames: Record<string, string>;
+    warehouseNames: Record<string, string>;
     suppliers: SupplierRiskItem[];
     shipments: ShipmentStatus;
     filters: {
@@ -29,6 +31,8 @@ interface ExportPdfButtonProps {
 const ExportPdfButton = ({
     role,
     inventory,
+    productNames,
+    warehouseNames,
     suppliers,
     shipments,
     filters,
@@ -45,6 +49,8 @@ const ExportPdfButton = ({
             await exportDashboardPdf({
                 role,
                 inventory,
+                productNames,
+                warehouseNames,
                 suppliers,
                 shipments,
                 filters,
