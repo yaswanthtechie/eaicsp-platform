@@ -83,33 +83,19 @@ class DetectAdaptiveRequest(BaseModel):
         but not neither and not both.
         """
 
-        if (
-            self.reading is None
-            and self.readings is None
-        ):
+        if self.reading is None and self.readings is None:
+            raise ValueError("Either 'reading' or 'readings' must be provided.")
 
-            raise ValueError(
-                "Either 'reading' or "
-                "'readings' must be provided."
-            )
-
-        if (
-            self.reading is not None
-            and self.readings is not None
-        ):
-
-            raise ValueError(
-                "Provide either 'reading' "
-                "or 'readings', not both."
-            )
+        if self.reading is not None and self.readings is not None:
+            raise ValueError("Provide either 'reading' or 'readings', not both.")
 
         return self
 
 
 __all__ = [
-    "SensorReading",
+    "DetectAdaptiveRequest",
+    "DetectWindowRequest",
     "ModelName",
     "PredictionRequest",
-    "DetectWindowRequest",
-    "DetectAdaptiveRequest",
+    "SensorReading",
 ]

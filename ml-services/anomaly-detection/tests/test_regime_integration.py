@@ -3,7 +3,6 @@ import pytest
 
 from src.regime_detector import RegimeDetector
 
-
 # ============================================================
 # Purpose
 # ============================================================
@@ -64,6 +63,7 @@ MIN_STABLE_BLOCKS = 2
 # Helpers
 # ============================================================
 
+
 def create_detector():
     """
     Create a detector using the production-style
@@ -89,9 +89,7 @@ def finite(scores):
         dtype=float,
     )
 
-    return scores[
-        np.isfinite(scores)
-    ]
+    return scores[np.isfinite(scores)]
 
 
 def initialize(
@@ -107,11 +105,7 @@ def initialize(
 
     assert len(scores) >= BASELINE_SIZE
 
-    detector.initialize(
-        scores[
-            :BASELINE_SIZE
-        ]
-    )
+    detector.initialize(scores[:BASELINE_SIZE])
 
 
 def observe_stream(
@@ -125,12 +119,7 @@ def observe_stream(
     results = []
 
     for score in finite(scores):
-
-        results.append(
-            detector.observe(
-                float(score)
-            )
-        )
+        results.append(detector.observe(float(score)))
 
     return results
 
@@ -142,6 +131,7 @@ def state(detector):
 # ============================================================
 # 1. Real model-score sanity
 # ============================================================
+
 
 @pytest.mark.parametrize(
     "model_name",
@@ -156,15 +146,11 @@ def test_real_calibration_scores_are_available(
     real calibration score stream.
     """
 
-    scores = finite(
-        model_calibration_scores
-    )
+    scores = finite(model_calibration_scores)
 
     assert len(scores) >= BASELINE_SIZE
 
-    assert np.all(
-        np.isfinite(scores)
-    )
+    assert np.all(np.isfinite(scores))
 
 
 @pytest.mark.parametrize(
@@ -180,15 +166,11 @@ def test_real_seasonal_scores_are_available(
     seasonal dataset.
     """
 
-    scores = finite(
-        seasonal_scores
-    )
+    scores = finite(seasonal_scores)
 
     assert len(scores) > 0
 
-    assert np.all(
-        np.isfinite(scores)
-    )
+    assert np.all(np.isfinite(scores))
 
 
 @pytest.mark.parametrize(
@@ -204,15 +186,11 @@ def test_real_drift_scores_are_available(
     temperature-drift dataset.
     """
 
-    scores = finite(
-        drift_scores
-    )
+    scores = finite(drift_scores)
 
     assert len(scores) > 0
 
-    assert np.all(
-        np.isfinite(scores)
-    )
+    assert np.all(np.isfinite(scores))
 
 
 @pytest.mark.parametrize(
@@ -228,20 +206,17 @@ def test_real_spike_scores_are_available(
     temperature-spike dataset.
     """
 
-    scores = finite(
-        spike_scores
-    )
+    scores = finite(spike_scores)
 
     assert len(scores) > 0
 
-    assert np.all(
-        np.isfinite(scores)
-    )
+    assert np.all(np.isfinite(scores))
 
 
 # ============================================================
 # 2. Real calibration → regime detector
 # ============================================================
+
 
 @pytest.mark.parametrize(
     "model_name",
@@ -263,37 +238,15 @@ def test_real_model_calibration_initializes_detector(
         model_calibration_scores,
     )
 
-    current = state(
-        detector
-    )
+    current = state(detector)
 
-    assert (
-        current[
-            "baseline_sample_count"
-        ]
-        == BASELINE_SIZE
-    )
+    assert current["baseline_sample_count"] == BASELINE_SIZE
 
-    assert (
-        current[
-            "candidate_sample_count"
-        ]
-        == 0
-    )
+    assert current["candidate_sample_count"] == 0
 
-    assert (
-        current[
-            "candidate_observations"
-        ]
-        == 0
-    )
+    assert current["candidate_observations"] == 0
 
-    assert (
-        current[
-            "regime_confirmed"
-        ]
-        is False
-    )
+    assert current["regime_confirmed"] is False
 
 
 @pytest.mark.parametrize(
@@ -316,30 +269,21 @@ def test_real_calibration_baseline_statistics_are_valid(
         model_calibration_scores,
     )
 
-    statistics = state(
-        detector
-    )[
-        "baseline_statistics"
-    ]
+    statistics = state(detector)["baseline_statistics"]
 
     assert statistics is not None
 
-    assert np.isfinite(
-        statistics["mean"]
-    )
+    assert np.isfinite(statistics["mean"])
 
-    assert np.isfinite(
-        statistics["std"]
-    )
+    assert np.isfinite(statistics["std"])
 
-    assert (
-        statistics["std"] >= 0
-    )
+    assert statistics["std"] >= 0
 
 
 # ============================================================
 # 3. Real seasonal data
 # ============================================================
+
 
 @pytest.mark.parametrize(
     "model_name",
@@ -365,21 +309,12 @@ def test_real_seasonal_stream_does_not_immediately_confirm(
 
     results = observe_stream(
         detector,
-        seasonal_scores[
-            :200
-        ],
+        seasonal_scores[:200],
     )
 
-    assert len(
-        results
-    ) > 0
+    assert len(results) > 0
 
-    assert not any(
-        result[
-            "regime_confirmed"
-        ]
-        for result in results
-    )
+    assert not any(result["regime_confirmed"] for result in results)
 
 
 @pytest.mark.parametrize(
@@ -405,45 +340,26 @@ def test_real_seasonal_stream_preserves_trusted_baseline(
         model_calibration_scores,
     )
 
-    before = state(
-        detector
-    )
+    before = state(detector)
 
     observe_stream(
         detector,
-        seasonal_scores[
-            :200
-        ],
+        seasonal_scores[:200],
     )
 
-    after = state(
-        detector
-    )
+    after = state(detector)
 
-    assert (
-        after[
-            "baseline_sample_count"
-        ]
-        == before[
-            "baseline_sample_count"
-        ]
-    )
+    assert after["baseline_sample_count"] == before["baseline_sample_count"]
 
-    assert (
-        after[
-            "baseline_statistics"
-        ]["mean"]
-        == pytest.approx(
-            before[
-                "baseline_statistics"
-            ]["mean"]
-        )
+    assert after["baseline_statistics"]["mean"] == pytest.approx(
+        before["baseline_statistics"]["mean"]
     )
 
 
 # ============================================================
 # 4. Real temperature drift
 # ============================================================
+
 
 @pytest.mark.parametrize(
     "model_name",
@@ -476,16 +392,9 @@ def test_real_temperature_drift_produces_shift_evidence(
         drift_scores,
     )
 
-    assert len(
-        results
-    ) > 0
+    assert len(results) > 0
 
-    assert any(
-        result[
-            "shift_detected"
-        ]
-        for result in results
-    )
+    assert any(result["shift_detected"] for result in results)
 
 
 @pytest.mark.parametrize(
@@ -518,17 +427,13 @@ def test_real_temperature_drift_can_build_candidate(
         drift_scores,
     )
 
-    assert any(
-        result[
-            "candidate_started"
-        ]
-        for result in results
-    )
+    assert any(result["candidate_started"] for result in results)
 
 
 # ============================================================
 # 5. Real spike data
 # ============================================================
+
 
 @pytest.mark.parametrize(
     "model_name",
@@ -551,43 +456,26 @@ def test_real_temperature_spikes_do_not_modify_baseline(
         model_calibration_scores,
     )
 
-    before = state(
-        detector
-    )
+    before = state(detector)
 
     observe_stream(
         detector,
         spike_scores,
     )
 
-    after = state(
-        detector
-    )
+    after = state(detector)
 
-    assert (
-        after[
-            "baseline_sample_count"
-        ]
-        == before[
-            "baseline_sample_count"
-        ]
-    )
+    assert after["baseline_sample_count"] == before["baseline_sample_count"]
 
-    assert (
-        after[
-            "baseline_statistics"
-        ]["mean"]
-        == pytest.approx(
-            before[
-                "baseline_statistics"
-            ]["mean"]
-        )
+    assert after["baseline_statistics"]["mean"] == pytest.approx(
+        before["baseline_statistics"]["mean"]
     )
 
 
 # ============================================================
 # 6. Real calibration and seasonal score scales
 # ============================================================
+
 
 @pytest.mark.parametrize(
     "model_name",
@@ -605,11 +493,7 @@ def test_each_model_uses_its_own_real_score_distribution(
     anomaly-score range.
     """
 
-    scores = finite(
-        all_calibration_scores[
-            model_name
-        ]
-    )
+    scores = finite(all_calibration_scores[model_name])
 
     assert len(scores) >= BASELINE_SIZE
 
@@ -620,41 +504,15 @@ def test_each_model_uses_its_own_real_score_distribution(
         scores,
     )
 
-    statistics = state(
-        detector
-    )[
-        "baseline_statistics"
-    ]
+    statistics = state(detector)["baseline_statistics"]
 
-    expected_mean = float(
-        np.mean(
-            scores[
-                :BASELINE_SIZE
-            ]
-        )
-    )
+    expected_mean = float(np.mean(scores[:BASELINE_SIZE]))
 
-    expected_std = float(
-        np.std(
-            scores[
-                :BASELINE_SIZE
-            ]
-        )
-    )
+    expected_std = float(np.std(scores[:BASELINE_SIZE]))
 
-    assert (
-        statistics["mean"]
-        == pytest.approx(
-            expected_mean
-        )
-    )
+    assert statistics["mean"] == pytest.approx(expected_mean)
 
-    assert (
-        statistics["std"]
-        == pytest.approx(
-            expected_std
-        )
-    )
+    assert statistics["std"] == pytest.approx(expected_std)
 
 
 # ============================================================
@@ -669,6 +527,7 @@ def test_each_model_uses_its_own_real_score_distribution(
 # This avoids hard-coding +5, +10, etc. across models
 # with completely different score scales.
 # ============================================================
+
 
 @pytest.mark.parametrize(
     "model_name",
@@ -685,36 +544,23 @@ def test_real_model_scale_supports_sustained_regime_detection(
 
     detector = create_detector()
 
-    calibration = finite(
-        model_calibration_scores
-    )
+    calibration = finite(model_calibration_scores)
 
     initialize(
         detector,
         calibration,
     )
 
-    baseline = state(
-        detector
-    )[
-        "baseline_statistics"
-    ]
+    baseline = state(detector)["baseline_statistics"]
 
-    mean = float(
-        baseline["mean"]
-    )
+    mean = float(baseline["mean"])
 
     std = max(
-        float(
-            baseline["std"]
-        ),
+        float(baseline["std"]),
         1e-6,
     )
 
-    shifted_value = (
-        mean
-        + 4.0 * std
-    )
+    shifted_value = mean + 4.0 * std
 
     results = observe_stream(
         detector,
@@ -725,12 +571,7 @@ def test_real_model_scale_supports_sustained_regime_detection(
         ),
     )
 
-    assert any(
-        result[
-            "shift_detected"
-        ]
-        for result in results
-    )
+    assert any(result["shift_detected"] for result in results)
 
 
 @pytest.mark.parametrize(
@@ -749,32 +590,18 @@ def test_real_model_scale_can_reach_candidate_stage(
 
     detector = create_detector()
 
-    calibration = finite(
-        model_calibration_scores
-    )
+    calibration = finite(model_calibration_scores)
 
     initialize(
         detector,
         calibration,
     )
 
-    baseline = state(
-        detector
-    )[
-        "baseline_statistics"
-    ]
+    baseline = state(detector)["baseline_statistics"]
 
-    shifted_value = (
-        float(
-            baseline["mean"]
-        )
-        + 4.0
-        * max(
-            float(
-                baseline["std"]
-            ),
-            1e-6,
-        )
+    shifted_value = float(baseline["mean"]) + 4.0 * max(
+        float(baseline["std"]),
+        1e-6,
     )
 
     results = observe_stream(
@@ -786,24 +613,15 @@ def test_real_model_scale_can_reach_candidate_stage(
         ),
     )
 
-    assert (
-        results[-1][
-            "candidate_observations"
-        ]
-        >= 200
-    )
+    assert results[-1]["candidate_observations"] >= 200
 
-    assert (
-        results[-1][
-            "stage"
-        ]
-        == 4
-    )
+    assert results[-1]["stage"] == 4
 
 
 # ============================================================
 # 8. Explicit acceptance lifecycle
 # ============================================================
+
 
 @pytest.mark.parametrize(
     "model_name",
@@ -831,54 +649,30 @@ def test_real_score_regime_can_be_confirmed_and_accepted(
 
     detector = create_detector()
 
-    calibration = finite(
-        model_calibration_scores
-    )
+    calibration = finite(model_calibration_scores)
 
     initialize(
         detector,
         calibration,
     )
 
-    before = state(
-        detector
-    )
+    before = state(detector)
 
-    original_mean = float(
-        before[
-            "baseline_statistics"
-        ]["mean"]
-    )
+    original_mean = float(before["baseline_statistics"]["mean"])
 
-    baseline = before[
-        "baseline_statistics"
-    ]
+    baseline = before["baseline_statistics"]
 
-    shifted_value = (
-        float(
-            baseline["mean"]
-        )
-        + 4.0
-        * max(
-            float(
-                baseline["std"]
-            ),
-            1e-6,
-        )
+    shifted_value = float(baseline["mean"]) + 4.0 * max(
+        float(baseline["std"]),
+        1e-6,
     )
 
     confirmed = False
 
     for _ in range(500):
+        result = detector.observe(shifted_value)
 
-        result = detector.observe(
-            shifted_value
-        )
-
-        if result[
-            "regime_confirmed"
-        ]:
-
+        if result["regime_confirmed"]:
             confirmed = True
 
             break
@@ -890,64 +684,29 @@ def test_real_score_regime_can_be_confirmed_and_accepted(
         dtype=float,
     )
 
-    assert len(
-        confirmed_scores
-    ) > 0
+    assert len(confirmed_scores) > 0
 
-    assert np.all(
-        np.isfinite(
-            confirmed_scores
-        )
-    )
+    assert np.all(np.isfinite(confirmed_scores))
 
     detector.accept_regime()
 
-    after = state(
-        detector
-    )
+    after = state(detector)
 
-    new_mean = float(
-        after[
-            "baseline_statistics"
-        ]["mean"]
-    )
+    new_mean = float(after["baseline_statistics"]["mean"])
 
-    assert (
-        new_mean
-        != pytest.approx(
-            original_mean
-        )
-    )
+    assert new_mean != pytest.approx(original_mean)
 
-    assert (
-        new_mean
-        == pytest.approx(
-            float(
-                np.mean(
-                    confirmed_scores
-                )
-            )
-        )
-    )
+    assert new_mean == pytest.approx(float(np.mean(confirmed_scores)))
 
-    assert (
-        after[
-            "regime_confirmed"
-        ]
-        is False
-    )
+    assert after["regime_confirmed"] is False
 
-    assert (
-        after[
-            "candidate_sample_count"
-        ]
-        == 0
-    )
+    assert after["candidate_sample_count"] == 0
 
 
 # ============================================================
 # 9. Explicit rejection lifecycle
 # ============================================================
+
 
 @pytest.mark.parametrize(
     "model_name",
@@ -967,40 +726,22 @@ def test_real_score_candidate_rejection_preserves_baseline(
 
     detector = create_detector()
 
-    calibration = finite(
-        model_calibration_scores
-    )
+    calibration = finite(model_calibration_scores)
 
     initialize(
         detector,
         calibration,
     )
 
-    before = state(
-        detector
-    )
+    before = state(detector)
 
-    original_mean = float(
-        before[
-            "baseline_statistics"
-        ]["mean"]
-    )
+    original_mean = float(before["baseline_statistics"]["mean"])
 
-    baseline = before[
-        "baseline_statistics"
-    ]
+    baseline = before["baseline_statistics"]
 
-    shifted_value = (
-        float(
-            baseline["mean"]
-        )
-        + 4.0
-        * max(
-            float(
-                baseline["std"]
-            ),
-            1e-6,
-        )
+    shifted_value = float(baseline["mean"]) + 4.0 * max(
+        float(baseline["std"]),
+        1e-6,
     )
 
     observe_stream(
@@ -1014,53 +755,23 @@ def test_real_score_candidate_rejection_preserves_baseline(
 
     detector.reject_candidate()
 
-    after = state(
-        detector
-    )
+    after = state(detector)
 
-    assert (
-        after[
-            "baseline_sample_count"
-        ]
-        == before[
-            "baseline_sample_count"
-        ]
-    )
+    assert after["baseline_sample_count"] == before["baseline_sample_count"]
 
-    assert (
-        after[
-            "baseline_statistics"
-        ]["mean"]
-        == pytest.approx(
-            original_mean
-        )
-    )
+    assert after["baseline_statistics"]["mean"] == pytest.approx(original_mean)
 
-    assert (
-        after[
-            "candidate_sample_count"
-        ]
-        == 0
-    )
+    assert after["candidate_sample_count"] == 0
 
-    assert (
-        after[
-            "candidate_observations"
-        ]
-        == 0
-    )
+    assert after["candidate_observations"] == 0
 
-    assert (
-        after[
-            "regime_confirmed"
-        ]
-        is False
-    )
+    assert after["regime_confirmed"] is False
 
 
 # ============================================================
 # 10. All-model score independence
 # ============================================================
+
 
 def test_all_models_produce_independent_real_calibration_scores(
     all_calibration_scores,
@@ -1074,29 +785,14 @@ def test_all_models_produce_independent_real_calibration_scores(
     """
 
     for model_name in MODELS:
+        assert model_name in all_calibration_scores
 
-        assert (
-            model_name
-            in all_calibration_scores
-        )
+        scores = finite(all_calibration_scores[model_name])
 
-        scores = finite(
-            all_calibration_scores[
-                model_name
-            ]
-        )
-
-        assert len(
-            scores
-        ) >= BASELINE_SIZE
+        assert len(scores) >= BASELINE_SIZE
 
     score_arrays = [
-        all_calibration_scores[
-            model_name
-        ][
-            :BASELINE_SIZE
-        ]
-        for model_name in MODELS
+        all_calibration_scores[model_name][:BASELINE_SIZE] for model_name in MODELS
     ]
 
     # At least the model score streams should not all

@@ -6,7 +6,6 @@ from src.adaptive_engine_manager import (
 )
 from src.model_loader import get_model_version
 
-
 client = TestClient(app)
 
 
@@ -84,6 +83,7 @@ ADAPTIVE_MODELS = (
 # REQUEST HELPER
 # ============================================================
 
+
 def adaptive_request(
     model_name,
     reading_id=1,
@@ -105,6 +105,7 @@ def adaptive_request(
 # ============================================================
 # /detect
 # ============================================================
+
 
 def test_detect_returns_200():
     response = client.post(
@@ -141,14 +142,9 @@ def test_detect_response_schema():
         list,
     )
 
-    assert len(
-        body["reasons"]
-    ) == 3
+    assert len(body["reasons"]) == 3
 
-    assert (
-        body["model_version"]
-        == get_model_version()
-    )
+    assert body["model_version"] == get_model_version()
 
 
 def test_reason_fields():
@@ -168,23 +164,18 @@ def test_reason_fields():
     returned_features = set()
 
     for reason in reasons:
-
         assert "feature" in reason
         assert "contribution" in reason
 
-        returned_features.add(
-            reason["feature"]
-        )
+        returned_features.add(reason["feature"])
 
         assert isinstance(
             reason["contribution"],
             (int, float),
         )
 
-    assert (
-        returned_features
-        == expected_features
-    )
+    assert returned_features == expected_features
+
 
 def _detect(temperature, humidity, stock_count, model="lof"):
     return client.post(
@@ -239,6 +230,8 @@ def test_m4_unseen_pattern_is_reported_as_unknown():
 
     assert body["is_anomaly"] is True
     assert body["root_cause_hint"]["incident_type"] == "unknown"
+
+
 def test_contributions_sum_to_one():
     response = client.post(
         "/detect",
@@ -247,14 +240,9 @@ def test_contributions_sum_to_one():
 
     reasons = response.json()["reasons"]
 
-    total = sum(
-        reason["contribution"]
-        for reason in reasons
-    )
+    total = sum(reason["contribution"] for reason in reasons)
 
-    assert abs(
-        total - 1.0
-    ) < 1e-3
+    assert abs(total - 1.0) < 1e-3
 
 
 def test_score_is_positive():
@@ -307,6 +295,7 @@ def test_missing_field():
 # /detect-window
 # ============================================================
 
+
 def test_detect_window_returns_200():
     response = client.post(
         "/detect-window",
@@ -326,19 +315,9 @@ def test_detect_window_response_schema():
 
     assert body["model"] == "lof"
 
-    assert (
-        body["model_version"]
-        == get_model_version()
-    )
+    assert body["model_version"] == get_model_version()
 
-    assert (
-        body["window_size"]
-        == len(
-            VALID_WINDOW_REQUEST[
-                "readings"
-            ]
-        )
-    )
+    assert body["window_size"] == len(VALID_WINDOW_REQUEST["readings"])
 
     assert "total_anomalies" in body
     assert "anomalous_readings" in body
@@ -362,26 +341,15 @@ def test_detect_window_anomalous_readings_schema():
 
     body = response.json()
 
-    assert (
-        body["total_anomalies"]
-        == len(
-            body["anomalous_readings"]
-        )
-    )
+    assert body["total_anomalies"] == len(body["anomalous_readings"])
 
-    for anomaly in (
-        body["anomalous_readings"]
-    ):
-
+    for anomaly in body["anomalous_readings"]:
         assert "reading_index" in anomaly
         assert "is_anomaly" in anomaly
         assert "score" in anomaly
         assert "reasons" in anomaly
 
-        assert (
-            anomaly["is_anomaly"]
-            is True
-        )
+        assert anomaly["is_anomaly"] is True
 
         assert isinstance(
             anomaly["reading_index"],
@@ -433,6 +401,7 @@ def test_detect_window_missing_readings():
 # /detect-adaptive
 # ============================================================
 
+
 def test_detect_adaptive_returns_200():
     """
     Basic API smoke test for all supported models.
@@ -444,7 +413,6 @@ def test_detect_adaptive_returns_200():
         ADAPTIVE_MODELS,
         start=1,
     ):
-
         response = client.post(
             "/detect-adaptive",
             json=adaptive_request(
@@ -454,9 +422,7 @@ def test_detect_adaptive_returns_200():
         )
 
         assert response.status_code == 200, (
-            f"{model_name}: "
-            f"{response.status_code} "
-            f"{response.text}"
+            f"{model_name}: {response.status_code} {response.text}"
         )
 
 
@@ -493,7 +459,6 @@ def test_detect_adaptive_response_schema():
         ADAPTIVE_MODELS,
         start=1,
     ):
-
         response = client.post(
             "/detect-adaptive",
             json=adaptive_request(
@@ -524,31 +489,18 @@ def test_detect_adaptive_response_schema():
             "alert",
         }
 
-        missing = (
-            required_fields
-            - set(body.keys())
-        )
+        missing = required_fields - set(body.keys())
 
-        assert not missing, (
-            f"{model_name}: "
-            f"missing API fields: "
-            f"{sorted(missing)}"
-        )
+        assert not missing, f"{model_name}: missing API fields: {sorted(missing)}"
 
-        assert (
-            body["model"]
-            == model_name
-        )
+        assert body["model"] == model_name
 
         assert isinstance(
             body["model_label"],
             str,
         )
 
-        assert (
-            body["model_version"]
-            == get_model_version()
-        )
+        assert body["model_version"] == get_model_version()
 
         assert isinstance(
             body["score"],
@@ -570,9 +522,7 @@ def test_detect_adaptive_response_schema():
             list,
         )
 
-        assert len(
-            body["reasons"]
-        ) == 3
+        assert len(body["reasons"]) == 3
 
         assert isinstance(
             body["is_anomaly"],
@@ -641,40 +591,15 @@ def test_detect_adaptive_model_specific_configuration():
     adaptive_engine_manager.initialize()
 
     for model_name in ADAPTIVE_MODELS:
+        expected = EXPECTED_ADAPTIVE_CONFIG[model_name]
 
-        expected = (
-            EXPECTED_ADAPTIVE_CONFIG[
-                model_name
-            ]
-        )
+        engine = adaptive_engine_manager.get_engine(model_name)
 
-        engine = (
-            adaptive_engine_manager
-            .get_engine(
-                model_name
-            )
-        )
+        assert engine.shift_sigma == expected["shift_sigma"]
 
-        assert (
-            engine.shift_sigma
-            == expected[
-                "shift_sigma"
-            ]
-        )
+        assert engine.stability_tolerance == expected["stability_tolerance"]
 
-        assert (
-            engine.stability_tolerance
-            == expected[
-                "stability_tolerance"
-            ]
-        )
-
-        assert (
-            engine.adaptive_threshold.percentile
-            == expected[
-                "adaptive_percentile"
-            ]
-        )
+        assert engine.adaptive_threshold.percentile == expected["adaptive_percentile"]
 
 
 def test_detect_adaptive_starts_from_calibration_threshold():
@@ -691,23 +616,11 @@ def test_detect_adaptive_starts_from_calibration_threshold():
         ADAPTIVE_MODELS,
         start=1,
     ):
+        engine = adaptive_engine_manager.get_engine(model_name)
 
-        engine = (
-            adaptive_engine_manager
-            .get_engine(
-                model_name
-            )
-        )
+        expected_threshold = engine.adaptive_threshold.get_threshold()
 
-        expected_threshold = (
-            engine.adaptive_threshold
-            .get_threshold()
-        )
-
-        assert (
-            expected_threshold
-            is not None
-        )
+        assert expected_threshold is not None
 
         response = client.post(
             "/detect-adaptive",
@@ -721,23 +634,11 @@ def test_detect_adaptive_starts_from_calibration_threshold():
 
         body = response.json()
 
-        assert (
-            "adaptive_threshold"
-            in body
-        )
+        assert "adaptive_threshold" in body
 
-        actual_threshold = float(
-            body[
-                "adaptive_threshold"
-            ]
-        )
+        actual_threshold = float(body["adaptive_threshold"])
 
-        assert abs(
-            actual_threshold
-            - float(
-                expected_threshold
-            )
-        ) < 1e-12
+        assert abs(actual_threshold - float(expected_threshold)) < 1e-12
 
 
 def test_detect_adaptive_invalid_model():
@@ -807,6 +708,7 @@ def test_detect_adaptive_invalid_temperature():
 # MODEL STATE IS INDEPENDENT
 # ============================================================
 
+
 def test_adaptive_models_have_independent_state():
     """
     Processing one model must not reuse the internal engine
@@ -821,7 +723,6 @@ def test_adaptive_models_have_independent_state():
         ADAPTIVE_MODELS,
         start=1,
     ):
-
         response = client.post(
             "/detect-adaptive",
             json=adaptive_request(
@@ -834,55 +735,32 @@ def test_adaptive_models_have_independent_state():
 
         body = response.json()
 
-        assert (
-            body["model"]
-            == model_name
-        )
+        assert body["model"] == model_name
 
-        responses.append(
-            body
-        )
+        responses.append(body)
 
-    assert len(
-        responses
-    ) == 3
+    assert len(responses) == 3
 
     engines = {
-        model_name: (
-            adaptive_engine_manager
-            .get_engine(
-                model_name
-            )
-        )
+        model_name: (adaptive_engine_manager.get_engine(model_name))
         for model_name in ADAPTIVE_MODELS
     }
 
-    assert (
-        engines["iforest"]
-        is not engines["lof"]
-    )
+    assert engines["iforest"] is not engines["lof"]
 
-    assert (
-        engines["lof"]
-        is not engines["ocsvm"]
-    )
+    assert engines["lof"] is not engines["ocsvm"]
 
-    assert (
-        engines["iforest"]
-        is not engines["ocsvm"]
-    )
+    assert engines["iforest"] is not engines["ocsvm"]
 
 
 # ============================================================
 # API ROUTE AVAILABILITY
 # ============================================================
 
+
 def test_all_anomaly_endpoints_exist():
 
-    routes = {
-        route.path
-        for route in app.routes
-    }
+    routes = {route.path for route in app.routes}
 
     assert "/detect" in routes
     assert "/detect-window" in routes

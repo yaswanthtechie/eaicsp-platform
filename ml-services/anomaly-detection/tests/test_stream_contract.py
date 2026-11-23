@@ -37,7 +37,6 @@ def validator():
 
 
 class FakeModel:
-
     version = "fake"
 
     def explain(self, reading, top_k=3):
@@ -58,7 +57,6 @@ class FakeModel:
 
 
 class StubTuner:
-
     threshold = 1.0
 
     def observe(self, score):
@@ -87,27 +85,25 @@ def make_processor():
 def feed(processor, scores, sensor="WH-BLR-01-S1"):
 
     for i, score in enumerate(scores):
-        processor.handle(
-            {"sensor_id": sensor, "timestamp": T0 + i * STEP}, score=score
-        )
+        processor.handle({"sensor_id": sensor, "timestamp": T0 + i * STEP}, score=score)
 
 
 def _event(**overrides):
 
-    params = dict(
-        sensor_id="WH-BLR-01-S1",
-        window_start=T0,
-        window_end=T0,
-        first_flag_time=T0,
-        confirmed_time=T0,
-        peak_time=T0,
-        peak_score=1.0,
-        threshold=0.5,
-        n_flagged=1,
-        closed_by="quiet",
-        top_features=[FEATURE],
-        model_version="t",
-    )
+    params = {
+        "sensor_id": "WH-BLR-01-S1",
+        "window_start": T0,
+        "window_end": T0,
+        "first_flag_time": T0,
+        "confirmed_time": T0,
+        "peak_time": T0,
+        "peak_score": 1.0,
+        "threshold": 0.5,
+        "n_flagged": 1,
+        "closed_by": "quiet",
+        "top_features": [FEATURE],
+        "model_version": "t",
+    }
     params.update(overrides)
 
     return build_anomaly_event(**params)

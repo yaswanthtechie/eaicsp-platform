@@ -9,7 +9,6 @@ from src.stream_processor import (
     StreamProcessor,
 )
 
-
 T0 = datetime(2026, 1, 1, tzinfo=UTC)
 STEP = timedelta(minutes=5)
 GAP = 3 * STEP
@@ -19,25 +18,29 @@ FLAG = 1.5
 
 
 class FakeModel:
-
     version = "fake"
 
     def score_one(self, reading):
         return reading["score"]
 
     def explain(self, reading, top_k=3):
-        return [{"feature": "temperature", "contribution": 1.0, "shap_value": 0.1, "direction": "high"}]
+        return [
+            {
+                "feature": "temperature",
+                "contribution": 1.0,
+                "shap_value": 0.1,
+                "direction": "high",
+            }
+        ]
 
 
 class StubTuner:
-
     def __init__(self, threshold=1.0):
         self.threshold = threshold
         self.observed = []
 
     def observe(self, score):
         self.observed.append(score)
-        return None
 
 
 def reading(i, score, sensor="s1"):
@@ -134,7 +137,9 @@ def test_publisher_failure_propagates():
             raise RuntimeError("down")
 
     detector = EpisodeDetector(gap=GAP, scale=1.0)
-    proc = StreamProcessor(FakeModel(), StubTuner(), detector, InMemoryWriter(), Broken())
+    proc = StreamProcessor(
+        FakeModel(), StubTuner(), detector, InMemoryWriter(), Broken()
+    )
 
     with pytest.raises(RuntimeError):
         run(proc, [FLAG, FLAG] + [NORMAL] * 5)

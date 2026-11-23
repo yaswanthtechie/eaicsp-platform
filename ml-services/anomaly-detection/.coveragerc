@@ -1,0 +1,6 @@
+[run]
+# MLflow unpacks a registered model's code into a temporary folder
+# (<tmp>/model/code/src/...) when a test loads it. That folder is deleted after
+# the test, so coverage cannot read the files at report time. Leave it out.
+omit =
+    */model/code/*

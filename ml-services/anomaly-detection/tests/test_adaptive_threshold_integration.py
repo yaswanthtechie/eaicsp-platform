@@ -5,10 +5,10 @@ from src.adaptive_threshold import (
     AdaptiveThreshold,
 )
 
-
 # ============================================================
 # HELPERS
 # ============================================================
+
 
 def create_threshold():
     """
@@ -38,9 +38,7 @@ def assert_finite_scores(scores):
 
     assert scores.size > 0
 
-    assert np.all(
-        np.isfinite(scores)
-    )
+    assert np.all(np.isfinite(scores))
 
     return scores
 
@@ -48,6 +46,7 @@ def assert_finite_scores(scores):
 # ============================================================
 # CALIBRATION
 # ============================================================
+
 
 def test_real_model_scores_produce_initial_threshold(
     model_name,
@@ -66,19 +65,13 @@ def test_real_model_scores_produce_initial_threshold(
         99th percentile threshold
     """
 
-    scores = assert_finite_scores(
-        model_calibration_scores
-    )
+    scores = assert_finite_scores(model_calibration_scores)
 
     threshold = create_threshold()
 
-    threshold.initialize(
-        scores
-    )
+    threshold.initialize(scores)
 
-    active_threshold = (
-        threshold.get_threshold()
-    )
+    active_threshold = threshold.get_threshold()
 
     expected_threshold = np.percentile(
         scores,
@@ -87,37 +80,26 @@ def test_real_model_scores_produce_initial_threshold(
 
     assert active_threshold is not None
 
-    assert np.isfinite(
-        active_threshold
-    )
+    assert np.isfinite(active_threshold)
 
-    assert active_threshold == pytest.approx(
-        expected_threshold
-    )
+    assert active_threshold == pytest.approx(expected_threshold)
 
     state = threshold.get_state()
 
-    assert state[
-        "sample_count"
-    ] == min(
+    assert state["sample_count"] == min(
         50,
         len(scores),
     )
 
-    assert state[
-        "adaptive_started"
-    ] is False
+    assert state["adaptive_started"] is False
 
-    assert state[
-        "initial_threshold"
-    ] == pytest.approx(
-        expected_threshold
-    )
+    assert state["initial_threshold"] == pytest.approx(expected_threshold)
 
 
 # ============================================================
 # CALIBRATION → ADAPTATION
 # ============================================================
+
 
 def test_real_model_scores_can_start_adaptation(
     model_name,
@@ -144,56 +126,37 @@ def test_real_model_scores_can_start_adaptation(
     of that actual rolling window.
     """
 
-    scores = assert_finite_scores(
-        model_calibration_scores
-    )
+    scores = assert_finite_scores(model_calibration_scores)
 
     threshold = create_threshold()
 
-    threshold.initialize(
-        scores
-    )
+    threshold.initialize(scores)
 
-    initial_threshold = (
-        threshold.get_threshold()
-    )
+    initial_threshold = threshold.get_threshold()
 
     assert initial_threshold is not None
 
     # Use the final ten real scores as trusted adaptive
     # observations.
-    update_scores = scores[
-        -10:
-    ]
+    update_scores = scores[-10:]
 
     for score in update_scores:
-
-        threshold.update(
-            score
-        )
+        threshold.update(score)
 
     state = threshold.get_state()
 
-    assert state[
-        "adaptive_started"
-    ] is True
+    assert state["adaptive_started"] is True
 
-    assert state[
-        "sample_count"
-    ] == min(
+    assert state["sample_count"] == min(
         50,
         len(scores),
     )
 
-    adaptive_threshold = (
-        threshold.get_threshold()
-    )
+    adaptive_threshold = threshold.get_threshold()
 
     assert adaptive_threshold is not None
 
-    assert np.isfinite(
-        adaptive_threshold
-    )
+    assert np.isfinite(adaptive_threshold)
 
     # --------------------------------------------------------
     # Reconstruct the actual rolling window.
@@ -202,17 +165,11 @@ def test_real_model_scores_can_start_adaptation(
     # Ten updates replace the oldest ten observations.
     # --------------------------------------------------------
 
-    window_size = state[
-        "window_size"
-    ]
+    window_size = state["window_size"]
 
-    percentile = state[
-        "percentile"
-    ]
+    percentile = state["percentile"]
 
-    update_count = len(
-        update_scores
-    )
+    update_count = len(update_scores)
 
     remaining_calibration = max(
         0,
@@ -221,32 +178,27 @@ def test_real_model_scores_can_start_adaptation(
 
     expected_scores = np.concatenate(
         [
-            scores[
-                -remaining_calibration:
-            ],
+            scores[-remaining_calibration:],
             update_scores,
         ]
     )
 
     # When there are fewer than 50 total calibration scores,
     # the manager cannot contain more observations than exist.
-    expected_scores = expected_scores[
-        -window_size:
-    ]
+    expected_scores = expected_scores[-window_size:]
 
     expected_threshold = np.percentile(
         expected_scores,
         percentile,
     )
 
-    assert adaptive_threshold == pytest.approx(
-        expected_threshold
-    )
+    assert adaptive_threshold == pytest.approx(expected_threshold)
 
 
 # ============================================================
 # ROLLING WINDOW
 # ============================================================
+
 
 def test_real_model_scores_respect_rolling_window(
     model_name,
@@ -257,52 +209,38 @@ def test_real_model_scores_respect_rolling_window(
     window_size while processing real model scores.
     """
 
-    scores = assert_finite_scores(
-        model_calibration_scores
-    )
+    scores = assert_finite_scores(model_calibration_scores)
 
     threshold = create_threshold()
 
-    threshold.initialize(
-        scores
-    )
+    threshold.initialize(scores)
 
     for score in scores:
-
-        threshold.update(
-            score
-        )
+        threshold.update(score)
 
     state = threshold.get_state()
 
-    assert state[
-        "sample_count"
-    ] == min(
+    assert state["sample_count"] == min(
         50,
         len(scores),
     )
 
-    assert state[
-        "sample_count"
-    ] <= 50
+    assert state["sample_count"] <= 50
 
-    expected_scores = scores[
-        -50:
-    ]
+    expected_scores = scores[-50:]
 
     expected_threshold = np.percentile(
         expected_scores,
         99.0,
     )
 
-    assert threshold.get_threshold() == pytest.approx(
-        expected_threshold
-    )
+    assert threshold.get_threshold() == pytest.approx(expected_threshold)
 
 
 # ============================================================
 # REAL SCORE CLASSIFICATION
 # ============================================================
+
 
 def test_real_calibration_scores_are_mostly_below_threshold(
     model_name,
@@ -313,31 +251,19 @@ def test_real_calibration_scores_are_mostly_below_threshold(
     vast majority of calibration scores at or below threshold.
     """
 
-    scores = assert_finite_scores(
-        model_calibration_scores
-    )
+    scores = assert_finite_scores(model_calibration_scores)
 
     threshold = create_threshold()
 
-    threshold.initialize(
-        scores
-    )
+    threshold.initialize(scores)
 
-    active_threshold = (
-        threshold.get_threshold()
-    )
+    active_threshold = threshold.get_threshold()
 
     assert active_threshold is not None
 
-    normal_count = np.sum(
-        scores
-        <= active_threshold
-    )
+    normal_count = np.sum(scores <= active_threshold)
 
-    normal_fraction = (
-        normal_count
-        / len(scores)
-    )
+    normal_fraction = normal_count / len(scores)
 
     assert normal_fraction >= 0.98, (
         f"{model_name}: only "
@@ -356,51 +282,36 @@ def test_real_calibration_scores_above_threshold_are_anomalies(
     as anomalies.
     """
 
-    scores = assert_finite_scores(
-        model_calibration_scores
-    )
+    scores = assert_finite_scores(model_calibration_scores)
 
     threshold = create_threshold()
 
-    threshold.initialize(
-        scores
-    )
+    threshold.initialize(scores)
 
-    active_threshold = (
-        threshold.get_threshold()
-    )
+    active_threshold = threshold.get_threshold()
 
     assert active_threshold is not None
 
-    high_scores = scores[
-        scores > active_threshold
-    ]
+    high_scores = scores[scores > active_threshold]
 
     if high_scores.size == 0:
-
         pytest.skip(
             f"{model_name}: calibration dataset contains "
             "no score above its 99th-percentile threshold."
         )
 
     for score in high_scores:
-
-        is_anomaly, returned_threshold = (
-            threshold.is_anomaly(
-                score
-            )
-        )
+        is_anomaly, returned_threshold = threshold.is_anomaly(score)
 
         assert is_anomaly is True
 
-        assert returned_threshold == pytest.approx(
-            active_threshold
-        )
+        assert returned_threshold == pytest.approx(active_threshold)
 
 
 # ============================================================
 # MODEL INDEPENDENCE
 # ============================================================
+
 
 def test_all_models_produce_independent_thresholds(
     all_calibration_scores,
@@ -414,52 +325,35 @@ def test_all_models_produce_independent_thresholds(
 
     thresholds = {}
 
-    for model_name, scores in (
-        all_calibration_scores.items()
-    ):
-
-        scores = assert_finite_scores(
-            scores
-        )
+    for model_name, scores in all_calibration_scores.items():
+        scores = assert_finite_scores(scores)
 
         threshold = create_threshold()
 
-        threshold.initialize(
-            scores
-        )
+        threshold.initialize(scores)
 
-        active_threshold = (
-            threshold.get_threshold()
-        )
+        active_threshold = threshold.get_threshold()
 
         assert active_threshold is not None
 
-        assert np.isfinite(
-            active_threshold
-        )
+        assert np.isfinite(active_threshold)
 
-        thresholds[
-            model_name
-        ] = active_threshold
+        thresholds[model_name] = active_threshold
 
-    assert set(
-        thresholds.keys()
-    ) == {
+    assert set(thresholds.keys()) == {
         "iforest",
         "lof",
         "ocsvm",
     }
 
     for value in thresholds.values():
-
-        assert np.isfinite(
-            value
-        )
+        assert np.isfinite(value)
 
 
 # ============================================================
 # ADAPTIVE WINDOW TRACKING
 # ============================================================
+
 
 def test_adaptive_threshold_tracks_recent_real_scores(
     model_name,
@@ -470,55 +364,38 @@ def test_adaptive_threshold_tracks_recent_real_scores(
     to the most recent window_size trusted model scores.
     """
 
-    scores = assert_finite_scores(
-        model_calibration_scores
-    )
+    scores = assert_finite_scores(model_calibration_scores)
 
     if len(scores) < 50:
-
-        pytest.skip(
-            f"{model_name}: fewer than 50 calibration scores."
-        )
+        pytest.skip(f"{model_name}: fewer than 50 calibration scores.")
 
     threshold = create_threshold()
 
-    threshold.initialize(
-        scores
-    )
+    threshold.initialize(scores)
 
     for score in scores:
-
-        threshold.update(
-            score
-        )
+        threshold.update(score)
 
     state = threshold.get_state()
 
-    assert state[
-        "adaptive_started"
-    ] is True
+    assert state["adaptive_started"] is True
 
-    assert state[
-        "sample_count"
-    ] == 50
+    assert state["sample_count"] == 50
 
-    recent_scores = scores[
-        -50:
-    ]
+    recent_scores = scores[-50:]
 
     expected_threshold = np.percentile(
         recent_scores,
         99.0,
     )
 
-    assert threshold.get_threshold() == pytest.approx(
-        expected_threshold
-    )
+    assert threshold.get_threshold() == pytest.approx(expected_threshold)
 
 
 # ============================================================
 # THRESHOLD AVAILABILITY
 # ============================================================
+
 
 def test_real_score_stream_never_loses_threshold(
     model_name,
@@ -529,33 +406,19 @@ def test_real_score_stream_never_loses_threshold(
     must never leave the threshold undefined.
     """
 
-    scores = assert_finite_scores(
-        model_calibration_scores
-    )
+    scores = assert_finite_scores(model_calibration_scores)
 
     threshold = create_threshold()
 
-    threshold.initialize(
-        scores
-    )
+    threshold.initialize(scores)
 
-    assert (
-        threshold.get_threshold()
-        is not None
-    )
+    assert threshold.get_threshold() is not None
 
     for score in scores:
+        threshold.update(score)
 
-        threshold.update(
-            score
-        )
-
-        active_threshold = (
-            threshold.get_threshold()
-        )
+        active_threshold = threshold.get_threshold()
 
         assert active_threshold is not None
 
-        assert np.isfinite(
-            active_threshold
-        )
+        assert np.isfinite(active_threshold)

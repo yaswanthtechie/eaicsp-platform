@@ -35,7 +35,6 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-
 # Romano et al. thresholds for |Cliff's delta|.
 EFFECT_LABELS = [
     (0.147, "negligible"),
@@ -73,16 +72,18 @@ def join_eta_and_anomaly(
 
     for frame, cols, name in (
         (eta_df, [key, eta_error_col], "eta_df"),
-        (anomaly_df, [key, flag_col] + ([score_col] if score_col else []), "anomaly_df"),
+        (
+            anomaly_df,
+            [key, flag_col] + ([score_col] if score_col else []),
+            "anomaly_df",
+        ),
     ):
         missing = [c for c in cols if c not in frame.columns]
 
         if missing:
             raise ValueError(f"{name} is missing columns: {missing}")
 
-    left = eta_df[[key, eta_error_col]].rename(
-        columns={eta_error_col: "eta_error"}
-    )
+    left = eta_df[[key, eta_error_col]].rename(columns={eta_error_col: "eta_error"})
 
     right_cols = [key, flag_col] + ([score_col] if score_col else [])
 
@@ -165,7 +166,7 @@ def analyze_correlation(
     normal = abs_error[flag == 0]
 
     report = {
-        "n": int(len(df)),
+        "n": len(df),
         "n_flagged": int(flagged.size),
         "n_unflagged": int(normal.size),
         "flag_rate": float(flag.mean()) if len(df) else 0.0,
@@ -184,9 +185,7 @@ def analyze_correlation(
 
     # Mann-Whitney U and Cliff's delta (flagged vs unflagged).
 
-    u_stat, mw_p = stats.mannwhitneyu(
-        flagged, normal, alternative="two-sided"
-    )
+    u_stat, mw_p = stats.mannwhitneyu(flagged, normal, alternative="two-sided")
 
     delta = float(2.0 * u_stat / (flagged.size * normal.size) - 1.0)
 
@@ -214,14 +213,11 @@ def analyze_correlation(
 
     for i in range(n_permutations):
         shuffled = rng.permutation(flag)
-        perm[i] = (
-            np.median(abs_error[shuffled == 1])
-            - np.median(abs_error[shuffled == 0])
+        perm[i] = np.median(abs_error[shuffled == 1]) - np.median(
+            abs_error[shuffled == 0]
         )
 
-    perm_p = float(
-        (np.sum(np.abs(perm) >= abs(observed)) + 1) / (n_permutations + 1)
-    )
+    perm_p = float((np.sum(np.abs(perm) >= abs(observed)) + 1) / (n_permutations + 1))
 
     # Signed error: do flagged shipments run systematically late/early?
 
@@ -362,4 +358,3 @@ if __name__ == "__main__":
 
     with open(output_dir / f"eta_anomaly_correlation_{label}.json", "w") as f:
         json.dump(result, f, indent=2)
-        

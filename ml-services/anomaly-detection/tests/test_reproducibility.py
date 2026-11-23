@@ -23,14 +23,10 @@ def test_temperature_drift_reproducibility():
     """
 
     # Dataset already prepared by conftest.py
-    actual = pd.read_csv(
-        output_dir / "test_temperature_drift.csv"
-    )
+    actual = pd.read_csv(output_dir / "test_temperature_drift.csv")
 
     # Generate the same dataset independently
-    normal = generate_normal_data(
-        seed=456
-    )
+    normal = generate_normal_data(seed=456)
 
     expected = inject_temperature_drift(
         normal,
@@ -40,13 +36,9 @@ def test_temperature_drift_reproducibility():
     )
 
     # Match timestamp dtype
-    actual["timestamp"] = pd.to_datetime(
-        actual["timestamp"]
-    )
+    actual["timestamp"] = pd.to_datetime(actual["timestamp"])
 
-    expected["timestamp"] = pd.to_datetime(
-        expected["timestamp"]
-    )
+    expected["timestamp"] = pd.to_datetime(expected["timestamp"])
 
     # Compare with floating-point tolerance
     assert_frame_equal(

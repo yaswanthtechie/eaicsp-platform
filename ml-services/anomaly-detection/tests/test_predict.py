@@ -1,22 +1,19 @@
-import pytest
 import pandas as pd
+import pytest
 
 from src.adaptive_threshold import (
     get_adaptive_threshold,
     reset_adaptive_thresholds,
 )
-
 from src.model_loader import (
     feature_names,
     get_model_version,
     get_models,
 )
-
 from src.predict import (
-    predict,
     adaptive_predict,
+    predict,
 )
-
 
 READING = {
     "temperature": 22.0,
@@ -25,9 +22,7 @@ READING = {
 }
 
 
-CALIBRATION_DATASET = (
-    "output/calibration_normal.csv"
-)
+CALIBRATION_DATASET = "output/calibration_normal.csv"
 
 
 MODELS = [
@@ -76,10 +71,7 @@ def test_predict_returns_expected_schema(
         list,
     )
 
-    assert (
-        result["model_version"]
-        == get_model_version()
-    )
+    assert result["model_version"] == get_model_version()
 
 
 @pytest.mark.parametrize(
@@ -105,10 +97,7 @@ def test_predict_returns_three_feature_contributions(
         "stock_count",
     }
 
-    returned = {
-        reason["feature"]
-        for reason in reasons
-    }
+    returned = {reason["feature"] for reason in reasons}
 
     assert returned == expected
 
@@ -129,19 +118,14 @@ def test_feature_contributions_are_valid(
     total = 0.0
 
     for reason in result["reasons"]:
-
         assert isinstance(
             reason["contribution"],
             (int, float),
         )
 
-        assert (
-            reason["contribution"] >= 0
-        )
+        assert reason["contribution"] >= 0
 
-        total += (
-            reason["contribution"]
-        )
+        total += reason["contribution"]
 
     assert abs(total - 1.0) < 1e-3
 
@@ -171,7 +155,6 @@ def test_invalid_model_name():
         ValueError,
         match="Unknown model",
     ):
-
         predict(
             READING,
             "invalid_model",
@@ -189,20 +172,15 @@ def test_invalid_model_name():
 )
 def initialize_adaptive_thresholds():
 
-    df = pd.read_csv(
-        CALIBRATION_DATASET
-    )
+    df = pd.read_csv(CALIBRATION_DATASET)
 
-    X = df[
-        feature_names
-    ].to_numpy()
+    X = df[feature_names].to_numpy()
 
     models = get_models()
 
     reset_adaptive_thresholds()
 
     for model_name, model in models.items():
-
         # IMPORTANT:
         #
         # model.score() is already the project's
@@ -214,13 +192,9 @@ def initialize_adaptive_thresholds():
 
         scores = model.score(X)
 
-        manager = get_adaptive_threshold(
-            model_name
-        )
+        manager = get_adaptive_threshold(model_name)
 
-        manager.initialize(
-            scores
-        )
+        manager.initialize(scores)
 
     yield
 
@@ -283,10 +257,7 @@ def test_adaptive_predict_returns_expected_schema(
         list,
     )
 
-    assert (
-        result["model_version"]
-        == get_model_version()
-    )
+    assert result["model_version"] == get_model_version()
 
 
 # ============================================================
@@ -309,18 +280,11 @@ def test_adaptive_score_uses_higher_is_more_anomalous(
 
     score = result["score"]
 
-    threshold = (
-        result["adaptive_threshold"]
-    )
+    threshold = result["adaptive_threshold"]
 
-    expected_anomaly = (
-        score >= threshold
-    )
+    expected_anomaly = score >= threshold
 
-    assert (
-        result["is_anomaly"]
-        == expected_anomaly
-    )
+    assert result["is_anomaly"] == expected_anomaly
 
 
 # ============================================================
@@ -336,23 +300,16 @@ def test_adaptive_predict_uses_calibration_threshold(
     model,
 ):
 
-    manager = get_adaptive_threshold(
-        model
-    )
+    manager = get_adaptive_threshold(model)
 
-    threshold_before = (
-        manager.get_threshold()
-    )
+    threshold_before = manager.get_threshold()
 
     result = adaptive_predict(
         READING,
         model,
     )
 
-    assert (
-        result["adaptive_threshold"]
-        == threshold_before
-    )
+    assert result["adaptive_threshold"] == threshold_before
 
 
 # ============================================================
@@ -368,45 +325,26 @@ def test_adaptive_predict_does_not_update_baseline(
     model,
 ):
 
-    manager = get_adaptive_threshold(
-        model
-    )
+    manager = get_adaptive_threshold(model)
 
-    threshold_before = (
-        manager.get_threshold()
-    )
+    threshold_before = manager.get_threshold()
 
-    state_before = (
-        manager.get_state()
-    )
+    state_before = manager.get_state()
 
     adaptive_predict(
         READING,
         model,
     )
 
-    threshold_after = (
-        manager.get_threshold()
-    )
+    threshold_after = manager.get_threshold()
 
-    state_after = (
-        manager.get_state()
-    )
+    state_after = manager.get_state()
 
-    assert (
-        threshold_after
-        == threshold_before
-    )
+    assert threshold_after == threshold_before
 
-    assert (
-        state_after["sample_count"]
-        == state_before["sample_count"]
-    )
+    assert state_after["sample_count"] == state_before["sample_count"]
 
-    assert (
-        state_after["adaptive_started"]
-        == state_before["adaptive_started"]
-    )
+    assert state_after["adaptive_started"] == state_before["adaptive_started"]
 
 
 # ============================================================
@@ -437,10 +375,7 @@ def test_adaptive_predict_returns_three_feature_contributions(
         "stock_count",
     }
 
-    returned = {
-        reason["feature"]
-        for reason in reasons
-    }
+    returned = {reason["feature"] for reason in reasons}
 
     assert returned == expected
 
@@ -461,19 +396,14 @@ def test_adaptive_feature_contributions_are_valid(
     total = 0.0
 
     for reason in result["reasons"]:
-
         assert isinstance(
             reason["contribution"],
             (int, float),
         )
 
-        assert (
-            reason["contribution"] >= 0
-        )
+        assert reason["contribution"] >= 0
 
-        total += (
-            reason["contribution"]
-        )
+        total += reason["contribution"]
 
     assert abs(total - 1.0) < 1e-3
 
@@ -496,24 +426,16 @@ def test_adaptive_model_prediction_is_valid(
         model,
     )
 
-    assert result[
-        "model_prediction"
-    ] in (-1, 1)
+    assert result["model_prediction"] in (-1, 1)
 
     assert isinstance(
         result["model_is_anomaly"],
         bool,
     )
 
-    expected_model_anomaly = (
-        result["model_prediction"]
-        == -1
-    )
+    expected_model_anomaly = result["model_prediction"] == -1
 
-    assert (
-        result["model_is_anomaly"]
-        == expected_model_anomaly
-    )
+    assert result["model_is_anomaly"] == expected_model_anomaly
 
 
 # ============================================================
@@ -536,25 +458,13 @@ def test_adaptive_result_contains_both_decision_layers(
     )
 
     # Native model decision
-    assert (
-        "model_is_anomaly"
-        in result
-    )
+    assert "model_is_anomaly" in result
 
     # Adaptive threshold decision
-    assert (
-        "is_anomaly"
-        in result
-    )
+    assert "is_anomaly" in result
 
     # Continuous project anomaly score
-    assert (
-        "score"
-        in result
-    )
+    assert "score" in result
 
     # Adaptive threshold
-    assert (
-        "adaptive_threshold"
-        in result
-    )
+    assert "adaptive_threshold" in result

@@ -8,7 +8,6 @@ from src.stream_events import build_anomaly_event
 from src.stream_model import train_stream_model
 from src.stream_simulator import FEATURES, build_stream
 
-
 START = datetime(2026, 3, 1, tzinfo=UTC)
 STEP = timedelta(minutes=5)
 
@@ -30,7 +29,14 @@ def event(sensor, ws, we):
         threshold=0.5,
         n_flagged=2,
         closed_by="quiet",
-        top_features=[{"feature": "power", "contribution": 1.0, "shap_value": 0.1, "direction": "high"}],
+        top_features=[
+            {
+                "feature": "power",
+                "contribution": 1.0,
+                "shap_value": 0.1,
+                "direction": "high",
+            }
+        ],
         model_version="test",
     )
 
@@ -110,7 +116,6 @@ def test_end_to_end_invariants(setup):
     results = {}
 
     for label, min_flagged, tuner_on in RUNS:
-
         metrics, processor, publisher = run_once(
             readings, scores, episodes, model, min_flagged, tuner_on, n
         )

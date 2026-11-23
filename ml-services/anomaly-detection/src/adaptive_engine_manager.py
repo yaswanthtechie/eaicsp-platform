@@ -7,7 +7,6 @@ import pandas as pd
 from .adaptive_engine import AdaptiveEngine
 from .model_loader import get_models
 
-
 FEATURE_NAMES = [
     "temperature",
     "humidity",
@@ -98,9 +97,7 @@ class AdaptiveEngineManager:
                 / "calibration_normal.csv"
             )
         else:
-            self.calibration_path = Path(
-                calibration_path
-            )
+            self.calibration_path = Path(calibration_path)
 
         self.engines = {}
 
@@ -120,9 +117,7 @@ class AdaptiveEngineManager:
         fallback to AdaptiveEngine's generic defaults.
         """
 
-        model_name = str(
-            model_name
-        )
+        model_name = str(model_name)
 
         if model_name not in MODEL_CONFIG:
             raise ValueError(
@@ -132,11 +127,7 @@ class AdaptiveEngineManager:
                 f"{sorted(MODEL_CONFIG)}"
             )
 
-        return dict(
-            MODEL_CONFIG[
-                model_name
-            ]
-        )
+        return dict(MODEL_CONFIG[model_name])
 
     # ========================================================
     # CALIBRATION SCORES
@@ -155,18 +146,13 @@ class AdaptiveEngineManager:
 
         if not self.calibration_path.exists():
             raise FileNotFoundError(
-                "calibration_normal.csv not found: "
-                f"{self.calibration_path}"
+                f"calibration_normal.csv not found: {self.calibration_path}"
             )
 
-        calibration_df = pd.read_csv(
-            self.calibration_path
-        )
+        calibration_df = pd.read_csv(self.calibration_path)
 
         missing_columns = [
-            column
-            for column in FEATURE_NAMES
-            if column not in calibration_df.columns
+            column for column in FEATURE_NAMES if column not in calibration_df.columns
         ]
 
         if missing_columns:
@@ -177,35 +163,23 @@ class AdaptiveEngineManager:
             )
 
         if calibration_df.empty:
-            raise ValueError(
-                "calibration_normal.csv contains "
-                "no calibration samples."
-            )
+            raise ValueError("calibration_normal.csv contains no calibration samples.")
 
-        X_calibration = calibration_df[
-            FEATURE_NAMES
-        ].to_numpy(
-            dtype=float
-        )
+        X_calibration = calibration_df[FEATURE_NAMES].to_numpy(dtype=float)
 
         models = get_models()
 
         calibration_scores = {}
 
         for model_name, model in models.items():
-
-            raw_scores = model.score(
-                X_calibration
-            )
+            raw_scores = model.score(X_calibration)
 
             scores = -np.asarray(
                 raw_scores,
                 dtype=float,
             )
 
-            scores = scores[
-                np.isfinite(scores)
-            ]
+            scores = scores[np.isfinite(scores)]
 
             if scores.size == 0:
                 raise ValueError(
@@ -214,9 +188,7 @@ class AdaptiveEngineManager:
                     f"'{model_name}'."
                 )
 
-            calibration_scores[
-                model_name
-            ] = scores
+            calibration_scores[model_name] = scores
 
         return calibration_scores
 
@@ -240,43 +212,23 @@ class AdaptiveEngineManager:
         """
 
         with self.lock:
-
             if self.initialized:
                 return
 
-            calibration_scores = (
-                self._load_calibration_scores()
-            )
+            calibration_scores = self._load_calibration_scores()
 
-            for model_name, scores in (
-                calibration_scores.items()
-            ):
-
-                config = (
-                    self._get_model_config(
-                        model_name
-                    )
-                )
+            for model_name, scores in calibration_scores.items():
+                config = self._get_model_config(model_name)
 
                 engine = AdaptiveEngine(
                     baseline_size=BASELINE_SIZE,
                     candidate_sizes=CANDIDATE_SIZES,
-                    shift_sigma=config[
-                        "shift_sigma"
-                    ],
-                    stability_tolerance=config[
-                        "stability_tolerance"
-                    ],
+                    shift_sigma=config["shift_sigma"],
+                    stability_tolerance=config["stability_tolerance"],
                     min_stable_blocks=MIN_STABLE_BLOCKS,
-                    adaptive_window_size=(
-                        ADAPTIVE_WINDOW_SIZE
-                    ),
-                    adaptive_percentile=config[
-                        "adaptive_percentile"
-                    ],
-                    quarantine_recovery_required=(
-                        QUARANTINE_RECOVERY_REQUIRED
-                    ),
+                    adaptive_window_size=(ADAPTIVE_WINDOW_SIZE),
+                    adaptive_percentile=config["adaptive_percentile"],
+                    quarantine_recovery_required=(QUARANTINE_RECOVERY_REQUIRED),
                 )
 
                 engine.initialize(
@@ -284,9 +236,7 @@ class AdaptiveEngineManager:
                     model_name=model_name,
                 )
 
-                self.engines[
-                    model_name
-                ] = engine
+                self.engines[model_name] = engine
 
             self.initialized = True
 
@@ -302,22 +252,16 @@ class AdaptiveEngineManager:
         Return the AdaptiveEngine for the requested model.
         """
 
-        model_name = str(
-            model_name
-        )
+        model_name = str(model_name)
 
         self.initialize()
 
         if model_name not in self.engines:
             raise ValueError(
-                f"Unknown model: {model_name}. "
-                f"Available models: "
-                f"{sorted(self.engines)}"
+                f"Unknown model: {model_name}. Available models: {sorted(self.engines)}"
             )
 
-        return self.engines[
-            model_name
-        ]
+        return self.engines[model_name]
 
     # ========================================================
     # PROCESS
@@ -334,19 +278,13 @@ class AdaptiveEngineManager:
         adaptive state machine.
         """
 
-        model_name = str(
-            model_name
-        )
+        model_name = str(model_name)
 
-        engine = self.get_engine(
-            model_name
-        )
+        engine = self.get_engine(model_name)
 
         return engine.process(
             score=float(score),
-            temperature=float(
-                temperature
-            ),
+            temperature=float(temperature),
         )
 
     # ========================================================
@@ -361,9 +299,7 @@ class AdaptiveEngineManager:
         Return the state of one model engine.
         """
 
-        engine = self.get_engine(
-            model_name
-        )
+        engine = self.get_engine(model_name)
 
         return engine.get_state()
 
@@ -381,9 +317,7 @@ class AdaptiveEngineManager:
         Useful for tests and diagnostics.
         """
 
-        return self._get_model_config(
-            model_name
-        )
+        return self._get_model_config(model_name)
 
     # ========================================================
     # ALL CONFIGURATIONS
@@ -394,13 +328,7 @@ class AdaptiveEngineManager:
         Return a copy of all model-specific configurations.
         """
 
-        return {
-            model_name: dict(
-                config
-            )
-            for model_name, config
-            in MODEL_CONFIG.items()
-        }
+        return {model_name: dict(config) for model_name, config in MODEL_CONFIG.items()}
 
     # ========================================================
     # RESET
@@ -414,9 +342,7 @@ class AdaptiveEngineManager:
         """
 
         with self.lock:
-
             for engine in self.engines.values():
-
                 engine.reset()
 
             self.engines.clear()
@@ -428,6 +354,4 @@ class AdaptiveEngineManager:
 # GLOBAL MANAGER
 # ============================================================
 
-adaptive_engine_manager = (
-    AdaptiveEngineManager()
-)
+adaptive_engine_manager = AdaptiveEngineManager()

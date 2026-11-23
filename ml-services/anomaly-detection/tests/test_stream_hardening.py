@@ -1,7 +1,8 @@
+from datetime import UTC, datetime, timedelta
+
 import joblib
 import numpy as np
 import pytest
-from datetime import UTC, datetime, timedelta
 
 from src.auto_threshold import SignificanceThresholdTuner, robust_scale
 from src.episode_detector import EpisodeDetector
@@ -23,7 +24,6 @@ def stream_model():
 
 
 class FakeModel:
-
     version = "fake"
 
     def score_one(self, reading):
@@ -41,7 +41,6 @@ class FakeModel:
 
 
 class StubTuner:
-
     threshold = 1.0
 
     def observe(self, score):
@@ -49,6 +48,7 @@ class StubTuner:
 
 
 # ---- Fix 2 ---------------------------------------------------------
+
 
 def test_duplicate_reading_does_not_confirm_an_episode():
 
@@ -85,6 +85,7 @@ def test_processor_skips_duplicate_reading():
 
 
 # ---- Fix 3 ---------------------------------------------------------
+
 
 def test_replay_from_last_safe_commit_reproduces_the_same_episodes(stream_model):
 
@@ -131,14 +132,12 @@ def test_replay_from_last_safe_commit_reproduces_the_same_episodes(stream_model)
 
     second, second_pub = new_processor()
 
-    for r, s in zip(readings[last_safe + 1:], scores[last_safe + 1:]):
+    for r, s in zip(readings[last_safe + 1 :], scores[last_safe + 1 :]):
         second.handle(r, score=float(s))
 
     second.finish()
 
-    got = {
-        e["payload"]["episode_id"] for e in first_pub.events + second_pub.events
-    }
+    got = {e["payload"]["episode_id"] for e in first_pub.events + second_pub.events}
 
     assert got == expected
 
@@ -194,6 +193,7 @@ def test_eval_deduplicates_events_on_episode_id():
 
 # ---- Fix 4 ---------------------------------------------------------
 
+
 def test_explain_lists_only_features_pushing_toward_anomaly(stream_model):
 
     reading = {
@@ -236,6 +236,7 @@ def test_event_requires_shap_value():
 
 # ---- Fix 5 ---------------------------------------------------------
 
+
 def test_load_refuses_missing_and_mismatched_models(tmp_path, stream_model):
 
     with pytest.raises(FileNotFoundError):
@@ -257,6 +258,7 @@ def test_load_refuses_old_format_file(tmp_path, stream_model):
     with pytest.raises(ValueError):
         load_stream_model(path)
 
+
 def _new(model):
     tuner = SignificanceThresholdTuner(model.calibration_scores, percentile=97.0)
     det = EpisodeDetector(
@@ -265,9 +267,7 @@ def _new(model):
         min_flagged_readings=2,
     )
     pub = InMemoryPublisher()
-    proc = StreamProcessor(
-        model, tuner, det, InMemoryWriter(), pub, use_tuner=False
-    )
+    proc = StreamProcessor(model, tuner, det, InMemoryWriter(), pub, use_tuner=False)
     return proc, pub
 
 
@@ -321,6 +321,5 @@ def test_replay_matches_for_many_crash_points_and_naive_commit_does_not(stream_m
     picks = open_idx[:: max(1, len(open_idx) // 4)][:4]
 
     assert any(
-        _replay(stream_model, readings, scores, i, False) != expected
-        for i in picks
+        _replay(stream_model, readings, scores, i, False) != expected for i in picks
     )

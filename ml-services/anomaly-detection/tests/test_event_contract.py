@@ -12,7 +12,9 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CONTRACT = REPO_ROOT / "contracts" / "events" / "iot.anomaly.detected.v1.json"
-EXAMPLE = REPO_ROOT / "contracts" / "events" / "examples" / "iot.anomaly.detected.v1.json"
+EXAMPLE = (
+    REPO_ROOT / "contracts" / "events" / "examples" / "iot.anomaly.detected.v1.json"
+)
 
 
 @pytest.fixture(scope="module")

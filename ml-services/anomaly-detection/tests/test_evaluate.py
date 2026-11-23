@@ -1,5 +1,5 @@
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -13,10 +13,7 @@ from src.one_class_svm_model import (
     OneClassSVMModel,
 )
 
-
-project_root = (
-    Path(__file__).resolve().parent.parent
-)
+project_root = Path(__file__).resolve().parent.parent
 
 if str(project_root) not in sys.path:
     sys.path.insert(
@@ -70,9 +67,7 @@ ANOMALY_DATASETS = [
 def load_dataset(filename):
     path = output_dir / filename
 
-    assert path.exists(), (
-        f"Dataset not found: {path}"
-    )
+    assert path.exists(), f"Dataset not found: {path}"
 
     return pd.read_csv(path)
 
@@ -83,13 +78,9 @@ def get_model_metric(
     metric,
 ):
 
-    row = results.loc[
-        results["Model"] == model_name
-    ]
+    row = results.loc[results["Model"] == model_name]
 
-    assert not row.empty, (
-        f"{model_name} not found."
-    )
+    assert not row.empty, f"{model_name} not found."
 
     return row.iloc[0][metric]
 
@@ -101,9 +92,7 @@ def get_model_metric(
 
 def test_evaluate_returns_dataframe():
 
-    df = load_dataset(
-        "test_temperature_spike.csv"
-    )
+    df = load_dataset("test_temperature_spike.csv")
 
     results = evaluate_models(df)
 
@@ -115,24 +104,18 @@ def test_evaluate_returns_dataframe():
 
 def test_evaluate_returns_three_models():
 
-    df = load_dataset(
-        "test_temperature_spike.csv"
-    )
+    df = load_dataset("test_temperature_spike.csv")
 
     results = evaluate_models(df)
 
-    assert set(
-        results["Model"]
-    ) == EXPECTED_MODELS
+    assert set(results["Model"]) == EXPECTED_MODELS
 
     assert len(results) == 3
 
 
 def test_evaluation_columns():
 
-    df = load_dataset(
-        "test_temperature_spike.csv"
-    )
+    df = load_dataset("test_temperature_spike.csv")
 
     results = evaluate_models(df)
 
@@ -146,51 +129,47 @@ def test_evaluation_columns():
         "Predicted",
     }
 
-    assert expected_columns.issubset(
-        results.columns
-    )
+    assert expected_columns.issubset(results.columns)
 
 
 def test_metrics_are_valid():
 
-    df = load_dataset(
-        "test_temperature_spike.csv"
-    )
+    df = load_dataset("test_temperature_spike.csv")
 
     results = evaluate_models(df)
 
-    assert results[
-        "Precision"
-    ].between(
-        0,
-        1,
-    ).all()
-
-    assert results[
-        "Recall"
-    ].between(
-        0,
-        1,
-    ).all()
-
-    assert results[
-        "F1"
-    ].between(
-        0,
-        1,
-    ).all()
+    assert (
+        results["Precision"]
+        .between(
+            0,
+            1,
+        )
+        .all()
+    )
 
     assert (
-        results["Caught"] >= 0
-    ).all()
+        results["Recall"]
+        .between(
+            0,
+            1,
+        )
+        .all()
+    )
 
     assert (
-        results["False Alarms"] >= 0
-    ).all()
+        results["F1"]
+        .between(
+            0,
+            1,
+        )
+        .all()
+    )
 
-    assert (
-        results["Predicted"] >= 0
-    ).all()
+    assert (results["Caught"] >= 0).all()
+
+    assert (results["False Alarms"] >= 0).all()
+
+    assert (results["Predicted"] >= 0).all()
 
 
 # ============================================================
@@ -229,25 +208,14 @@ def test_evaluation_counts_are_consistent(
 
     results = evaluate_models(df)
 
-    actual_anomalies = int(
-        (
-            df["is_anomaly"] == 1
-        ).sum()
-    )
+    actual_anomalies = int((df["is_anomaly"] == 1).sum())
 
     for _, row in results.iterrows():
+        caught = int(row["Caught"])
 
-        caught = int(
-            row["Caught"]
-        )
+        false_alarms = int(row["False Alarms"])
 
-        false_alarms = int(
-            row["False Alarms"]
-        )
-
-        predicted = int(
-            row["Predicted"]
-        )
+        predicted = int(row["Predicted"])
 
         assert caught >= 0
 
@@ -255,9 +223,7 @@ def test_evaluation_counts_are_consistent(
 
         assert predicted >= 0
 
-        assert predicted == (
-            caught + false_alarms
-        ), (
+        assert predicted == (caught + false_alarms), (
             f"Count inconsistency for "
             f"{row['Model']} on "
             f"{dataset_name}: "
@@ -266,9 +232,7 @@ def test_evaluation_counts_are_consistent(
             f"False Alarms={false_alarms}"
         )
 
-        assert caught <= (
-            actual_anomalies
-        ), (
+        assert caught <= (actual_anomalies), (
             f"Caught anomalies exceed "
             f"actual anomalies for "
             f"{row['Model']} on "
@@ -299,33 +263,19 @@ def test_model_prediction_label_contract(
          1 = normal
     """
 
-    train_df = load_dataset(
-        "train_normal.csv"
-    )
+    train_df = load_dataset("train_normal.csv")
 
-    test_df = load_dataset(
-        "test_combined_anomaly.csv"
-    )
+    test_df = load_dataset("test_combined_anomaly.csv")
 
     model = model_cls()
 
-    model.train(
-        train_df[FEATURES]
-    )
+    model.train(train_df[FEATURES])
 
-    predictions = model.predict(
-        test_df[FEATURES]
-    )
+    predictions = model.predict(test_df[FEATURES])
 
-    assert len(predictions) == len(
-        test_df
-    )
+    assert len(predictions) == len(test_df)
 
-    assert set(
-        predictions
-    ).issubset(
-        {-1, 1}
-    )
+    assert set(predictions).issubset({-1, 1})
 
 
 # ============================================================
@@ -362,48 +312,27 @@ def test_evaluation_prediction_count_matches_model(
             -> anomaly
     """
 
-    train_df = load_dataset(
-        "train_normal.csv"
-    )
+    train_df = load_dataset("train_normal.csv")
 
-    test_df = load_dataset(
-        "test_combined_anomaly.csv"
-    )
+    test_df = load_dataset("test_combined_anomaly.csv")
 
     model = model_cls()
 
-    model.train(
-        train_df[FEATURES]
-    )
+    model.train(train_df[FEATURES])
 
-    raw_predictions = model.predict(
-        test_df[FEATURES]
-    )
+    raw_predictions = model.predict(test_df[FEATURES])
 
-    expected_predicted = int(
-        (
-            raw_predictions == -1
-        ).sum()
-    )
+    expected_predicted = int((raw_predictions == -1).sum())
 
-    results = evaluate_models(
-        test_df
-    )
+    results = evaluate_models(test_df)
 
-    row = results.loc[
-        results["Model"] == model_name
-    ]
+    row = results.loc[results["Model"] == model_name]
 
     assert len(row) == 1
 
-    actual_predicted = int(
-        row.iloc[0]["Predicted"]
-    )
+    actual_predicted = int(row.iloc[0]["Predicted"])
 
-    assert (
-        actual_predicted
-        == expected_predicted
-    )
+    assert actual_predicted == expected_predicted
 
 
 # ============================================================
@@ -429,70 +358,49 @@ def test_all_models_evaluated_on_each_anomaly_type(
 
     results = evaluate_models(df)
 
-    assert set(
-        results["Model"]
-    ) == EXPECTED_MODELS, (
-        f"Model coverage failed for "
-        f"{dataset_name}."
+    assert set(results["Model"]) == EXPECTED_MODELS, (
+        f"Model coverage failed for {dataset_name}."
     )
 
     assert len(results) == 3
 
     for model_name in EXPECTED_MODELS:
+        row = results.loc[results["Model"] == model_name]
 
-        row = results.loc[
-            results["Model"] == model_name
-        ]
-
-        assert not row.empty, (
-            f"{model_name} missing for "
-            f"{dataset_name}."
-        )
-
-        assert row[
-            "Precision"
-        ].between(
-            0,
-            1,
-        ).all(), (
-            f"Invalid precision for "
-            f"{model_name} on "
-            f"{dataset_name}."
-        )
-
-        assert row[
-            "Recall"
-        ].between(
-            0,
-            1,
-        ).all(), (
-            f"Invalid recall for "
-            f"{model_name} on "
-            f"{dataset_name}."
-        )
-
-        assert row[
-            "F1"
-        ].between(
-            0,
-            1,
-        ).all(), (
-            f"Invalid F1 for "
-            f"{model_name} on "
-            f"{dataset_name}."
-        )
+        assert not row.empty, f"{model_name} missing for {dataset_name}."
 
         assert (
-            row["Caught"] >= 0
-        ).all()
+            row["Precision"]
+            .between(
+                0,
+                1,
+            )
+            .all()
+        ), f"Invalid precision for {model_name} on {dataset_name}."
 
         assert (
-            row["False Alarms"] >= 0
-        ).all()
+            row["Recall"]
+            .between(
+                0,
+                1,
+            )
+            .all()
+        ), f"Invalid recall for {model_name} on {dataset_name}."
 
         assert (
-            row["Predicted"] >= 0
-        ).all()
+            row["F1"]
+            .between(
+                0,
+                1,
+            )
+            .all()
+        ), f"Invalid F1 for {model_name} on {dataset_name}."
+
+        assert (row["Caught"] >= 0).all()
+
+        assert (row["False Alarms"] >= 0).all()
+
+        assert (row["Predicted"] >= 0).all()
 
 
 # ============================================================
@@ -525,48 +433,27 @@ def test_each_model_has_result_for_each_anomaly_type(
 
     results = evaluate_models(df)
 
-    row = results.loc[
-        results["Model"] == model_name
-    ]
+    row = results.loc[results["Model"] == model_name]
 
     assert len(row) == 1, (
-        f"Expected exactly one result "
-        f"for {model_name} on "
-        f"{dataset_name}."
+        f"Expected exactly one result for {model_name} on {dataset_name}."
     )
 
-    precision = row.iloc[0][
-        "Precision"
-    ]
+    precision = row.iloc[0]["Precision"]
 
-    recall = row.iloc[0][
-        "Recall"
-    ]
+    recall = row.iloc[0]["Recall"]
 
-    f1 = row.iloc[0][
-        "F1"
-    ]
+    f1 = row.iloc[0]["F1"]
 
     assert 0 <= precision <= 1, (
-        f"Invalid precision for "
-        f"{model_name} on "
-        f"{dataset_name}: "
-        f"{precision}"
+        f"Invalid precision for {model_name} on {dataset_name}: {precision}"
     )
 
     assert 0 <= recall <= 1, (
-        f"Invalid recall for "
-        f"{model_name} on "
-        f"{dataset_name}: "
-        f"{recall}"
+        f"Invalid recall for {model_name} on {dataset_name}: {recall}"
     )
 
-    assert 0 <= f1 <= 1, (
-        f"Invalid F1 for "
-        f"{model_name} on "
-        f"{dataset_name}: "
-        f"{f1}"
-    )
+    assert 0 <= f1 <= 1, f"Invalid F1 for {model_name} on {dataset_name}: {f1}"
 
 
 # ============================================================
@@ -580,9 +467,7 @@ def test_each_model_has_result_for_each_anomaly_type(
 
 def test_lof_recall_temperature_spike():
 
-    df = load_dataset(
-        "test_temperature_spike.csv"
-    )
+    df = load_dataset("test_temperature_spike.csv")
 
     results = evaluate_models(df)
 
@@ -597,9 +482,7 @@ def test_lof_recall_temperature_spike():
 
 def test_lof_recall_temperature_drift():
 
-    df = load_dataset(
-        "test_temperature_drift.csv"
-    )
+    df = load_dataset("test_temperature_drift.csv")
 
     results = evaluate_models(df)
 
@@ -614,9 +497,7 @@ def test_lof_recall_temperature_drift():
 
 def test_lof_recall_stock_anomaly():
 
-    df = load_dataset(
-        "test_stock_anomaly.csv"
-    )
+    df = load_dataset("test_stock_anomaly.csv")
 
     results = evaluate_models(df)
 
@@ -631,9 +512,7 @@ def test_lof_recall_stock_anomaly():
 
 def test_lof_recall_combined_anomaly():
 
-    df = load_dataset(
-        "test_combined_anomaly.csv"
-    )
+    df = load_dataset("test_combined_anomaly.csv")
 
     results = evaluate_models(df)
 
@@ -653,12 +532,8 @@ def test_lof_recall_combined_anomaly():
 
 def test_all_models_detect_some_anomalies():
 
-    df = load_dataset(
-        "test_combined_anomaly.csv"
-    )
+    df = load_dataset("test_combined_anomaly.csv")
 
     results = evaluate_models(df)
 
-    assert (
-        results["Predicted"] > 0
-    ).all()
+    assert (results["Predicted"] > 0).all()

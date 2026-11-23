@@ -30,13 +30,12 @@ import json
 import logging
 import math
 import os
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 import pandas as pd
 
 from . import config
-
 
 log = logging.getLogger("sales_anomaly_tracking")
 
@@ -231,7 +230,6 @@ def log_run(
     model_version = None
 
     with mlflow.start_run(run_name=run_name) as run:
-
         mlflow.log_params({k: v for k, v in all_params.items() if v is not None})
         mlflow.log_metrics(_finite_metrics(all_metrics))
 
@@ -242,7 +240,7 @@ def log_run(
         for name, text in (texts or {}).items():
             try:
                 mlflow.log_text(text, name)
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - an upload problem is a warning
                 mlflow.set_tag("artifact_upload", "failed")
                 log.warning(
                     "Could not save artifact '%s' for run '%s': %s",
@@ -267,7 +265,7 @@ def safe_log_run(run_name, **kwargs):
 
     try:
         return log_run(run_name, **kwargs)
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - logging must never raise
         log.warning("MLflow logging failed for run '%s': %s", run_name, error)
         return None
 
@@ -309,7 +307,6 @@ def register_configuration(model_name=MODEL_NAME):
     from .sales_anomaly_model import SalesAnomalyModel
 
     with tempfile.TemporaryDirectory() as folder:
-
         config_path = Path(folder) / "config.json"
         config_path.write_text(
             json.dumps(values, indent=2, sort_keys=True), encoding="utf-8"

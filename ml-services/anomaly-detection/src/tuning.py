@@ -6,14 +6,11 @@ import pandas as pd
 project_root = Path(__file__).resolve().parent.parent
 
 if str(project_root) not in sys.path:
-    sys.path.insert(0,str(project_root))
+    sys.path.insert(0, str(project_root))
 
 from src.isolation_forest_model import IsolationForestModel
-
 from src.lof_model import LOFModel
-
 from src.one_class_svm_model import OneClassSVMModel
-
 
 output_dir = project_root / "output"
 
@@ -26,13 +23,13 @@ def load_data():
     train_df = pd.read_csv(output_dir / "train_normal.csv")
 
     test_datasets = {
-        "temperature_spike": pd.read_csv(output_dir/ "test_temperature_spike.csv"),
-        "temperature_drift": pd.read_csv(output_dir/ "test_temperature_drift.csv"),
-        "stock_anomaly": pd.read_csv(output_dir/ "test_stock_anomaly.csv"),
-        "combined_anomaly": pd.read_csv(output_dir/ "test_combined_anomaly.csv")
+        "temperature_spike": pd.read_csv(output_dir / "test_temperature_spike.csv"),
+        "temperature_drift": pd.read_csv(output_dir / "test_temperature_drift.csv"),
+        "stock_anomaly": pd.read_csv(output_dir / "test_stock_anomaly.csv"),
+        "combined_anomaly": pd.read_csv(output_dir / "test_combined_anomaly.csv"),
     }
 
-    return (train_df,test_datasets)
+    return (train_df, test_datasets)
 
 
 def run_tuning(
@@ -41,9 +38,7 @@ def run_tuning(
     test_datasets,
     name,
 ):
-    print(
-        f"\n{name}"
-    )
+    print(f"\n{name}")
 
     return model.tune(
         train_features=train_features,
@@ -59,9 +54,9 @@ def main():
 
     print("=" * 70)
 
-    train_df, test_datasets = (load_data())
+    train_df, test_datasets = load_data()
 
-    train_features = train_df[["temperature","humidity","stock_count"]]
+    train_features = train_df[["temperature", "humidity", "stock_count"]]
 
     # Run tuning for all three models.
 
@@ -73,14 +68,12 @@ def main():
                 test_datasets,
                 "[1/3] Isolation Forest",
             ),
-
             run_tuning(
                 LOFModel(),
                 train_features,
                 test_datasets,
                 "[2/3] Local Outlier Factor",
             ),
-
             run_tuning(
                 OneClassSVMModel(),
                 train_features,
@@ -96,17 +89,17 @@ def main():
     # Keep OVERALL rows first for each model,
     # followed by the per-dataset rankings.
 
-    results.sort_values(by=["Model","Test Dataset","Rank"],inplace=True)
+    results.sort_values(by=["Model", "Test Dataset", "Rank"], inplace=True)
 
-    results.reset_index(drop=True,inplace=True)
+    results.reset_index(drop=True, inplace=True)
 
     # Save complete tuning results.
 
-    output_file = (output_dir/ "hyperparameter_tuning_results.csv")
+    output_file = output_dir / "hyperparameter_tuning_results.csv"
 
-    results.to_csv(output_file,index=False)
+    results.to_csv(output_file, index=False)
 
-    print("\n"+ "=" * 70)
+    print("\n" + "=" * 70)
 
     print("Hyperparameter tuning completed successfully!")
 
@@ -116,7 +109,7 @@ def main():
 
     # Overall best configurations
 
-    print("\n"+ "=" * 70)
+    print("\n" + "=" * 70)
 
     print("OVERALL BEST CONFIGURATIONS")
 
@@ -125,16 +118,15 @@ def main():
     overall = results[results["Test Dataset"] == "OVERALL"].copy()
 
     if overall.empty:
-
         print("\nNo overall ranking results found.")
 
         print("Check that rank_results() in tuning_utils.py is the updated version.")
 
     else:
-
-        for model_name in (overall["Model"].unique()):
-
-            model_results = (overall[overall["Model"]== model_name].sort_values(by="Rank"))
+        for model_name in overall["Model"].unique():
+            model_results = overall[overall["Model"] == model_name].sort_values(
+                by="Rank"
+            )
 
             best = model_results.iloc[0]
 
@@ -143,23 +135,23 @@ def main():
 
             print("-" * 70)
 
-            print(f"Rank         : "f"{int(best['Rank'])}")
+            print(f"Rank         : {int(best['Rank'])}")
 
-            print(f"Avg PR Score : "f"{best['PR Score']:.4f}")
+            print(f"Avg PR Score : {best['PR Score']:.4f}")
 
-            print(f"Avg F1       : "f"{best['F1']:.4f}")
+            print(f"Avg F1       : {best['F1']:.4f}")
 
-            print(f"Avg Precision: "f"{best['Precision']:.4f}")
+            print(f"Avg Precision: {best['Precision']:.4f}")
 
-            print(f"Avg Recall   : "f"{best['Recall']:.4f}")
+            print(f"Avg Recall   : {best['Recall']:.4f}")
 
-            print(f"Total TP     : "f"{int(best['TP'])}")
+            print(f"Total TP     : {int(best['TP'])}")
 
-            print(f"Total TN     : "f"{int(best['TN'])}")
+            print(f"Total TN     : {int(best['TN'])}")
 
-            print(f"Total FP     : "f"{int(best['FP'])}")
+            print(f"Total FP     : {int(best['FP'])}")
 
-            print(f"Total FN     : "f"{int(best['FN'])}")
+            print(f"Total FN     : {int(best['FN'])}")
 
             print("\nParameters:")
 
@@ -176,13 +168,10 @@ def main():
             ]
 
             for parameter in parameter_columns:
-
                 if parameter not in best.index:
                     continue
 
-                value = best[
-                    parameter
-                ]
+                value = best[parameter]
 
                 # Don't print empty/unused
                 # parameters.
@@ -190,7 +179,7 @@ def main():
                 if pd.isna(value):
                     continue
 
-                print(f"  {parameter}: "f"{value}")
+                print(f"  {parameter}: {value}")
 
     # Summary
 
@@ -198,7 +187,11 @@ def main():
     print("TUNING SUMMARY")
     print("=" * 70)
 
-    summary = (results.groupby(["Model","Test Dataset"]).size().reset_index(name="Configurations"))
+    summary = (
+        results.groupby(["Model", "Test Dataset"])
+        .size()
+        .reset_index(name="Configurations")
+    )
 
     print(summary.to_string(index=False))
 

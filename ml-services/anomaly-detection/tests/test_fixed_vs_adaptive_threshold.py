@@ -6,23 +6,16 @@ import pytest
 
 from src.adaptive_threshold import (
     AdaptiveThreshold,
-    get_adaptive_threshold,
-    reset_adaptive_thresholds,
 )
-
 from src.model_loader import (
-    feature_names,
     get_models,
 )
-
 
 # =====================================================================
 # PATHS
 # =====================================================================
 
-PROJECT_ROOT = (
-    Path(__file__).resolve().parent.parent
-)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 OUTPUT_DIR = PROJECT_ROOT / "output"
 
@@ -48,12 +41,11 @@ EPSILON = 1e-8
 # HELPERS
 # =====================================================================
 
+
 def load_dataset(filename):
     path = OUTPUT_DIR / filename
 
-    assert path.exists(), (
-        f"Required dataset does not exist: {path}"
-    )
+    assert path.exists(), f"Required dataset does not exist: {path}"
 
     return pd.read_csv(path)
 
@@ -69,9 +61,7 @@ def model_scores(model, dataframe):
         higher score = more anomalous
     """
 
-    X = dataframe[
-        FEATURES
-    ].to_numpy()
+    X = dataframe[FEATURES].to_numpy()
 
     scores = np.asarray(
         model.score(X),
@@ -80,13 +70,9 @@ def model_scores(model, dataframe):
 
     assert scores.ndim == 1
 
-    assert len(scores) == len(
-        dataframe
-    )
+    assert len(scores) == len(dataframe)
 
-    assert np.all(
-        np.isfinite(scores)
-    )
+    assert np.all(np.isfinite(scores))
 
     return scores
 
@@ -105,10 +91,7 @@ def fixed_predict(
         anomaly
     """
 
-    return (
-        np.asarray(scores)
-        >= threshold
-    )
+    return np.asarray(scores) >= threshold
 
 
 def adaptive_predict(
@@ -122,10 +105,7 @@ def adaptive_predict(
     as fixed_predict().
     """
 
-    return (
-        np.asarray(scores)
-        >= threshold
-    )
+    return np.asarray(scores) >= threshold
 
 
 def percentile_threshold(
@@ -148,14 +128,13 @@ def assert_threshold_is_valid(
         (int, float),
     )
 
-    assert np.isfinite(
-        threshold
-    )
+    assert np.isfinite(threshold)
 
 
 # =====================================================================
 # MODEL FIXTURE
 # =====================================================================
+
 
 @pytest.fixture(
     scope="module",
@@ -168,53 +147,42 @@ def models():
     loaded = get_models()
 
     for model_name in MODELS:
+        assert model_name in loaded, f"Missing required model: {model_name}"
 
-        assert model_name in loaded, (
-            f"Missing required model: "
-            f"{model_name}"
-        )
-
-    return {
-        name: loaded[name]
-        for name in MODELS
-    }
+    return {name: loaded[name] for name in MODELS}
 
 
 # =====================================================================
 # DATA FIXTURES
 # =====================================================================
 
+
 @pytest.fixture(
     scope="module",
 )
 def calibration_df():
-    return load_dataset(
-        "calibration_normal.csv"
-    )
+    return load_dataset("calibration_normal.csv")
 
 
 @pytest.fixture(
     scope="module",
 )
 def seasonal_df():
-    return load_dataset(
-        "test_seasonal_normal.csv"
-    )
+    return load_dataset("test_seasonal_normal.csv")
 
 
 @pytest.fixture(
     scope="module",
 )
 def spike_df():
-    return load_dataset(
-        "test_temperature_spike.csv"
-    )
+    return load_dataset("test_temperature_spike.csv")
 
 
 # =====================================================================
 # TEST 1
 # FIXED AND ADAPTIVE HAVE IDENTICAL DECISION SEMANTICS
 # =====================================================================
+
 
 @pytest.mark.parametrize(
     "model_name",
@@ -235,18 +203,14 @@ def test_fixed_and_adaptive_use_same_decision_rule(
         score < threshold  -> normal
     """
 
-    model = models[
-        model_name
-    ]
+    model = models[model_name]
 
     scores = model_scores(
         model,
         calibration_df,
     )
 
-    threshold = percentile_threshold(
-        scores
-    )
+    threshold = percentile_threshold(scores)
 
     fixed_predictions = fixed_predict(
         scores,
@@ -268,6 +232,7 @@ def test_fixed_and_adaptive_use_same_decision_rule(
 # TEST 2
 # BOUNDARY BEHAVIOR
 # =====================================================================
+
 
 @pytest.mark.parametrize(
     "model_name",
@@ -291,28 +256,20 @@ def test_adaptive_threshold_boundary_matches_fixed_threshold(
             -> anomaly
     """
 
-    model = models[
-        model_name
-    ]
+    model = models[model_name]
 
     scores = model_scores(
         model,
         calibration_df,
     )
 
-    threshold = percentile_threshold(
-        scores
-    )
+    threshold = percentile_threshold(scores)
 
-    below = (
-        threshold - EPSILON
-    )
+    below = threshold - EPSILON
 
     equal = threshold
 
-    above = (
-        threshold + EPSILON
-    )
+    above = threshold + EPSILON
 
     assert not fixed_predict(
         np.array([below]),
@@ -350,6 +307,7 @@ def test_adaptive_threshold_boundary_matches_fixed_threshold(
 # NORMAL DATA MUST NOT MOVE THE THRESHOLD
 # =====================================================================
 
+
 @pytest.mark.parametrize(
     "model_name",
     MODELS,
@@ -372,31 +330,23 @@ def test_fixed_vs_adaptive_normal_regime_stability(
     No unnecessary transition should occur.
     """
 
-    model = models[
-        model_name
-    ]
+    model = models[model_name]
 
     calibration_scores = model_scores(
         model,
         calibration_df,
     )
 
-    initial_threshold = percentile_threshold(
-        calibration_scores
-    )
+    initial_threshold = percentile_threshold(calibration_scores)
 
     manager = AdaptiveThreshold(
         percentile=99,
         window_size=50,
     )
 
-    manager.initialize(
-        calibration_scores
-    )
+    manager.initialize(calibration_scores)
 
-    adaptive_initial = (
-        manager.get_threshold()
-    )
+    adaptive_initial = manager.get_threshold()
 
     assert np.isclose(
         adaptive_initial,
@@ -410,31 +360,22 @@ def test_fixed_vs_adaptive_normal_regime_stability(
     )
 
     for score in seasonal_scores:
-
         assert manager.get_state() is not None
 
         # Detection must not modify
         # the adaptive baseline.
-        before = (
-            manager.get_threshold()
-        )
+        before = manager.get_threshold()
 
-        manager.is_anomaly(
-            float(score)
-        )
+        manager.is_anomaly(float(score))
 
-        after = (
-            manager.get_threshold()
-        )
+        after = manager.get_threshold()
 
         assert np.isclose(
             before,
             after,
         )
 
-    final_threshold = (
-        manager.get_threshold()
-    )
+    final_threshold = manager.get_threshold()
 
     # Fixed threshold never changes.
     assert np.isclose(
@@ -456,6 +397,7 @@ def test_fixed_vs_adaptive_normal_regime_stability(
 # ADAPTIVE THRESHOLD MUST ACTUALLY TRANSITION
 # =====================================================================
 
+
 @pytest.mark.parametrize(
     "model_name",
     MODELS,
@@ -475,27 +417,21 @@ def test_adaptive_threshold_transitions_while_fixed_does_not(
             -> transitions from T1 to T2
     """
 
-    model = models[
-        model_name
-    ]
+    model = models[model_name]
 
     calibration_scores = model_scores(
         model,
         calibration_df,
     )
 
-    initial_threshold = percentile_threshold(
-        calibration_scores
-    )
+    initial_threshold = percentile_threshold(calibration_scores)
 
     manager = AdaptiveThreshold(
         percentile=99,
         window_size=50,
     )
 
-    manager.initialize(
-        calibration_scores
-    )
+    manager.initialize(calibration_scores)
 
     assert np.isclose(
         manager.get_threshold(),
@@ -525,34 +461,23 @@ def test_adaptive_threshold_transitions_while_fixed_does_not(
         )
     )
 
-    fixed_threshold = (
-        initial_threshold
-    )
+    fixed_threshold = initial_threshold
 
     fixed_threshold_history = []
 
     adaptive_threshold_history = []
 
     for score in new_regime_scores:
-
         # Fixed threshold never changes.
-        fixed_threshold_history.append(
-            fixed_threshold
-        )
+        fixed_threshold_history.append(fixed_threshold)
 
         # Adaptive threshold is allowed
         # to receive trusted observations.
-        manager.update(
-            float(score)
-        )
+        manager.update(float(score))
 
-        adaptive_threshold_history.append(
-            manager.get_threshold()
-        )
+        adaptive_threshold_history.append(manager.get_threshold())
 
-    final_adaptive_threshold = (
-        manager.get_threshold()
-    )
+    final_adaptive_threshold = manager.get_threshold()
 
     # Fixed threshold must remain T1.
     assert all(
@@ -560,14 +485,11 @@ def test_adaptive_threshold_transitions_while_fixed_does_not(
             value,
             initial_threshold,
         )
-        for value
-        in fixed_threshold_history
+        for value in fixed_threshold_history
     )
 
     # Adaptive threshold must be valid.
-    assert_threshold_is_valid(
-        final_adaptive_threshold
-    )
+    assert_threshold_is_valid(final_adaptive_threshold)
 
     # The adaptive threshold must not
     # remain permanently identical to
@@ -584,6 +506,7 @@ def test_adaptive_threshold_transitions_while_fixed_does_not(
 # AFTER TRANSITION, ADAPTIVE STILL BEHAVES
 # LIKE A NORMAL THRESHOLD
 # =====================================================================
+
 
 @pytest.mark.parametrize(
     "model_name",
@@ -608,9 +531,7 @@ def test_adaptive_threshold_after_transition_is_compatible_with_fixed_rule(
         score >= T2 -> anomaly
     """
 
-    model = models[
-        model_name
-    ]
+    model = models[model_name]
 
     calibration_scores = model_scores(
         model,
@@ -622,13 +543,9 @@ def test_adaptive_threshold_after_transition_is_compatible_with_fixed_rule(
         window_size=50,
     )
 
-    manager.initialize(
-        calibration_scores
-    )
+    manager.initialize(calibration_scores)
 
-    initial_threshold = (
-        manager.get_threshold()
-    )
+    initial_threshold = manager.get_threshold()
 
     # -------------------------------------------------------------
     # Force a deterministic transition.
@@ -650,18 +567,11 @@ def test_adaptive_threshold_after_transition_is_compatible_with_fixed_rule(
     )
 
     for score in new_regime_scores:
+        manager.update(float(score))
 
-        manager.update(
-            float(score)
-        )
+    new_threshold = manager.get_threshold()
 
-    new_threshold = (
-        manager.get_threshold()
-    )
-
-    assert_threshold_is_valid(
-        new_threshold
-    )
+    assert_threshold_is_valid(new_threshold)
 
     assert not np.isclose(
         new_threshold,
@@ -673,31 +583,31 @@ def test_adaptive_threshold_after_transition_is_compatible_with_fixed_rule(
     # like a normal fixed threshold.
     # -------------------------------------------------------------
 
-    below = (
-        new_threshold - EPSILON
-    )
+    below = new_threshold - EPSILON
 
     equal = new_threshold
 
-    above = (
-        new_threshold + EPSILON
-    )
+    above = new_threshold + EPSILON
 
     fixed_results = fixed_predict(
-        np.array([
-            below,
-            equal,
-            above,
-        ]),
+        np.array(
+            [
+                below,
+                equal,
+                above,
+            ]
+        ),
         new_threshold,
     )
 
     adaptive_results = adaptive_predict(
-        np.array([
-            below,
-            equal,
-            above,
-        ]),
+        np.array(
+            [
+                below,
+                equal,
+                above,
+            ]
+        ),
         new_threshold,
     )
 
@@ -720,6 +630,7 @@ def test_adaptive_threshold_after_transition_is_compatible_with_fixed_rule(
 # ADAPTIVE THRESHOLD MUST STABILIZE AFTER TRANSITION
 # =====================================================================
 
+
 @pytest.mark.parametrize(
     "model_name",
     MODELS,
@@ -735,9 +646,7 @@ def test_adaptive_threshold_stabilizes_after_transition(
     must not cause uncontrolled threshold movement.
     """
 
-    model = models[
-        model_name
-    ]
+    model = models[model_name]
 
     calibration_scores = model_scores(
         model,
@@ -749,13 +658,9 @@ def test_adaptive_threshold_stabilizes_after_transition(
         window_size=50,
     )
 
-    manager.initialize(
-        calibration_scores
-    )
+    manager.initialize(calibration_scores)
 
-    initial_threshold = (
-        manager.get_threshold()
-    )
+    initial_threshold = manager.get_threshold()
 
     shift = max(
         abs(initial_threshold) * 0.5,
@@ -774,14 +679,9 @@ def test_adaptive_threshold_stabilizes_after_transition(
 
     # Learn the new regime.
     for score in stable_regime:
+        manager.update(float(score))
 
-        manager.update(
-            float(score)
-        )
-
-    transitioned_threshold = (
-        manager.get_threshold()
-    )
+    transitioned_threshold = manager.get_threshold()
 
     assert not np.isclose(
         transitioned_threshold,
@@ -793,31 +693,19 @@ def test_adaptive_threshold_stabilizes_after_transition(
     thresholds = []
 
     for score in stable_regime:
+        manager.update(float(score))
 
-        manager.update(
-            float(score)
-        )
-
-        thresholds.append(
-            manager.get_threshold()
-        )
+        thresholds.append(manager.get_threshold())
 
     # The threshold must remain finite.
-    assert all(
-        np.isfinite(
-            value
-        )
-        for value in thresholds
-    )
+    assert all(np.isfinite(value) for value in thresholds)
 
     # Once the rolling window represents
     # the same regime, the threshold should
     # settle rather than continually diverge.
     tail = thresholds[-10:]
 
-    assert np.ptp(
-        tail
-    ) < max(
+    assert np.ptp(tail) < max(
         abs(transitioned_threshold) * 0.10,
         0.01,
     )
@@ -827,6 +715,7 @@ def test_adaptive_threshold_stabilizes_after_transition(
 # TEST 7
 # ANOMALIES MUST NOT CHANGE THE ADAPTIVE BASELINE
 # =====================================================================
+
 
 @pytest.mark.parametrize(
     "model_name",
@@ -850,9 +739,7 @@ def test_fixed_vs_adaptive_anomaly_protection(
         baseline adaptation
     """
 
-    model = models[
-        model_name
-    ]
+    model = models[model_name]
 
     calibration_scores = model_scores(
         model,
@@ -869,25 +756,16 @@ def test_fixed_vs_adaptive_anomaly_protection(
         window_size=50,
     )
 
-    manager.initialize(
-        calibration_scores
-    )
+    manager.initialize(calibration_scores)
 
-    threshold_before = (
-        manager.get_threshold()
-    )
+    threshold_before = manager.get_threshold()
 
     # Feed anomaly observations only
     # through the detection path.
     for score in spike_scores:
+        manager.is_anomaly(float(score))
 
-        manager.is_anomaly(
-            float(score)
-        )
-
-    threshold_after = (
-        manager.get_threshold()
-    )
+    threshold_after = manager.get_threshold()
 
     assert np.isclose(
         threshold_before,
@@ -899,6 +777,7 @@ def test_fixed_vs_adaptive_anomaly_protection(
 # TEST 8
 # FINAL END-TO-END COMPATIBILITY CONTRACT
 # =====================================================================
+
 
 @pytest.mark.parametrize(
     "model_name",
@@ -928,9 +807,7 @@ def test_fixed_vs_adaptive_threshold_contract(
         2. post-transition threshold
     """
 
-    model = models[
-        model_name
-    ]
+    model = models[model_name]
 
     calibration_scores = model_scores(
         model,
@@ -941,22 +818,16 @@ def test_fixed_vs_adaptive_threshold_contract(
     # Fixed/calibration threshold
     # -------------------------------------------------------------
 
-    fixed_threshold = percentile_threshold(
-        calibration_scores
-    )
+    fixed_threshold = percentile_threshold(calibration_scores)
 
     manager = AdaptiveThreshold(
         percentile=99,
         window_size=50,
     )
 
-    manager.initialize(
-        calibration_scores
-    )
+    manager.initialize(calibration_scores)
 
-    adaptive_threshold = (
-        manager.get_threshold()
-    )
+    adaptive_threshold = manager.get_threshold()
 
     assert np.isclose(
         fixed_threshold,
@@ -998,29 +869,24 @@ def test_fixed_vs_adaptive_threshold_contract(
     )
 
     for score in new_regime:
+        manager.update(float(score))
 
-        manager.update(
-            float(score)
-        )
+    transitioned_threshold = manager.get_threshold()
 
-    transitioned_threshold = (
-        manager.get_threshold()
-    )
-
-    assert_threshold_is_valid(
-        transitioned_threshold
-    )
+    assert_threshold_is_valid(transitioned_threshold)
 
     # -------------------------------------------------------------
     # Same decision contract after
     # transition.
     # -------------------------------------------------------------
 
-    comparison_scores = np.array([
-        transitioned_threshold - 0.01,
-        transitioned_threshold,
-        transitioned_threshold + 0.01,
-    ])
+    comparison_scores = np.array(
+        [
+            transitioned_threshold - 0.01,
+            transitioned_threshold,
+            transitioned_threshold + 0.01,
+        ]
+    )
 
     fixed_after_transition = fixed_predict(
         comparison_scores,

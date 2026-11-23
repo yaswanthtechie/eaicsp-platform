@@ -24,7 +24,6 @@ from src.playbook import (
 )
 from src.root_cause import FEATURES, match_incident
 
-
 REQUIRED_KEYS = [
     "title",
     "severity",
@@ -97,9 +96,7 @@ def test_get_playbook_returns_a_copy():
 
 
 def test_get_playbook_falls_back_to_unknown():
-    assert get_playbook("never_heard_of_it")["title"] == (
-        PLAYBOOKS["unknown"]["title"]
-    )
+    assert get_playbook("never_heard_of_it")["title"] == (PLAYBOOKS["unknown"]["title"])
 
 
 def test_normal_reading_gets_no_playbook():
@@ -140,9 +137,7 @@ def test_low_similarity_is_flagged_and_warns_first():
 
 
 def test_temporal_drift_takes_priority_over_the_hint():
-    playbook = generate_playbook(
-        _prediction("stock_anomaly", temporal_drift=True)
-    )
+    playbook = generate_playbook(_prediction("stock_anomaly", temporal_drift=True))
 
     assert playbook["incident_type"] == "temperature_drift"
 

@@ -4,11 +4,10 @@ import pandas as pd
 import pytest
 
 from src.tuning_utils import (
-    SELECTION_DATASETS,
     RECALL_TOLERANCE,
+    SELECTION_DATASETS,
     rank_results,
 )
-
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 OUTPUT_DIR = PROJECT_ROOT / "output"
@@ -57,6 +56,7 @@ def make_result(
 # DATASET / CONFIGURATION
 # =====================================================================
 
+
 def test_selection_datasets_are_correct():
 
     assert set(SELECTION_DATASETS) == {
@@ -65,9 +65,7 @@ def test_selection_datasets_are_correct():
         "combined_anomaly",
     }
 
-    assert "temperature_drift" not in (
-        SELECTION_DATASETS
-    )
+    assert "temperature_drift" not in (SELECTION_DATASETS)
 
 
 @pytest.mark.parametrize(
@@ -82,9 +80,7 @@ def test_selection_datasets_are_correct():
 )
 def test_required_tuning_dataset_exists(filename):
 
-    assert (
-        OUTPUT_DIR / filename
-    ).exists()
+    assert (OUTPUT_DIR / filename).exists()
 
 
 @pytest.mark.parametrize(
@@ -98,9 +94,7 @@ def test_required_tuning_dataset_exists(filename):
 )
 def test_anomaly_dataset_structure(filename):
 
-    df = pd.read_csv(
-        OUTPUT_DIR / filename
-    )
+    df = pd.read_csv(OUTPUT_DIR / filename)
 
     assert {
         "temperature",
@@ -117,12 +111,12 @@ def test_anomaly_dataset_structure(filename):
 # RANKING
 # =====================================================================
 
+
 def test_rank_results_returns_overall_results():
 
     rows = []
 
     for dataset in SELECTION_DATASETS:
-
         rows.append(
             make_result(
                 "Isolation Forest",
@@ -151,9 +145,7 @@ def test_rank_results_returns_overall_results():
 
     results = rank_results(rows)
 
-    overall = results[
-        results["Test Dataset"] == "OVERALL"
-    ]
+    overall = results[results["Test Dataset"] == "OVERALL"]
 
     assert len(overall) == 2
     assert set(overall["Parameter"]) == {
@@ -167,7 +159,6 @@ def test_recall_eligibility_is_applied():
     rows = []
 
     for dataset in SELECTION_DATASETS:
-
         rows.append(
             make_result(
                 "Test Model",
@@ -199,25 +190,15 @@ def test_recall_eligibility_is_applied():
         recall_tolerance=RECALL_TOLERANCE,
     )
 
-    overall = results[
-        results["Test Dataset"] == "OVERALL"
-    ]
+    overall = results[results["Test Dataset"] == "OVERALL"]
 
-    eligible = overall[
-        overall["Parameter"] == "ELIGIBLE"
-    ].iloc[0]
+    eligible = overall[overall["Parameter"] == "ELIGIBLE"].iloc[0]
 
-    ineligible = overall[
-        overall["Parameter"] == "INELIGIBLE"
-    ].iloc[0]
+    ineligible = overall[overall["Parameter"] == "INELIGIBLE"].iloc[0]
 
-    assert bool(
-        eligible["Recall Eligible"]
-    )
+    assert bool(eligible["Recall Eligible"])
 
-    assert not bool(
-        ineligible["Recall Eligible"]
-    )
+    assert not bool(ineligible["Recall Eligible"])
 
 
 def test_eligible_configuration_with_better_precision_wins():
@@ -225,7 +206,6 @@ def test_eligible_configuration_with_better_precision_wins():
     rows = []
 
     for dataset in SELECTION_DATASETS:
-
         rows.append(
             make_result(
                 "Test Model",
@@ -257,18 +237,9 @@ def test_eligible_configuration_with_better_precision_wins():
         recall_tolerance=0.02,
     )
 
-    overall = (
-        results[
-            results["Test Dataset"]
-            == "OVERALL"
-        ]
-        .sort_values("Rank")
-    )
+    overall = results[results["Test Dataset"] == "OVERALL"].sort_values("Rank")
 
-    assert (
-        overall.iloc[0]["Parameter"]
-        == "HIGH_PRECISION"
-    )
+    assert overall.iloc[0]["Parameter"] == "HIGH_PRECISION"
 
 
 def test_temperature_drift_does_not_affect_overall_selection():
@@ -276,7 +247,6 @@ def test_temperature_drift_does_not_affect_overall_selection():
     rows = []
 
     for dataset in SELECTION_DATASETS:
-
         rows.append(
             make_result(
                 "Test Model",
@@ -305,26 +275,22 @@ def test_temperature_drift_does_not_affect_overall_selection():
 
     results = rank_results(rows)
 
-    overall = results[
-        results["Test Dataset"] == "OVERALL"
-    ]
+    overall = results[results["Test Dataset"] == "OVERALL"]
 
     assert len(overall) == 1
-    assert overall.iloc[0]["Model"] == (
-        "Test Model"
-    )
+    assert overall.iloc[0]["Model"] == ("Test Model")
 
 
 # =====================================================================
 # RESULT SANITY
 # =====================================================================
 
+
 def test_ranking_metrics_are_valid():
 
     rows = []
 
     for dataset in DATASETS:
-
         rows.append(
             make_result(
                 "Isolation Forest",
@@ -345,7 +311,6 @@ def test_ranking_metrics_are_valid():
         "Recall",
         "F1",
     ]:
-
         values = results[column].dropna()
 
         assert values.between(
@@ -359,12 +324,9 @@ def test_ranking_metrics_are_valid():
         "FP",
         "FN",
     ]:
-
         values = results[column].dropna()
 
-        assert (
-            values >= 0
-        ).all()
+        assert (values >= 0).all()
 
 
 def test_r4_model_and_dataset_contract():

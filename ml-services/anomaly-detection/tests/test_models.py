@@ -8,11 +8,7 @@ from src.isolation_forest_model import IsolationForestModel
 from src.lof_model import LOFModel
 from src.one_class_svm_model import OneClassSVMModel
 
-
-OUTPUT_DIR = (
-    Path(__file__).resolve().parent.parent
-    / "output"
-)
+OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
 
 
 FEATURES = [
@@ -25,33 +21,17 @@ FEATURES = [
 @pytest.fixture(scope="module")
 def datasets():
 
-    train_path = (
-        OUTPUT_DIR
-        / "train_normal.csv"
-    )
+    train_path = OUTPUT_DIR / "train_normal.csv"
 
-    test_path = (
-        OUTPUT_DIR
-        / "test_combined_anomaly.csv"
-    )
+    test_path = OUTPUT_DIR / "test_combined_anomaly.csv"
 
-    assert train_path.exists(), (
-        f"Training dataset not found: "
-        f"{train_path}"
-    )
+    assert train_path.exists(), f"Training dataset not found: {train_path}"
 
-    assert test_path.exists(), (
-        f"Test dataset not found: "
-        f"{test_path}"
-    )
+    assert test_path.exists(), f"Test dataset not found: {test_path}"
 
-    train_df = pd.read_csv(
-        train_path
-    )
+    train_df = pd.read_csv(train_path)
 
-    test_df = pd.read_csv(
-        test_path
-    )
+    test_df = pd.read_csv(test_path)
 
     return train_df, test_df
 
@@ -75,15 +55,9 @@ def test_model_training_and_prediction(
     # Verify required columns
     # --------------------------------------------------------
 
-    assert all(
-        column in train_df.columns
-        for column in FEATURES
-    )
+    assert all(column in train_df.columns for column in FEATURES)
 
-    assert all(
-        column in test_df.columns
-        for column in FEATURES
-    )
+    assert all(column in test_df.columns for column in FEATURES)
 
     assert "is_anomaly" in test_df.columns
 
@@ -92,16 +66,9 @@ def test_model_training_and_prediction(
     # planted anomalies.
     # --------------------------------------------------------
 
-    actual = (
-        test_df["is_anomaly"]
-        .to_numpy()
-        .astype(int)
-    )
+    actual = test_df["is_anomaly"].to_numpy().astype(int)
 
-    assert actual.sum() > 0, (
-        "Combined anomaly test dataset "
-        "contains no anomalies."
-    )
+    assert actual.sum() > 0, "Combined anomaly test dataset contains no anomalies."
 
     # --------------------------------------------------------
     # Create model
@@ -113,25 +80,19 @@ def test_model_training_and_prediction(
     # Train only on normal training data
     # --------------------------------------------------------
 
-    model.train(
-        train_df[FEATURES]
-    )
+    model.train(train_df[FEATURES])
 
     # --------------------------------------------------------
     # Predict
     # --------------------------------------------------------
 
-    predictions = model.predict(
-        test_df[FEATURES]
-    )
+    predictions = model.predict(test_df[FEATURES])
 
     # --------------------------------------------------------
     # Prediction count must match test samples
     # --------------------------------------------------------
 
-    assert len(predictions) == len(
-        test_df
-    )
+    assert len(predictions) == len(test_df)
 
     # --------------------------------------------------------
     # sklearn anomaly labels must be:
@@ -140,9 +101,7 @@ def test_model_training_and_prediction(
     #      1 = normal
     # --------------------------------------------------------
 
-    assert set(
-        predictions
-    ).issubset({-1, 1})
+    assert set(predictions).issubset({-1, 1})
 
     # --------------------------------------------------------
     # Convert to binary anomaly labels
@@ -151,9 +110,7 @@ def test_model_training_and_prediction(
     #     0 = normal
     # --------------------------------------------------------
 
-    predicted = (
-        predictions == -1
-    ).astype(int)
+    predicted = (predictions == -1).astype(int)
 
     # --------------------------------------------------------
     # Recall

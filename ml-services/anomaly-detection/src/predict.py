@@ -1,14 +1,12 @@
 import numpy as np
 import pandas as pd
 
-from .adaptive_threshold import (
-    get_adaptive_threshold,
-)
-
 from .adaptive_engine_manager import (
     adaptive_engine_manager,
 )
-
+from .adaptive_threshold import (
+    get_adaptive_threshold,
+)
 from .model_loader import (
     feature_names,
     get_explainer,
@@ -17,9 +15,7 @@ from .model_loader import (
     get_models,
     initialize_adaptive_thresholds,
 )
-
 from .root_cause import match_incident
-
 
 model_labels = {
     "iforest": "Isolation Forest",
@@ -118,10 +114,7 @@ def _get_production_threshold(model_name):
     model_name = str(model_name)
 
     if model_name not in PRODUCTION_THRESHOLDS:
-        raise ValueError(
-            f"No production threshold configured "
-            f"for model: {model_name}"
-        )
+        raise ValueError(f"No production threshold configured for model: {model_name}")
 
     return float(PRODUCTION_THRESHOLDS[model_name])
 
@@ -170,10 +163,7 @@ def _build_explanation(
         f"normalized feature contribution)."
     )
 
-    if (
-        root_cause_hint is not None
-        and root_cause_hint["incident_type"] != "unknown"
-    ):
+    if root_cause_hint is not None and root_cause_hint["incident_type"] != "unknown":
         text += " " + root_cause_hint["description"]
 
     return text
@@ -206,17 +196,13 @@ def _get_prediction_details(
     models = get_models()
 
     if model_name not in models:
-        raise ValueError(
-            f"Unknown model: {model_name}"
-        )
+        raise ValueError(f"Unknown model: {model_name}")
 
     model = models[model_name]
 
     explainer = get_explainer(model_name)
 
-    features = pd.DataFrame(
-        [reading]
-    )[feature_names]
+    features = pd.DataFrame([reading])[feature_names]
 
     model_input = features.to_numpy()
 
@@ -224,9 +210,7 @@ def _get_prediction_details(
     # Native model prediction
     # --------------------------------------------------------
 
-    prediction = model.predict(
-        model_input
-    )[0]
+    prediction = model.predict(model_input)[0]
 
     # --------------------------------------------------------
     # Native model score
@@ -239,29 +223,19 @@ def _get_prediction_details(
     #     higher = more anomalous
     # --------------------------------------------------------
 
-    raw_score = model.score(
-        model_input
-    )[0]
+    raw_score = model.score(model_input)[0]
 
-    anomaly_score = float(
-        -raw_score
-    )
+    anomaly_score = float(-raw_score)
 
     # --------------------------------------------------------
     # R4.5 production decision
     # --------------------------------------------------------
 
-    production_threshold = (
-        _get_production_threshold(
-            model_name
-        )
-    )
+    production_threshold = _get_production_threshold(model_name)
 
-    production_is_anomaly = (
-        _is_production_anomaly(
-            anomaly_score,
-            model_name,
-        )
+    production_is_anomaly = _is_production_anomaly(
+        anomaly_score,
+        model_name,
     )
 
     # --------------------------------------------------------
@@ -271,23 +245,17 @@ def _get_prediction_details(
     reasons = []
 
     if explainer is not None:
-
         values = explainer(
             model_input,
             silent=True,
         )
 
-        contributions = np.abs(
-            values.values[0]
-        )
+        contributions = np.abs(values.values[0])
 
         total = contributions.sum()
 
         if total > 0:
-
-            contributions = (
-                contributions / total
-            )
+            contributions = contributions / total
 
         reasons = sorted(
             [
@@ -316,20 +284,14 @@ def _get_prediction_details(
     # not claim there is an anomaly.
     # --------------------------------------------------------
 
-    primary_reason = (
-        reasons[0]
-        if reasons
-        else None
-    )
+    primary_reason = reasons[0] if reasons else None
 
     root_cause_hint = None
 
     if production_is_anomaly:
-
         library = get_incident_library()
 
         if library is not None:
-
             root_cause_hint = match_incident(
                 reading,
                 library,
@@ -350,51 +312,28 @@ def _get_prediction_details(
 
     return {
         "model": model_name,
-
         "model_label": model_labels.get(
             model_name,
             model_name,
         ),
-
         "model_version": get_model_version(),
-
         # Native sklearn prediction:
         #
         #     -1 = anomaly
         #      1 = normal
-
-        "model_prediction": int(
-            prediction
-        ),
-
-        "model_is_anomaly": bool(
-            prediction == -1
-        ),
-
+        "model_prediction": int(prediction),
+        "model_is_anomaly": bool(prediction == -1),
         # Project normalized score:
         #
         # higher = more anomalous
-
         "score": anomaly_score,
-
         # R4.5 production threshold.
-
-        "production_threshold": (
-            production_threshold
-        ),
-
+        "production_threshold": (production_threshold),
         # R4.5 production decision.
-
-        "production_is_anomaly": (
-            production_is_anomaly
-        ),
-
+        "production_is_anomaly": (production_is_anomaly),
         "reasons": reasons,
-
         "primary_reason": primary_reason,
-
         "root_cause_hint": root_cause_hint,
-
         "explanation": explanation,
     }
 
@@ -433,71 +372,26 @@ def predict(
     )
 
     return {
-        "model": result[
-            "model"
-        ],
-
-        "model_label": result[
-            "model_label"
-        ],
-
-        "model_version": result[
-            "model_version"
-        ],
-
+        "model": result["model"],
+        "model_label": result["model_label"],
+        "model_version": result["model_version"],
         # ----------------------------------------------------
         # Production decision
         # ----------------------------------------------------
-
-        "is_anomaly": (
-            result[
-                "production_is_anomaly"
-            ]
-        ),
-
-        "score": result[
-            "score"
-        ],
-
-        "production_threshold": (
-            result[
-                "production_threshold"
-            ]
-        ),
-
+        "is_anomaly": (result["production_is_anomaly"]),
+        "score": result["score"],
+        "production_threshold": (result["production_threshold"]),
         # ----------------------------------------------------
         # Native model decision
         #
         # Kept for transparency/debugging.
         # ----------------------------------------------------
-
-        "model_prediction": (
-            result[
-                "model_prediction"
-            ]
-        ),
-
-        "model_is_anomaly": (
-            result[
-                "model_is_anomaly"
-            ]
-        ),
-
-        "reasons": result[
-            "reasons"
-        ],
-
-        "primary_reason": result[
-            "primary_reason"
-        ],
-
-        "root_cause_hint": result[
-            "root_cause_hint"
-        ],
-
-        "explanation": result[
-            "explanation"
-        ],
+        "model_prediction": (result["model_prediction"]),
+        "model_is_anomaly": (result["model_is_anomaly"]),
+        "reasons": result["reasons"],
+        "primary_reason": result["primary_reason"],
+        "root_cause_hint": result["root_cause_hint"],
+        "explanation": result["explanation"],
     }
 
 
@@ -530,23 +424,13 @@ def adaptive_predict(
         model_name,
     )
 
-    model_name = result[
-        "model"
-    ]
+    model_name = result["model"]
 
-    manager = get_adaptive_threshold(
-        model_name
-    )
+    manager = get_adaptive_threshold(model_name)
 
-    score = result[
-        "score"
-    ]
+    score = result["score"]
 
-    is_anomaly, threshold = (
-        manager.is_anomaly(
-            score
-        )
-    )
+    is_anomaly, threshold = manager.is_anomaly(score)
 
     alert = bool(is_anomaly)
 
@@ -567,53 +451,18 @@ def adaptive_predict(
         root_cause_hint,
     )
 
-
-
     return {
-        "model": result[
-            "model"
-        ],
-
-        "model_label": result[
-            "model_label"
-        ],
-
-        "model_version": result[
-            "model_version"
-        ],
-
-        "is_anomaly": bool(
-            is_anomaly
-        ),
-
+        "model": result["model"],
+        "model_label": result["model_label"],
+        "model_version": result["model_version"],
+        "is_anomaly": bool(is_anomaly),
         "score": score,
-
-        "adaptive_threshold": (
-            threshold
-        ),
-
-        "model_prediction": (
-            result[
-                "model_prediction"
-            ]
-        ),
-
-        "model_is_anomaly": (
-            result[
-                "model_is_anomaly"
-            ]
-        ),
-
-        "reasons": result[
-            "reasons"
-        ],
-
-        "primary_reason": result[
-            "primary_reason"
-        ],
-
+        "adaptive_threshold": (threshold),
+        "model_prediction": (result["model_prediction"]),
+        "model_is_anomaly": (result["model_is_anomaly"]),
+        "reasons": result["reasons"],
+        "primary_reason": result["primary_reason"],
         "root_cause_hint": root_cause_hint,
-
         "explanation": explanation,
     }
 
@@ -679,9 +528,7 @@ def adaptive_engine_predict(
         model_name,
         "value",
     ):
-        model_name = (
-            model_name.value
-        )
+        model_name = model_name.value
 
     model_name = mapping.get(
         str(model_name),
@@ -702,27 +549,17 @@ def adaptive_engine_predict(
     # to the state machine.
     # --------------------------------------------------------
 
-    engine_result = (
-        adaptive_engine_manager.process(
-            model_name=model_name,
-            score=result[
-                "score"
-            ],
-            temperature=reading[
-                "temperature"
-            ],
-        )
+    engine_result = adaptive_engine_manager.process(
+        model_name=model_name,
+        score=result["score"],
+        temperature=reading["temperature"],
     )
 
     # --------------------------------------------------------
     # Extract state-machine values.
     # --------------------------------------------------------
 
-    threshold = (
-        engine_result.get(
-            "threshold"
-        )
-    )
+    threshold = engine_result.get("threshold")
 
     alert = bool(
         engine_result.get(
@@ -747,99 +584,53 @@ def adaptive_engine_predict(
         root_cause_hint,
     )
 
-
-
     return {
         # ----------------------------------------------------
         # Existing model information
         # ----------------------------------------------------
-
-        "model": result[
-            "model"
-        ],
-
-        "model_label": result[
-            "model_label"
-        ],
-
-        "model_version": result[
-            "model_version"
-        ],
-
-        "score": result[
-            "score"
-        ],
-
-        "model_prediction": (
-            result[
-                "model_prediction"
-            ]
-        ),
-
-        "model_is_anomaly": (
-            result[
-                "model_is_anomaly"
-            ]
-        ),
-
-        "reasons": result[
-            "reasons"
-        ],
-
-        "primary_reason": result[
-            "primary_reason"
-        ],
-
+        "model": result["model"],
+        "model_label": result["model_label"],
+        "model_version": result["model_version"],
+        "score": result["score"],
+        "model_prediction": (result["model_prediction"]),
+        "model_is_anomaly": (result["model_is_anomaly"]),
+        "reasons": result["reasons"],
+        "primary_reason": result["primary_reason"],
         "root_cause_hint": root_cause_hint,
-
         "explanation": explanation,
-
         # ----------------------------------------------------
         # Adaptive decision
         # ----------------------------------------------------
-
         "is_anomaly": alert,
-
-        "adaptive_threshold": (
-            threshold
-        ),
-
+        "adaptive_threshold": (threshold),
         # ----------------------------------------------------
         # State-machine information
         # ----------------------------------------------------
-
-        "state": engine_result.get(
-            "state"
-        ),
-
+        "state": engine_result.get("state"),
         "regime_changed": bool(
             engine_result.get(
                 "regime_changed",
                 False,
             )
         ),
-
         "regime_confirmed": bool(
             engine_result.get(
                 "regime_confirmed",
                 False,
             )
         ),
-
         "temporal_drift": bool(
             engine_result.get(
                 "temporal_drift",
                 False,
             )
         ),
-
         "adapted": bool(
             engine_result.get(
                 "adapted",
                 False,
             )
         ),
-
         "alert": alert,
     }
 
@@ -878,9 +669,7 @@ def predict_with_explanation(
         model_choice,
         "value",
     ):
-        model_choice = (
-            model_choice.value
-        )
+        model_choice = model_choice.value
 
     model_key = mapping.get(
         str(model_choice),
@@ -922,9 +711,7 @@ def adaptive_predict_with_explanation(
         model_choice,
         "value",
     ):
-        model_choice = (
-            model_choice.value
-        )
+        model_choice = model_choice.value
 
     model_key = mapping.get(
         str(model_choice),
@@ -966,9 +753,7 @@ def adaptive_engine_predict_with_explanation(
         model_choice,
         "value",
     ):
-        model_choice = (
-            model_choice.value
-        )
+        model_choice = model_choice.value
 
     model_key = mapping.get(
         str(model_choice),

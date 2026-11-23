@@ -7,10 +7,10 @@ from src.adaptive_threshold import (
     reset_adaptive_thresholds,
 )
 
-
 # ============================================================
 # INITIALIZATION
 # ============================================================
+
 
 def test_initialization_calculates_calibration_threshold():
     """
@@ -35,18 +35,14 @@ def test_initialization_calculates_calibration_threshold():
         percentile=80.0,
     )
 
-    threshold.initialize(
-        scores
-    )
+    threshold.initialize(scores)
 
     expected = np.percentile(
         scores,
         80.0,
     )
 
-    assert threshold.get_threshold() == pytest.approx(
-        expected
-    )
+    assert threshold.get_threshold() == pytest.approx(expected)
 
 
 def test_initialization_keeps_only_recent_scores_for_future_updates():
@@ -71,9 +67,7 @@ def test_initialization_keeps_only_recent_scores_for_future_updates():
         percentile=50.0,
     )
 
-    threshold.initialize(
-        scores
-    )
+    threshold.initialize(scores)
 
     state = threshold.get_state()
 
@@ -101,9 +95,7 @@ def test_empty_initialization_has_no_threshold():
         percentile=99.0,
     )
 
-    threshold.initialize(
-        []
-    )
+    threshold.initialize([])
 
     assert threshold.get_threshold() is None
 
@@ -121,6 +113,7 @@ def test_empty_initialization_has_no_threshold():
 # ============================================================
 # ADAPTIVE UPDATE
 # ============================================================
+
 
 def test_update_starts_adaptive_mode():
     """
@@ -143,13 +136,9 @@ def test_update_starts_adaptive_mode():
         ]
     )
 
-    initial_threshold = (
-        threshold.get_threshold()
-    )
+    initial_threshold = threshold.get_threshold()
 
-    threshold.update(
-        10.0
-    )
+    threshold.update(10.0)
 
     state = threshold.get_state()
 
@@ -157,9 +146,7 @@ def test_update_starts_adaptive_mode():
 
     assert state["sample_count"] == 5
 
-    assert threshold.get_threshold() != pytest.approx(
-        initial_threshold
-    )
+    assert threshold.get_threshold() != pytest.approx(initial_threshold)
 
 
 def test_update_recalculates_threshold_from_rolling_window():
@@ -183,9 +170,7 @@ def test_update_recalculates_threshold_from_rolling_window():
         ]
     )
 
-    threshold.update(
-        10.0
-    )
+    threshold.update(10.0)
 
     expected_scores = np.array(
         [
@@ -202,9 +187,7 @@ def test_update_recalculates_threshold_from_rolling_window():
         80.0,
     )
 
-    assert threshold.get_threshold() == pytest.approx(
-        expected_threshold
-    )
+    assert threshold.get_threshold() == pytest.approx(expected_threshold)
 
 
 def test_rolling_window_discards_oldest_score():
@@ -225,9 +208,7 @@ def test_rolling_window_discards_oldest_score():
         ]
     )
 
-    threshold.update(
-        4.0
-    )
+    threshold.update(4.0)
 
     state = threshold.get_state()
 
@@ -276,9 +257,7 @@ def test_multiple_updates_keep_window_bounded():
         8.0,
         9.0,
     ]:
-        threshold.update(
-            score
-        )
+        threshold.update(score)
 
     state = threshold.get_state()
 
@@ -298,14 +277,13 @@ def test_multiple_updates_keep_window_bounded():
         75.0,
     )
 
-    assert threshold.get_threshold() == pytest.approx(
-        expected_threshold
-    )
+    assert threshold.get_threshold() == pytest.approx(expected_threshold)
 
 
 # ============================================================
 # ANOMALY CLASSIFICATION
 # ============================================================
+
 
 def test_score_below_threshold_is_normal():
     """
@@ -329,17 +307,11 @@ def test_score_below_threshold_is_normal():
         ]
     )
 
-    is_anomaly, active_threshold = (
-        threshold.is_anomaly(
-            1.0
-        )
-    )
+    is_anomaly, active_threshold = threshold.is_anomaly(1.0)
 
     assert is_anomaly is False
 
-    assert active_threshold == pytest.approx(
-        threshold.get_threshold()
-    )
+    assert active_threshold == pytest.approx(threshold.get_threshold())
 
 
 def test_score_above_threshold_is_anomaly():
@@ -363,17 +335,11 @@ def test_score_above_threshold_is_anomaly():
         ]
     )
 
-    is_anomaly, active_threshold = (
-        threshold.is_anomaly(
-            100.0
-        )
-    )
+    is_anomaly, active_threshold = threshold.is_anomaly(100.0)
 
     assert is_anomaly is True
 
-    assert active_threshold == pytest.approx(
-        threshold.get_threshold()
-    )
+    assert active_threshold == pytest.approx(threshold.get_threshold())
 
 
 def test_score_equal_to_threshold_is_not_anomaly():
@@ -400,21 +366,13 @@ def test_score_equal_to_threshold_is_not_anomaly():
         ]
     )
 
-    active_threshold = (
-        threshold.get_threshold()
-    )
+    active_threshold = threshold.get_threshold()
 
-    is_anomaly, returned_threshold = (
-        threshold.is_anomaly(
-            active_threshold
-        )
-    )
+    is_anomaly, returned_threshold = threshold.is_anomaly(active_threshold)
 
     assert is_anomaly is False
 
-    assert returned_threshold == pytest.approx(
-        active_threshold
-    )
+    assert returned_threshold == pytest.approx(active_threshold)
 
 
 def test_anomaly_check_without_calibration_returns_false():
@@ -428,11 +386,7 @@ def test_anomaly_check_without_calibration_returns_false():
         percentile=99.0,
     )
 
-    is_anomaly, active_threshold = (
-        threshold.is_anomaly(
-            100.0
-        )
-    )
+    is_anomaly, active_threshold = threshold.is_anomaly(100.0)
 
     assert is_anomaly is False
 
@@ -442,6 +396,7 @@ def test_anomaly_check_without_calibration_returns_false():
 # ============================================================
 # PERCENTILE BEHAVIOR
 # ============================================================
+
 
 @pytest.mark.parametrize(
     "percentile",
@@ -480,18 +435,14 @@ def test_configured_percentile_is_used(
         percentile=percentile,
     )
 
-    threshold.initialize(
-        scores
-    )
+    threshold.initialize(scores)
 
     expected = np.percentile(
         scores,
         percentile,
     )
 
-    assert threshold.get_threshold() == pytest.approx(
-        expected
-    )
+    assert threshold.get_threshold() == pytest.approx(expected)
 
 
 def test_different_percentiles_produce_different_thresholds():
@@ -525,22 +476,17 @@ def test_different_percentiles_produce_different_thresholds():
         percentile=99.0,
     )
 
-    low.initialize(
-        scores
-    )
+    low.initialize(scores)
 
-    high.initialize(
-        scores
-    )
+    high.initialize(scores)
 
-    assert high.get_threshold() >= (
-        low.get_threshold()
-    )
+    assert high.get_threshold() >= (low.get_threshold())
 
 
 # ============================================================
 # STATE
 # ============================================================
+
 
 def test_state_reports_calibration_mode_correctly():
     """
@@ -568,9 +514,7 @@ def test_state_reports_calibration_mode_correctly():
         "window_size": 5,
         "percentile": 99.0,
         "threshold": state["initial_threshold"],
-        "initial_threshold": state[
-            "initial_threshold"
-        ],
+        "initial_threshold": state["initial_threshold"],
         "adaptive_started": False,
     }
 
@@ -594,9 +538,7 @@ def test_state_reports_adaptive_mode_correctly():
         ]
     )
 
-    threshold.update(
-        4.0
-    )
+    threshold.update(4.0)
 
     state = threshold.get_state()
 
@@ -608,9 +550,7 @@ def test_state_reports_adaptive_mode_correctly():
 
     assert state["adaptive_started"] is True
 
-    assert state["threshold"] == pytest.approx(
-        threshold.get_threshold()
-    )
+    assert state["threshold"] == pytest.approx(threshold.get_threshold())
 
     assert state["initial_threshold"] == pytest.approx(
         np.percentile(
@@ -629,6 +569,7 @@ def test_state_reports_adaptive_mode_correctly():
 # ============================================================
 # RESET
 # ============================================================
+
 
 def test_reset_clears_adaptive_state():
     """
@@ -651,9 +592,7 @@ def test_reset_clears_adaptive_state():
         ]
     )
 
-    threshold.update(
-        10.0
-    )
+    threshold.update(10.0)
 
     threshold.reset()
 
@@ -697,28 +636,20 @@ def test_reset_allows_fresh_initialization():
         ]
     )
 
-    threshold.initialize(
-        first_scores
-    )
+    threshold.initialize(first_scores)
 
-    threshold.update(
-        100.0
-    )
+    threshold.update(100.0)
 
     threshold.reset()
 
-    threshold.initialize(
-        second_scores
-    )
+    threshold.initialize(second_scores)
 
     expected = np.percentile(
         second_scores,
         99.0,
     )
 
-    assert threshold.get_threshold() == pytest.approx(
-        expected
-    )
+    assert threshold.get_threshold() == pytest.approx(expected)
 
     state = threshold.get_state()
 
@@ -730,6 +661,7 @@ def test_reset_allows_fresh_initialization():
 # ============================================================
 # MODEL-SPECIFIC MANAGERS
 # ============================================================
+
 
 def test_model_specific_managers_are_available():
     """
@@ -743,10 +675,7 @@ def test_model_specific_managers_are_available():
     }
 
     for model_name in expected_models:
-
-        manager = get_adaptive_threshold(
-            model_name
-        )
+        manager = get_adaptive_threshold(model_name)
 
         assert isinstance(
             manager,
@@ -772,17 +701,11 @@ def test_model_specific_managers_are_independent(
 
     reset_adaptive_thresholds()
 
-    iforest = get_adaptive_threshold(
-        "iforest"
-    )
+    iforest = get_adaptive_threshold("iforest")
 
-    lof = get_adaptive_threshold(
-        "lof"
-    )
+    lof = get_adaptive_threshold("lof")
 
-    ocsvm = get_adaptive_threshold(
-        "ocsvm"
-    )
+    ocsvm = get_adaptive_threshold("ocsvm")
 
     managers = {
         "iforest": iforest,
@@ -790,9 +713,7 @@ def test_model_specific_managers_are_independent(
         "ocsvm": ocsvm,
     }
 
-    selected = managers[
-        model_name
-    ]
+    selected = managers[model_name]
 
     selected.initialize(
         [
@@ -804,12 +725,9 @@ def test_model_specific_managers_are_independent(
         ]
     )
 
-    selected.update(
-        100.0
-    )
+    selected.update(100.0)
 
     for other_name, other_manager in managers.items():
-
         if other_name == model_name:
             continue
 
@@ -826,14 +744,13 @@ def test_unknown_model_raises_value_error():
         ValueError,
         match="Unknown model",
     ):
-        get_adaptive_threshold(
-            "unknown_model"
-        )
+        get_adaptive_threshold("unknown_model")
 
 
 # ============================================================
 # GLOBAL RESET
 # ============================================================
+
 
 def test_reset_adaptive_thresholds_resets_all_models():
     """
@@ -846,10 +763,7 @@ def test_reset_adaptive_thresholds_resets_all_models():
         "lof",
         "ocsvm",
     ]:
-
-        manager = get_adaptive_threshold(
-            model_name
-        )
+        manager = get_adaptive_threshold(model_name)
 
         manager.initialize(
             [
@@ -859,9 +773,7 @@ def test_reset_adaptive_thresholds_resets_all_models():
             ]
         )
 
-        manager.update(
-            10.0
-        )
+        manager.update(10.0)
 
     reset_adaptive_thresholds()
 
@@ -870,10 +782,7 @@ def test_reset_adaptive_thresholds_resets_all_models():
         "lof",
         "ocsvm",
     ]:
-
-        manager = get_adaptive_threshold(
-            model_name
-        )
+        manager = get_adaptive_threshold(model_name)
 
         state = manager.get_state()
 

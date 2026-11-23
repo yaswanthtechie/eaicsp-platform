@@ -1,18 +1,15 @@
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-
 # ---------------------------------------------------------------------
 # PROJECT PATH
 # ---------------------------------------------------------------------
 
-project_root = (
-    Path(__file__).resolve().parent.parent
-)
+project_root = Path(__file__).resolve().parent.parent
 
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
@@ -25,7 +22,6 @@ if str(project_root) not in sys.path:
 from src.data import generate_all_datasets
 from src.model_loader import get_models
 from src.train import save_models, train_models
-
 
 # ---------------------------------------------------------------------
 # PATHS
@@ -83,10 +79,10 @@ REQUIRED_MODEL_ARTIFACTS = [
 ]
 
 
-
 # ---------------------------------------------------------------------
 # TEST ENVIRONMENT
 # ---------------------------------------------------------------------
+
 
 @pytest.fixture(
     scope="session",
@@ -125,18 +121,11 @@ def setup_test_environment():
     # DATASET CHECK
     # -------------------------------------------------------------
 
-    dataset_paths = [
-        output_dir / filename
-        for filename in REQUIRED_DATASETS
-    ]
+    dataset_paths = [output_dir / filename for filename in REQUIRED_DATASETS]
 
-    datasets_ready = all(
-        path.is_file()
-        for path in dataset_paths
-    )
+    datasets_ready = all(path.is_file() for path in dataset_paths)
 
     if not datasets_ready:
-
         print(
             "\n"
             "============================================================\n"
@@ -150,18 +139,10 @@ def setup_test_environment():
     # VERIFY DATASETS AFTER GENERATION
     # -------------------------------------------------------------
 
-    missing_datasets = [
-        path
-        for path in dataset_paths
-        if not path.is_file()
-    ]
+    missing_datasets = [path for path in dataset_paths if not path.is_file()]
 
     if missing_datasets:
-
-        missing_names = [
-            path.name
-            for path in missing_datasets
-        ]
+        missing_names = [path.name for path in missing_datasets]
 
         raise FileNotFoundError(
             "Dataset generation completed, but "
@@ -173,18 +154,11 @@ def setup_test_environment():
     # MODEL ARTIFACT CHECK
     # -------------------------------------------------------------
 
-    model_paths = [
-        models_dir / filename
-        for filename in REQUIRED_MODEL_ARTIFACTS
-    ]
+    model_paths = [models_dir / filename for filename in REQUIRED_MODEL_ARTIFACTS]
 
-    models_ready = all(
-        path.is_file()
-        for path in model_paths
-    )
+    models_ready = all(path.is_file() for path in model_paths)
 
     if not models_ready:
-
         print(
             "\n"
             "============================================================\n"
@@ -192,46 +166,25 @@ def setup_test_environment():
             "============================================================"
         )
 
-        train_path = (
-            output_dir
-            / "train_normal.csv"
-        )
+        train_path = output_dir / "train_normal.csv"
 
         if not train_path.is_file():
+            raise FileNotFoundError(f"Training dataset is missing: {train_path}")
 
-            raise FileNotFoundError(
-                "Training dataset is missing: "
-                f"{train_path}"
-            )
+        train_df = pd.read_csv(train_path)
 
-        train_df = pd.read_csv(
-            train_path
-        )
+        trained_models = train_models(train_df)
 
-        trained_models = train_models(
-            train_df
-        )
-
-        save_models(
-            trained_models
-        )
+        save_models(trained_models)
 
     # -------------------------------------------------------------
     # VERIFY MODEL ARTIFACTS AFTER TRAINING
     # -------------------------------------------------------------
 
-    missing_models = [
-        path
-        for path in model_paths
-        if not path.is_file()
-    ]
+    missing_models = [path for path in model_paths if not path.is_file()]
 
     if missing_models:
-
-        missing_names = [
-            path.name
-            for path in missing_models
-        ]
+        missing_names = [path.name for path in missing_models]
 
         raise FileNotFoundError(
             "Model training completed, but "
@@ -244,6 +197,7 @@ def setup_test_environment():
 # DATASET LOADING HELPER
 # ---------------------------------------------------------------------
 
+
 def _load_dataset(
     filename,
 ):
@@ -252,33 +206,17 @@ def _load_dataset(
     all required ML features exist.
     """
 
-    path = (
-        output_dir
-        / filename
-    )
+    path = output_dir / filename
 
     if not path.is_file():
+        raise FileNotFoundError(f"Dataset not found: {path}")
 
-        raise FileNotFoundError(
-            f"Dataset not found: {path}"
-        )
+    dataframe = pd.read_csv(path)
 
-    dataframe = pd.read_csv(
-        path
-    )
-
-    missing = [
-        feature
-        for feature in FEATURE_NAMES
-        if feature not in dataframe.columns
-    ]
+    missing = [feature for feature in FEATURE_NAMES if feature not in dataframe.columns]
 
     if missing:
-
-        raise ValueError(
-            f"{filename} is missing required "
-            f"features: {missing}"
-        )
+        raise ValueError(f"{filename} is missing required features: {missing}")
 
     return dataframe
 
@@ -286,6 +224,7 @@ def _load_dataset(
 # ---------------------------------------------------------------------
 # DATASET FIXTURES
 # ---------------------------------------------------------------------
+
 
 @pytest.fixture(
     scope="session",
@@ -297,9 +236,7 @@ def train_df(
     Normal training dataset.
     """
 
-    return _load_dataset(
-        "train_normal.csv"
-    )
+    return _load_dataset("train_normal.csv")
 
 
 @pytest.fixture(
@@ -312,9 +249,7 @@ def calibration_df(
     Normal calibration dataset.
     """
 
-    return _load_dataset(
-        "calibration_normal.csv"
-    )
+    return _load_dataset("calibration_normal.csv")
 
 
 @pytest.fixture(
@@ -327,9 +262,7 @@ def seasonal_df(
     Seasonal normal dataset.
     """
 
-    return _load_dataset(
-        "test_seasonal_normal.csv"
-    )
+    return _load_dataset("test_seasonal_normal.csv")
 
 
 @pytest.fixture(
@@ -342,9 +275,7 @@ def drift_df(
     Temperature-drift dataset.
     """
 
-    return _load_dataset(
-        "test_temperature_drift.csv"
-    )
+    return _load_dataset("test_temperature_drift.csv")
 
 
 @pytest.fixture(
@@ -357,9 +288,7 @@ def spike_df(
     Temperature-spike dataset.
     """
 
-    return _load_dataset(
-        "test_temperature_spike.csv"
-    )
+    return _load_dataset("test_temperature_spike.csv")
 
 
 @pytest.fixture(
@@ -372,9 +301,7 @@ def stock_df(
     Stock anomaly dataset.
     """
 
-    return _load_dataset(
-        "test_stock_anomaly.csv"
-    )
+    return _load_dataset("test_stock_anomaly.csv")
 
 
 @pytest.fixture(
@@ -387,9 +314,7 @@ def combined_df(
     Combined anomaly dataset.
     """
 
-    return _load_dataset(
-        "test_combined_anomaly.csv"
-    )
+    return _load_dataset("test_combined_anomaly.csv")
 
 
 @pytest.fixture(
@@ -409,6 +334,7 @@ def spikes_df(
 # ---------------------------------------------------------------------
 # GENERIC DATASETS FIXTURE
 # ---------------------------------------------------------------------
+
 
 @pytest.fixture(
     scope="session",
@@ -433,6 +359,7 @@ def datasets(
 # MODEL FIXTURE
 # ---------------------------------------------------------------------
 
+
 @pytest.fixture(
     params=MODELS,
 )
@@ -456,6 +383,7 @@ def model_name(
 # MODEL OBJECT FIXTURE
 # ---------------------------------------------------------------------
 
+
 @pytest.fixture
 def model(
     model_name,
@@ -469,19 +397,15 @@ def model(
     models = get_models()
 
     if model_name not in models:
+        raise ValueError(f"Unknown model: {model_name}")
 
-        raise ValueError(
-            f"Unknown model: {model_name}"
-        )
-
-    return models[
-        model_name
-    ]
+    return models[model_name]
 
 
 # ---------------------------------------------------------------------
 # MODEL COLLECTION FIXTURE
 # ---------------------------------------------------------------------
+
 
 @pytest.fixture(
     scope="session",
@@ -495,30 +419,18 @@ def models(
 
     loaded_models = get_models()
 
-    missing = [
-        model_name
-        for model_name in MODELS
-        if model_name not in loaded_models
-    ]
+    missing = [model_name for model_name in MODELS if model_name not in loaded_models]
 
     if missing:
+        raise ValueError(f"Required models are missing from model_loader: {missing}")
 
-        raise ValueError(
-            "Required models are missing "
-            f"from model_loader: {missing}"
-        )
-
-    return {
-        model_name: loaded_models[
-            model_name
-        ]
-        for model_name in MODELS
-    }
+    return {model_name: loaded_models[model_name] for model_name in MODELS}
 
 
 # ---------------------------------------------------------------------
 # SCORE CALCULATION
 # ---------------------------------------------------------------------
+
 
 def _calculate_scores(
     dataframe,
@@ -548,26 +460,14 @@ def _calculate_scores(
         orchestration.py
     """
 
-    missing = [
-        feature
-        for feature in FEATURE_NAMES
-        if feature not in dataframe.columns
-    ]
+    missing = [feature for feature in FEATURE_NAMES if feature not in dataframe.columns]
 
     if missing:
+        raise ValueError(f"Dataset is missing required features: {missing}")
 
-        raise ValueError(
-            "Dataset is missing required "
-            f"features: {missing}"
-        )
+    X = dataframe[FEATURE_NAMES].to_numpy()
 
-    X = dataframe[
-        FEATURE_NAMES
-    ].to_numpy()
-
-    scores = model.score(
-        X
-    )
+    scores = model.score(X)
 
     scores = np.asarray(
         scores,
@@ -575,15 +475,9 @@ def _calculate_scores(
     )
 
     if scores.ndim != 1:
+        scores = scores.reshape(-1)
 
-        scores = scores.reshape(
-            -1
-        )
-
-    if len(scores) != len(
-        dataframe
-    ):
-
+    if len(scores) != len(dataframe):
         raise ValueError(
             "Number of anomaly scores "
             "does not match dataset size: "
@@ -592,19 +486,10 @@ def _calculate_scores(
         )
 
     if scores.size == 0:
+        raise ValueError("No anomaly scores were produced.")
 
-        raise ValueError(
-            "No anomaly scores were produced."
-        )
-
-    if not np.all(
-        np.isfinite(scores)
-    ):
-
-        raise ValueError(
-            "Non-finite anomaly scores "
-            "were produced."
-        )
+    if not np.all(np.isfinite(scores)):
+        raise ValueError("Non-finite anomaly scores were produced.")
 
     return scores
 
@@ -612,6 +497,7 @@ def _calculate_scores(
 # ---------------------------------------------------------------------
 # DEFAULT CALIBRATION SCORES
 # ---------------------------------------------------------------------
+
 
 @pytest.fixture(
     scope="session",
@@ -634,15 +520,11 @@ def calibration_scores(
     models = get_models()
 
     if "lof" not in models:
-
         raise ValueError(
-            "LOF model is required for "
-            "the legacy calibration_scores fixture."
+            "LOF model is required for the legacy calibration_scores fixture."
         )
 
-    model = models[
-        "lof"
-    ]
+    model = models["lof"]
 
     return _calculate_scores(
         calibration_df,
@@ -653,6 +535,7 @@ def calibration_scores(
 # ---------------------------------------------------------------------
 # MODEL-SPECIFIC CALIBRATION SCORES
 # ---------------------------------------------------------------------
+
 
 @pytest.fixture
 def model_calibration_scores(
@@ -666,9 +549,7 @@ def model_calibration_scores(
 
     models = get_models()
 
-    model = models[
-        model_name
-    ]
+    model = models[model_name]
 
     return _calculate_scores(
         calibration_df,
@@ -679,6 +560,7 @@ def model_calibration_scores(
 # ---------------------------------------------------------------------
 # MODEL-SPECIFIC SEASONAL SCORES
 # ---------------------------------------------------------------------
+
 
 @pytest.fixture
 def seasonal_scores(
@@ -692,9 +574,7 @@ def seasonal_scores(
 
     models = get_models()
 
-    model = models[
-        model_name
-    ]
+    model = models[model_name]
 
     return _calculate_scores(
         seasonal_df,
@@ -705,6 +585,7 @@ def seasonal_scores(
 # ---------------------------------------------------------------------
 # MODEL-SPECIFIC DRIFT SCORES
 # ---------------------------------------------------------------------
+
 
 @pytest.fixture
 def drift_scores(
@@ -718,9 +599,7 @@ def drift_scores(
 
     models = get_models()
 
-    model = models[
-        model_name
-    ]
+    model = models[model_name]
 
     return _calculate_scores(
         drift_df,
@@ -731,6 +610,7 @@ def drift_scores(
 # ---------------------------------------------------------------------
 # MODEL-SPECIFIC SPIKE SCORES
 # ---------------------------------------------------------------------
+
 
 @pytest.fixture
 def spike_scores(
@@ -744,9 +624,7 @@ def spike_scores(
 
     models = get_models()
 
-    model = models[
-        model_name
-    ]
+    model = models[model_name]
 
     return _calculate_scores(
         spike_df,
@@ -757,6 +635,7 @@ def spike_scores(
 # ---------------------------------------------------------------------
 # MODEL-SPECIFIC STOCK SCORES
 # ---------------------------------------------------------------------
+
 
 @pytest.fixture
 def stock_scores(
@@ -770,9 +649,7 @@ def stock_scores(
 
     models = get_models()
 
-    model = models[
-        model_name
-    ]
+    model = models[model_name]
 
     return _calculate_scores(
         stock_df,
@@ -783,6 +660,7 @@ def stock_scores(
 # ---------------------------------------------------------------------
 # MODEL-SPECIFIC COMBINED SCORES
 # ---------------------------------------------------------------------
+
 
 @pytest.fixture
 def combined_scores(
@@ -796,9 +674,7 @@ def combined_scores(
 
     models = get_models()
 
-    model = models[
-        model_name
-    ]
+    model = models[model_name]
 
     return _calculate_scores(
         combined_df,
@@ -809,6 +685,7 @@ def combined_scores(
 # ---------------------------------------------------------------------
 # ALL MODEL CALIBRATION SCORES
 # ---------------------------------------------------------------------
+
 
 @pytest.fixture(
     scope="session",
@@ -837,6 +714,7 @@ def all_calibration_scores(
 # ALL MODEL SEASONAL SCORES
 # ---------------------------------------------------------------------
 
+
 @pytest.fixture(
     scope="session",
 )
@@ -863,6 +741,7 @@ def all_seasonal_scores(
 # ---------------------------------------------------------------------
 # ALL MODEL DRIFT SCORES
 # ---------------------------------------------------------------------
+
 
 @pytest.fixture(
     scope="session",
@@ -891,6 +770,7 @@ def all_drift_scores(
 # ALL MODEL SPIKE SCORES
 # ---------------------------------------------------------------------
 
+
 @pytest.fixture(
     scope="session",
 )
@@ -918,6 +798,7 @@ def all_spike_scores(
 # ALL MODEL STOCK SCORES
 # ---------------------------------------------------------------------
 
+
 @pytest.fixture(
     scope="session",
 )
@@ -944,6 +825,7 @@ def all_stock_scores(
 # ---------------------------------------------------------------------
 # ALL MODEL COMBINED SCORES
 # ---------------------------------------------------------------------
+
 
 @pytest.fixture(
     scope="session",

@@ -20,12 +20,11 @@ Rules:
     dropped and counted in `dropped_candidates`.
 """
 
-from datetime import timedelta
 import math
+from datetime import timedelta
 
 
 class EpisodeDetector:
-
     def __init__(
         self,
         gap,
@@ -144,10 +143,7 @@ class EpisodeDetector:
         closed = None
         state = self._state.get(sensor_id)
 
-        if (
-            state is not None
-            and timestamp - state["last_flag_time"] > self.gap
-        ):
+        if state is not None and timestamp - state["last_flag_time"] > self.gap:
             closed = self._close(sensor_id, "quiet")
             state = None
 

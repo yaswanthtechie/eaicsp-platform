@@ -1,4 +1,4 @@
-﻿"""
+"""
 M3 - relationship anomalies: each feature normal, combination abnormal.
 """
 
@@ -51,7 +51,10 @@ def test_relationship_breaks_are_individually_normal(datasets):
     anomalies = test_df[test_df["is_anomaly"] == 1]
 
     z = (
-        (anomalies[["temperature", "humidity"]] - train_df[["temperature", "humidity"]].mean())
+        (
+            anomalies[["temperature", "humidity"]]
+            - train_df[["temperature", "humidity"]].mean()
+        )
         / train_df[["temperature", "humidity"]].std()
     ).abs()
 
@@ -75,13 +78,18 @@ def test_injection_is_reproducible():
     second = inject_relationship_breaks(base, 10, seed=7)
 
     assert first[FEATURES].equals(second[FEATURES])
+
+
 def test_weaker_breaks_are_individually_normal(datasets):
     train_df, _test_df, weaker_test_df = datasets
 
     anomalies = weaker_test_df[weaker_test_df["is_anomaly"] == 1]
 
     z = (
-        (anomalies[["temperature", "humidity"]] - train_df[["temperature", "humidity"]].mean())
+        (
+            anomalies[["temperature", "humidity"]]
+            - train_df[["temperature", "humidity"]].mean()
+        )
         / train_df[["temperature", "humidity"]].std()
     ).abs()
 

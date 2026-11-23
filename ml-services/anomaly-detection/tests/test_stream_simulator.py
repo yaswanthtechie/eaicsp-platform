@@ -1,3 +1,4 @@
+import itertools
 import json
 
 import numpy as np
@@ -51,7 +52,6 @@ def test_episodes_after_warmup_and_separated():
     _, episodes = build_stream()
 
     for sensor in SENSOR_IDS:
-
         own = sorted(
             (e for e in episodes if e["sensor_id"] == sensor),
             key=lambda e: e["start_idx"],
@@ -59,7 +59,7 @@ def test_episodes_after_warmup_and_separated():
 
         assert own[0]["start_idx"] >= WARMUP
 
-        for a, b in zip(own, own[1:]):
+        for a, b in itertools.pairwise(own):
             assert b["start_idx"] - a["end_idx"] >= 40
 
         for e in own:
@@ -84,7 +84,6 @@ def test_episode_values_are_elevated():
     lookup = {(r["sensor_id"], r["timestamp"]): r for r in readings}
 
     for e in episodes:
-
         if e["kind"] != "temperature_spike":
             continue
 

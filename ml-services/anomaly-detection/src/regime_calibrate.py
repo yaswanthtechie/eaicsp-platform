@@ -7,29 +7,21 @@ from .model_loader import (
     feature_names,
     get_models,
 )
-
 from .regime_detector import (
     RegimeDetector,
 )
-
 
 # ============================================================
 # PATHS
 # ============================================================
 
-PROJECT_ROOT = (
-    Path(__file__).resolve().parent.parent
-)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 OUTPUT_DIR = PROJECT_ROOT / "output"
 
-CALIBRATION_DATASET = (
-    OUTPUT_DIR / "calibration_normal.csv"
-)
+CALIBRATION_DATASET = OUTPUT_DIR / "calibration_normal.csv"
 
-SEASONAL_DATASET = (
-    OUTPUT_DIR / "test_seasonal_normal.csv"
-)
+SEASONAL_DATASET = OUTPUT_DIR / "test_seasonal_normal.csv"
 
 
 # ============================================================
@@ -76,7 +68,6 @@ MIN_STABLE_BLOCKS = 2
 # ============================================================
 
 MODEL_CONFIG = {
-
     "iforest": {
         "stability_tolerance": 0.20,
         "shift_sigma_sweep": [
@@ -89,7 +80,6 @@ MODEL_CONFIG = {
             2.50,
         ],
     },
-
     "lof": {
         "stability_tolerance": 0.30,
         "shift_sigma_sweep": [
@@ -108,7 +98,6 @@ MODEL_CONFIG = {
             4.50,
         ],
     },
-
     "ocsvm": {
         "stability_tolerance": 0.20,
         "shift_sigma_sweep": [
@@ -139,6 +128,7 @@ DEFAULT_CONFIG = {
 # SCORE CALCULATION
 # ============================================================
 
+
 def calculate_scores(
     df: pd.DataFrame,
     model,
@@ -151,21 +141,12 @@ def calculate_scores(
     Higher score means more anomalous.
     """
 
-    missing = [
-        name
-        for name in feature_names
-        if name not in df.columns
-    ]
+    missing = [name for name in feature_names if name not in df.columns]
 
     if missing:
-        raise ValueError(
-            "Dataset is missing required "
-            f"features: {missing}"
-        )
+        raise ValueError(f"Dataset is missing required features: {missing}")
 
-    X = df[
-        feature_names
-    ].to_numpy()
+    X = df[feature_names].to_numpy()
 
     raw_scores = model.score(X)
 
@@ -174,14 +155,10 @@ def calculate_scores(
         dtype=float,
     )
 
-    scores = scores[
-        np.isfinite(scores)
-    ]
+    scores = scores[np.isfinite(scores)]
 
     if scores.size == 0:
-        raise ValueError(
-            "No valid scores were generated."
-        )
+        raise ValueError("No valid scores were generated.")
 
     return scores
 
@@ -190,6 +167,7 @@ def calculate_scores(
 # STATISTICS
 # ============================================================
 
+
 def calculate_statistics(scores):
 
     values = np.asarray(
@@ -197,9 +175,7 @@ def calculate_statistics(scores):
         dtype=float,
     )
 
-    values = values[
-        np.isfinite(values)
-    ]
+    values = values[np.isfinite(values)]
 
     if values.size == 0:
         return {
@@ -211,28 +187,14 @@ def calculate_statistics(scores):
             "p99": None,
         }
 
-    median = float(
-        np.median(values)
-    )
+    median = float(np.median(values))
 
-    mad = float(
-        np.median(
-            np.abs(
-                values - median
-            )
-        )
-    )
+    mad = float(np.median(np.abs(values - median)))
 
     return {
-        "samples": int(
-            values.size
-        ),
-        "mean": float(
-            np.mean(values)
-        ),
-        "std": float(
-            np.std(values)
-        ),
+        "samples": int(values.size),
+        "mean": float(np.mean(values)),
+        "std": float(np.std(values)),
         "median": median,
         "mad": mad,
         "p99": float(
@@ -259,6 +221,7 @@ def fmt(
 # MODEL CONFIG
 # ============================================================
 
+
 def get_model_config(
     model_name,
 ):
@@ -272,6 +235,7 @@ def get_model_config(
 # ============================================================
 # DETECTOR CREATION
 # ============================================================
+
 
 def create_detector(
     baseline_scores,
@@ -287,29 +251,17 @@ def create_detector(
     RegimeDetector itself remains model agnostic.
     """
 
-    config = get_model_config(
-        model_name
-    )
+    config = get_model_config(model_name)
 
     detector = RegimeDetector(
         candidate_sizes=CANDIDATE_SIZES,
         baseline_size=BASELINE_SIZE,
-        shift_sigma=float(
-            shift_sigma
-        ),
-        stability_tolerance=float(
-            config[
-                "stability_tolerance"
-            ]
-        ),
-        min_stable_blocks=(
-            MIN_STABLE_BLOCKS
-        ),
+        shift_sigma=float(shift_sigma),
+        stability_tolerance=float(config["stability_tolerance"]),
+        min_stable_blocks=(MIN_STABLE_BLOCKS),
     )
 
-    detector.initialize(
-        baseline_scores
-    )
+    detector.initialize(baseline_scores)
 
     return detector
 
@@ -317,6 +269,7 @@ def create_detector(
 # ============================================================
 # SINGLE CALIBRATION RUN
 # ============================================================
+
 
 def evaluate_shift_sigma(
     calibration_scores,
@@ -351,15 +304,10 @@ def evaluate_shift_sigma(
 
     observations = 0
 
-    for index, score in enumerate(
-        regime_scores
-    ):
-
+    for index, score in enumerate(regime_scores):
         observations += 1
 
-        result = detector.observe(
-            float(score)
-        )
+        result = detector.observe(float(score))
 
         shift_strength = float(
             result.get(
@@ -373,9 +321,7 @@ def evaluate_shift_sigma(
             shift_strength,
         )
 
-        final_shift_strength = (
-            shift_strength
-        )
+        final_shift_strength = shift_strength
 
         stable_blocks = int(
             result.get(
@@ -389,9 +335,7 @@ def evaluate_shift_sigma(
             stable_blocks,
         )
 
-        final_stable_blocks = (
-            stable_blocks
-        )
+        final_stable_blocks = stable_blocks
 
         stage = result.get(
             "stage",
@@ -411,64 +355,33 @@ def evaluate_shift_sigma(
             )
             and confirmation_index is None
         ):
-
             confirmation_index = index
 
-            confirmed_scores = (
-                detector.get_confirmed_scores()
-            )
+            confirmed_scores = detector.get_confirmed_scores()
 
             break
 
     accepted = False
 
     if confirmed_scores:
-
-        detector.accept_regime(
-            confirmed_scores
-        )
+        detector.accept_regime(confirmed_scores)
 
         accepted = True
 
     state = detector.get_state()
 
     return {
-        "shift_sigma": float(
-            shift_sigma
-        ),
-        "detected": (
-            confirmation_index
-            is not None
-        ),
-        "confirmation_index": (
-            confirmation_index
-        ),
-        "confirmed_samples": int(
-            len(
-                confirmed_scores
-            )
-        ),
-        "accepted": bool(
-            accepted
-        ),
-        "max_shift_strength": (
-            max_shift_strength
-        ),
-        "final_shift_strength": (
-            final_shift_strength
-        ),
-        "max_stable_blocks": (
-            max_stable_blocks
-        ),
-        "final_stable_blocks": (
-            final_stable_blocks
-        ),
-        "max_stage": int(
-            max_stage
-        ),
-        "observations_used": int(
-            observations
-        ),
+        "shift_sigma": float(shift_sigma),
+        "detected": (confirmation_index is not None),
+        "confirmation_index": (confirmation_index),
+        "confirmed_samples": len(confirmed_scores),
+        "accepted": bool(accepted),
+        "max_shift_strength": (max_shift_strength),
+        "final_shift_strength": (final_shift_strength),
+        "max_stable_blocks": (max_stable_blocks),
+        "final_stable_blocks": (final_stable_blocks),
+        "max_stage": int(max_stage),
+        "observations_used": int(observations),
         "final_candidate_size": int(
             state.get(
                 "candidate_sample_count",
@@ -482,24 +395,18 @@ def evaluate_shift_sigma(
 # MODEL SWEEP
 # ============================================================
 
+
 def calibrate_model(
     model_name,
     calibration_scores,
     regime_scores,
 ):
 
-    config = get_model_config(
-        model_name
-    )
+    config = get_model_config(model_name)
 
     results = []
 
-    for shift_sigma in (
-        config[
-            "shift_sigma_sweep"
-        ]
-    ):
-
+    for shift_sigma in config["shift_sigma_sweep"]:
         result = evaluate_shift_sigma(
             calibration_scores,
             regime_scores,
@@ -507,9 +414,7 @@ def calibrate_model(
             shift_sigma,
         )
 
-        results.append(
-            result
-        )
+        results.append(result)
 
     return results
 
@@ -518,27 +423,19 @@ def calibrate_model(
 # SUCCESSFUL CANDIDATES
 # ============================================================
 
+
 def successful_results(
     results,
 ):
 
-    return [
-        result
-        for result in results
-        if (
-            result["detected"]
-            and result["accepted"]
-        )
-    ]
+    return [result for result in results if (result["detected"] and result["accepted"])]
 
 
 def summarize_candidates(
     results,
 ):
 
-    successful = successful_results(
-        results
-    )
+    successful = successful_results(results)
 
     if not successful:
         return {
@@ -549,14 +446,12 @@ def summarize_candidates(
 
     lowest = min(
         successful,
-        key=lambda item:
-        item["shift_sigma"],
+        key=lambda item: item["shift_sigma"],
     )
 
     highest = max(
         successful,
-        key=lambda item:
-        item["shift_sigma"],
+        key=lambda item: item["shift_sigma"],
     )
 
     # --------------------------------------------------------
@@ -570,13 +465,10 @@ def summarize_candidates(
 
     successful_sorted = sorted(
         successful,
-        key=lambda item:
-        item["shift_sigma"],
+        key=lambda item: item["shift_sigma"],
     )
 
-    recommended = successful_sorted[
-        len(successful_sorted) // 2
-    ]
+    recommended = successful_sorted[len(successful_sorted) // 2]
 
     return {
         "lowest": lowest,
@@ -589,6 +481,7 @@ def summarize_candidates(
 # PRINT DISTRIBUTION
 # ============================================================
 
+
 def print_statistics(
     title,
     statistics,
@@ -598,49 +491,30 @@ def print_statistics(
     print(title)
     print("-" * 60)
 
-    print(
-        f"Samples       : "
-        f"{statistics['samples']}"
-    )
+    print(f"Samples       : {statistics['samples']}")
 
-    print(
-        f"Mean          : "
-        f"{fmt(statistics['mean'])}"
-    )
+    print(f"Mean          : {fmt(statistics['mean'])}")
 
-    print(
-        f"Std           : "
-        f"{fmt(statistics['std'])}"
-    )
+    print(f"Std           : {fmt(statistics['std'])}")
 
-    print(
-        f"Median        : "
-        f"{fmt(statistics['median'])}"
-    )
+    print(f"Median        : {fmt(statistics['median'])}")
 
-    print(
-        f"MAD           : "
-        f"{fmt(statistics['mad'])}"
-    )
+    print(f"MAD           : {fmt(statistics['mad'])}")
 
-    print(
-        f"P99           : "
-        f"{fmt(statistics['p99'])}"
-    )
+    print(f"P99           : {fmt(statistics['p99'])}")
 
 
 # ============================================================
 # PRINT SWEEP
 # ============================================================
 
+
 def print_sweep_table(
     results,
 ):
 
     print()
-    print(
-        "SHIFT-SIGMA SWEEP"
-    )
+    print("SHIFT-SIGMA SWEEP")
     print("-" * 92)
 
     print(
@@ -657,22 +531,15 @@ def print_sweep_table(
     print("-" * 92)
 
     for result in results:
+        index = result["confirmation_index"]
 
-        index = result[
-            "confirmation_index"
-        ]
-
-        index_text = (
-            str(index)
-            if index is not None
-            else "-"
-        )
+        index_text = str(index) if index is not None else "-"
 
         print(
             f"{result['shift_sigma']:<8.2f}"
-            f"{str(result['detected']):<11}"
+            f"{result['detected']!s:<11}"
             f"{index_text:<9}"
-            f"{str(result['accepted']):<9}"
+            f"{result['accepted']!s:<9}"
             f"{result['max_shift_strength']:<12.3f}"
             f"{result['max_stable_blocks']:<9}"
             f"{result['max_stage']:<8}"
@@ -684,6 +551,7 @@ def print_sweep_table(
 # MODEL SUMMARY
 # ============================================================
 
+
 def print_model_summary(
     model_name,
     calibration_scores,
@@ -691,104 +559,58 @@ def print_model_summary(
     results,
 ):
 
-    config = get_model_config(
-        model_name
-    )
+    config = get_model_config(model_name)
 
-    candidates = (
-        summarize_candidates(
-            results
-        )
-    )
+    candidates = summarize_candidates(results)
 
     print()
     print("=" * 80)
-    print(
-        f"MODEL: {model_name.upper()}"
-    )
+    print(f"MODEL: {model_name.upper()}")
     print("=" * 80)
 
-    print(
-        f"Stability tolerance : "
-        f"{config['stability_tolerance']:.2f}"
-    )
+    print(f"Stability tolerance : {config['stability_tolerance']:.2f}")
 
-    print(
-        f"Shift sweep         : "
-        f"{config['shift_sigma_sweep']}"
-    )
+    print(f"Shift sweep         : {config['shift_sigma_sweep']}")
 
     print_statistics(
         "CALIBRATION",
-        calculate_statistics(
-            calibration_scores
-        ),
+        calculate_statistics(calibration_scores),
     )
 
     print_statistics(
         "SEASONAL",
-        calculate_statistics(
-            regime_scores
-        ),
+        calculate_statistics(regime_scores),
     )
 
-    print_sweep_table(
-        results
-    )
+    print_sweep_table(results)
 
     print()
-    print(
-        "SUCCESSFUL RANGE"
-    )
+    print("SUCCESSFUL RANGE")
     print("-" * 80)
 
-    if candidates[
-        "lowest"
-    ] is None:
+    if candidates["lowest"] is None:
+        print("No shift_sigma value produced confirmation + acceptance.")
 
-        print(
-            "No shift_sigma value produced "
-            "confirmation + acceptance."
-        )
-
-        print(
-            "This model requires further "
-            "stability calibration."
-        )
+        print("This model requires further stability calibration.")
 
     else:
+        lowest = candidates["lowest"]["shift_sigma"]
 
-        lowest = candidates[
-            "lowest"
-        ]["shift_sigma"]
+        highest = candidates["highest"]["shift_sigma"]
 
-        highest = candidates[
-            "highest"
-        ]["shift_sigma"]
+        recommended = candidates["recommended"]["shift_sigma"]
 
-        recommended = candidates[
-            "recommended"
-        ]["shift_sigma"]
+        print(f"Lowest successful : {lowest:.2f}")
 
-        print(
-            f"Lowest successful : "
-            f"{lowest:.2f}"
-        )
+        print(f"Highest successful: {highest:.2f}")
 
-        print(
-            f"Highest successful: "
-            f"{highest:.2f}"
-        )
-
-        print(
-            f"Candidate midpoint: "
-            f"{recommended:.2f}"
-        )
+        print(f"Candidate midpoint: {recommended:.2f}")
 
 
 # ============================================================
 # FINAL SUMMARY
 # ============================================================
+
 
 def print_final_summary(
     all_results,
@@ -796,42 +618,23 @@ def print_final_summary(
 
     print()
     print("=" * 80)
-    print(
-        "MODEL-SPECIFIC REGIME SUMMARY"
-    )
+    print("MODEL-SPECIFIC REGIME SUMMARY")
     print("=" * 80)
 
     print()
 
     print(
-        f"{'MODEL':<10}"
-        f"{'TOL':<8}"
-        f"{'SUCCESS':<10}"
-        f"{'LOW':<8}"
-        f"{'HIGH':<8}"
-        f"{'CANDIDATE':<10}"
+        f"{'MODEL':<10}{'TOL':<8}{'SUCCESS':<10}{'LOW':<8}{'HIGH':<8}{'CANDIDATE':<10}"
     )
 
     print("-" * 58)
 
-    for model_name, results in (
-        all_results.items()
-    ):
+    for model_name, results in all_results.items():
+        config = get_model_config(model_name)
 
-        config = get_model_config(
-            model_name
-        )
+        candidates = summarize_candidates(results)
 
-        candidates = (
-            summarize_candidates(
-                results
-            )
-        )
-
-        if candidates[
-            "lowest"
-        ] is None:
-
+        if candidates["lowest"] is None:
             print(
                 f"{model_name:<10}"
                 f"{config['stability_tolerance']:<8.2f}"
@@ -843,23 +646,13 @@ def print_final_summary(
 
             continue
 
-        lowest = candidates[
-            "lowest"
-        ]["shift_sigma"]
+        lowest = candidates["lowest"]["shift_sigma"]
 
-        highest = candidates[
-            "highest"
-        ]["shift_sigma"]
+        highest = candidates["highest"]["shift_sigma"]
 
-        recommended = candidates[
-            "recommended"
-        ]["shift_sigma"]
+        recommended = candidates["recommended"]["shift_sigma"]
 
-        success_count = len(
-            successful_results(
-                results
-            )
-        )
+        success_count = len(successful_results(results))
 
         print(
             f"{model_name:<10}"
@@ -875,67 +668,39 @@ def print_final_summary(
 # MAIN
 # ============================================================
 
+
 def main():
 
     print("=" * 80)
-    print(
-        "MODEL-SPECIFIC REGIME CALIBRATION"
-    )
+    print("MODEL-SPECIFIC REGIME CALIBRATION")
     print("=" * 80)
 
     print()
-    print(
-        f"Calibration : "
-        f"{CALIBRATION_DATASET}"
-    )
+    print(f"Calibration : {CALIBRATION_DATASET}")
 
-    print(
-        f"Seasonal    : "
-        f"{SEASONAL_DATASET}"
-    )
+    print(f"Seasonal    : {SEASONAL_DATASET}")
 
     if not CALIBRATION_DATASET.exists():
-        raise FileNotFoundError(
-            "Calibration dataset not found: "
-            f"{CALIBRATION_DATASET}"
-        )
+        raise FileNotFoundError(f"Calibration dataset not found: {CALIBRATION_DATASET}")
 
     if not SEASONAL_DATASET.exists():
-        raise FileNotFoundError(
-            "Seasonal dataset not found: "
-            f"{SEASONAL_DATASET}"
-        )
+        raise FileNotFoundError(f"Seasonal dataset not found: {SEASONAL_DATASET}")
 
-    calibration_df = pd.read_csv(
-        CALIBRATION_DATASET
-    )
+    calibration_df = pd.read_csv(CALIBRATION_DATASET)
 
-    seasonal_df = pd.read_csv(
-        SEASONAL_DATASET
-    )
+    seasonal_df = pd.read_csv(SEASONAL_DATASET)
 
     print()
-    print(
-        f"Calibration samples : "
-        f"{len(calibration_df)}"
-    )
+    print(f"Calibration samples : {len(calibration_df)}")
 
-    print(
-        f"Seasonal samples    : "
-        f"{len(seasonal_df)}"
-    )
+    print(f"Seasonal samples    : {len(seasonal_df)}")
 
     print()
-    print(
-        "MODEL CONFIGURATION"
-    )
+    print("MODEL CONFIGURATION")
     print("-" * 80)
 
     for model_name in get_models():
-
-        config = get_model_config(
-            model_name
-        )
+        config = get_model_config(model_name)
 
         print(
             f"{model_name:<10}"
@@ -950,49 +715,32 @@ def main():
     # --------------------------------------------------------
 
     print()
-    print(
-        "GENERATING MODEL SCORES"
-    )
+    print("GENERATING MODEL SCORES")
     print("-" * 80)
 
     models = get_models()
 
     model_scores = {}
 
-    for model_name, model in (
-        models.items()
-    ):
+    for model_name, model in models.items():
+        print(f"  {model_name.upper()}...")
 
-        print(
-            f"  {model_name.upper()}..."
+        calibration_scores = calculate_scores(
+            calibration_df,
+            model,
         )
 
-        calibration_scores = (
-            calculate_scores(
-                calibration_df,
-                model,
-            )
+        seasonal_scores = calculate_scores(
+            seasonal_df,
+            model,
         )
 
-        seasonal_scores = (
-            calculate_scores(
-                seasonal_df,
-                model,
-            )
-        )
-
-        model_scores[
-            model_name
-        ] = {
-            "calibration":
-                calibration_scores,
-            "seasonal":
-                seasonal_scores,
+        model_scores[model_name] = {
+            "calibration": calibration_scores,
+            "seasonal": seasonal_scores,
         }
 
-    print(
-        "Scores generated."
-    )
+    print("Scores generated.")
 
     # --------------------------------------------------------
     # Run each model independently.
@@ -1001,10 +749,7 @@ def main():
     all_results = {}
 
     for model_name in models:
-
-        scores = model_scores[
-            model_name
-        ]
+        scores = model_scores[model_name]
 
         results = calibrate_model(
             model_name,
@@ -1012,9 +757,7 @@ def main():
             scores["seasonal"],
         )
 
-        all_results[
-            model_name
-        ] = results
+        all_results[model_name] = results
 
         print_model_summary(
             model_name,
@@ -1027,9 +770,7 @@ def main():
     # Final compact comparison.
     # --------------------------------------------------------
 
-    print_final_summary(
-        all_results
-    )
+    print_final_summary(all_results)
 
     # --------------------------------------------------------
     # Interpretation.
@@ -1037,63 +778,30 @@ def main():
 
     print()
     print("=" * 80)
-    print(
-        "INTERPRETATION"
-    )
+    print("INTERPRETATION")
     print("=" * 80)
 
-    for model_name, results in (
-        all_results.items()
-    ):
+    for model_name, results in all_results.items():
+        candidates = summarize_candidates(results)
 
-        candidates = (
-            summarize_candidates(
-                results
-            )
-        )
-
-        if candidates[
-            "recommended"
-        ] is None:
-
+        if candidates["recommended"] is None:
             print()
-            print(
-                f"[INFO] {model_name.upper()}: "
-                "no successful configuration."
-            )
+            print(f"[INFO] {model_name.upper()}: no successful configuration.")
 
-            if (
-                model_name.lower()
-                == "lof"
-            ):
-                print(
-                    "       LOF still requires "
-                    "stability investigation."
-                )
+            if model_name.lower() == "lof":
+                print("       LOF still requires stability investigation.")
 
         else:
-
-            recommended = candidates[
-                "recommended"
-            ]["shift_sigma"]
+            recommended = candidates["recommended"]["shift_sigma"]
 
             print()
             print(
-                f"[PASS] {model_name.upper()}: "
-                "seasonal regime confirmed "
-                "and accepted."
+                f"[PASS] {model_name.upper()}: seasonal regime confirmed and accepted."
             )
 
-            print(
-                f"       Candidate sigma: "
-                f"{recommended:.2f}"
-            )
+            print(f"       Candidate sigma: {recommended:.2f}")
 
-            if (
-                model_name.lower()
-                == "lof"
-            ):
-
+            if model_name.lower() == "lof":
                 print(
                     "       LOF was evaluated "
                     "with its model-specific "
@@ -1102,41 +810,22 @@ def main():
 
     print()
     print("=" * 80)
-    print(
-        "IMPORTANT"
-    )
+    print("IMPORTANT")
     print("=" * 80)
 
-    print(
-        "Do NOT put the candidate sigma "
-        "directly into production yet."
-    )
+    print("Do NOT put the candidate sigma directly into production yet.")
 
-    print(
-        "The next test must validate each "
-        "model against:"
-    )
+    print("The next test must validate each model against:")
 
-    print(
-        "  1. normal data"
-    )
+    print("  1. normal data")
 
-    print(
-        "  2. seasonal normal data"
-    )
+    print("  2. seasonal normal data")
 
-    print(
-        "  3. true temporal drift"
-    )
+    print("  3. true temporal drift")
 
-    print(
-        "  4. temperature spikes"
-    )
+    print("  4. temperature spikes")
 
-    print(
-        "  5. fixed vs adaptive threshold "
-        "performance"
-    )
+    print("  5. fixed vs adaptive threshold performance")
 
     print()
     print(
@@ -1149,9 +838,7 @@ def main():
 
     print()
     print("=" * 80)
-    print(
-        "MODEL-SPECIFIC REGIME CALIBRATION COMPLETED"
-    )
+    print("MODEL-SPECIFIC REGIME CALIBRATION COMPLETED")
     print("=" * 80)
 
 

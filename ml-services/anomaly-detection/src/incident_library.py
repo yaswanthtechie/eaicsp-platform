@@ -22,7 +22,6 @@ from src.data import (
 )
 from src.root_cause import FEATURES, reading_signature
 
-
 project_root = Path(__file__).resolve().parent.parent
 models_dir = project_root / "models"
 
@@ -114,9 +113,7 @@ def build_incident_library(train_df, labeled_history):
         "stats": stats,
         "signatures": np.vstack(signatures),
         "labels": labels,
-        "descriptions": {
-            t: INCIDENT_DESCRIPTIONS[t] for t in labeled_history
-        },
+        "descriptions": {t: INCIDENT_DESCRIPTIONS[t] for t in labeled_history},
     }
 
 

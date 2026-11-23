@@ -50,7 +50,6 @@ from .config import (
     Z_SPIKE,
 )
 
-
 log = logging.getLogger(__name__)
 
 COLUMN_ALIASES = {
@@ -88,8 +87,7 @@ def normalize_columns(df):
 
         if found is None:
             raise ValueError(
-                f"No {name} column. Expected one of {aliases}; "
-                f"got {list(df.columns)}."
+                f"No {name} column. Expected one of {aliases}; got {list(df.columns)}."
             )
 
         picked[name] = found
@@ -97,7 +95,9 @@ def normalize_columns(df):
     out = pd.DataFrame(
         {
             # ISO dates (YYYY-MM-DD, as in the #322 spec); anything else is a bad row.
-            "date": pd.to_datetime(df[picked["date"]], format="ISO8601", errors="coerce"),
+            "date": pd.to_datetime(
+                df[picked["date"]], format="ISO8601", errors="coerce"
+            ),
             "product": df[picked["product"]].astype("string").str.strip(),
             "warehouse": df[picked["warehouse"]].astype("string").str.strip(),
             "quantity": pd.to_numeric(df[picked["quantity"]], errors="coerce"),
@@ -177,13 +177,10 @@ def explain(quantity, expected, z, direction, weeks):
         basis = f"same weekday median of the last {int(w)} weeks"
 
         if d == "spike":
-            reasons.append(
-                f"sold {q:.0f} vs expected {e:.0f} (z {score:.1f}, {basis})"
-            )
+            reasons.append(f"sold {q:.0f} vs expected {e:.0f} (z {score:.1f}, {basis})")
         elif d == "drop":
             reasons.append(
-                f"sold {q:.0f} vs expected {e:.0f} "
-                f"({100 * q / e:.0f}% of the {basis})"
+                f"sold {q:.0f} vs expected {e:.0f} ({100 * q / e:.0f}% of the {basis})"
             )
         else:
             reasons.append("")

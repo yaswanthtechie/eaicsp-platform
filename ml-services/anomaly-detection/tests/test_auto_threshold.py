@@ -144,9 +144,7 @@ def test_drift_after_adaptation_stops_convergence(tuner):
 
     frozen_at = tuner.threshold
 
-    tuner.evaluate_window(
-        _scores(200, loc=3.0, seed=142) + np.linspace(0.0, 6.0, 200)
-    )
+    tuner.evaluate_window(_scores(200, loc=3.0, seed=142) + np.linspace(0.0, 6.0, 200))
 
     for seed in range(143, 145):
         tuner.evaluate_window(_scores(200, loc=3.0, seed=seed))
@@ -154,10 +152,9 @@ def test_drift_after_adaptation_stops_convergence(tuner):
     assert tuner.freezes >= 1
     assert tuner.threshold == frozen_at
 
+
 def test_observe_buffers_until_a_window_is_full():
-    tuner = SignificanceThresholdTuner(
-        _scores(1000, seed=1), window_size=50
-    )
+    tuner = SignificanceThresholdTuner(_scores(1000, seed=1), window_size=50)
 
     outputs = [tuner.observe(s) for s in _scores(50, seed=14)]
 
@@ -186,9 +183,7 @@ def test_validation():
         SignificanceThresholdTuner(ref).evaluate_window(_scores(5))
 
     with pytest.raises(ValueError):
-        SignificanceThresholdTuner(ref).evaluate_window(
-            np.array([np.nan] * 50)
-        )
+        SignificanceThresholdTuner(ref).evaluate_window(np.array([np.nan] * 50))
 
 
 def test_robust_scale_is_never_zero():

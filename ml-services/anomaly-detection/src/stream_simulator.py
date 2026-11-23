@@ -24,7 +24,6 @@ import pandas as pd
 
 from .sensor_config import CONFIG_PATH, load_sensors
 
-
 FEATURES = ["temperature", "humidity", "door_open", "power"]
 SENSOR_IDS = ["wh1-s1", "wh1-s2", "wh1-s3"]
 
@@ -114,7 +113,6 @@ def _plan_episodes(sensor_index, n, warmup, rng, kinds, kind_order):
     plan = []
 
     for slot, kind in enumerate(ordered):
-
         low, high = kinds[kind]["length"]
 
         if slot_len < high + 60:
@@ -154,7 +152,6 @@ def build_stream(
     episodes = []
 
     for s_idx, sensor_id in enumerate(sensor_ids):
-
         rng = np.random.default_rng([seed, s_idx])
 
         data = _normal_arrays(n_per_sensor, rng)
@@ -162,7 +159,6 @@ def build_stream(
         for kind, start_idx, end_idx in _plan_episodes(
             s_idx, n_per_sensor, warmup, rng, kinds, kind_order
         ):
-
             window = slice(start_idx, end_idx + 1)
             spec = kinds[kind]
             length = end_idx - start_idx + 1
@@ -194,7 +190,6 @@ def build_stream(
             )
 
         for i in range(n_per_sensor):
-
             readings.append(
                 {
                     "sensor_id": sensor_id,
@@ -259,7 +254,6 @@ def publish_to_kafka(readings, bootstrap_servers, topic, delay_seconds=0.0):
             failures.append(str(err))
 
     for reading in readings:
-
         value = json.dumps(reading_to_json(reading)).encode("utf-8")
 
         while True:

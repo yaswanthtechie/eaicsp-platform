@@ -19,11 +19,10 @@ not tuned on results:
     low:      otherwise
 """
 
-from datetime import UTC, datetime
 import math
 import re
 import uuid
-
+from datetime import UTC, datetime
 
 EVENT_TYPE = "iot.anomaly.detected"
 PRODUCER = "anomaly-detection-service"
@@ -73,8 +72,7 @@ def to_utc_iso(value):
 
     if not isinstance(value, datetime):
         raise TypeError(
-            "Expected a datetime or ISO string, "
-            f"got {type(value).__name__}."
+            f"Expected a datetime or ISO string, got {type(value).__name__}."
         )
 
     if value.tzinfo is None:
@@ -108,8 +106,7 @@ def make_message(
         when = f"1 abnormal reading at {start:%H:%M} UTC"
     else:
         when = (
-            f"{n_flagged} abnormal readings between "
-            f"{start:%H:%M} and {end:%H:%M} UTC"
+            f"{n_flagged} abnormal readings between {start:%H:%M} and {end:%H:%M} UTC"
         )
 
     text = (
@@ -128,7 +125,6 @@ def _validate_top_features(top_features):
     cleaned = []
 
     for item in top_features:
-
         feature = item.get("feature")
         contribution = item.get("contribution")
         direction = item.get("direction")
@@ -142,14 +138,10 @@ def _validate_top_features(top_features):
             or not math.isfinite(contribution)
             or not 0.0 <= contribution <= 1.0
         ):
-            raise ValueError(
-                "contribution must be a number between 0 and 1."
-            )
+            raise ValueError("contribution must be a number between 0 and 1.")
 
         if direction not in DIRECTION_VALUES:
-            raise ValueError(
-                f"direction must be one of {DIRECTION_VALUES}."
-            )
+            raise ValueError(f"direction must be one of {DIRECTION_VALUES}.")
 
         if (
             isinstance(shap_value, bool)
@@ -216,9 +208,7 @@ def build_anomaly_event(
         raise ValueError("window_end must not be before window_start.")
 
     if closed_by not in CLOSED_BY_VALUES:
-        raise ValueError(
-            f"closed_by must be one of {CLOSED_BY_VALUES}."
-        )
+        raise ValueError(f"closed_by must be one of {CLOSED_BY_VALUES}.")
 
     for name, number in (
         ("peak_score", peak_score),
@@ -250,7 +240,6 @@ def build_anomaly_event(
     }
 
     if warehouse_id is not None:
-
         if not WAREHOUSE_PATTERN.fullmatch(str(warehouse_id)):
             raise ValueError(f"Bad warehouse_id: {warehouse_id!r}")
 

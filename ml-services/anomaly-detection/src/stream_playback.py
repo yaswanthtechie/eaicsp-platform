@@ -1,10 +1,9 @@
-from pathlib import Path
 import sys
 import time
+from pathlib import Path
 
 import pandas as pd
 import requests
-
 
 # ---- Project paths ----
 
@@ -51,6 +50,7 @@ MAX_READINGS = 450
 
 # ---- Helpers ----
 
+
 def select_mode():
     """
     Ask the user which detection mode should be demonstrated.
@@ -71,26 +71,18 @@ def select_mode():
     print()
 
     while True:
-
-        choice = input(
-            "Enter choice [1-3]: "
-        ).strip()
+        choice = input("Enter choice [1-3]: ").strip()
 
         if choice == "1":
-
             return "adaptive"
 
         if choice == "2":
-
             return "window"
 
         if choice == "3":
-
             return "both"
 
-        print(
-            "[ERROR] Please enter 1, 2, or 3."
-        )
+        print("[ERROR] Please enter 1, 2, or 3.")
 
 
 def build_reading(row, reading_id):
@@ -164,22 +156,15 @@ def build_detection_window(raw_window):
     The original raw rolling buffer is never modified.
     """
 
-    excluded_readings = (
-        incident_manager.get_excluded_readings(
-            MODEL
-        )
-    )
+    excluded_readings = incident_manager.get_excluded_readings(MODEL)
 
     valid_readings = [
         reading
         for reading in raw_window
-        if reading["reading_id"]
-        not in excluded_readings
+        if reading["reading_id"] not in excluded_readings
     ]
 
-    return valid_readings[
-        -WINDOW_SIZE:
-    ]
+    return valid_readings[-WINDOW_SIZE:]
 
 
 def print_incident_summary(
@@ -196,63 +181,36 @@ def print_incident_summary(
 
     print()
     print("=" * 60)
-    print(
-        f"STREAM PLAYBACK COMPLETED - "
-        f"{mode.upper()}"
-    )
+    print(f"STREAM PLAYBACK COMPLETED - {mode.upper()}")
     print("=" * 60)
 
-    print(
-        f"Processed readings       : "
-        f"{processed}"
-    )
+    print(f"Processed readings       : {processed}")
+
+    print(f"Raw anomaly detections   : {total_anomaly_readings}")
+
+    print(f"Unique incident alerts   : {total_alerts}")
+
+    print(f"Excluded readings        : {incident_manager.get_exclusion_count(MODEL)}")
 
     print(
-        f"Raw anomaly detections   : "
-        f"{total_anomaly_readings}"
-    )
-
-    print(
-        f"Unique incident alerts   : "
-        f"{total_alerts}"
-    )
-
-    print(
-        f"Excluded readings        : "
-        f"{incident_manager.get_exclusion_count(MODEL)}"
-    )
-
-    print(
-        f"Final window size        : "
-        f"{len(detection_window) if mode == 'window' else 0}"
+        f"Final window size        : {len(detection_window) if mode == 'window' else 0}"
     )
 
     print()
 
     # Incident summary
 
-    print(
-        "INCIDENT SUMMARY"
-    )
+    print("INCIDENT SUMMARY")
 
     print("-" * 60)
 
-    all_incidents = (
-        incident_manager.get_all_incidents(
-            MODEL
-        )
-    )
+    all_incidents = incident_manager.get_all_incidents(MODEL)
 
     if not all_incidents:
-
-        print(
-            "No incidents detected."
-        )
+        print("No incidents detected.")
 
     else:
-
         for incident in all_incidents:
-
             print(
                 f"start={incident['start']} "
                 f"end={incident['end']} "
@@ -264,58 +222,34 @@ def print_incident_summary(
 
     # Final anomaly summary
 
-    print(
-        "ANOMALY INDICES (incident starts)"
-    )
+    print("ANOMALY INDICES (incident starts)")
 
     print("-" * 60)
 
-    anomaly_indices = [
-        detail["reading_id"]
-        for detail in alert_details
-    ]
+    anomaly_indices = [detail["reading_id"] for detail in alert_details]
 
-    print(
-        anomaly_indices
-    )
+    print(anomaly_indices)
 
     print()
 
-    print(
-        "ANOMALY DETAILS"
-    )
+    print("ANOMALY DETAILS")
 
     print("-" * 60)
 
     if not alert_details:
-
-        print(
-            "No unique anomaly alerts detected."
-        )
+        print("No unique anomaly alerts detected.")
 
     else:
-
         for detail in alert_details:
+            print(f"reading_id={detail['reading_id']}")
 
-            print(
-                f"reading_id={detail['reading_id']}"
-            )
-
-            print(
-                f"score={detail['score']}"
-            )
+            print(f"score={detail['score']}")
 
             if detail["reasons"]:
-
-                print(
-                    f"reasons={detail['reasons']}"
-                )
+                print(f"reasons={detail['reasons']}")
 
             else:
-
-                print(
-                    "reasons=[]"
-                )
+                print("reasons=[]")
 
             print("-" * 60)
 
@@ -323,6 +257,7 @@ def print_incident_summary(
 
 
 # ---- Main ----
+
 
 def run_playback(
     mode,
@@ -339,11 +274,7 @@ def run_playback(
 
     total_readings = end_index - START_INDEX
 
-    api_url = (
-        ADAPTIVE_API_URL
-        if mode == "adaptive"
-        else WINDOW_API_URL
-    )
+    api_url = ADAPTIVE_API_URL if mode == "adaptive" else WINDOW_API_URL
 
     # Configuration output
 
@@ -357,14 +288,10 @@ def run_playback(
     print(f"Model         : {MODEL}")
 
     if mode == "window":
-
         print(f"Window size   : {WINDOW_SIZE}")
 
     else:
-
-        print(
-            f"Batch size    : {WINDOW_SIZE}"
-        )
+        print(f"Batch size    : {WINDOW_SIZE}")
 
     print(f"Start index   : {START_INDEX}")
     print(f"End index     : {end_index - 1}")
@@ -394,13 +321,11 @@ def run_playback(
     index = START_INDEX
 
     while index < end_index:
-
         # ----------------------------------------------------
         # ADAPTIVE MODE
         # ----------------------------------------------------
 
         if mode == "adaptive":
-
             batch_end = min(
                 index + WINDOW_SIZE,
                 end_index,
@@ -412,84 +337,50 @@ def run_playback(
                 index,
                 batch_end,
             ):
-
-                row = df.iloc[
-                    batch_index
-                ]
+                row = df.iloc[batch_index]
 
                 try:
-
                     reading = build_reading(
                         row,
                         reading_id=batch_index,
                     )
 
                 except (ValueError, TypeError) as exc:
-
-                    print(
-                        f"[ERROR] Invalid reading "
-                        f"at index={batch_index}: {exc}"
-                    )
+                    print(f"[ERROR] Invalid reading at index={batch_index}: {exc}")
 
                     continue
 
-                batch_readings.append(
-                    reading
-                )
+                batch_readings.append(reading)
 
             if not batch_readings:
-
                 index = batch_end
 
                 continue
 
             try:
-
-                result = send_adaptive(
-                    batch_readings
-                )
+                result = send_adaptive(batch_readings)
 
             except requests.exceptions.ConnectionError:
+                print("[ERROR] Cannot connect to API.")
 
-                print(
-                    "[ERROR] Cannot connect to API."
-                )
-
-                print(
-                    f"        Expected API at: "
-                    f"{ADAPTIVE_API_URL}"
-                )
+                print(f"        Expected API at: {ADAPTIVE_API_URL}")
 
                 return
 
             except requests.exceptions.Timeout:
-
-                print(
-                    f"[ERROR] API timeout "
-                    f"for readings "
-                    f"{index}-{batch_end - 1}"
-                )
+                print(f"[ERROR] API timeout for readings {index}-{batch_end - 1}")
 
                 index = batch_end
 
                 continue
 
             except requests.exceptions.HTTPError as exc:
-
-                print(
-                    f"[ERROR] HTTP error "
-                    f"for readings "
-                    f"{index}-{batch_end - 1}: {exc}"
-                )
+                print(f"[ERROR] HTTP error for readings {index}-{batch_end - 1}: {exc}")
 
                 try:
+                    print(f"        Response: {exc.response.text}")
 
-                    print(
-                        f"        Response: "
-                        f"{exc.response.text}"
-                    )
-
-                except Exception:
+                except Exception:  # noqa: BLE001, S110 - the error body is optional
                     pass
 
                 index = batch_end
@@ -497,7 +388,6 @@ def run_playback(
                 continue
 
             except requests.exceptions.RequestException as exc:
-
                 print(
                     f"[ERROR] Request failed "
                     f"for readings "
@@ -508,18 +398,14 @@ def run_playback(
 
                 continue
 
-            processed += len(
-                batch_readings
-            )
+            processed += len(batch_readings)
 
             total_anomalies = result.get(
                 "total_anomalies",
                 0,
             )
 
-            total_anomaly_readings += (
-                total_anomalies
-            )
+            total_anomaly_readings += total_anomalies
 
             adaptive_results = result.get(
                 "adaptive_results",
@@ -532,23 +418,15 @@ def run_playback(
             # each result still corresponds to one reading.
 
             for adaptive_result in adaptive_results:
-
-                reading_id = adaptive_result.get(
-                    "reading_id"
-                )
+                reading_id = adaptive_result.get("reading_id")
 
                 if reading_id is None:
-
                     continue
 
                 try:
-
-                    reading_id = int(
-                        reading_id
-                    )
+                    reading_id = int(reading_id)
 
                 except (ValueError, TypeError):
-
                     continue
 
                 is_anomaly = adaptive_result.get(
@@ -556,9 +434,7 @@ def run_playback(
                     False,
                 )
 
-                score = adaptive_result.get(
-                    "score"
-                )
+                score = adaptive_result.get("score")
 
                 reasons = adaptive_result.get(
                     "reasons",
@@ -589,89 +465,59 @@ def run_playback(
                 # individual reading.
 
                 if is_anomaly:
-
                     status = "ANOMALY"
 
                 elif temporal_drift:
-
                     status = "TEMPORAL_DRIFT"
 
                 elif regime_confirmed:
-
                     status = "REGIME_CONFIRMED"
 
                 elif regime_changed:
-
                     status = "REGIME_CHANGE"
 
                 elif adapted:
-
                     status = "ADAPTED"
 
                 else:
-
                     status = "NORMAL"
 
                 print(
-                    f"[ADAPTIVE] "
-                    f"reading_id={reading_id} "
-                    f"status={status} "
-                    f"score={score}"
+                    f"[ADAPTIVE] reading_id={reading_id} status={status} score={score}"
                 )
 
                 # Show lifecycle information directly on
                 # the reading where it happened.
 
                 if regime_changed:
-
-                    print(
-                        f"    [REGIME CHANGE] "
-                        f"reading_id={reading_id}"
-                    )
+                    print(f"    [REGIME CHANGE] reading_id={reading_id}")
 
                 if regime_confirmed:
-
-                    print(
-                        f"    [REGIME CONFIRMED] "
-                        f"reading_id={reading_id}"
-                    )
+                    print(f"    [REGIME CONFIRMED] reading_id={reading_id}")
 
                 if temporal_drift:
-
-                    print(
-                        f"    [TEMPORAL DRIFT] "
-                        f"reading_id={reading_id}"
-                    )
+                    print(f"    [TEMPORAL DRIFT] reading_id={reading_id}")
 
                 if adapted:
-
-                    print(
-                        f"    [THRESHOLD ADAPTED] "
-                        f"reading_id={reading_id}"
-                    )
+                    print(f"    [THRESHOLD ADAPTED] reading_id={reading_id}")
 
                 # Normal readings require no IncidentManager
                 # processing.
 
                 if not is_anomaly:
-
                     continue
 
-                status, incident = (
-                    incident_manager.register_anomaly(
-                        MODEL,
-                        reading_id,
-                        score=score,
-                        reasons=reasons,
-                    )
+                status, incident = incident_manager.register_anomaly(
+                    MODEL,
+                    reading_id,
+                    score=score,
+                    reasons=reasons,
                 )
 
                 if status == "duplicate":
-
                     continue
 
                 if status == "extended":
-
                     print(
                         f"    [INCIDENT UPDATED] "
                         f"start={incident['start']} "
@@ -694,39 +540,25 @@ def run_playback(
                 )
 
                 print()
-                print(
-                    "[ANOMALY ALERT]"
-                )
+                print("[ANOMALY ALERT]")
 
-                print(
-                    f"incident_start={incident['start']}"
-                )
+                print(f"incident_start={incident['start']}")
 
-                print(
-                    f"reading_id={reading_id}"
-                )
+                print(f"reading_id={reading_id}")
 
-                print(
-                    f"score={score}"
-                )
+                print(f"score={score}")
 
                 if reasons:
-
-                    print(
-                        f"reasons={reasons}"
-                    )
+                    print(f"reasons={reasons}")
 
             # Close out any incident that has gone quiet.
 
-            closed = (
-                incident_manager.close_stale_incidents(
-                    MODEL,
-                    batch_end - 1,
-                )
+            closed = incident_manager.close_stale_incidents(
+                MODEL,
+                batch_end - 1,
             )
 
             if closed:
-
                 print()
                 print(
                     f"[INCIDENT CLOSED] "
@@ -737,10 +569,7 @@ def run_playback(
                 )
 
             if DELAY_SECONDS > 0:
-
-                time.sleep(
-                    DELAY_SECONDS
-                )
+                time.sleep(DELAY_SECONDS)
 
             index = batch_end
 
@@ -755,18 +584,13 @@ def run_playback(
         # Build reading
 
         try:
-
             reading = build_reading(
                 row,
                 reading_id=index,
             )
 
         except (ValueError, TypeError) as exc:
-
-            print(
-                f"[ERROR] Invalid reading "
-                f"at index={index}: {exc}"
-            )
+            print(f"[ERROR] Invalid reading at index={index}: {exc}")
 
             index += 1
 
@@ -782,26 +606,14 @@ def run_playback(
         # WINDOW_SIZE valid readings even after anomalies
         # are excluded.
 
-        max_raw_size = (
-            WINDOW_SIZE
-            + incident_manager.get_exclusion_count(
-                MODEL
-            )
-        )
+        max_raw_size = WINDOW_SIZE + incident_manager.get_exclusion_count(MODEL)
 
         if len(raw_window) > max_raw_size:
-
-            raw_window = raw_window[
-                -max_raw_size:
-            ]
+            raw_window = raw_window[-max_raw_size:]
 
         # Build detection window
 
-        detection_window = (
-            build_detection_window(
-                raw_window
-            )
-        )
+        detection_window = build_detection_window(raw_window)
 
         # Buffer only during initial startup.
         #
@@ -809,7 +621,6 @@ def run_playback(
         # every new reading should produce a prediction.
 
         if len(detection_window) < WINDOW_SIZE:
-
             print(
                 f"[BUFFERING] "
                 f"reading_id={index} "
@@ -824,50 +635,29 @@ def run_playback(
         # Send rolling window to API
 
         try:
-
-            result = send_window(
-                detection_window
-            )
+            result = send_window(detection_window)
 
         except requests.exceptions.ConnectionError:
+            print("[ERROR] Cannot connect to API.")
 
-            print(
-                "[ERROR] Cannot connect to API."
-            )
-
-            print(
-                f"        Expected API at: "
-                f"{WINDOW_API_URL}"
-            )
+            print(f"        Expected API at: {WINDOW_API_URL}")
 
             return
 
         except requests.exceptions.Timeout:
-
-            print(
-                f"[ERROR] API timeout "
-                f"at reading_id={index}"
-            )
+            print(f"[ERROR] API timeout at reading_id={index}")
 
             index += 1
 
             continue
 
         except requests.exceptions.HTTPError as exc:
-
-            print(
-                f"[ERROR] HTTP error "
-                f"at reading_id={index}: {exc}"
-            )
+            print(f"[ERROR] HTTP error at reading_id={index}: {exc}")
 
             try:
+                print(f"        Response: {exc.response.text}")
 
-                print(
-                    f"        Response: "
-                    f"{exc.response.text}"
-                )
-
-            except Exception:
+            except Exception:  # noqa: BLE001, S110 - the error body is optional
                 pass
 
             index += 1
@@ -875,11 +665,7 @@ def run_playback(
             continue
 
         except requests.exceptions.RequestException as exc:
-
-            print(
-                f"[ERROR] Request failed "
-                f"at reading_id={index}: {exc}"
-            )
+            print(f"[ERROR] Request failed at reading_id={index}: {exc}")
 
             index += 1
 
@@ -897,64 +683,39 @@ def run_playback(
             [],
         )
 
-        total_anomaly_readings += (
-            total_anomalies
-        )
+        total_anomaly_readings += total_anomalies
 
         # Anomalies found
 
         if total_anomalies > 0:
-
             new_alerts = 0
             extended_incidents = 0
 
             for anomaly in anomalous_readings:
-
-                window_index = anomaly.get(
-                    "reading_index"
-                )
+                window_index = anomaly.get("reading_index")
 
                 if window_index is None:
                     continue
 
                 try:
-
-                    window_index = int(
-                        window_index
-                    )
+                    window_index = int(window_index)
 
                 except (ValueError, TypeError):
-
                     continue
 
                 # Make sure the API returned a valid
                 # position within the submitted window.
 
-                if (
-                    window_index < 0
-                    or window_index >= len(
-                        detection_window
-                    )
-                ):
+                if window_index < 0 or window_index >= len(detection_window):
                     continue
 
                 # Recover the stable dataset reading ID.
 
-                detected_reading = (
-                    detection_window[
-                        window_index
-                    ]
-                )
+                detected_reading = detection_window[window_index]
 
-                reading_id = int(
-                    detected_reading[
-                        "reading_id"
-                    ]
-                )
+                reading_id = int(detected_reading["reading_id"])
 
-                score = anomaly.get(
-                    "score"
-                )
+                score = anomaly.get("score")
 
                 reasons = anomaly.get(
                     "reasons",
@@ -974,21 +735,17 @@ def run_playback(
                 #                in an earlier overlapping
                 #                window -> ignore.
 
-                status, incident = (
-                    incident_manager.register_anomaly(
-                        MODEL,
-                        reading_id,
-                        score=score,
-                        reasons=reasons,
-                    )
+                status, incident = incident_manager.register_anomaly(
+                    MODEL,
+                    reading_id,
+                    score=score,
+                    reasons=reasons,
                 )
 
                 if status == "duplicate":
-
                     continue
 
                 if status == "extended":
-
                     extended_incidents += 1
 
                     print(
@@ -1014,37 +771,20 @@ def run_playback(
                 )
 
                 print()
-                print(
-                    "[ANOMALY ALERT]"
-                )
+                print("[ANOMALY ALERT]")
 
-                print(
-                    f"incident_start={incident['start']}"
-                )
+                print(f"incident_start={incident['start']}")
 
-                print(
-                    f"reading_id={reading_id}"
-                )
+                print(f"reading_id={reading_id}")
 
-                print(
-                    f"window_end={index}"
-                )
+                print(f"window_end={index}")
 
-                print(
-                    f"score={score}"
-                )
+                print(f"score={score}")
 
                 if reasons:
+                    print(f"reasons={reasons}")
 
-                    print(
-                        f"reasons={reasons}"
-                    )
-
-            if (
-                new_alerts > 0
-                or extended_incidents > 0
-            ):
-
+            if new_alerts > 0 or extended_incidents > 0:
                 print()
                 print(
                     f"[DEDUPLICATED] "
@@ -1057,13 +797,7 @@ def run_playback(
         # No anomalies
 
         else:
-
-            print(
-                f"[NORMAL] "
-                f"window_end={index} "
-                f"window_size="
-                f"{len(detection_window)}"
-            )
+            print(f"[NORMAL] window_end={index} window_size={len(detection_window)}")
 
         # Close out any incident that has gone quiet, even
         # when the current reading itself was not anomalous.
@@ -1074,7 +808,6 @@ def run_playback(
         )
 
         if closed:
-
             print()
             print(
                 f"[INCIDENT CLOSED] "
@@ -1087,26 +820,18 @@ def run_playback(
         # Simulate streaming delay
 
         if DELAY_SECONDS > 0:
-
-            time.sleep(
-                DELAY_SECONDS
-            )
+            time.sleep(DELAY_SECONDS)
 
         index += 1
 
     # Close any incident still open at the very end of playback
 
-    final_closed = (
-        incident_manager.close_stale_incidents(
-            MODEL,
-            end_index
-            + incident_manager.GAP_TOLERANCE
-            + 1,
-        )
+    final_closed = incident_manager.close_stale_incidents(
+        MODEL,
+        end_index + incident_manager.GAP_TOLERANCE + 1,
     )
 
     if final_closed:
-
         print()
         print(
             f"[INCIDENT CLOSED] "
@@ -1130,6 +855,7 @@ def run_playback(
 
 # ---- Main ----
 
+
 def main():
 
     # Select detection mode
@@ -1139,25 +865,15 @@ def main():
     # Load dataset
 
     try:
-
-        df = pd.read_csv(
-            DATASET_PATH
-        )
+        df = pd.read_csv(DATASET_PATH)
 
     except FileNotFoundError:
-
-        print(
-            f"[ERROR] Dataset not found: "
-            f"{DATASET}"
-        )
+        print(f"[ERROR] Dataset not found: {DATASET}")
 
         return
 
-    except Exception as exc:
-
-        print(
-            f"[ERROR] Failed to read dataset: {exc}"
-        )
+    except Exception as exc:  # noqa: BLE001 - report any read error and stop
+        print(f"[ERROR] Failed to read dataset: {exc}")
 
         return
 
@@ -1170,53 +886,34 @@ def main():
     ]
 
     missing_columns = [
-        column
-        for column in required_columns
-        if column not in df.columns
+        column for column in required_columns if column not in df.columns
     ]
 
     if missing_columns:
-
-        print(
-            "[ERROR] Missing required columns: "
-            f"{missing_columns}"
-        )
+        print(f"[ERROR] Missing required columns: {missing_columns}")
 
         return
 
     # Validate START_INDEX
 
     if START_INDEX < 0:
-
-        print(
-            "[ERROR] START_INDEX cannot be negative."
-        )
+        print("[ERROR] START_INDEX cannot be negative.")
 
         return
 
     if START_INDEX >= len(df):
-
-        print(
-            f"[ERROR] START_INDEX {START_INDEX} "
-            f"is outside the dataset."
-        )
+        print(f"[ERROR] START_INDEX {START_INDEX} is outside the dataset.")
 
         return
 
     # Calculate playback range
 
     if MAX_READINGS is None:
-
         end_index = len(df)
 
     else:
-
         if MAX_READINGS <= 0:
-
-            print(
-                "[ERROR] MAX_READINGS must be "
-                "positive or None."
-            )
+            print("[ERROR] MAX_READINGS must be positive or None.")
 
             return
 
@@ -1228,7 +925,6 @@ def main():
     # Run selected playback
 
     if mode == "adaptive":
-
         run_playback(
             mode="adaptive",
             df=df,
@@ -1238,7 +934,6 @@ def main():
         return
 
     if mode == "window":
-
         run_playback(
             mode="window",
             df=df,
@@ -1253,7 +948,6 @@ def main():
     # so adaptive and window results remain independent.
 
     if mode == "both":
-
         print()
         print("=" * 60)
         print("RUNNING ADAPTIVE PLAYBACK")

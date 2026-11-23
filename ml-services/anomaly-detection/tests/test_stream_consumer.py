@@ -13,7 +13,6 @@ from src.stream_consumer import (
 )
 from src.stream_processor import InMemoryPublisher
 
-
 GOOD = {
     "sensor_id": "wh1-s1",
     "timestamp": "2026-03-01T00:00:00+00:00",
@@ -38,9 +37,7 @@ def test_settings_defaults():
 
 def test_settings_override():
 
-    s = load_settings(
-        {"KAFKA_BOOTSTRAP_SERVERS": "kafka:29092", "INFLUXDB_TOKEN": "t"}
-    )
+    s = load_settings({"KAFKA_BOOTSTRAP_SERVERS": "kafka:29092", "INFLUXDB_TOKEN": "t"})
 
     assert s["bootstrap_servers"] == "kafka:29092"
 

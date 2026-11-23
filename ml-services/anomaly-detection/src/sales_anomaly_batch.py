@@ -37,12 +37,12 @@ is the event type, anomaly.sales.detected, as for every other event.
 """
 
 import argparse
-from datetime import UTC, datetime, timedelta
 import json
 import logging
 import os
-from pathlib import Path
 import time
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pandas as pd
 
@@ -63,7 +63,6 @@ from .sales_anomaly_tracking import (
     severity_counts,
     tracking_uri,
 )
-
 
 log = logging.getLogger("sales_anomaly_batch")
 
@@ -114,7 +113,7 @@ class PublishedLedger:
         for key in self._seen | self._skipped:
             self._pending.pop(key, None)
 
-        self._file = open(self._path, "a", encoding="utf-8")
+        self._file = open(self._path, "a", encoding="utf-8")  # noqa: SIM115 - closed in close()
 
     def __contains__(self, key):
         return key in self._seen or key in self._skipped
@@ -170,7 +169,7 @@ class JsonlEventLog:
 
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        self._file = open(path, "a", encoding="utf-8")
+        self._file = open(path, "a", encoding="utf-8")  # noqa: SIM115 - closed in close()
 
     def publish(self, event):
         self._file.write(json.dumps(event) + "\n")
@@ -181,7 +180,6 @@ class JsonlEventLog:
 
 
 class KafkaSalesEventPublisher:
-
     def __init__(self, bootstrap_servers, topic=EVENT_TYPE, flush_timeout=10.0):
 
         from confluent_kafka import Producer
@@ -222,7 +220,6 @@ class KafkaSalesEventPublisher:
         last_error = None
 
         for attempt in range(1, attempts + 1):
-
             remaining = self._producer.flush(self._timeout)
 
             if remaining == 0 and not errors:
@@ -268,9 +265,7 @@ def read_sales(path):
         if not files:
             raise FileNotFoundError(f"No .csv files in {path}")
 
-        return pd.concat(
-            [pd.read_csv(f, dtype=str) for f in files], ignore_index=True
-        )
+        return pd.concat([pd.read_csv(f, dtype=str) for f in files], ignore_index=True)
 
     return pd.read_csv(path, dtype=str)
 
@@ -281,7 +276,7 @@ def _check_drift(reference, scores):
     try:
         reference_scores, _ = detect(reference)
         result = check_drift(reference_scores, latest_window(scores))
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - the drift check must never stop the job
         log.warning("Drift check skipped: %s", error)
         return None
 
@@ -318,7 +313,7 @@ def _log_to_mlflow(args, summary):
 
         try:
             setup = registered_setup()
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 - a failed lookup is a warning
             log.warning("Could not look up the registered setup: %s", error)
             setup = None
             lookup_failed = True
@@ -399,7 +394,6 @@ def run(sales, publisher, ledger, last_days=None, dry_run=False, reference=None)
         cutoff = scores["date"].max() - timedelta(days=last_days - 1)
 
     for row in incidents.sort_values(["date", "product", "warehouse"]).itertuples():
-
         if not (
             SKU_PATTERN.fullmatch(str(row.product))
             and WAREHOUSE_PATTERN.fullmatch(str(row.warehouse))
@@ -497,7 +491,6 @@ def main(argv=None):
     publishers = []
 
     if not args.dry_run:
-
         if not args.no_kafka:
             publishers.append(
                 KafkaSalesEventPublisher(
@@ -533,7 +526,7 @@ def main(argv=None):
     if args.reference:
         try:
             reference = read_sales(args.reference)
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 - a bad reference only skips the drift check
             log.warning("Drift check skipped: cannot read --reference: %s", error)
 
     try:

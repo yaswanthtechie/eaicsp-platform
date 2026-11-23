@@ -24,7 +24,6 @@ Usage:
 
 import copy
 
-
 # Below this root-cause similarity the match is flagged low-confidence.
 LOW_CONFIDENCE_SIMILARITY = 0.90
 
@@ -41,14 +40,18 @@ PLAYBOOKS = {
             "Confirm the reading on a second sensor or handheld probe.",
             "Check that doors and dock bays are closed.",
             "Check HVAC / cooling unit status and alarms.",
-            "Move temperature-sensitive stock to a unit in range if the "
-            "reading is confirmed.",
+            (
+                "Move temperature-sensitive stock to a unit in range if the "
+                "reading is confirmed."
+            ),
         ],
         "investigate": [
             "Review the door-open log for the last hour.",
             "Check cooling unit maintenance history.",
-            "Compare with neighbouring sensors to see whether the spike "
-            "is local or zone-wide.",
+            (
+                "Compare with neighbouring sensors to see whether the spike "
+                "is local or zone-wide."
+            ),
         ],
         "escalate_if": [
             "Temperature has not returned to range within 30 minutes.",
@@ -79,8 +82,10 @@ PLAYBOOKS = {
             "The pattern repeats within the same shift.",
         ],
         "close_when": [
-            "System count matches a physical recount, or an adjustment "
-            "is approved and logged.",
+            (
+                "System count matches a physical recount, or an adjustment "
+                "is approved and logged."
+            ),
         ],
     },
     "combined_anomaly": {
@@ -118,16 +123,14 @@ PLAYBOOKS = {
         ],
         "investigate": [
             "Review sensor calibration date and drift history.",
-            "Compare humidity with neighbouring sensors at the same "
-            "temperature.",
+            ("Compare humidity with neighbouring sensors at the same temperature."),
         ],
         "escalate_if": [
             "The reference reading confirms the real humidity is off.",
             "The same sensor flags repeatedly.",
         ],
         "close_when": [
-            "Sensor is recalibrated or replaced, or the moisture source "
-            "is removed.",
+            ("Sensor is recalibrated or replaced, or the moisture source is removed."),
         ],
     },
     "temperature_drift": {
@@ -138,22 +141,24 @@ PLAYBOOKS = {
         "immediate_actions": [
             "Confirm the trend on a second sensor.",
             "Check the cooling unit setpoint and compressor status.",
-            "Do NOT treat the new temperature as the new normal; the "
-            "adaptive threshold is frozen while drift is active.",
+            (
+                "Do NOT treat the new temperature as the new normal; the "
+                "adaptive threshold is frozen while drift is active."
+            ),
         ],
         "investigate": [
-            "Check for a slow refrigerant leak, blocked airflow or a "
-            "failing sensor.",
+            ("Check for a slow refrigerant leak, blocked airflow or a failing sensor."),
             "Review how long the drift has been under way and its rate.",
         ],
         "escalate_if": [
             "The drift continues after the first corrective action.",
-            "Projected temperature will leave the allowed range within "
-            "the shift.",
+            ("Projected temperature will leave the allowed range within the shift."),
         ],
         "close_when": [
-            "Temperature has returned to baseline and the engine has "
-            "recovered from drift lock.",
+            (
+                "Temperature has returned to baseline and the engine has "
+                "recovered from drift lock."
+            ),
         ],
     },
     "unknown": {
@@ -173,8 +178,10 @@ PLAYBOOKS = {
             "The anomaly repeats or spreads to other sensors.",
         ],
         "close_when": [
-            "Root cause is identified and logged. Consider adding it as "
-            "a new labelled incident type.",
+            (
+                "Root cause is identified and logged. Consider adding it as "
+                "a new labelled incident type."
+            ),
         ],
     },
 }
@@ -277,10 +284,14 @@ def format_playbook(playbook):
 
     lines = [
         f"{playbook['title']}  [{playbook['severity'].upper()}]",
-        f"Owner: {playbook['owner']}  |  "
-        f"Respond within {playbook['response_sla_minutes']} min",
-        f"Type: {playbook['incident_type']}  "
-        f"(confidence: {playbook['match_confidence']})",
+        (
+            f"Owner: {playbook['owner']}  |  "
+            f"Respond within {playbook['response_sla_minutes']} min"
+        ),
+        (
+            f"Type: {playbook['incident_type']}  "
+            f"(confidence: {playbook['match_confidence']})"
+        ),
     ]
 
     for heading, key in (
@@ -310,13 +321,19 @@ if __name__ == "__main__":
 
     samples = {
         "temperature_spike": {
-            "temperature": 34.0, "humidity": 45.0, "stock_count": 500,
+            "temperature": 34.0,
+            "humidity": 45.0,
+            "stock_count": 500,
         },
         "stock_anomaly": {
-            "temperature": 22.0, "humidity": 45.0, "stock_count": 850,
+            "temperature": 22.0,
+            "humidity": 45.0,
+            "stock_count": 850,
         },
         "combined_anomaly": {
-            "temperature": 30.0, "humidity": 68.0, "stock_count": 500,
+            "temperature": 30.0,
+            "humidity": 68.0,
+            "stock_count": 500,
         },
     }
 

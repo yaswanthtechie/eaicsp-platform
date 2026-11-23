@@ -27,7 +27,6 @@ from .stream_simulator import (
     reading_to_array,
 )
 
-
 MODEL_VERSION = "stream-1.0"
 
 project_root = Path(__file__).resolve().parent.parent
@@ -36,7 +35,6 @@ MODEL_PATH = models_dir / "stream_model.joblib"
 
 
 class StreamModel:
-
     def __init__(
         self,
         model,
@@ -105,9 +103,7 @@ class StreamModel:
         else:
             shares = positive / total
             order = [
-                int(i)
-                for i in np.argsort(-positive, kind="stable")
-                if positive[i] > 0
+                int(i) for i in np.argsort(-positive, kind="stable") if positive[i] > 0
             ][:top_k]
 
         return [
@@ -115,9 +111,7 @@ class StreamModel:
                 "feature": FEATURES[i],
                 "contribution": round(float(shares[i]), 4),
                 "shap_value": round(float(values[i]), 6),
-                "direction": (
-                    "high" if X[0, i] > self.feature_means[i] else "low"
-                ),
+                "direction": ("high" if X[0, i] > self.feature_means[i] else "low"),
             }
             for i in order
         ]
@@ -138,9 +132,7 @@ def train_stream_model(train_n=5000, calibration_n=2000, background_n=200):
 
     calibration_scores = -np.asarray(model.score(calibration), dtype=float)
 
-    background = train.sample(
-        n=background_n, random_state=TRAIN_SEED
-    ).to_numpy()
+    background = train.sample(n=background_n, random_state=TRAIN_SEED).to_numpy()
 
     return StreamModel(model, calibration_scores, background)
 
@@ -183,8 +175,7 @@ def load_stream_model(path=MODEL_PATH, expected_version=MODEL_VERSION):
 
     if bundle.get("version") != expected_version:
         raise ValueError(
-            f"Model version {bundle.get('version')} != "
-            f"{expected_version}. Retrain it."
+            f"Model version {bundle.get('version')} != {expected_version}. Retrain it."
         )
 
     return bundle["model"]

@@ -26,7 +26,12 @@ def test_calibration_fails_clearly_when_drops_exceed_budget():
     qty = np.full(120, 50.0)
     qty[70::3] = 0.0  # frequent drops to zero
     data = pd.DataFrame(
-        {"sale_date": dates, "sku_id": "SKU-000001", "warehouse": "WH-BLR-01", "quantity_sold": qty}
+        {
+            "sale_date": dates,
+            "sku_id": "SKU-000001",
+            "warehouse": "WH-BLR-01",
+            "quantity_sold": qty,
+        }
     )
 
     with pytest.raises(ValueError, match="over the budget"):
@@ -45,7 +50,9 @@ def test_calibration_fails_clearly_on_a_short_file():
 def test_calibration_fails_clearly_on_a_two_month_file():
 
     clean, _ = make_data(CLEAN_SEED, with_events=False)
-    two_months = clean[clean["sale_date"] < clean["sale_date"].min() + pd.Timedelta(days=60)]
+    two_months = clean[
+        clean["sale_date"] < clean["sale_date"].min() + pd.Timedelta(days=60)
+    ]
 
     with pytest.raises(ValueError, match="covers 60 days"):
         calibrate(two_months)

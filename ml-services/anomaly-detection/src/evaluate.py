@@ -3,8 +3,7 @@ from pathlib import Path
 
 import joblib
 import pandas as pd
-from sklearn.metrics import f1_score,precision_score,recall_score
-
+from sklearn.metrics import f1_score, precision_score, recall_score
 
 project_root = Path(__file__).resolve().parent.parent
 
@@ -25,41 +24,27 @@ def evaluate_model(
     Evaluate a single trained model.
     """
 
-    y_pred = (
-        model.predict(features) == -1
-    ).astype(int)
+    y_pred = (model.predict(features) == -1).astype(int)
 
     return {
         "Model": model_name,
-
         "Precision": precision_score(
             y_true,
             y_pred,
             zero_division=0,
         ),
-
         "Recall": recall_score(
             y_true,
             y_pred,
             zero_division=0,
         ),
-
         "F1": f1_score(
             y_true,
             y_pred,
             zero_division=0,
         ),
-
-        "Caught": (
-            (y_true == 1) &
-            (y_pred == 1)
-        ).sum(),
-
-        "False Alarms": (
-            (y_true == 0) &
-            (y_pred == 1)
-        ).sum(),
-
+        "Caught": ((y_true == 1) & (y_pred == 1)).sum(),
+        "False Alarms": ((y_true == 0) & (y_pred == 1)).sum(),
         "Predicted": y_pred.sum(),
     }
 
@@ -70,20 +55,9 @@ def load_deployed_models():
     """
 
     return {
-        "Isolation Forest": joblib.load(
-            models_dir /
-            "isolation_forest_model.joblib"
-        ),
-
-        "One-Class SVM": joblib.load(
-            models_dir /
-            "one_class_svm_model.joblib"
-        ),
-
-        "Local Outlier Factor": joblib.load(
-            models_dir /
-            "lof_model.joblib"
-        ),
+        "Isolation Forest": joblib.load(models_dir / "isolation_forest_model.joblib"),
+        "One-Class SVM": joblib.load(models_dir / "one_class_svm_model.joblib"),
+        "Local Outlier Factor": joblib.load(models_dir / "lof_model.joblib"),
     }
 
 
@@ -118,11 +92,9 @@ def evaluate_models(
     y_true = df["is_anomaly"]
 
     if models is None:
-
         models = load_deployed_models()
 
     else:
-
         models = {
             "Isolation Forest": models["iforest"],
             "One-Class SVM": models["ocsvm"],
@@ -132,7 +104,6 @@ def evaluate_models(
     results = []
 
     for model_name, model in models.items():
-
         results.append(
             evaluate_model(
                 model,

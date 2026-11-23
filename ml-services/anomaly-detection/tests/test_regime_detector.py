@@ -3,7 +3,6 @@ import pytest
 
 from src.regime_detector import RegimeDetector
 
-
 # ============================================================
 # Helpers
 # ============================================================
@@ -48,11 +47,7 @@ def feed(detector, scores):
     results = []
 
     for score in scores:
-        results.append(
-            detector.observe(
-                float(score)
-            )
-        )
+        results.append(detector.observe(float(score)))
 
     return results
 
@@ -117,17 +112,10 @@ def confirm_stable_shift(
 
     results = []
 
-    for _ in range(
-        max_observations
-    ):
+    for _ in range(max_observations):
+        result = detector.observe(float(value))
 
-        result = detector.observe(
-            float(value)
-        )
-
-        results.append(
-            result
-        )
+        results.append(result)
 
         if result["regime_confirmed"]:
             return results
@@ -141,6 +129,7 @@ def confirm_stable_shift(
 # ============================================================
 # Construction
 # ============================================================
+
 
 def test_default_detector_can_be_created():
 
@@ -192,6 +181,7 @@ def test_candidate_sizes_are_sorted_and_deduplicated():
 # Validation
 # ============================================================
 
+
 def test_invalid_candidate_sizes_are_rejected():
 
     with pytest.raises(
@@ -212,9 +202,7 @@ def test_invalid_baseline_size_is_rejected():
         ValueError,
         match="baseline_size",
     ):
-        RegimeDetector(
-            baseline_size=1
-        )
+        RegimeDetector(baseline_size=1)
 
 
 def test_invalid_shift_sigma_is_rejected():
@@ -223,9 +211,7 @@ def test_invalid_shift_sigma_is_rejected():
         ValueError,
         match="shift_sigma",
     ):
-        RegimeDetector(
-            shift_sigma=0
-        )
+        RegimeDetector(shift_sigma=0)
 
 
 def test_invalid_stability_tolerance_is_rejected():
@@ -234,9 +220,7 @@ def test_invalid_stability_tolerance_is_rejected():
         ValueError,
         match="stability_tolerance",
     ):
-        RegimeDetector(
-            stability_tolerance=-0.1
-        )
+        RegimeDetector(stability_tolerance=-0.1)
 
 
 def test_invalid_min_stable_blocks_is_rejected():
@@ -245,26 +229,21 @@ def test_invalid_min_stable_blocks_is_rejected():
         ValueError,
         match="min_stable_blocks",
     ):
-        RegimeDetector(
-            min_stable_blocks=0
-        )
+        RegimeDetector(min_stable_blocks=0)
 
 
 # ============================================================
 # Initialization
 # ============================================================
 
+
 def test_initialize_creates_trusted_baseline():
 
-    scores = normal_baseline(
-        150
-    )
+    scores = normal_baseline(150)
 
     detector = create_detector()
 
-    detector.initialize(
-        scores
-    )
+    detector.initialize(scores)
 
     state = detector.get_state()
 
@@ -286,65 +265,36 @@ def test_initialize_keeps_only_recent_baseline_scores():
         151.0,
     )
 
-    detector = create_detector(
-        baseline_size=50
-    )
+    detector = create_detector(baseline_size=50)
 
-    detector.initialize(
-        scores
-    )
+    detector.initialize(scores)
 
     state = detector.get_state()
 
-    assert (
-        state["baseline_sample_count"]
-        == 50
-    )
+    assert state["baseline_sample_count"] == 50
 
-    statistics = state[
-        "baseline_statistics"
-    ]
+    statistics = state["baseline_statistics"]
 
     assert statistics is not None
 
-    assert statistics[
-        "mean"
-    ] == pytest.approx(
-        np.mean(
-            scores[-50:]
-        )
-    )
+    assert statistics["mean"] == pytest.approx(np.mean(scores[-50:]))
 
 
 def test_empty_initialization_leaves_detector_empty():
 
     detector = create_detector()
 
-    detector.initialize(
-        []
-    )
+    detector.initialize([])
 
     state = detector.get_state()
 
-    assert (
-        state["baseline_sample_count"]
-        == 0
-    )
+    assert state["baseline_sample_count"] == 0
 
-    assert (
-        state["candidate_sample_count"]
-        == 0
-    )
+    assert state["candidate_sample_count"] == 0
 
-    assert (
-        state["candidate_observations"]
-        == 0
-    )
+    assert state["candidate_observations"] == 0
 
-    assert (
-        state["regime_confirmed"]
-        is False
-    )
+    assert state["regime_confirmed"] is False
 
 
 def test_initialize_replaces_previous_state():
@@ -358,9 +308,7 @@ def test_initialize_replaces_previous_state():
         100,
     )
 
-    detector.initialize(
-        first
-    )
+    detector.initialize(first)
 
     feed(
         detector,
@@ -370,49 +318,27 @@ def test_initialize_replaces_previous_state():
         ),
     )
 
-    detector.initialize(
-        second
-    )
+    detector.initialize(second)
 
     state = detector.get_state()
 
-    assert (
-        state["baseline_sample_count"]
-        == 100
-    )
+    assert state["baseline_sample_count"] == 100
 
-    assert (
-        state["candidate_sample_count"]
-        == 0
-    )
+    assert state["candidate_sample_count"] == 0
 
-    assert (
-        state["candidate_observations"]
-        == 0
-    )
+    assert state["candidate_observations"] == 0
 
-    assert (
-        state["candidate_started"]
-        is False
-    )
+    assert state["candidate_started"] is False
 
-    assert (
-        state["regime_confirmed"]
-        is False
-    )
+    assert state["regime_confirmed"] is False
 
-    assert (
-        state["baseline_statistics"]
-        ["mean"]
-        == pytest.approx(
-            20.0
-        )
-    )
+    assert state["baseline_statistics"]["mean"] == pytest.approx(20.0)
 
 
 # ============================================================
 # Normal operation
 # ============================================================
+
 
 def test_original_baseline_does_not_confirm_regime():
 
@@ -420,24 +346,16 @@ def test_original_baseline_does_not_confirm_regime():
 
     detector = create_detector()
 
-    detector.initialize(
-        baseline
-    )
+    detector.initialize(baseline)
 
     results = feed(
         detector,
         baseline,
     )
 
-    assert (
-        detector.is_confirmed()
-        is False
-    )
+    assert detector.is_confirmed() is False
 
-    assert not any(
-        result["regime_confirmed"]
-        for result in results
-    )
+    assert not any(result["regime_confirmed"] for result in results)
 
 
 def test_normal_scores_do_not_report_shift():
@@ -446,58 +364,38 @@ def test_normal_scores_do_not_report_shift():
 
     detector = create_detector()
 
-    detector.initialize(
-        baseline
-    )
+    detector.initialize(baseline)
 
     results = feed(
         detector,
         baseline,
     )
 
-    assert not any(
-        result["shift_detected"]
-        for result in results
-    )
+    assert not any(result["shift_detected"] for result in results)
 
 
 # ============================================================
 # Candidate lifecycle
 # ============================================================
 
+
 def test_first_observation_starts_candidate():
 
     detector = create_detector()
 
-    detector.initialize(
-        normal_baseline()
-    )
+    detector.initialize(normal_baseline())
 
-    result = detector.observe(
-        5.0
-    )
+    result = detector.observe(5.0)
 
     state = detector.get_state()
 
-    assert (
-        state["candidate_started"]
-        is True
-    )
+    assert state["candidate_started"] is True
 
-    assert (
-        state["candidate_sample_count"]
-        == 1
-    )
+    assert state["candidate_sample_count"] == 1
 
-    assert (
-        state["candidate_observations"]
-        == 1
-    )
+    assert state["candidate_observations"] == 1
 
-    assert (
-        result["candidate_started"]
-        is True
-    )
+    assert result["candidate_started"] is True
 
 
 def test_candidate_observations_do_not_modify_trusted_baseline():
@@ -506,9 +404,7 @@ def test_candidate_observations_do_not_modify_trusted_baseline():
 
     detector = create_detector()
 
-    detector.initialize(
-        baseline
-    )
+    detector.initialize(baseline)
 
     before = detector.get_state()
 
@@ -522,18 +418,10 @@ def test_candidate_observations_do_not_modify_trusted_baseline():
 
     after = detector.get_state()
 
-    assert (
-        after["baseline_sample_count"]
-        == before["baseline_sample_count"]
-    )
+    assert after["baseline_sample_count"] == before["baseline_sample_count"]
 
-    assert (
-        after["baseline_statistics"]["mean"]
-        == pytest.approx(
-            before[
-                "baseline_statistics"
-            ]["mean"]
-        )
+    assert after["baseline_statistics"]["mean"] == pytest.approx(
+        before["baseline_statistics"]["mean"]
     )
 
 
@@ -547,9 +435,7 @@ def test_candidate_storage_is_bounded():
         ]
     )
 
-    detector.initialize(
-        normal_baseline()
-    )
+    detector.initialize(normal_baseline())
 
     feed(
         detector,
@@ -561,35 +447,23 @@ def test_candidate_storage_is_bounded():
 
     state = detector.get_state()
 
-    assert (
-        state["candidate_sample_count"]
-        <= 50
-    )
+    assert state["candidate_sample_count"] <= 50
 
-    assert (
-        state["candidate_observations"]
-        <= 51
-    )
+    assert state["candidate_observations"] <= 51
 
-    assert (
-        state["candidate_observations"]
-        >= state["candidate_sample_count"]
-    )
+    assert state["candidate_observations"] >= state["candidate_sample_count"]
 
 
 # ============================================================
 # Shift detection
 # ============================================================
 
+
 def test_sustained_shift_is_detected():
 
-    detector = create_detector(
-        shift_sigma=1.5
-    )
+    detector = create_detector(shift_sigma=1.5)
 
-    detector.initialize(
-        normal_baseline()
-    )
+    detector.initialize(normal_baseline())
 
     results = feed(
         detector,
@@ -599,19 +473,14 @@ def test_sustained_shift_is_detected():
         ),
     )
 
-    assert any(
-        result["shift_detected"]
-        for result in results
-    )
+    assert any(result["shift_detected"] for result in results)
 
 
 def test_short_shift_does_not_confirm_regime():
 
     detector = create_detector()
 
-    detector.initialize(
-        normal_baseline()
-    )
+    detector.initialize(normal_baseline())
 
     feed(
         detector,
@@ -621,26 +490,18 @@ def test_short_shift_does_not_confirm_regime():
         ),
     )
 
-    assert (
-        detector.is_confirmed()
-        is False
-    )
+    assert detector.is_confirmed() is False
 
     state = detector.get_state()
 
-    assert (
-        state["regime_confirmed"]
-        is False
-    )
+    assert state["regime_confirmed"] is False
 
 
 def test_shift_strength_is_positive_for_large_shift():
 
     detector = create_detector()
 
-    detector.initialize(
-        normal_baseline()
-    )
+    detector.initialize(normal_baseline())
 
     results = feed(
         detector,
@@ -650,19 +511,15 @@ def test_shift_strength_is_positive_for_large_shift():
         ),
     )
 
-    strengths = [
-        result["shift_strength"]
-        for result in results
-    ]
+    strengths = [result["shift_strength"] for result in results]
 
-    assert max(
-        strengths
-    ) > 0
+    assert max(strengths) > 0
 
 
 # ============================================================
 # Stability
 # ============================================================
+
 
 def test_stable_constant_shift_has_stable_diagnostics():
 
@@ -675,9 +532,7 @@ def test_stable_constant_shift_has_stable_diagnostics():
         ]
     )
 
-    detector.initialize(
-        normal_baseline()
-    )
+    detector.initialize(normal_baseline())
 
     results = feed(
         detector,
@@ -688,28 +543,16 @@ def test_stable_constant_shift_has_stable_diagnostics():
     )
 
     stable_results = [
-        result
-        for result in results
-        if result[
-            "stability_reason"
-        ] == "stable"
+        result for result in results if result["stability_reason"] == "stable"
     ]
 
     assert stable_results
 
-    diagnostics = stable_results[-1][
-        "stability_diagnostics"
-    ]
+    diagnostics = stable_results[-1]["stability_diagnostics"]
 
-    assert diagnostics[
-        "stable"
-    ] is True
+    assert diagnostics["stable"] is True
 
-    assert len(
-        diagnostics[
-            "block_medians"
-        ]
-    ) == 3
+    assert len(diagnostics["block_medians"]) == 3
 
 
 def test_unstable_shift_does_not_confirm_regime():
@@ -726,9 +569,7 @@ def test_unstable_shift_does_not_confirm_regime():
         min_stable_blocks=2,
     )
 
-    detector.initialize(
-        normal_baseline()
-    )
+    detector.initialize(normal_baseline())
 
     unstable_shift = np.concatenate(
         [
@@ -752,35 +593,25 @@ def test_unstable_shift_does_not_confirm_regime():
         unstable_shift,
     )
 
-    assert any(
-        result["shift_detected"]
-        for result in results
-    )
+    assert any(result["shift_detected"] for result in results)
 
-    assert (
-        detector.is_confirmed()
-        is False
-    )
+    assert detector.is_confirmed() is False
 
     state = detector.get_state()
 
-    assert (
-        state["regime_confirmed"]
-        is False
-    )
+    assert state["regime_confirmed"] is False
 
 
 # ============================================================
 # Candidate stages
 # ============================================================
 
+
 def test_candidate_stage_reaches_largest_configured_stage():
 
     detector = create_detector()
 
-    detector.initialize(
-        normal_baseline()
-    )
+    detector.initialize(normal_baseline())
 
     results = feed(
         detector,
@@ -794,26 +625,18 @@ def test_candidate_stage_reaches_largest_configured_stage():
 
     # stage is the CURRENT selected stage.
     # It is not a history of every stage crossed.
-    assert (
-        final_result["stage"]
-        == 4
-    )
+    assert final_result["stage"] == 4
 
     state = detector.get_state()
 
-    assert (
-        state["candidate_observations"]
-        >= 200
-    )
+    assert state["candidate_observations"] >= 200
 
 
 def test_stage_is_unreported_before_a_valid_stage_evaluation():
 
     detector = create_detector()
 
-    detector.initialize(
-        normal_baseline()
-    )
+    detector.initialize(normal_baseline())
 
     for count in [
         10,
@@ -821,12 +644,9 @@ def test_stage_is_unreported_before_a_valid_stage_evaluation():
         50,
         100,
     ]:
-
         detector.reset()
 
-        detector.initialize(
-            normal_baseline()
-        )
+        detector.initialize(normal_baseline())
 
         results = feed(
             detector,
@@ -845,9 +665,7 @@ def test_reaching_two_hundred_observations_does_not_fake_confirmation():
 
     detector = create_detector()
 
-    detector.initialize(
-        normal_baseline()
-    )
+    detector.initialize(normal_baseline())
 
     results = feed(
         detector,
@@ -857,30 +675,21 @@ def test_reaching_two_hundred_observations_does_not_fake_confirmation():
         ),
     )
 
-    assert (
-        results[-1][
-            "candidate_observations"
-        ]
-        >= 200
-    )
+    assert results[-1]["candidate_observations"] >= 200
 
-    assert (
-        detector.is_confirmed()
-        is False
-    )
+    assert detector.is_confirmed() is False
 
 
 # ============================================================
 # Confirmation lifecycle
 # ============================================================
 
+
 def test_confirmation_requires_repeated_validation():
 
     detector = create_detector()
 
-    detector.initialize(
-        normal_baseline()
-    )
+    detector.initialize(normal_baseline())
 
     results = confirm_stable_shift(
         detector,
@@ -888,49 +697,24 @@ def test_confirmation_requires_repeated_validation():
         max_observations=500,
     )
 
-    confirmation_results = [
-        result
-        for result in results
-        if result[
-            "regime_confirmed"
-        ]
-    ]
+    confirmation_results = [result for result in results if result["regime_confirmed"]]
 
     assert confirmation_results
 
-    confirmation = (
-        confirmation_results[0]
-    )
+    confirmation = confirmation_results[0]
 
-    assert (
-        confirmation[
-            "candidate_observations"
-        ]
-        >= 200
-    )
+    assert confirmation["candidate_observations"] >= 200
 
-    assert (
-        confirmation[
-            "stable_blocks"
-        ]
-        >= 2
-    )
+    assert confirmation["stable_blocks"] >= 2
 
-    assert (
-        confirmation[
-            "validation_checks"
-        ]
-        >= 1
-    )
+    assert confirmation["validation_checks"] >= 1
 
 
 def test_stable_shift_is_confirmed_after_required_validation():
 
     detector = create_detector()
 
-    detector.initialize(
-        normal_baseline()
-    )
+    detector.initialize(normal_baseline())
 
     results = confirm_stable_shift(
         detector,
@@ -938,44 +722,27 @@ def test_stable_shift_is_confirmed_after_required_validation():
         max_observations=500,
     )
 
-    confirmations = [
-        result
-        for result in results
-        if result[
-            "regime_confirmed"
-        ]
-    ]
+    confirmations = [result for result in results if result["regime_confirmed"]]
 
     assert confirmations
 
     confirmation = confirmations[0]
 
-    assert (
-        confirmation[
-            "regime_confirmed"
-        ]
-        is True
-    )
+    assert confirmation["regime_confirmed"] is True
 
-    assert (
-        confirmation[
-            "stable_blocks"
-        ]
-        >= 2
-    )
+    assert confirmation["stable_blocks"] >= 2
 
 
 # ============================================================
 # Confirmation data
 # ============================================================
 
+
 def test_confirmation_contains_candidate_scores():
 
     detector = create_detector()
 
-    detector.initialize(
-        normal_baseline()
-    )
+    detector.initialize(normal_baseline())
 
     confirm_stable_shift(
         detector,
@@ -983,10 +750,7 @@ def test_confirmation_contains_candidate_scores():
         max_observations=500,
     )
 
-    assert (
-        detector.is_confirmed()
-        is True
-    )
+    assert detector.is_confirmed() is True
 
     confirmed = np.asarray(
         detector.get_confirmed_scores(),
@@ -995,26 +759,16 @@ def test_confirmation_contains_candidate_scores():
 
     assert confirmed.size > 0
 
-    assert np.all(
-        np.isfinite(
-            confirmed
-        )
-    )
+    assert np.all(np.isfinite(confirmed))
 
-    assert np.median(
-        confirmed
-    ) == pytest.approx(
-        5.0
-    )
+    assert np.median(confirmed) == pytest.approx(5.0)
 
 
 def test_confirmed_scores_are_bounded_by_candidate_window():
 
     detector = create_detector()
 
-    detector.initialize(
-        normal_baseline()
-    )
+    detector.initialize(normal_baseline())
 
     confirm_stable_shift(
         detector,
@@ -1022,26 +776,21 @@ def test_confirmed_scores_are_bounded_by_candidate_window():
         max_observations=500,
     )
 
-    confirmed = (
-        detector.get_confirmed_scores()
-    )
+    confirmed = detector.get_confirmed_scores()
 
-    assert len(
-        confirmed
-    ) <= 200
+    assert len(confirmed) <= 200
 
 
 # ============================================================
 # Acceptance
 # ============================================================
 
+
 def test_accept_regime_replaces_trusted_baseline():
 
     detector = create_detector()
 
-    detector.initialize(
-        normal_baseline()
-    )
+    detector.initialize(normal_baseline())
 
     confirm_stable_shift(
         detector,
@@ -1049,60 +798,30 @@ def test_accept_regime_replaces_trusted_baseline():
         max_observations=500,
     )
 
-    assert (
-        detector.is_confirmed()
-        is True
-    )
+    assert detector.is_confirmed() is True
 
-    confirmed = (
-        detector.get_confirmed_scores()
-    )
+    confirmed = detector.get_confirmed_scores()
 
     detector.accept_regime()
 
     state = detector.get_state()
 
-    assert (
-        state["baseline_sample_count"]
-        == 100
-    )
+    assert state["baseline_sample_count"] == 100
 
-    assert (
-        state["candidate_sample_count"]
-        == 0
-    )
+    assert state["candidate_sample_count"] == 0
 
-    assert (
-        state["candidate_observations"]
-        == 0
-    )
+    assert state["candidate_observations"] == 0
 
-    assert (
-        state["regime_confirmed"]
-        is False
-    )
+    assert state["regime_confirmed"] is False
 
-    assert (
-        state[
-            "baseline_statistics"
-        ]["mean"]
-        == pytest.approx(
-            np.mean(
-                confirmed
-            )
-        )
-    )
+    assert state["baseline_statistics"]["mean"] == pytest.approx(np.mean(confirmed))
 
 
 def test_accept_regime_can_use_explicit_scores():
 
-    detector = create_detector(
-        baseline_size=5
-    )
+    detector = create_detector(baseline_size=5)
 
-    detector.initialize(
-        normal_baseline()
-    )
+    detector.initialize(normal_baseline())
 
     new_baseline = np.array(
         [
@@ -1115,47 +834,24 @@ def test_accept_regime_can_use_explicit_scores():
         ]
     )
 
-    detector.accept_regime(
-        new_baseline
-    )
+    detector.accept_regime(new_baseline)
 
     state = detector.get_state()
 
-    assert (
-        state["baseline_sample_count"]
-        == 5
-    )
+    assert state["baseline_sample_count"] == 5
 
-    expected = new_baseline[
-        -5:
-    ]
+    expected = new_baseline[-5:]
 
-    assert (
-        state[
-            "baseline_statistics"
-        ]["mean"]
-        == pytest.approx(
-            np.mean(
-                expected
-            )
-        )
-    )
+    assert state["baseline_statistics"]["mean"] == pytest.approx(np.mean(expected))
 
-    assert (
-        state[
-            "candidate_sample_count"
-        ]
-        == 0
-    )
+    assert state["candidate_sample_count"] == 0
 
 
 def test_accept_candidate_is_compatibility_alias():
 
     detector = create_detector()
 
-    detector.initialize(
-        normal_baseline()
-    )
+    detector.initialize(normal_baseline())
 
     confirm_stable_shift(
         detector,
@@ -1163,34 +859,23 @@ def test_accept_candidate_is_compatibility_alias():
         max_observations=500,
     )
 
-    assert (
-        detector.is_confirmed()
-        is True
-    )
+    assert detector.is_confirmed() is True
 
     detector.accept_candidate()
 
     state = detector.get_state()
 
-    assert (
-        state["regime_confirmed"]
-        is False
-    )
+    assert state["regime_confirmed"] is False
 
-    assert (
-        state["candidate_sample_count"]
-        == 0
-    )
+    assert state["candidate_sample_count"] == 0
 
-    assert (
-        state["candidate_observations"]
-        == 0
-    )
+    assert state["candidate_observations"] == 0
 
 
 # ============================================================
 # Rejection
 # ============================================================
+
 
 def test_reject_candidate_preserves_trusted_baseline():
 
@@ -1198,9 +883,7 @@ def test_reject_candidate_preserves_trusted_baseline():
 
     detector = create_detector()
 
-    detector.initialize(
-        baseline
-    )
+    detector.initialize(baseline)
 
     before = detector.get_state()
 
@@ -1216,53 +899,19 @@ def test_reject_candidate_preserves_trusted_baseline():
 
     after = detector.get_state()
 
-    assert (
-        after[
-            "baseline_sample_count"
-        ]
-        == before[
-            "baseline_sample_count"
-        ]
+    assert after["baseline_sample_count"] == before["baseline_sample_count"]
+
+    assert after["baseline_statistics"]["mean"] == pytest.approx(
+        before["baseline_statistics"]["mean"]
     )
 
-    assert (
-        after[
-            "baseline_statistics"
-        ]["mean"]
-        == pytest.approx(
-            before[
-                "baseline_statistics"
-            ]["mean"]
-        )
-    )
+    assert after["candidate_sample_count"] == 0
 
-    assert (
-        after[
-            "candidate_sample_count"
-        ]
-        == 0
-    )
+    assert after["candidate_observations"] == 0
 
-    assert (
-        after[
-            "candidate_observations"
-        ]
-        == 0
-    )
+    assert after["candidate_started"] is False
 
-    assert (
-        after[
-            "candidate_started"
-        ]
-        is False
-    )
-
-    assert (
-        after[
-            "regime_confirmed"
-        ]
-        is False
-    )
+    assert after["regime_confirmed"] is False
 
 
 def test_rejecting_confirmed_candidate_preserves_baseline():
@@ -1271,19 +920,9 @@ def test_rejecting_confirmed_candidate_preserves_baseline():
 
     detector = create_detector()
 
-    detector.initialize(
-        baseline
-    )
+    detector.initialize(baseline)
 
-    original_mean = (
-        detector.get_state()
-        [
-            "baseline_statistics"
-        ]
-        [
-            "mean"
-        ]
-    )
+    original_mean = detector.get_state()["baseline_statistics"]["mean"]
 
     confirm_stable_shift(
         detector,
@@ -1291,55 +930,31 @@ def test_rejecting_confirmed_candidate_preserves_baseline():
         max_observations=500,
     )
 
-    assert (
-        detector.is_confirmed()
-        is True
-    )
+    assert detector.is_confirmed() is True
 
     detector.reject_candidate()
 
     state = detector.get_state()
 
-    assert (
-        state[
-            "baseline_statistics"
-        ]["mean"]
-        == pytest.approx(
-            original_mean
-        )
-    )
+    assert state["baseline_statistics"]["mean"] == pytest.approx(original_mean)
 
-    assert (
-        state["regime_confirmed"]
-        is False
-    )
+    assert state["regime_confirmed"] is False
 
-    assert (
-        state[
-            "candidate_sample_count"
-        ]
-        == 0
-    )
+    assert state["candidate_sample_count"] == 0
 
-    assert (
-        state[
-            "candidate_observations"
-        ]
-        == 0
-    )
+    assert state["candidate_observations"] == 0
 
 
 # ============================================================
 # Confirmed-state behavior
 # ============================================================
 
+
 def test_confirmed_state_is_held_until_accept_or_reject():
 
     detector = create_detector()
 
-    detector.initialize(
-        normal_baseline()
-    )
+    detector.initialize(normal_baseline())
 
     confirm_stable_shift(
         detector,
@@ -1347,46 +962,22 @@ def test_confirmed_state_is_held_until_accept_or_reject():
         max_observations=500,
     )
 
+    assert detector.is_confirmed() is True
+
+    state_before = detector.get_state()
+
+    result = detector.observe(5.0)
+
+    state_after = detector.get_state()
+
+    assert result["regime_confirmed"] is True
+
     assert (
-        detector.is_confirmed()
-        is True
-    )
-
-    state_before = (
-        detector.get_state()
-    )
-
-    result = detector.observe(
-        5.0
-    )
-
-    state_after = (
-        detector.get_state()
+        state_after["candidate_observations"] == state_before["candidate_observations"]
     )
 
     assert (
-        result[
-            "regime_confirmed"
-        ]
-        is True
-    )
-
-    assert (
-        state_after[
-            "candidate_observations"
-        ]
-        == state_before[
-            "candidate_observations"
-        ]
-    )
-
-    assert (
-        state_after[
-            "candidate_sample_count"
-        ]
-        == state_before[
-            "candidate_sample_count"
-        ]
+        state_after["candidate_sample_count"] == state_before["candidate_sample_count"]
     )
 
 
@@ -1394,13 +985,12 @@ def test_confirmed_state_is_held_until_accept_or_reject():
 # Diagnostics / state
 # ============================================================
 
+
 def test_state_reports_shift_diagnostics():
 
     detector = create_detector()
 
-    detector.initialize(
-        normal_baseline()
-    )
+    detector.initialize(normal_baseline())
 
     feed(
         detector,
@@ -1412,27 +1002,13 @@ def test_state_reports_shift_diagnostics():
 
     state = detector.get_state()
 
-    assert (
-        "last_shift_strength"
-        in state
-    )
+    assert "last_shift_strength" in state
 
-    assert (
-        "last_stability_reason"
-        in state
-    )
+    assert "last_stability_reason" in state
 
-    assert (
-        "last_stability_diagnostics"
-        in state
-    )
+    assert "last_stability_diagnostics" in state
 
-    assert (
-        state[
-            "last_shift_strength"
-        ]
-        > 0
-    )
+    assert state["last_shift_strength"] > 0
 
 
 def test_state_reports_validation_configuration():
@@ -1441,39 +1017,23 @@ def test_state_reports_validation_configuration():
 
     state = detector.get_state()
 
-    assert (
-        state[
-            "validation_interval"
-        ]
-        == 100
-    )
+    assert state["validation_interval"] == 100
 
-    assert (
-        state[
-            "validation_checks"
-        ]
-        == 0
-    )
+    assert state["validation_checks"] == 0
 
-    assert (
-        state[
-            "validation_observations"
-        ]
-        == 0
-    )
+    assert state["validation_observations"] == 0
 
 
 # ============================================================
 # Reset
 # ============================================================
 
+
 def test_reset_clears_candidate_and_baseline():
 
     detector = create_detector()
 
-    detector.initialize(
-        normal_baseline()
-    )
+    detector.initialize(normal_baseline())
 
     feed(
         detector,
@@ -1487,124 +1047,55 @@ def test_reset_clears_candidate_and_baseline():
 
     state = detector.get_state()
 
-    assert (
-        state[
-            "baseline_sample_count"
-        ]
-        == 0
-    )
+    assert state["baseline_sample_count"] == 0
 
-    assert (
-        state[
-            "candidate_sample_count"
-        ]
-        == 0
-    )
+    assert state["candidate_sample_count"] == 0
 
-    assert (
-        state[
-            "candidate_observations"
-        ]
-        == 0
-    )
+    assert state["candidate_observations"] == 0
 
-    assert (
-        state[
-            "candidate_started"
-        ]
-        is False
-    )
+    assert state["candidate_started"] is False
 
-    assert (
-        state[
-            "regime_confirmed"
-        ]
-        is False
-    )
+    assert state["regime_confirmed"] is False
 
-    assert (
-        state[
-            "stable_blocks"
-        ]
-        == 0
-    )
+    assert state["stable_blocks"] == 0
 
-    assert (
-        state[
-            "validation_checks"
-        ]
-        == 0
-    )
+    assert state["validation_checks"] == 0
 
 
 def test_detector_can_be_reinitialized_after_reset():
 
     detector = create_detector()
 
-    first_baseline = (
-        normal_baseline()
+    first_baseline = normal_baseline()
+
+    second_baseline = constant_scores(
+        20.0,
+        100,
     )
 
-    second_baseline = (
-        constant_scores(
-            20.0,
-            100,
-        )
-    )
-
-    detector.initialize(
-        first_baseline
-    )
+    detector.initialize(first_baseline)
 
     detector.reset()
 
-    detector.initialize(
-        second_baseline
-    )
+    detector.initialize(second_baseline)
 
     state = detector.get_state()
 
-    assert (
-        state[
-            "baseline_sample_count"
-        ]
-        == 100
-    )
+    assert state["baseline_sample_count"] == 100
 
-    assert (
-        state[
-            "baseline_statistics"
-        ]["mean"]
-        == pytest.approx(
-            20.0
-        )
-    )
+    assert state["baseline_statistics"]["mean"] == pytest.approx(20.0)
 
-    assert (
-        state[
-            "candidate_sample_count"
-        ]
-        == 0
-    )
+    assert state["candidate_sample_count"] == 0
 
-    assert (
-        state[
-            "candidate_observations"
-        ]
-        == 0
-    )
+    assert state["candidate_observations"] == 0
 
-    assert (
-        state[
-            "regime_confirmed"
-        ]
-        is False
-    )
+    assert state["regime_confirmed"] is False
 
 
 # ============================================================
 # Input validation
 # ============================================================
+
 
 @pytest.mark.parametrize(
     "bad_score",
@@ -1620,22 +1111,19 @@ def test_non_finite_score_is_rejected(
 
     detector = create_detector()
 
-    detector.initialize(
-        normal_baseline()
-    )
+    detector.initialize(normal_baseline())
 
     with pytest.raises(
         ValueError,
         match="finite",
     ):
-        detector.observe(
-            bad_score
-        )
+        detector.observe(bad_score)
 
 
 # ============================================================
 # Baseline protection
 # ============================================================
+
 
 def test_confirmation_alone_does_not_change_baseline():
 
@@ -1643,13 +1131,9 @@ def test_confirmation_alone_does_not_change_baseline():
 
     detector = create_detector()
 
-    detector.initialize(
-        baseline
-    )
+    detector.initialize(baseline)
 
-    original = (
-        detector.get_state()
-    )
+    original = detector.get_state()
 
     confirm_stable_shift(
         detector,
@@ -1657,31 +1141,12 @@ def test_confirmation_alone_does_not_change_baseline():
         max_observations=500,
     )
 
-    state = (
-        detector.get_state()
+    state = detector.get_state()
+
+    assert state["baseline_statistics"]["mean"] == pytest.approx(
+        original["baseline_statistics"]["mean"]
     )
 
-    assert (
-        state[
-            "baseline_statistics"
-        ]["mean"]
-        == pytest.approx(
-            original[
-                "baseline_statistics"
-            ]["mean"]
-        )
-    )
+    assert state["baseline_sample_count"] == original["baseline_sample_count"]
 
-    assert (
-        state[
-            "baseline_sample_count"
-        ]
-        == original[
-            "baseline_sample_count"
-        ]
-    )
-
-    assert (
-        detector.is_confirmed()
-        is True
-    )
+    assert detector.is_confirmed() is True

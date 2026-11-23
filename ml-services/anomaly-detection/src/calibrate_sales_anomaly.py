@@ -63,8 +63,12 @@ def calibrate(df, budget=FALSE_ALARM_BUDGET):
 
 def main(argv=None):
 
-    parser = argparse.ArgumentParser(description="Calibrate Z_SPIKE on a clean sales file.")
-    parser.add_argument("sales_csv", help="Clean sales file, e.g. <seed out>/sales_daily.csv")
+    parser = argparse.ArgumentParser(
+        description="Calibrate Z_SPIKE on a clean sales file."
+    )
+    parser.add_argument(
+        "sales_csv", help="Clean sales file, e.g. <seed out>/sales_daily.csv"
+    )
     args = parser.parse_args(argv)
 
     drop_rate, z_spike = calibrate(pd.read_csv(args.sales_csv, dtype=str))

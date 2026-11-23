@@ -1,6 +1,6 @@
-from collections import deque
 import threading
 import time
+from collections import deque
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -22,7 +22,7 @@ model_mapping = {
 
 state_lock = threading.Lock()
 
-rolling_window = deque(maxlen=window_size)
+rolling_window: deque = deque(maxlen=window_size)
 
 latest_results = {
     "iforest": None,
@@ -30,15 +30,13 @@ latest_results = {
     "ocsvm": None,
 }
 
-prediction_history = {
+prediction_history: dict[str, deque] = {
     "iforest": deque(maxlen=history_size),
     "lof": deque(maxlen=history_size),
     "ocsvm": deque(maxlen=history_size),
 }
 
-current_time = pd.Timestamp.now(
-    tz=ZoneInfo("Asia/Kolkata")
-).floor("s")
+current_time = pd.Timestamp.now(tz=ZoneInfo("Asia/Kolkata")).floor("s")
 
 running = False
 stream_thread = None
@@ -63,7 +61,6 @@ def generate_reading():
     anomaly_type = None
 
     if np.random.random() < 0.05:
-
         planted = True
 
         anomaly_type = np.random.choice(
@@ -76,27 +73,17 @@ def generate_reading():
         )
 
         if anomaly_type == "temperature_spike":
-            reading["temperature"] += float(
-                np.random.uniform(8, 15)
-            )
+            reading["temperature"] += float(np.random.uniform(8, 15))
 
         elif anomaly_type == "humidity_anomaly":
-            reading["humidity"] += float(
-                np.random.uniform(20, 35)
-            )
+            reading["humidity"] += float(np.random.uniform(20, 35))
 
         elif anomaly_type == "stock_anomaly":
-            reading["stock_count"] += float(
-                np.random.uniform(150, 300)
-            )
+            reading["stock_count"] += float(np.random.uniform(150, 300))
 
         elif anomaly_type == "combined_anomaly":
-            reading["temperature"] += float(
-                np.random.uniform(8, 15)
-            )
-            reading["humidity"] += float(
-                np.random.uniform(20, 35)
-            )
+            reading["temperature"] += float(np.random.uniform(8, 15))
+            reading["humidity"] += float(np.random.uniform(20, 35))
 
     with state_lock:
         timestamp = current_time
@@ -110,10 +97,7 @@ def stream_loop():
     Background streaming thread.
     """
 
-    global running
-
     while True:
-
         with state_lock:
             if not running:
                 break
@@ -121,7 +105,6 @@ def stream_loop():
         timestamp, reading, planted, anomaly_type = generate_reading()
 
         with state_lock:
-
             rolling_window.append(
                 {
                     "timestamp": timestamp.isoformat(),
@@ -132,7 +115,6 @@ def stream_loop():
             )
 
         for model in latest_results:
-
             result = predict(
                 reading,
                 model,
@@ -147,12 +129,9 @@ def stream_loop():
             }
 
             with state_lock:
-
                 latest_results[model] = prediction
 
-                prediction_history[model].append(
-                    prediction
-                )
+                prediction_history[model].append(prediction)
 
         time.sleep(1)
 
@@ -166,7 +145,6 @@ def start_stream():
     global stream_thread
 
     with state_lock:
-
         if running:
             return False
 
@@ -205,10 +183,7 @@ def reset_stream():
     stop_stream()
 
     with state_lock:
-
-        current_time = pd.Timestamp.now(
-            tz=ZoneInfo("Asia/Kolkata")
-        ).floor("s")
+        current_time = pd.Timestamp.now(tz=ZoneInfo("Asia/Kolkata")).floor("s")
 
         rolling_window.clear()
 
@@ -239,11 +214,8 @@ def get_latest(model):
     )
 
     with state_lock:
-
         if model not in latest_results:
-            raise ValueError(
-                "Invalid model."
-            )
+            raise ValueError("Invalid model.")
 
         return latest_results[model]
 
@@ -259,12 +231,7 @@ def get_history(model):
     )
 
     with state_lock:
-
         if model not in prediction_history:
-            raise ValueError(
-                "Invalid model."
-            )
+            raise ValueError("Invalid model.")
 
-        return list(
-            prediction_history[model]
-        )
+        return list(prediction_history[model])

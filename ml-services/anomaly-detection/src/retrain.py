@@ -1,10 +1,9 @@
 import json
+import sys
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-
-import sys
 
 project_root = Path(__file__).resolve().parent.parent
 
@@ -34,20 +33,11 @@ FEATURE_COLUMNS = [
     "stock_count",
 ]
 
-METADATA_FILE = (
-    models_dir /
-    "model_metadata.json"
-)
+METADATA_FILE = models_dir / "model_metadata.json"
 
-RETRAIN_LOG = (
-    output_dir /
-    "retrain_log.csv"
-)
+RETRAIN_LOG = output_dir / "retrain_log.csv"
 
-PERFORMANCE_HISTORY = (
-    output_dir /
-    "model_performance_history.csv"
-)
+PERFORMANCE_HISTORY = output_dir / "model_performance_history.csv"
 
 READINGS_PER_DAY = 24 * 12
 
@@ -55,15 +45,9 @@ WINDOW_DAYS = 30
 
 TOTAL_DAYS = 35
 
-WINDOW_SIZE = (
-    WINDOW_DAYS *
-    READINGS_PER_DAY
-)
+WINDOW_SIZE = WINDOW_DAYS * READINGS_PER_DAY
 
-TOTAL_READINGS = (
-    TOTAL_DAYS *
-    READINGS_PER_DAY
-)
+TOTAL_READINGS = TOTAL_DAYS * READINGS_PER_DAY
 
 
 def load_test_datasets():
@@ -72,29 +56,16 @@ def load_test_datasets():
     """
 
     return {
-        "Temperature Spike": pd.read_csv(
-            output_dir /
-            "test_temperature_spike.csv"
-        ),
-        "Temperature Drift": pd.read_csv(
-            output_dir /
-            "test_temperature_drift.csv"
-        ),
-        "Stock Anomaly": pd.read_csv(
-            output_dir /
-            "test_stock_anomaly.csv"
-        ),
-        "Combined Anomaly": pd.read_csv(
-            output_dir /
-            "test_combined_anomaly.csv"
-        ),
+        "Temperature Spike": pd.read_csv(output_dir / "test_temperature_spike.csv"),
+        "Temperature Drift": pd.read_csv(output_dir / "test_temperature_drift.csv"),
+        "Stock Anomaly": pd.read_csv(output_dir / "test_stock_anomaly.csv"),
+        "Combined Anomaly": pd.read_csv(output_dir / "test_combined_anomaly.csv"),
     }
 
 
 def load_metadata():
 
     if not METADATA_FILE.exists():
-
         metadata = {
             "model_version": "1.0.0",
             "last_retrained": None,
@@ -104,7 +75,6 @@ def load_metadata():
             METADATA_FILE,
             "w",
         ) as file:
-
             json.dump(
                 metadata,
                 file,
@@ -117,7 +87,6 @@ def load_metadata():
         METADATA_FILE,
         "r",
     ) as file:
-
         return json.load(file)
 
 
@@ -127,7 +96,6 @@ def save_metadata(metadata):
         METADATA_FILE,
         "w",
     ) as file:
-
         json.dump(
             metadata,
             file,
@@ -144,11 +112,7 @@ def increment_version(version):
 
     patch += 1
 
-    return (
-        f"{major}."
-        f"{minor}."
-        f"{patch}"
-    )
+    return f"{major}.{minor}.{patch}"
 
 
 def append_csv(
@@ -165,10 +129,7 @@ def append_csv(
     df = pd.DataFrame(rows)
 
     if file_path.exists():
-
-        existing = pd.read_csv(
-            file_path
-        )
+        existing = pd.read_csv(file_path)
 
         df = pd.concat(
             [
@@ -184,8 +145,11 @@ def append_csv(
     )
 
     # ==========================================================
+
+
 # Evaluation Helpers
 # ==========================================================
+
 
 def evaluate_all_datasets(models=None):
     """
@@ -198,7 +162,6 @@ def evaluate_all_datasets(models=None):
     results = []
 
     for dataset_name, dataset in test_datasets.items():
-
         metrics = evaluate_models(
             dataset,
             models=models,
@@ -221,6 +184,7 @@ def evaluate_all_datasets(models=None):
 # ==========================================================
 # Rolling Window Generation
 # ==========================================================
+
 
 def generate_rolling_windows():
     """
@@ -247,44 +211,18 @@ def generate_rolling_windows():
 
     windows = []
 
-    total_windows = (
-        TOTAL_DAYS -
-        WINDOW_DAYS +
-        1
-    )
+    total_windows = TOTAL_DAYS - WINDOW_DAYS + 1
 
     for window_number in range(total_windows):
+        start_reading = window_number * READINGS_PER_DAY
 
-        start_reading = (
-            window_number *
-            READINGS_PER_DAY
-        )
+        end_reading = start_reading + WINDOW_SIZE
 
-        end_reading = (
-            start_reading +
-            WINDOW_SIZE
-        )
+        start_day = window_number + 1
 
-        start_day = (
-            window_number + 1
-        )
+        end_day = start_day + WINDOW_DAYS - 1
 
-        end_day = (
-            start_day +
-            WINDOW_DAYS -
-            1
-        )
-
-        window_df = (
-            normal_df
-            .iloc[
-                start_reading:
-                end_reading
-            ]
-            .reset_index(
-                drop=True
-            )
-        )
+        window_df = normal_df.iloc[start_reading:end_reading].reset_index(drop=True)
 
         windows.append(
             (
@@ -301,6 +239,7 @@ def generate_rolling_windows():
 # ==========================================================
 # Model Comparison
 # ==========================================================
+
 
 def compare_models(
     deployed_metrics,
@@ -323,35 +262,20 @@ def compare_models(
 
     comparison = {}
 
-    deployed_avg = (
-        deployed_metrics
-        .groupby("Model")[
-            "Precision"
-        ]
-        .mean()
-    )
+    deployed_avg = deployed_metrics.groupby("Model")["Precision"].mean()
 
-    candidate_avg = (
-        candidate_metrics
-        .groupby("Model")[
-            "Precision"
-        ]
-        .mean()
-    )
+    candidate_avg = candidate_metrics.groupby("Model")["Precision"].mean()
 
     for model in deployed_avg.index:
-
-        comparison[model] = (
-            candidate_avg[model]
-            >=
-            deployed_avg[model]
-        )
+        comparison[model] = candidate_avg[model] >= deployed_avg[model]
 
     return comparison
+
 
 # ==========================================================
 # Retraining Loop
 # ==========================================================
+
 
 def run_retraining(
     deploy_on_improvement=True,
@@ -379,45 +303,32 @@ def run_retraining(
         end_day,
         window_df,
     ) in windows:
-
         print("=" * 60)
-        print(
-            f"Window {window_number} "
-            f"(Day {start_day} - {end_day})"
-        )
+        print(f"Window {window_number} (Day {start_day} - {end_day})")
         print("=" * 60)
 
         # -----------------------------------------
         # Train candidate models
         # -----------------------------------------
 
-        candidate_models = train_models(
-            window_df
-        )
+        candidate_models = train_models(window_df)
 
-        candidate_metrics = evaluate_all_datasets(
-            models=candidate_models
-        )
+        candidate_metrics = evaluate_all_datasets(models=candidate_models)
 
         deployment = compare_models(
             deployed_metrics,
             candidate_metrics,
         )
 
-        candidate_version = increment_version(
-            current_version
-        )
+        candidate_version = increment_version(current_version)
 
-        timestamp = datetime.now().strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # -----------------------------------------
         # Save complete performance history
         # -----------------------------------------
 
         for _, row in candidate_metrics.iterrows():
-
             performance_rows.append(
                 {
                     "Timestamp": timestamp,
@@ -439,22 +350,13 @@ def run_retraining(
         # Deployment decision
         # -----------------------------------------
 
-        old_avg = (
-            deployed_metrics
-            .groupby("Model")["Precision"]
-            .mean()
-        )
+        old_avg = deployed_metrics.groupby("Model")["Precision"].mean()
 
-        new_avg = (
-            candidate_metrics
-            .groupby("Model")["Precision"]
-            .mean()
-        )
+        new_avg = candidate_metrics.groupby("Model")["Precision"].mean()
 
         deployed = False
 
         for model in deployment:
-
             improved = deployment[model]
 
             deployment_rows.append(
@@ -474,11 +376,7 @@ def run_retraining(
                         new_avg[model],
                         4,
                     ),
-                    "Decision": (
-                        "DEPLOYED"
-                        if improved
-                        else "REJECTED"
-                    ),
+                    "Decision": ("DEPLOYED" if improved else "REJECTED"),
                     "Reason": (
                         "Average precision improved"
                         if improved
@@ -495,40 +393,22 @@ def run_retraining(
         # -----------------------------------------
 
         if deployed and deploy_on_improvement:
+            print("Deploying candidate models...")
 
-            print(
-                "Deploying candidate models..."
-            )
+            save_models(candidate_models)
 
-            save_models(
-                candidate_models
-            )
+            current_version = candidate_version
 
-            current_version = (
-                candidate_version
-            )
+            metadata["model_version"] = current_version
 
-            metadata[
-                "model_version"
-            ] = current_version
+            metadata["last_retrained"] = timestamp
 
-            metadata[
-                "last_retrained"
-            ] = timestamp
+            save_metadata(metadata)
 
-            save_metadata(
-                metadata
-            )
-
-            deployed_metrics = (
-                candidate_metrics
-            )
+            deployed_metrics = candidate_metrics
 
         else:
-
-            print(
-                "Deployment rejected."
-            )
+            print("Deployment rejected.")
 
     append_csv(
         deployment_rows,
@@ -545,9 +425,11 @@ def run_retraining(
         performance_rows,
     )
 
+
 # ==========================================================
 # Summary
 # ==========================================================
+
 
 def print_summary(
     deployment_rows,
@@ -562,15 +444,9 @@ def print_summary(
     print("Rolling Window Retraining Summary")
     print("=" * 70)
 
-    deployed = sum(
-        row["Decision"] == "DEPLOYED"
-        for row in deployment_rows
-    )
+    deployed = sum(row["Decision"] == "DEPLOYED" for row in deployment_rows)
 
-    rejected = sum(
-        row["Decision"] == "REJECTED"
-        for row in deployment_rows
-    )
+    rejected = sum(row["Decision"] == "REJECTED" for row in deployment_rows)
 
     print(f"Deployment Decisions : {len(deployment_rows)}")
     print(f"Models Deployed      : {deployed}")
@@ -579,10 +455,7 @@ def print_summary(
     print()
 
     if performance_rows:
-
-        history = pd.DataFrame(
-            performance_rows
-        )
+        history = pd.DataFrame(performance_rows)
 
         print("Average Precision")
 
@@ -610,17 +483,11 @@ def print_summary(
 
     print()
 
-    print(
-        f"Deployment log saved to:\n"
-        f"{RETRAIN_LOG}"
-    )
+    print(f"Deployment log saved to:\n{RETRAIN_LOG}")
 
     print()
 
-    print(
-        f"Performance history saved to:\n"
-        f"{PERFORMANCE_HISTORY}"
-    )
+    print(f"Performance history saved to:\n{PERFORMANCE_HISTORY}")
 
     print("=" * 70)
 
@@ -630,7 +497,6 @@ def print_summary(
 # ==========================================================
 
 if __name__ == "__main__":
-
     deployment_rows, performance_rows = run_retraining()
 
     print_summary(

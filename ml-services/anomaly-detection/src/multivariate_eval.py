@@ -16,6 +16,7 @@ from sklearn.covariance import EllipticEnvelope
 from sklearn.metrics import f1_score, precision_score, recall_score
 from sklearn.preprocessing import StandardScaler
 
+from src.config import ELLIPTIC_CONTAMINATION
 from src.data import (
     generate_correlated_normal_data,
     inject_relationship_breaks,
@@ -24,7 +25,6 @@ from src.data import (
 from src.isolation_forest_model import IsolationForestModel
 from src.lof_model import LOFModel
 from src.one_class_svm_model import OneClassSVMModel
-from src.config import ELLIPTIC_CONTAMINATION
 
 FEATURES = ["temperature", "humidity", "stock_count"]
 
@@ -107,6 +107,7 @@ def build_datasets():
 
     return train_df, test_df, weaker_test_df
 
+
 def evaluate_relationship_detection(train_df, test_df):
     """
     Train each detector on normal data only and score it on the
@@ -166,7 +167,6 @@ def run():
     print("\nWeaker, noisy relationship breaks:")
     print(weaker_results.to_string(index=False))
 
-
     # Imported here so the unit tests don't need an MLflow install.
     import mlflow
 
@@ -195,11 +195,7 @@ def run():
             ("weaker", weaker_results),
         ):
             for row in table.to_dict("records"):
-                model_key = (
-                    row["Model"].split(" (")[0]
-                    .lower()
-                    .replace(" ", "_")
-                )
+                model_key = row["Model"].split(" (")[0].lower().replace(" ", "_")
 
                 for metric in ("Precision", "Recall", "F1"):
                     mlflow.log_metric(
