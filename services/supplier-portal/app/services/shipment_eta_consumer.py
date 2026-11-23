@@ -205,6 +205,7 @@ class ShipmentETAConsumer:
                 shipment.confidence_high = payload.confidence_high
                 shipment.model_version = payload.model_version
                 shipment.predicted_at = payload.predicted_at
+                shipment.predicted_delay_days = payload.predicted_delay_days
 
                 shipment.top_features = (
                     [feature.model_dump() for feature in payload.top_features]

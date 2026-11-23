@@ -71,6 +71,8 @@ def create_eta_event():
             "confidence_high": 6.0,
             "model_version": "eta-model-v1",
             "predicted_at": "2026-10-26T10:30:00Z",
+            "planned_delivery_date": "2026-10-30",
+            "predicted_delay_days": 2,
             "top_features": [
                 {
                     "feature": "distance_km",
@@ -110,6 +112,8 @@ def test_eta_prediction_is_saved_to_shipment(po_db):
         assert shipment.confidence_high == 6.0
         assert shipment.model_version == "eta-model-v1"
         assert shipment.predicted_at is not None
+        assert shipment.predicted_delay_days == 2
+        assert shipment.expected_delivery_date == date(2026, 10, 30)
         assert shipment.top_features == [
             {
                 "feature": "distance_km",
@@ -150,6 +154,7 @@ def test_newer_eta_prediction_updates_existing_prediction(po_db):
         newer_event["event_id"] = "223e4567-e89b-42d3-a456-426614174000"
         newer_event["occurred_at"] = "2026-10-26T11:30:00Z"
         newer_event["payload"]["eta_days"] = 2.5
+        newer_event["payload"]["predicted_delay_days"] = 1
         newer_event["payload"]["confidence_low"] = 2.0
         newer_event["payload"]["confidence_high"] = 3.0
         newer_event["payload"]["model_version"] = "eta-model-v2"
@@ -161,6 +166,7 @@ def test_newer_eta_prediction_updates_existing_prediction(po_db):
         shipment = db.get(Shipment, SHIPMENT_ID)
 
         assert shipment.eta_days == 2.5
+        assert shipment.predicted_delay_days == 1
         assert shipment.confidence_low == 2.0
         assert shipment.confidence_high == 3.0
         assert shipment.model_version == "eta-model-v2"
@@ -179,6 +185,7 @@ def test_older_eta_prediction_does_not_overwrite_newer_prediction(po_db):
         newer_event = create_eta_event()
         newer_event["event_id"] = "323e4567-e89b-42d3-a456-426614174000"
         newer_event["payload"]["eta_days"] = 2.5
+        newer_event["payload"]["predicted_delay_days"] = 1
         newer_event["payload"]["predicted_at"] = "2026-10-26T11:30:00Z"
 
         assert process_event(consumer, newer_event) is True
@@ -186,6 +193,7 @@ def test_older_eta_prediction_does_not_overwrite_newer_prediction(po_db):
         older_event = create_eta_event()
         older_event["event_id"] = "423e4567-e89b-42d3-a456-426614174000"
         older_event["payload"]["eta_days"] = 5.5
+        older_event["payload"]["predicted_delay_days"] = 5
         older_event["payload"]["predicted_at"] = "2026-10-26T10:30:00Z"
 
         assert process_event(consumer, older_event) is True
@@ -194,6 +202,7 @@ def test_older_eta_prediction_does_not_overwrite_newer_prediction(po_db):
         shipment = db.get(Shipment, SHIPMENT_ID)
 
         assert shipment.eta_days == 2.5
+        assert shipment.predicted_delay_days == 1
 
         event_count = db.query(ShipmentETAEvent).count()
         assert event_count == 2

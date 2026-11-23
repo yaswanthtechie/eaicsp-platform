@@ -151,6 +151,8 @@ class ETAShipmentPredictedPayload(BaseModel):
     confidence_high: float = Field(ge=0)
     model_version: str = Field(min_length=1, pattern=r"\S")
     predicted_at: AwareDatetime
+    planned_delivery_date: date | None = None
+    predicted_delay_days: int | None = None
 
     top_features: list[ETATopFeature] | None = Field(
         default=None,
