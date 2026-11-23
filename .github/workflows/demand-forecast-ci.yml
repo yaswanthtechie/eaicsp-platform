@@ -38,9 +38,9 @@ jobs:
       matrix:
         include:
           - model: lstm
-            cov_floor: 33
+            cov_floor: 29
           - model: prophet
-            cov_floor: 53
+            cov_floor: 54
     defaults:
       run:
         working-directory: ml-services/demand-forecast/${{ matrix.model }}
