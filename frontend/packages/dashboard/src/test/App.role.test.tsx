@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";import {
 import App from "../App";
 import type { WebSocketMessage } from "../types/forecast";
 import { snapshotStorageKey } from "../utils/kpiSnapshot";
+import { MemoryRouter } from "react-router-dom";
 
 vi.mock("../api/dashboardGraphql", () => ({
   useDashboardData: vi.fn(),
@@ -212,7 +213,11 @@ describe("App role-based views", () => {
   it("shows supplier risk and CEO KPIs for CEO", () => {
     window.history.replaceState({}, "", "/?role=ceo");
 
-    render(<App />);
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <App />
+      </MemoryRouter>,
+    );
 
     expect(screen.getByText("Supplier Risk")).toBeInTheDocument();
     expect(
@@ -229,7 +234,11 @@ describe("App role-based views", () => {
   it("hides supplier risk and shows warehouse manager KPIs", () => {
     window.history.replaceState({}, "", "/?role=warehouse_manager");
 
-    render(<App />);
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <App />
+      </MemoryRouter>,
+    );
 
     expect(screen.queryByText("Supplier Risk")).not.toBeInTheDocument();
     expect(
@@ -246,7 +255,11 @@ describe("App role-based views", () => {
   it("locks the warehouse filter for a warehouse manager", async () => {
     window.history.replaceState({}, "", "/?role=warehouse_manager");
 
-    render(<App />);
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <App />
+      </MemoryRouter>,
+    );
 
     const warehouseSelect = await screen.findByLabelText("Warehouse filter");
     expect(warehouseSelect).toBeDisabled();
@@ -255,7 +268,11 @@ describe("App role-based views", () => {
   it("passes the looked-up product names to the inventory table", async () => {
     window.history.replaceState({}, "", "/?role=ceo");
 
-    render(<App />);
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <App />
+      </MemoryRouter>,
+    );
 
     expect(
       await screen.findByText("Steel Fastener Set 50pc"),
@@ -265,7 +282,11 @@ describe("App role-based views", () => {
   it("lets the CEO change the warehouse filter", async () => {
     window.history.replaceState({}, "", "/?role=ceo");
 
-    render(<App />);
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <App />
+      </MemoryRouter>,
+    );
 
     const warehouseSelect = await screen.findByLabelText("Warehouse filter");
     expect(warehouseSelect).not.toBeDisabled();
@@ -307,7 +328,11 @@ describe("App KPIs and offline snapshot", () => {
   const refetch = vi.fn().mockResolvedValue({});
   mockQuery({ error: new Error("Server error") as never, refetch });
 
-  render(<App />);
+  render(
+    <MemoryRouter initialEntries={["/"]}>
+      <App />
+    </MemoryRouter>,
+  );
 
   expect(
     screen.getByText(/Couldn't reach the server — showing data from/),
@@ -322,7 +347,11 @@ it("does not turn panels into skeletons during a refetch (Issue 4)", () => {
   window.history.replaceState({}, "", "/?role=ceo");
   mockQuery({ data: oneItem(10), loading: true });
 
-  render(<App />);
+  render(
+    <MemoryRouter initialEntries={["/"]}>
+      <App />
+    </MemoryRouter>,
+  );
 
   expect(screen.getByTestId("supplier-risk")).toHaveAttribute(
     "data-loading",
@@ -365,7 +394,11 @@ it("does not turn panels into skeletons during a refetch (Issue 4)", () => {
       } as unknown as ReturnType<typeof useDashboardData>["data"],
     });
 
-    render(<App />);
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <App />
+      </MemoryRouter>,
+    );
 
     expect(
       screen.getByRole("button", {
@@ -403,7 +436,11 @@ it("does not turn panels into skeletons during a refetch (Issue 4)", () => {
       error: new Error("Failed to fetch") as never,
     });
 
-    render(<App />);
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <App />
+      </MemoryRouter>,
+    );
 
     expect(
       screen.getByText(/Offline — showing data from/),
@@ -437,7 +474,11 @@ it("does not turn panels into skeletons during a refetch (Issue 4)", () => {
       loading: true,
     });
 
-    render(<App />);
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <App />
+      </MemoryRouter>,
+    );
 
     expect(
       localStorage.getItem(snapshotStorageKey("ceo")),
@@ -452,7 +493,11 @@ it("does not turn panels into skeletons during a refetch (Issue 4)", () => {
     loading: true,
   });
 
-  render(<App />);
+  render(
+    <MemoryRouter initialEntries={["/"]}>
+      <App />
+    </MemoryRouter>,
+  );
 
   expect(
     screen.queryByText("Loading dashboard data..."),
@@ -473,7 +518,11 @@ it("lets the user retry when the first load fails (Fix 2)", () => {
     refetch,
   });
 
-  render(<App />);
+  render(
+    <MemoryRouter initialEntries={["/"]}>
+      <App />
+    </MemoryRouter>,
+  );
 
   expect(
     screen.getByText("Failed to load dashboard data."),
@@ -493,7 +542,11 @@ it("passes live WebSocket updates to Inventory Health (Fix 3)", () => {
     data: oneItem(10),
   });
 
-  render(<App />);
+  render(
+    <MemoryRouter initialEntries={["/"]}>
+      <App />
+    </MemoryRouter>,
+  );
 
   expect(
     screen.getByTestId("inventory-health"),
@@ -528,7 +581,11 @@ it("scopes Inventory Health to the manager's warehouse (Fix 3)", () => {
     data: oneItem(10),
   });
 
-  render(<App />);
+  render(
+    <MemoryRouter initialEntries={["/"]}>
+      <App />
+    </MemoryRouter>,
+  );
 
   expect(
     screen.getByTestId("inventory-health"),
@@ -556,7 +613,11 @@ it("never shows another role's snapshot (Fix 4)", () => {
     error: new Error("Failed to fetch") as never,
   });
 
-  render(<App />);
+  render(
+    <MemoryRouter initialEntries={["/"]}>
+      <App />
+    </MemoryRouter>,
+  );
 
   expect(
     screen.queryByRole("button", {
@@ -582,7 +643,11 @@ it("keeps live KPIs when going offline mid-session (Fix 4)", () => {
     data: oneItem(10),
   });
 
-  render(<App />);
+  render(
+    <MemoryRouter initialEntries={["/"]}>
+      <App />
+    </MemoryRouter>,
+  );
 
   // Live data (1 SKU), not the stale snapshot (4242), plus the banner.
   expect(
@@ -615,7 +680,11 @@ it("keeps the dashboard and offers Retry when a refresh fails (Issue A)", () => 
     refetch,
   });
 
-  render(<App />);
+  render(
+    <MemoryRouter initialEntries={["/"]}>
+      <App />
+    </MemoryRouter>,
+  );
 
   expect(
     screen.queryByText("Failed to load dashboard data."),
@@ -668,7 +737,11 @@ it("saves unfiltered totals in the snapshot, not the CEO's filtered view (Issue 
     } as unknown as ReturnType<typeof useDashboardData>["data"],
   });
 
-  render(<App />);
+  render(
+    <MemoryRouter initialEntries={["/"]}>
+      <App />
+    </MemoryRouter>,
+  );
 
   // On screen: filtered to WH001 (1 SKU).
   expect(

@@ -18,6 +18,8 @@ import {
   refreshAuthSession,
   type AuthSession,
 } from "./api/auth";
+import { Link, Routes, Route, Navigate } from "react-router-dom";
+import SupplierScorecard from "./pages/SupplierScorecard";
 import { useDashboardData } from "./api/dashboardGraphql";
 import Login from "./components/Login";
 import { Button } from "@/components/ui/button";
@@ -494,6 +496,25 @@ function DashboardApp({
       >
         Executive Dashboard
       </h1>
+            <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          gap: space.md,
+          marginTop: space.md,
+        }}
+      >
+        <Link
+          to="/suppliers"
+          style={{
+            color: colors.info,
+            textDecoration: "none",
+            fontWeight: 600,
+          }}
+        >
+          Supplier Risk Scorecard
+        </Link>
+      </div>
       {onLogout && (
         <Button type="button" onClick={onLogout}>
           Logout
@@ -978,8 +999,34 @@ function App() {
     };
   }, [authSession]);
 
+  const handleLogout = async () => {
+    const sessionToLogout = authSession;
+    
+    authOperationId.current += 1;
+    clearAuthSession();
+    setAuthSession(null);
+    setAuthError("");
+
+    if (sessionToLogout) {
+      try {
+        await logout(sessionToLogout);
+      } catch {
+        // Local logout is already complete.
+      }
+    }
+  };
+
   if (USE_MOCK_AUTH) {
-    return <DashboardApp />;
+    return (
+      <Routes>
+        <Route path="/" element={<DashboardApp />} />
+        <Route
+          path="/suppliers"
+          element={<SupplierScorecard />}
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    );
   }
 
   if (!authSession) {
@@ -995,24 +1042,30 @@ function App() {
   }
 
   return (
-    <DashboardApp
-      // Remount if a refreshed token carries a different role.
-      key={authSession.role}
-      authRole={authSession.role}
-      onAuthSessionRefreshed={setAuthSession}
-      onLogout={async () => {
-        authOperationId.current += 1;
-        clearAuthSession();
-        setAuthSession(null);
-        setAuthError("");
-
-        try {
-          await logout(authSession);
-        } catch {
-          // Local logout is already complete.
+    <Routes>
+      <Route
+        path="/"
+        element={
+          <DashboardApp
+            // Remount if a refreshed token carries a different role.
+            key={authSession.role}
+            authRole={authSession.role}
+            onAuthSessionRefreshed={setAuthSession}
+            onLogout={handleLogout}
+          />
         }
-      }}
-    />
+      />
+
+        <Route
+        path="/suppliers"
+        element={<SupplierScorecard />}
+      />
+
+      <Route
+        path="*"
+        element={<Navigate to="/" replace />}
+      />
+    </Routes>
   );
 }
 
