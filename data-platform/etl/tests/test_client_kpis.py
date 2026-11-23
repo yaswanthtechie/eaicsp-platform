@@ -78,6 +78,7 @@ def canonical_maps(accepted):
     supplier_ids = {
         code: f"SUP-{44 + index:05d}" for index, code in enumerate(supplier_codes)
     }
+    # The synthetic sample uses one warehouse per city, with suffix -01.
     warehouse_ids = {
         row["warehouse_code"]: f"WH-{row['warehouse_code'].split('-')[0]}-01"
         for row in accepted["warehouse_master"]
@@ -196,7 +197,7 @@ def test_supplier_on_time_excludes_cancelled_orders():
 
 
 def test_sales_sample_passes_loader_validation(valid_sample_rows):
-    accepted, rejected = valid_sample_rows
+    accepted, _ = valid_sample_rows
     product_ids, warehouse_ids, supplier_ids = canonical_maps(accepted)
 
     assert product_ids["PRD-10482"] == "SKU-000123"
@@ -206,7 +207,6 @@ def test_sales_sample_passes_loader_validation(valid_sample_rows):
 
     rows = accepted["sales_history"]
     assert rows
-    assert len(rows) + len(rejected["sales_history"]) > 0
 
     canonical = canonicalize_rows(rows, product_ids, warehouse_ids, supplier_ids)
     result = kpi.calculate_daily_sales(canonical)
@@ -227,14 +227,13 @@ def test_sales_sample_passes_loader_validation(valid_sample_rows):
 
 
 def test_inventory_sample_passes_loader_validation(valid_sample_rows):
-    accepted, rejected = valid_sample_rows
+    accepted, _ = valid_sample_rows
     product_ids, warehouse_ids, supplier_ids = canonical_maps(accepted)
 
     inventory_rows = accepted["inventory_snapshot"]
     sales_rows = accepted["sales_history"]
 
     assert inventory_rows
-    assert len(inventory_rows) + len(rejected["inventory_snapshot"]) > 0
 
     inventory = canonicalize_rows(
         inventory_rows, product_ids, warehouse_ids, supplier_ids
@@ -268,12 +267,11 @@ def test_inventory_sample_passes_loader_validation(valid_sample_rows):
 
 
 def test_purchase_order_sample_passes_loader_validation(valid_sample_rows):
-    accepted, rejected = valid_sample_rows
+    accepted, _ = valid_sample_rows
     product_ids, warehouse_ids, supplier_ids = canonical_maps(accepted)
 
     rows = accepted["purchase_order_history"]
     assert rows
-    assert len(rows) + len(rejected["purchase_order_history"]) > 0
 
     canonical = canonicalize_rows(rows, product_ids, warehouse_ids, supplier_ids)
     result = kpi.calculate_supplier_on_time(canonical)
