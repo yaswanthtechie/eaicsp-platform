@@ -2370,3 +2370,38 @@ The following endpoints do not require an API key:
 The `/service_metrics` endpoint is currently accessible without an API key. It exposes operational information such as the model version and request counts, not forecast input or output data.
 
 This is an intentional decision for the current implementation. Review access requirements before exposing this endpoint publicly.
+
+
+## MLflow production model serving (R15-A9)
+
+The service loads the model registered as `MLFLOW_MODEL_NAME` (`demand_forecast`) through the MLflow alias `MLFLOW_MODEL_ALIAS` (`production`). Set `MLFLOW_TRACKING_URI`, `MLFLOW_MODEL_NAME`, `MLFLOW_MODEL_ALIAS` and `MLFLOW_MODEL_CACHE_DIR` in `.env` (see `.env.example`). `MLFLOW_TRACKING_URI` has no default; the service fails at start if it is unset.
+
+Every model loaded from MLflow is also saved in `MLFLOW_MODEL_CACHE_DIR`. If MLflow is unreachable at start, the service serves the cached model, logs a warning, and `/health` and `/model/readyz` report `degraded`. If MLflow is unreachable and there is no cache, the service does not start.
+
+### How to promote a model
+
+1. Register the new model version under `demand_forecast` (the training pipeline does this) and note its version number.
+
+2. Point the `production` alias at it:
+
+   ```bash
+   python -c "from mlflow import MlflowClient; MlflowClient('http://localhost:5000').set_registered_model_alias('demand_forecast', 'production', '<version>')"
+   ```
+
+3. Reload the running service with a service API key:
+
+   ```bash
+   curl -s -X POST -H "X-API-Key: $FORECAST_API_KEY" http://localhost:8007/admin/reload-model
+   ```
+
+   The response shows the loaded version: `{"status": "reloaded", "model_name": "demand_forecast", "model_version": "<version>"}`. A `503` means the alias could not be loaded and the previous model keeps serving.
+
+4. Check a forecast response:
+
+   ```bash
+   curl -s -H "X-API-Key: $FORECAST_API_KEY" "http://localhost:8007/api/v1/demand/forecast/SKU-000123?warehouse_id=WH-BLR-01&horizon=3"
+   ```
+
+   `model_version` must show the new version.
+
+To roll back, point the alias at the previous version and call reload again.

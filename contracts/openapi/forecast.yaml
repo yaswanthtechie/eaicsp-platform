@@ -16,6 +16,43 @@ security:
   - ServiceApiKey: []
 
 paths:
+  /admin/reload-model:
+    post:
+      operationId: reloadProductionForecastModel
+      summary: Reload the production forecast model from the MLflow alias
+      description: >
+        Authenticated service-to-service operation. Resolves the production
+        alias and loads its current model version before returning success.
+      responses:
+        "200":
+          description: Production forecast model reloaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReloadResponse"
+              example:
+                status: reloaded
+                model_name: demand_forecast
+                model_version: "7"
+        "401":
+          description: Missing or invalid service API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error_code: UNAUTHORIZED
+                message: "Missing or invalid API key"
+        "503":
+          description: Production model could not be reloaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error_code: MODEL_RELOAD_FAILED
+                message: "Could not load the production forecast model"
+
   /api/v1/demand/forecast/{sku_id}:
     get:
       operationId: getDemandForecast
@@ -59,7 +96,8 @@ paths:
                 granularity: daily
                 horizon: 3
                 interval_level: 0.8
-                model_version: R5
+                model_name: demand_forecast
+                model_version: '7'
                 generated_at: "2026-10-15T06:00:00Z"
                 forecast:
                   - date: "2026-10-16"
@@ -148,6 +186,24 @@ components:
       description: Service API key issued by Platform (platform.api_keys). Not a user JWT.
 
   schemas:
+    ReloadResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - model_name
+        - model_version
+      properties:
+        status:
+          type: string
+          const: reloaded
+        model_name:
+          type: string
+          minLength: 1
+        model_version:
+          type: string
+          minLength: 1
+
     SkuId:
       type: string
       pattern: "^SKU-[0-9]{6}$"
@@ -168,6 +224,7 @@ components:
         - granularity
         - horizon
         - interval_level
+        - model_name
         - model_version
         - generated_at
         - forecast
@@ -191,10 +248,14 @@ components:
           type: number
           const: 0.8
           description: Prediction interval coverage (80 percent, from the 10th to 90th percentiles)
+        model_name:
+          type: string
+          minLength: 1
+          description: Name of the registered MLflow model
         model_version:
           type: string
           minLength: 1
-          description: Version of the MLflow "Production" model that produced this forecast
+          description: Registry version the MLflow "production" alias pointed to when this forecast was produced
         generated_at:
           type: string
           format: date-time
@@ -264,5 +325,6 @@ components:
             - WAREHOUSE_NOT_FOUND
             - FORECAST_NOT_AVAILABLE
             - MODEL_UNAVAILABLE
+            - MODEL_RELOAD_FAILED
         message:
           type: string

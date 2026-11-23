@@ -35,6 +35,7 @@ class ForecastResponse(BaseModel):
     granularity: str = "daily"
     horizon: int = Field(ge=1, le=90)
     interval_level: float = 0.8
+    model_name: str
     model_version: str
     generated_at: datetime
     forecast: list[ForecastPoint]
@@ -49,14 +50,17 @@ class ForecastService:
         self.total_latency = 0.0
         self.error_count = 0
         self.load_error = None
-        self.last_load_attempt = 0.0
+        self.last_load_attempt = time.monotonic()
 
-        self.try_load(force=True)
+        # Startup must fail if neither MLflow nor the local cache provides a model.
+        # ProductionForecastModel.load() handles cache fallback and raises if unavailable.
+        self.production_model.load()
+        self.load_error = self.production_model.load_error
 
         app.state.forecast_service = self
 
     def try_load(self, force: bool = False) -> None:
-        """Load the Production model if it isn't loaded yet (rate-limited)."""
+        """Retry loading when no model is available, with a rate limit."""
         if self.production_model.is_loaded:
             return
 
@@ -67,9 +71,16 @@ class ForecastService:
         self.last_load_attempt = now
         try:
             self.production_model.load()
-            self.load_error = None
+            self.load_error = self.production_model.load_error
         except Exception as exc:
             self.load_error = str(exc)
+
+
+def _model_status(service) -> str:
+    model = service.production_model
+    if not model.is_loaded:
+        return "unhealthy"
+    return getattr(model, "load_status", "ready")
 
 
 @app.get("/health")
@@ -77,7 +88,10 @@ def health(request: Request) -> dict:
     service = request.app.state.forecast_service
     service.try_load()
 
-    if not service.production_model.is_loaded:
+    model = service.production_model
+    status = _model_status(service)
+
+    if not model.is_loaded:
         raise HTTPException(
             status_code=503,
             detail={
@@ -88,9 +102,11 @@ def health(request: Request) -> dict:
         )
 
     return {
-        "status": "healthy",
+        # Keep the values /health had before: "healthy", or "degraded" from cache.
+        "status": "healthy" if status == "ready" else status,
         "model_loaded": True,
-        "model_version": service.production_model.model_version,
+        "model_name": model.model_name,
+        "model_version": model.model_version,
     }
 
 
@@ -105,12 +121,14 @@ def readiness(request: Request) -> dict:
             detail="Production model is unavailable.",
         )
 
-    return {"status": "ready"}
+    return {"status": _model_status(service)}
 
 
 @app.get("/service_metrics")
 def service_metrics(request: Request) -> dict:
     service = request.app.state.forecast_service
+    model = service.production_model
+
     average_latency = (
         service.total_latency / service.total_predictions
         if service.total_predictions
@@ -118,11 +136,49 @@ def service_metrics(request: Request) -> dict:
     )
 
     return {
-        "model_version": service.production_model.model_version,
-        "model_loaded": service.production_model.is_loaded,
+        "model_name": model.model_name,
+        "model_version": model.model_version,
+        "model_status": _model_status(service),
+        "model_loaded": model.is_loaded,
         "total_predictions": service.total_predictions,
         "average_latency_ms": round(average_latency, 3),
         "error_count": service.error_count,
+    }
+
+
+@app.post("/admin/reload-model")
+def reload_model(
+    request: Request,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict:
+    # Admin reload is a service-to-service operation and must be authenticated.
+    verify_platform_api_key(x_api_key)
+
+    service = request.app.state.forecast_service
+
+    try:
+        service.production_model.load()
+        service.load_error = service.production_model.load_error
+    except Exception as exc:
+        service.load_error = str(exc)
+        raise ContractError(
+            503,
+            "MODEL_RELOAD_FAILED",
+            "Could not load the production forecast model",
+        ) from exc
+
+    status = _model_status(service)
+    if status != "ready":
+        raise ContractError(
+            503,
+            "MODEL_RELOAD_FAILED",
+            "The production alias could not be refreshed; the previous cached model may still be serving",
+        )
+
+    return {
+        "status": "reloaded",
+        "model_name": service.production_model.model_name,
+        "model_version": service.production_model.model_version,
     }
 
 
@@ -156,11 +212,13 @@ def forecast(
             horizon=horizon,
         )
 
+        model = service.production_model
         response = ForecastResponse(
             sku_id=sku_id,
             warehouse_id=warehouse_id,
             horizon=horizon,
-            model_version=service.production_model.model_version,
+            model_name=model.model_name,
+            model_version=model.model_version,
             generated_at=datetime.now(timezone.utc),
             forecast=points,
         )
