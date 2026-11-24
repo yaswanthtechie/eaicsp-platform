@@ -790,6 +790,60 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inventory/{sku_id}/{warehouse_id}/safety-stock:
+    get:
+      tags:
+      - Inventory
+      summary: Get service-level safety stock
+      description: Calculates safety stock from demand and lead-time variability with
+        target service level based on ABC-XYZ classification. Falls back to configured/current
+        safety stock if history is insufficient.
+      operationId: get_safety_stock_route_api_v1_inventory__sku_id___warehouse_id__safety_stock_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: sku_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Sku Id
+      - name: warehouse_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Warehouse Id
+      - name: weeks
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            minimum: 1
+          - type: 'null'
+          description: Optional demand history window in weeks
+          title: Weeks
+        description: Optional demand history window in weeks
+      responses:
+        '200':
+          description: Service-level safety stock calculation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SafetyStockResponse'
+        '401':
+          description: Missing or invalid token
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: Inventory not found
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/inventory/{sku_id}/{warehouse_id}:
     put:
       tags:
@@ -1732,6 +1786,113 @@ components:
       - abc_tier
       - adjusted_safety_stock
       title: ReorderPlanEntry
+    SafetyStockInputs:
+      properties:
+        avg_daily_demand:
+          type: number
+          title: Avg Daily Demand
+        sd_daily_demand:
+          type: number
+          title: Sd Daily Demand
+        demand_cv:
+          type: number
+          title: Demand Cv
+        demand_history_days:
+          type: integer
+          title: Demand History Days
+        demand_window_weeks:
+          type: integer
+          title: Demand Window Weeks
+        avg_lead_time_days:
+          type: number
+          title: Avg Lead Time Days
+        sd_lead_time_days:
+          type: number
+          title: Sd Lead Time Days
+        lead_time_po_count:
+          type: integer
+          title: Lead Time Po Count
+        lead_time_source:
+          type: string
+          title: Lead Time Source
+        supplier_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Supplier Id
+      type: object
+      required:
+      - avg_daily_demand
+      - sd_daily_demand
+      - demand_cv
+      - demand_history_days
+      - demand_window_weeks
+      - avg_lead_time_days
+      - sd_lead_time_days
+      - lead_time_po_count
+      - lead_time_source
+      title: SafetyStockInputs
+    SafetyStockResponse:
+      properties:
+        sku_id:
+          type: string
+          title: Sku Id
+        warehouse_id:
+          type: string
+          title: Warehouse Id
+        abc_class:
+          type: string
+          title: Abc Class
+        xyz_class:
+          type: string
+          title: Xyz Class
+        abc_xyz_class:
+          type: string
+          title: Abc Xyz Class
+        service_level:
+          type: number
+          title: Service Level
+        z_score:
+          type: number
+          title: Z Score
+        inputs_used:
+          $ref: '#/components/schemas/SafetyStockInputs'
+        calculated_safety_stock:
+          type: number
+          title: Calculated Safety Stock
+        safety_stock:
+          type: integer
+          title: Safety Stock
+        current_safety_stock:
+          type: integer
+          title: Current Safety Stock
+        method:
+          type: string
+          title: Method
+        is_fallback:
+          type: boolean
+          title: Is Fallback
+        fallback_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Fallback Reason
+      type: object
+      required:
+      - sku_id
+      - warehouse_id
+      - abc_class
+      - xyz_class
+      - abc_xyz_class
+      - service_level
+      - z_score
+      - inputs_used
+      - calculated_safety_stock
+      - safety_stock
+      - current_safety_stock
+      - method
+      - is_fallback
+      title: SafetyStockResponse
     SimulationResponse:
       properties:
         sku_id:

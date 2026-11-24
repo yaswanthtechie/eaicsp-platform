@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.inventory import Inventory
 from app.services import demand_service
 from app.services.abc_service import (
@@ -132,10 +133,22 @@ def calculate_reorder_point(
 
     abc_tier = classification["abc_tier"] if classification else "C"
 
-    adjusted_safety_stock = calculate_tier_safety_stock(
-        base_safety_stock=safety_stock,
-        abc_tier=abc_tier,
-    )
+    if getattr(settings, "USE_DYNAMIC_SAFETY_STOCK", False):
+        from app.services.safety_stock_service import (
+            calculate_service_level_safety_stock,
+        )
+
+        dynamic_result = calculate_service_level_safety_stock(
+            db=db,
+            sku_id=sku_id,
+            warehouse_id=warehouse_id,
+        )
+        adjusted_safety_stock = dynamic_result["safety_stock"]
+    else:
+        adjusted_safety_stock = calculate_tier_safety_stock(
+            base_safety_stock=safety_stock,
+            abc_tier=abc_tier,
+        )
 
     stored_rop = None
     if hasattr(inventory, "reorder_point"):
