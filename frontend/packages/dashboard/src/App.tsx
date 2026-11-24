@@ -75,12 +75,21 @@ const handleProfilerRender: ProfilerOnRenderCallback = (
   }
 };
 
-function roleFromUrl(): UserRole {
-  // ?role= is a mock stand-in for authentication until real auth is implemented.
-  const urlRole = new URLSearchParams(window.location.search).get("role");
+function canAccessSupplierScorecard(role: unknown): boolean {
+  return role === "ceo" || role === "warehouse_manager";
+}
 
-  return urlRole === "ceo" || urlRole === "warehouse_manager"
-    ? urlRole
+function mockRoleFromUrl(): string {
+  return (
+    new URLSearchParams(window.location.search).get("role") ?? mockUser.role
+  );
+}
+
+function roleFromUrl(): UserRole {
+  const urlRole = mockRoleFromUrl();
+
+  return canAccessSupplierScorecard(urlRole)
+    ? (urlRole as UserRole)
     : mockUser.role;
 }
 
@@ -94,9 +103,7 @@ function buildKpis(
     (total, item) => total + item.quantity_on_hand,
     0,
   );
-  const lowStock = inventory.filter(
-    (item) => item.needs_reorder,
-  ).length;
+  const lowStock = inventory.filter((item) => item.needs_reorder).length;
 
   return role === "warehouse_manager"
     ? [
@@ -130,18 +137,20 @@ function DashboardApp({
     refetch,
   } = useDashboardData();
 
-  const [role, setRole] = useState<UserRole>(
-    () => authRole ?? roleFromUrl(),
-  );
+  const [role, setRole] = useState<UserRole>(() => authRole ?? roleFromUrl());
+
+  const canViewSupplierScorecard = USE_MOCK_AUTH
+    ? canAccessSupplierScorecard(mockRoleFromUrl())
+    : canAccessSupplierScorecard(role);
   const [alerts, setAlerts] = useState<AlertMessage[]>([]);
-  const [inventoryNames, setInventoryNames] =
-  useState<InventoryNameMaps>({
+  const [inventoryNames, setInventoryNames] = useState<InventoryNameMaps>({
     products: {},
     warehouses: {},
   });
   const latestEtaRef = useRef(new Map<string, number>());
-  const [liveInventory, setLiveInventory] =
-    useState<InventoryItem[]>(() => dashboardData?.dashboard.inventory ?? []);
+  const [liveInventory, setLiveInventory] = useState<InventoryItem[]>(
+    () => dashboardData?.dashboard.inventory ?? [],
+  );
   const isOnline = useOnlineStatus();
   const wasOffline = useRef(false);
   const [filters, setFilters] = useState({
@@ -165,12 +174,10 @@ function DashboardApp({
 
   useEffect(() => {
     const updateFiltersFromUrl = () => {
-      const params = new URLSearchParams(
-        window.location.search,
-      );
-    if(USE_MOCK_AUTH) {
-      setRole(roleFromUrl());
-    }
+      const params = new URLSearchParams(window.location.search);
+      if (USE_MOCK_AUTH) {
+        setRole(roleFromUrl());
+      }
       setFilters({
         warehouse: params.get("warehouse") || "All",
         category: params.get("category") || "All",
@@ -178,27 +185,17 @@ function DashboardApp({
         endDate: params.get("endDate") || "",
       });
 
-      setSelectedKpi(
-        params.get("selectedKpi") || "",
-      );
+      setSelectedKpi(params.get("selectedKpi") || "");
 
-      setLowStockOnly(
-        params.get("lowStock") === "true",
-      );
+      setLowStockOnly(params.get("lowStock") === "true");
     };
 
     updateFiltersFromUrl();
 
-    window.addEventListener(
-      "popstate",
-      updateFiltersFromUrl,
-    );
+    window.addEventListener("popstate", updateFiltersFromUrl);
 
     return () => {
-      window.removeEventListener(
-        "popstate",
-        updateFiltersFromUrl,
-      );
+      window.removeEventListener("popstate", updateFiltersFromUrl);
     };
   }, []);
 
@@ -207,13 +204,13 @@ function DashboardApp({
     let retryTimer: number | undefined;
 
     const loadNames = (attempt: number) => {
-    void fetchInventoryNames().then((names) => {
-      if (cancelled) {
-        return;
-      }
-      setInventoryNames(names);
+      void fetchInventoryNames().then((names) => {
+        if (cancelled) {
+          return;
+        }
+        setInventoryNames(names);
 
-      const nothingFound =
+        const nothingFound =
           Object.keys(names.products).length === 0 ||
           Object.keys(names.warehouses).length === 0;
 
@@ -232,59 +229,51 @@ function DashboardApp({
   }, []);
 
   useEffect(() => {
-    if (
-      import.meta.env.DEV &&
-      import.meta.env.VITE_USE_MOCK_WS === "true"
-    ) {
+    if (import.meta.env.DEV && import.meta.env.VITE_USE_MOCK_WS === "true") {
       startMockWebSocketServer();
     }
   }, []);
 
-  const handleMessage = useCallback(
-    (data: WebSocketMessage) => {
-      if (data.type === "inventory_update") {
-        setLiveInventory((prev) => {
-          const existingIndex = prev.findIndex(
-            (item) => item.sku_id === data.item.sku_id,
-          );
+  const handleMessage = useCallback((data: WebSocketMessage) => {
+    if (data.type === "inventory_update") {
+      setLiveInventory((prev) => {
+        const existingIndex = prev.findIndex(
+          (item) => item.sku_id === data.item.sku_id,
+        );
 
-          if (existingIndex === -1) {
-            return [...prev, data.item];
-          }
+        if (existingIndex === -1) {
+          return [...prev, data.item];
+        }
 
-          const updated = [...prev];
-          updated[existingIndex] = data.item;
+        const updated = [...prev];
+        updated[existingIndex] = data.item;
 
-          return updated;
-        });
+        return updated;
+      });
 
+      return;
+    }
+
+    if (
+      data.type === "shipment-eta-update" &&
+      data.shipmentId &&
+      data.predictedAt
+    ) {
+      const predictedAt = Date.parse(data.predictedAt);
+      const latest = latestEtaRef.current.get(data.shipmentId);
+      if (
+        !Number.isFinite(predictedAt) ||
+        (latest !== undefined && predictedAt <= latest)
+      ) {
         return;
       }
+      latestEtaRef.current.set(data.shipmentId, predictedAt);
+    }
 
-      if (
-        data.type === "shipment-eta-update" &&
-        data.shipmentId &&
-        data.predictedAt
-      ) {
-        const predictedAt = Date.parse(data.predictedAt);
-        const latest = latestEtaRef.current.get(data.shipmentId);
-        if (
-          !Number.isFinite(predictedAt) ||
-          (latest !== undefined && predictedAt <= latest)
-        ) {
-          return;
-        }
-        latestEtaRef.current.set(data.shipmentId, predictedAt);
-      }
-
-      setAlerts((prev) => mergeAlert(prev, data));
-    },
-    [],
-  );
+    setAlerts((prev) => mergeAlert(prev, data));
+  }, []);
   const removeAlert = useCallback((id: string) => {
-    setAlerts((prev) =>
-      prev.filter((alert) => alert.id !== id),
-    );
+    setAlerts((prev) => prev.filter((alert) => alert.id !== id));
   }, []);
 
   const refreshDashboardData = useCallback(async () => {
@@ -307,15 +296,12 @@ function DashboardApp({
     }
   }, [isOnline, refreshDashboardData]);
 
-  const {
-    connected,
-    isConnecting,
-    failed,
-    retryConnection,
-  } = useWebSocket({
+  const { connected, isConnecting, failed, retryConnection } = useWebSocket({
     url:
       import.meta.env.VITE_ALERTS_WS_URL ||
-      (import.meta.env.VITE_USE_MOCK_WS === "true" ? "ws://localhost:8080" : ""),
+      (import.meta.env.VITE_USE_MOCK_WS === "true"
+        ? "ws://localhost:8080"
+        : ""),
     onMessage: handleMessage,
     autoReconnect: true,
     maxRetries: 5,
@@ -324,7 +310,7 @@ function DashboardApp({
   });
   const effectiveWarehouse =
     role === "warehouse_manager"
-      ? mockUser.warehouse ?? ""
+      ? (mockUser.warehouse ?? "")
       : filters.warehouse;
 
   const baseFilteredInventory = useMemo(() => {
@@ -334,28 +320,21 @@ function DashboardApp({
         item.warehouse_id === effectiveWarehouse;
 
       const categoryMatches =
-        filters.category === "All" ||
-        item.category === filters.category;
+        filters.category === "All" || item.category === filters.category;
 
       return warehouseMatches && categoryMatches;
     });
-  }, [
-    liveInventory,
-    effectiveWarehouse,
-    filters.category,
-  ]);
+  }, [liveInventory, effectiveWarehouse, filters.category]);
 
   const filteredInventory = useMemo(() => {
     if (!lowStockOnly) {
       return baseFilteredInventory;
     }
 
-    return baseFilteredInventory.filter(
-      (item) => item.needs_reorder,
-    );
+    return baseFilteredInventory.filter((item) => item.needs_reorder);
   }, [baseFilteredInventory, lowStockOnly]);
 
-    const alertCount = alerts.length;
+  const alertCount = alerts.length;
 
   // KPIs on screen follow the CEO's filters.
   const kpis = useMemo(
@@ -368,7 +347,9 @@ function DashboardApp({
   const roleInventory = useMemo(
     () =>
       role === "warehouse_manager"
-        ? liveInventory.filter((item) => item.warehouse_id === effectiveWarehouse)
+        ? liveInventory.filter(
+            (item) => item.warehouse_id === effectiveWarehouse,
+          )
         : liveInventory,
     [role, liveInventory, effectiveWarehouse],
   );
@@ -381,8 +362,8 @@ function DashboardApp({
   const snapshotScope =
     role === "warehouse_manager" ? `${role}:${effectiveWarehouse}` : role;
 
-// The saved snapshot is only needed when nothing is in memory
-// (opened while offline, or the first load failed).
+  // The saved snapshot is only needed when nothing is in memory
+  // (opened while offline, or the first load failed).
   const offlineSnapshot = useMemo(
     () =>
       !dashboardData && (!isOnline || dashboardError)
@@ -394,7 +375,7 @@ function DashboardApp({
   const staleSince = useMemo(
     () =>
       !isOnline || dashboardError
-        ? getKpiSnapshot(snapshotScope)?.savedAt ?? null
+        ? (getKpiSnapshot(snapshotScope)?.savedAt ?? null)
         : null,
     [isOnline, dashboardError, snapshotScope],
   );
@@ -403,7 +384,7 @@ function DashboardApp({
   const panelError = Boolean(dashboardError) && !dashboardData;
   const panelLoading = dashboardLoading && !dashboardData;
 
-// savedAt = when the data was LOADED, not when a filter last changed.
+  // savedAt = when the data was LOADED, not when a filter last changed.
   const loadedAt = useRef<{ data: unknown; at: string } | null>(null);
 
   useEffect(() => {
@@ -422,15 +403,10 @@ function DashboardApp({
   }, [dashboardData, dashboardError, snapshotScope, snapshotKpis]);
 
   const handleKpiClick = (title: string) => {
-    const params = new URLSearchParams(
-      window.location.search,
-    );
+    const params = new URLSearchParams(window.location.search);
     let nextLowStock = lowStockOnly;
 
-    if (
-      title === "Low Stock" ||
-      title === "Reorder Items"
-    ) {
+    if (title === "Low Stock" || title === "Reorder Items") {
       nextLowStock = !lowStockOnly;
     } else if (
       title === "SKUs" ||
@@ -442,10 +418,7 @@ function DashboardApp({
     }
 
     params.set("selectedKpi", title);
-    params.set(
-      "lowStock",
-      String(nextLowStock),
-    );
+    params.set("lowStock", String(nextLowStock));
 
     const queryString = params.toString();
 
@@ -462,17 +435,13 @@ function DashboardApp({
 
     setTimeout(() => {
       if (title === "Alerts") {
-        document
-          .getElementById("alerts-section")
-          ?.scrollIntoView({
-            behavior: "smooth",
-          });
+        document.getElementById("alerts-section")?.scrollIntoView({
+          behavior: "smooth",
+        });
       } else {
-        document
-          .getElementById("inventory-section")
-          ?.scrollIntoView({
-            behavior: "smooth",
-          });
+        document.getElementById("inventory-section")?.scrollIntoView({
+          behavior: "smooth",
+        });
       }
     }, 0);
   };
@@ -496,7 +465,7 @@ function DashboardApp({
       >
         Executive Dashboard
       </h1>
-            <div
+      <div
         style={{
           display: "flex",
           justifyContent: "center",
@@ -504,22 +473,24 @@ function DashboardApp({
           marginTop: space.md,
         }}
       >
-        <Link
-          to="/suppliers"
-          style={{
-            color: colors.info,
-            textDecoration: "none",
-            fontWeight: 600,
-          }}
-        >
-          Supplier Risk Scorecard
-        </Link>
+        {canViewSupplierScorecard && (
+          <Link
+            to="/suppliers"
+            style={{
+              color: colors.info,
+              textDecoration: "none",
+              fontWeight: 600,
+            }}
+          >
+            Supplier Risk Scorecard
+          </Link>
+        )}
+        {onLogout && (
+          <Button type="button" onClick={onLogout}>
+            Logout
+          </Button>
+        )}
       </div>
-      {onLogout && (
-        <Button type="button" onClick={onLogout}>
-          Logout
-        </Button>
-      )}
     </div>
   );
 
@@ -543,7 +514,7 @@ function DashboardApp({
         />
 
         <AnalyticsKpiPanel />
-        
+
         <KpiGrid
           kpis={offlineSnapshot.kpis}
           selectedKpi={selectedKpi}
@@ -567,11 +538,11 @@ function DashboardApp({
     return (
       <div
         style={{
-        background: colors.bg,
-        minHeight: "100vh",
-        padding: space.lg,
-        color: colors.text,
-      }}
+          background: colors.bg,
+          minHeight: "100vh",
+          padding: space.lg,
+          color: colors.text,
+        }}
       >
         Loading dashboard data...
       </div>
@@ -589,7 +560,7 @@ function DashboardApp({
           color: colors.text,
         }}
       >
-        <p style={{ margin:0, marginBottom: space.md }}>
+        <p style={{ margin: 0, marginBottom: space.md }}>
           Failed to load dashboard data.
         </p>
 
@@ -627,15 +598,15 @@ function DashboardApp({
     );
   }
   return (
-      <div
-        style={{
-          background: colors.bg,
-          minHeight: "100vh",
-          padding: space.lg,
-          boxSizing: "border-box",
-        }}
-      >
-        { header }
+    <div
+      style={{
+        background: colors.bg,
+        minHeight: "100vh",
+        padding: space.lg,
+        boxSizing: "border-box",
+      }}
+    >
+      {header}
 
       <DashboardFilters
         filters={filters}
@@ -661,8 +632,8 @@ function DashboardApp({
           productNames={inventoryNames.products}
           warehouseNames={inventoryNames.warehouses}
           suppliers={dashboardData?.dashboard.supplierRisk ?? []}
-          shipments=
-            {dashboardData?.dashboard.shipmentStatus ?? {
+          shipments={
+            dashboardData?.dashboard.shipmentStatus ?? {
               total: 0,
               pending: 0,
               delivered: 0,
@@ -679,8 +650,8 @@ function DashboardApp({
           productNames={inventoryNames.products}
           warehouseNames={inventoryNames.warehouses}
           suppliers={dashboardData?.dashboard.supplierRisk ?? []}
-          shipments=
-            {dashboardData?.dashboard.shipmentStatus ?? {
+          shipments={
+            dashboardData?.dashboard.shipmentStatus ?? {
               total: 0,
               pending: 0,
               delivered: 0,
@@ -722,8 +693,8 @@ function DashboardApp({
             inventory={baseFilteredInventory}
             warehouseNames={inventoryNames.warehouses}
             suppliers={dashboardData?.dashboard.supplierRisk ?? []}
-            shipments=
-              {dashboardData?.dashboard.shipmentStatus ?? {
+            shipments={
+              dashboardData?.dashboard.shipmentStatus ?? {
                 total: 0,
                 pending: 0,
                 delivered: 0,
@@ -766,10 +737,7 @@ function DashboardApp({
           >
             <ErrorBoundary>
               <Suspense fallback={<Skeleton />}>
-                <Profiler
-                  id="ForecastChart"
-                  onRender={handleProfilerRender}
-                >
+                <Profiler id="ForecastChart" onRender={handleProfilerRender}>
                   <ForecastChart
                     startDate={filters.startDate}
                     endDate={filters.endDate}
@@ -777,17 +745,14 @@ function DashboardApp({
                     loading={panelLoading}
                     error={panelError}
                     onRetry={() => void refetch()}
-                   />
+                  />
                 </Profiler>
               </Suspense>
             </ErrorBoundary>
           </div>
         </div>
 
-        <div
-          id="alerts-section"
-          className="alerts-section"
-        >
+        <div id="alerts-section" className="alerts-section">
           <ErrorBoundary>
             <AlertsPanel
               alerts={alerts}
@@ -840,10 +805,10 @@ function DashboardApp({
 
         <ErrorBoundary>
           <ShipmentStatus
-              shipmentStatus={dashboardData?.dashboard.shipmentStatus}
-              loading={panelLoading}
-              error={panelError}
-              onRetry={() => void refetch()}
+            shipmentStatus={dashboardData?.dashboard.shipmentStatus}
+            loading={panelLoading}
+            error={panelError}
+            onRetry={() => void refetch()}
           />
         </ErrorBoundary>
       </div>
@@ -866,10 +831,7 @@ function DashboardApp({
           }}
         >
           <ErrorBoundary>
-            <Profiler
-              id="InventoryTable"
-              onRender={handleProfilerRender}
-            >
+            <Profiler id="InventoryTable" onRender={handleProfilerRender}>
               <InventoryTable
                 data={filteredInventory}
                 productNames={inventoryNames.products}
@@ -890,10 +852,7 @@ function DashboardApp({
           }}
         >
           <ErrorBoundary>
-            <Profiler
-              id="InventoryHeatmap"
-              onRender={handleProfilerRender}
-            >
+            <Profiler id="InventoryHeatmap" onRender={handleProfilerRender}>
               <InventoryHeatmap
                 data={filteredInventory}
                 productNames={inventoryNames.products}
@@ -920,11 +879,10 @@ function DashboardApp({
                 loading={panelLoading}
                 error={panelError}
                 onRetry={() => void refetch()}
-               />
+              />
             </ErrorBoundary>
           </div>
         )}
-
       </div>
     </div>
   );
@@ -946,22 +904,23 @@ function App() {
       const elapsed = Date.now() - lastRefreshAttemptAt.current;
       // Enforce a minimum gap between refresh attempts.
       const minimumWait =
-        lastRefreshAttemptAt.current === 0
-          ? 0
-          : Math.max(15_000 - elapsed, 0);
-      timer = window.setTimeout(() => {
-        void refreshBeforeExpiry();
-      }, Math.max(delayMs, minimumWait));
+        lastRefreshAttemptAt.current === 0 ? 0 : Math.max(15_000 - elapsed, 0);
+      timer = window.setTimeout(
+        () => {
+          void refreshBeforeExpiry();
+        },
+        Math.max(delayMs, minimumWait),
+      );
     }
 
-    async function refreshBeforeExpiry()  {
+    async function refreshBeforeExpiry() {
       const operationId = authOperationId.current;
 
       lastRefreshAttemptAt.current = Date.now();
       try {
         const refreshedSession = await refreshAuthSession();
 
-        if(operationId !== authOperationId.current) {
+        if (operationId !== authOperationId.current) {
           return;
         }
 
@@ -970,7 +929,7 @@ function App() {
         if (operationId !== authOperationId.current) {
           return;
         }
-        
+
         if (err instanceof AuthError && err.kind === "unavailable") {
           scheduleRefresh(REFRESH_RETRY_MS);
           return;
@@ -986,8 +945,8 @@ function App() {
     try {
       delayMs =
         getTokenExpiry(authSession.access_token) -
-          Date.now() -
-          REFRESH_BEFORE_EXPIRY_MS;
+        Date.now() -
+        REFRESH_BEFORE_EXPIRY_MS;
     } catch {
       // Refresh after the minimum delay if the expiry cannot be read.
     }
@@ -1001,7 +960,7 @@ function App() {
 
   const handleLogout = async () => {
     const sessionToLogout = authSession;
-    
+
     authOperationId.current += 1;
     clearAuthSession();
     setAuthSession(null);
@@ -1022,7 +981,13 @@ function App() {
         <Route path="/" element={<DashboardApp />} />
         <Route
           path="/suppliers"
-          element={<SupplierScorecard />}
+          element={
+            canAccessSupplierScorecard(mockRoleFromUrl()) ? (
+              <SupplierScorecard />
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
@@ -1055,16 +1020,21 @@ function App() {
           />
         }
       />
-
-        <Route
-        path="/suppliers"
-        element={<SupplierScorecard />}
-      />
-
       <Route
-        path="*"
-        element={<Navigate to="/" replace />}
+        path="/suppliers"
+        element={
+          canAccessSupplierScorecard(authSession.role) ? (
+            <SupplierScorecard
+              onAuthSessionRefreshed={setAuthSession}
+              onLogout={handleLogout}
+            />
+          ) : (
+            <Navigate to="/" replace />
+          )
+        }
       />
+
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

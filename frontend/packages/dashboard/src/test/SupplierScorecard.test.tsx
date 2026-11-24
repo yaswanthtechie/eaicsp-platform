@@ -7,14 +7,16 @@ import {
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  fetchSupplierScorecard,
+  type SupplierScorecardRow,
+} from "../api/supplierScorecard";
 import SupplierScorecard from "../pages/SupplierScorecard";
-import { fetchSupplierScorecard } from "../api/supplierScoreCard";
-
-vi.mock("../api/supplierScoreCard", () => ({
+vi.mock("../api/supplierScorecard", () => ({
   fetchSupplierScorecard: vi.fn(),
 }));
 
-const mockSuppliers = [
+const mockSuppliers: SupplierScorecardRow[] = [
   {
     supplier_id: "SUP-00007",
     supplier_name: "ALPHA SANCTIONS CORP",
@@ -34,7 +36,7 @@ const mockSuppliers = [
     on_time_delivery_percent: null,
     risk: {
       supplier_id: "SUP-00023",
-      score: 85,
+      score: 65,
       tier: "Critical",
       top_reasons: [
         "Designated on EU-CONSOLIDATED (critical compliance risk)",
@@ -49,7 +51,7 @@ const mockSuppliers = [
     on_time_delivery_percent: null,
     risk: {
       supplier_id: "SUP-00045",
-      score: 85,
+      score: 95,
       tier: "Critical",
       top_reasons: [],
       client_risk_features: null,
@@ -60,7 +62,7 @@ const mockSuppliers = [
 
 describe("C8 Supplier Risk Scorecard", () => {
   beforeEach(() => {
-    vi.mocked(fetchSupplierScorecard).mockResolvedValue(mockSuppliers as Awaited<ReturnType<typeof fetchSupplierScorecard>>);
+    vi.mocked(fetchSupplierScorecard).mockResolvedValue(mockSuppliers);
   });
 
   afterEach(() => {
@@ -94,7 +96,9 @@ describe("C8 Supplier Risk Scorecard", () => {
 
     await screen.findByText("ALPHA SANCTIONS CORP");
 
-    expect(screen.getAllByText("85.0")).toHaveLength(3);
+    expect(screen.getByText("85.0")).toBeInTheDocument();
+    expect(screen.getByText("65.0")).toBeInTheDocument();
+    expect(screen.getByText("95.0")).toBeInTheDocument();
     expect(screen.getAllByText("Critical")).toHaveLength(3);
   });
 
@@ -214,5 +218,108 @@ describe("C8 Supplier Risk Scorecard", () => {
     expect(
       await screen.findByText(/failed|unable|could not/i),
     ).toBeInTheDocument();
+  });
+
+  function row(
+    supplierId: string,
+    name: string,
+    score: number | null,
+    tier: "Low" | "Medium" | "High" | "Critical" | null,
+    onTime: number | null,
+    riskError: string | null = null,
+  ): SupplierScorecardRow {
+    return {
+      supplier_id: supplierId,
+      supplier_name: name,
+      on_time_delivery_percent: onTime,
+      risk:
+        riskError === null
+          ? {
+              supplier_id: supplierId,
+              score,
+              tier,
+              top_reasons: [],
+              client_risk_features: null,
+            }
+          : null,
+      risk_error: riskError,
+    };
+  }
+
+  const sortSuppliers: SupplierScorecardRow[] = [
+    row("SUP-00022", "Bluepeak Enterprises Inc", 48, "Medium", 88),
+    row("SUP-00021", "Evergreen Supplies GmbH", null, null, null),
+    row("SUP-00007", "ALPHA SANCTIONS CORP", 85, "Critical", 96),
+    ];
+
+  function supplierOrder(): string[] {
+    return Array.from(
+      document.querySelectorAll('tr[aria-label^="Show risk reasons for "]'),
+    ).map((tr) =>
+      (tr.getAttribute("aria-label") ?? "").replace("Show risk reasons for ", ""),
+    );
+  }
+
+  describe("C8 Supplier Risk Scorecard sorting and partial failure", () => {
+    afterEach(() => {
+      cleanup();
+      vi.clearAllMocks();
+    });
+
+    async function renderScorecard(data: SupplierScorecardRow[]) {
+      vi.mocked(fetchSupplierScorecard).mockResolvedValue(data);
+      render(
+        <MemoryRouter>
+          <SupplierScorecard />
+        </MemoryRouter>,
+      );
+      await screen.findByText("ALPHA SANCTIONS CORP");
+    }
+
+    it("shows the highest risk first by default, missing scores last", async () => {
+      await renderScorecard(sortSuppliers);
+
+      expect(supplierOrder()).toEqual([
+        "ALPHA SANCTIONS CORP",
+        "Bluepeak Enterprises Inc",
+        "Evergreen Supplies GmbH",
+      ]);
+    });
+
+    it("flips the risk score order on click, keeping missing scores last", async () => {
+      await renderScorecard(sortSuppliers);
+
+      fireEvent.click(screen.getByRole("button", { name: /^Risk score/ }));
+
+      expect(supplierOrder()).toEqual([
+        "Bluepeak Enterprises Inc",
+        "ALPHA SANCTIONS CORP",
+        "Evergreen Supplies GmbH",
+      ]);
+    });
+
+    it("sorts by on-time delivery with Not tracked last", async () => {
+      await renderScorecard(sortSuppliers);
+
+      fireEvent.click(screen.getByRole("button", { name: /^On-time delivery/ }));
+
+      expect(supplierOrder()).toEqual([
+        "Bluepeak Enterprises Inc",
+        "ALPHA SANCTIONS CORP",
+          "Evergreen Supplies GmbH",
+      ]);
+    });
+
+    it("says how many suppliers have no risk data when the risk endpoint fails", async () => {
+      await renderScorecard([
+        row("SUP-00007", "ALPHA SANCTIONS CORP", null, null, 96, "Request failed (503)."),
+        row("SUP-00022", "Bluepeak Enterprises Inc", 48, "Medium", 88),
+      ]);
+
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Risk data could not be loaded for 1 of 2 suppliers.",
+      );
+      expect(screen.getByText("96.0%")).toBeInTheDocument();
+    });
   });
 });

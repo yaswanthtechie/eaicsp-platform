@@ -8,11 +8,12 @@ import {
   type KeyboardEvent,
 } from "react";
 import { Link } from "react-router-dom";
+import type { AuthSession } from "../api/auth";
 
 import {
   fetchSupplierScorecard,
   type SupplierScorecardRow,
-} from "../api/supplierScoreCard";
+} from "../api/supplierScorecard";
 
 import { colors, radius, space } from "../tokens";
 
@@ -38,6 +39,11 @@ const TIER_ORDER: Record<string, number> = {
   High: 3,
   Critical: 4,
 };
+
+interface SupplierScorecardProps {
+  onAuthSessionRefreshed?: (session: AuthSession) => void;
+  onLogout?: () => void;
+}
 
 const SORT_HEADERS: { key: SortKey; label: string }[] = [
   { key: "supplier_name", label: "Supplier" },
@@ -116,7 +122,10 @@ const buttonStyle: CSSProperties = {
   fontSize: 14,
 };
 
-export default function SupplierScorecard() {
+export default function SupplierScorecard({
+  onAuthSessionRefreshed,
+  onLogout,
+} : SupplierScorecardProps) {
   const [rows, setRows] = useState<SupplierScorecardRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -139,7 +148,7 @@ export default function SupplierScorecard() {
     setError(null);
 
     try {
-      const data = await fetchSupplierScorecard();
+      const data = await fetchSupplierScorecard(onAuthSessionRefreshed);
       setRows(data);
       setCurrentPage(1);
       setExpandedSupplier(null);
@@ -152,14 +161,14 @@ export default function SupplierScorecard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [onAuthSessionRefreshed]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadInitialData() {
       try {
-        const data = await fetchSupplierScorecard();
+        const data = await fetchSupplierScorecard(onAuthSessionRefreshed);
 
         if (!cancelled) {
           setRows(data);
@@ -185,7 +194,7 @@ export default function SupplierScorecard() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [onAuthSessionRefreshed]);
 
   const filteredRows = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -266,6 +275,8 @@ export default function SupplierScorecard() {
         : -difference;
     });
   }, [filteredRows, sortConfig]);
+
+  const riskFailures = rows.filter((row) => row.risk_error).length;
 
   const totalPages = Math.max(
     1,
@@ -415,7 +426,16 @@ export default function SupplierScorecard() {
           >
             Executive Dashboard
           </Link>
-
+          
+          {onLogout && (
+            <button
+              type="button"
+              onClick={onLogout}
+              style={buttonStyle}
+            >
+              Logout
+            </button>
+          )}
           <button
             type="button"
             onClick={() => void loadData()}
@@ -482,6 +502,23 @@ export default function SupplierScorecard() {
           {rows.length === 0
             ? "No suppliers found."
             : "No suppliers match your search."}
+        </section>
+      )}
+
+      {!loading && !error && riskFailures > 0 && (
+        <section
+          role="status"
+          style={{
+            background: colors.surface,
+            border: `1px solid ${colors.border}`,
+            borderRadius: radius.md,
+            padding: space.md,
+            marginBottom: space.md,
+            color: colors.warning,
+          }}
+        >
+          Risk data could not be loaded for {riskFailures} of {rows.length}{" "}
+          suppliers. On-time data is shown where available.
         </section>
       )}
 

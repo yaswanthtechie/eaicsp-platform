@@ -1,8 +1,8 @@
-﻿import {
+import {
   getAuthSession,
   refreshAuthSession,
 } from "./auth";
-
+import type { AuthSession } from "./auth";
 import { supplierScorecardResponse } from "../mocks/supplierScorecardResponses";
 
 export interface SupplierPerformance {
@@ -30,7 +30,7 @@ export interface SupplierRiskResponse {
   supplier_id: string;
   score: number | null;
   tier: "Low" | "Medium" | "High" | "Critical" | null;
-  top_reasons: string[];
+  top_reasons?: string[];
   client_risk_features: ClientRiskFeatures | null;
 }
 
@@ -43,12 +43,22 @@ export interface SupplierScorecardRow {
 }
 
 const API_TIMEOUT_MS = 30000;
+const RISK_API_TIMEOUT_MS = 2000;
+const MAX_CONCURRENT_RISK_REQUESTS = 5;
 
-const USE_MOCK_SUPPLIER_SCORECARD =
-  import.meta.env.DEV &&
-  import.meta.env.VITE_USE_MOCK_SUPPLIER_SCORECARD === "true";
+function isMockSupplierScorecard(): boolean {
+  return (
+    import.meta.env.DEV &&
+    import.meta.env.VITE_USE_MOCK_SUPPLIER_SCORECARD === "true"
+  );
+}
 
-async function fetchJson<T>(path: string): Promise<T> {
+async function fetchJson<T>(
+  path: string,
+  timeoutMs = API_TIMEOUT_MS,
+   onAuthSessionRefreshed?: (session: AuthSession) => void,
+) : Promise<T> {
+  
   const session = getAuthSession();
 
   if (!session?.access_token) {
@@ -59,7 +69,7 @@ async function fetchJson<T>(path: string): Promise<T> {
 
   const timeout = window.setTimeout(
     () => controller.abort(),
-    API_TIMEOUT_MS,
+    timeoutMs,
   );
 
   // Send the request using the current access token.
@@ -79,6 +89,7 @@ async function fetchJson<T>(path: string): Promise<T> {
     // If unauthorized, refresh the token and retry once.
     if (response.status === 401) {
       const refreshedSession = await refreshAuthSession();
+      onAuthSessionRefreshed?.(refreshedSession);
 
       response = await sendRequest(refreshedSession.access_token);
     }
@@ -99,37 +110,68 @@ async function fetchJson<T>(path: string): Promise<T> {
   }
 }
 
-export async function fetchSupplierPerformance(): Promise<
-  SupplierPerformance[]
-> {
+export async function fetchSupplierPerformance(
+  onAuthSessionRefreshed?: (session: AuthSession) => void,
+): Promise<SupplierPerformance[]> {
   return fetchJson<SupplierPerformance[]>(
     "/api/v1/inventory/suppliers/performance",
+    API_TIMEOUT_MS,
+    onAuthSessionRefreshed,
   );
 }
 
 export async function fetchSupplierRisk(
   supplierId: string,
+  onAuthSessionRefreshed?: (session: AuthSession) => void,
 ): Promise<SupplierRiskResponse> {
   return fetchJson<SupplierRiskResponse>(
     `/api/v1/suppliers/${encodeURIComponent(supplierId)}/risk-score`,
+    RISK_API_TIMEOUT_MS,
+    onAuthSessionRefreshed,
   );
 }
 
-export async function fetchSupplierScorecard(): Promise<
+export async function fetchSupplierScorecard(
+  onAuthSessionRefreshed?: (session: AuthSession) => void,
+): Promise<
   SupplierScorecardRow[]
 > {
   // Return mock data when enabled in development.
-  if (USE_MOCK_SUPPLIER_SCORECARD) {
+  if (isMockSupplierScorecard()) {
     return supplierScorecardResponse;
   }
-  const suppliers = await fetchSupplierPerformance();
+  
+  // The performance endpoint is the only supplier list, so without it
+  // there is nothing to fetch risk for. Say exactly what is missing.
+  let suppliers: SupplierPerformance[];
 
-  return Promise.all(
-    suppliers.map(async (supplier) => {
+  try {
+    suppliers = await fetchSupplierPerformance(onAuthSessionRefreshed);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "no response";
+
+    throw new Error(
+      `Supplier list and on-time data are unavailable (${reason}). ` +
+        "Risk scores cannot be loaded without the supplier list.",
+      { cause: error },
+    );
+  }
+
+  const results: SupplierScorecardRow[] = new Array(suppliers.length);
+  let nextIndex = 0;
+
+  // Each worker processes one supplier at a time.
+  async function processSuppliers(): Promise<void> {
+    while (nextIndex < suppliers.length) {
+      const index = nextIndex++;
+      const supplier = suppliers[index];
       try {
-        const risk = await fetchSupplierRisk(supplier.supplier_id);
+        const risk = await fetchSupplierRisk(
+          supplier.supplier_id,
+          onAuthSessionRefreshed,
+        );
 
-        return {
+        results[index] = {
           supplier_id: supplier.supplier_id,
           supplier_name: supplier.supplier_name?.trim() || supplier.supplier_id,
           on_time_delivery_percent: supplier.on_time_delivery_percent,
@@ -137,7 +179,7 @@ export async function fetchSupplierScorecard(): Promise<
           risk_error: null,
         };
       } catch (error) {
-        return {
+        results[index] = {
           supplier_id: supplier.supplier_id,
           supplier_name: supplier.supplier_name?.trim() || supplier.supplier_id,
           on_time_delivery_percent: supplier.on_time_delivery_percent,
@@ -145,6 +187,16 @@ export async function fetchSupplierScorecard(): Promise<
           risk_error: error instanceof Error ? error.message : "Risk data unavailable.",
         };
       }
-    }),
+    }
+  }
+  const workerCount = Math.min(
+    MAX_CONCURRENT_RISK_REQUESTS,
+    suppliers.length,
   );
+
+  await Promise.all(
+    Array.from({ length: workerCount }, () => processSuppliers()),
+  );
+
+  return results;
 }
