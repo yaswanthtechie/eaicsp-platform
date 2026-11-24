@@ -45,6 +45,14 @@
     "payload": {
       "type": "object",
       "additionalProperties": false,
+      "dependentRequired": {
+        "planned_delivery_date": [
+          "predicted_delay_days"
+        ],
+        "predicted_delay_days": [
+          "planned_delivery_date"
+        ]
+      },
       "required": [
         "shipment_id",
         "po_number",
@@ -90,6 +98,15 @@
           "type": "string",
           "format": "date-time",
           "description": "UTC time the prediction was made. Latest predicted_at per shipment_id wins."
+        },
+        "planned_delivery_date": {
+          "type": "string",
+          "format": "date",
+          "description": "Optional planned delivery date for the shipment (YYYY-MM-DD). Present only together with predicted_delay_days."
+        },
+        "predicted_delay_days": {
+          "type": "integer",
+          "description": "Optional. UTC calendar date of (dispatched_at + eta_days) minus planned_delivery_date, in days. Positive means late, negative means early, zero means on time. Present only together with planned_delivery_date."
         },
         "top_features": {
           "type": "array",

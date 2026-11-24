@@ -48,7 +48,7 @@ router = APIRouter(
 def create_purchase_order(
     data: PurchaseOrderRequest,
     db: Session = Depends(get_db),
-    auth=Depends(require_permission("inventory:write")),
+    auth=Depends(require_permission("purchase_order:create")),
 ):
     try:
         return create_automatic_draft_po(

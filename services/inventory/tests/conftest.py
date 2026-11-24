@@ -219,6 +219,8 @@ ROLE_PERMISSIONS = {
     "procurement_manager": [
         "supplier:read",
         "supplier:write",
+        "inventory:read",
+        "purchase_order:create",
     ],
     "logistics_manager": [
         "logistics:read",
@@ -319,6 +321,23 @@ def client_warehouse_manager():
     app.dependency_overrides[get_db] = override_get_db
 
     app.dependency_overrides[verify_token] = _as_user("warehouse_manager")
+
+    with TestClient(app) as c:
+        yield c
+
+    app.dependency_overrides.clear()
+
+
+# ============================================================
+# PROCUREMENT MANAGER CLIENT
+# ============================================================
+
+
+@pytest.fixture
+def client_procurement_manager():
+    app.dependency_overrides[get_db] = override_get_db
+
+    app.dependency_overrides[verify_token] = _as_user("procurement_manager")
 
     with TestClient(app) as c:
         yield c
