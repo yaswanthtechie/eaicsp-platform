@@ -18,7 +18,6 @@ import os
 import re
 from pathlib import Path
 
-
 WAREHOUSE_PATTERN = re.compile(r"WH-[A-Z]{3}-[0-9]{2}")
 SENSOR_ID_PATTERN = re.compile(r"[A-Za-z0-9._-]{1,64}")
 ID_COLUMNS = ("warehouse_id", "warehouse_code", "id")
@@ -61,7 +60,6 @@ def find_warehouse_csv(explicit=None):
 def read_warehouse_ids(path, column=None):
 
     with open(path, newline="", encoding="utf-8-sig") as handle:
-
         reader = csv.DictReader(handle)
         fields = reader.fieldnames or []
 
@@ -69,8 +67,7 @@ def read_warehouse_ids(path, column=None):
 
         if name is None or name not in fields:
             raise ValueError(
-                f"No warehouse id column in {path}. Columns: {fields}. "
-                "Use --column."
+                f"No warehouse id column in {path}. Columns: {fields}. Use --column."
             )
 
         ids = []
@@ -126,7 +123,6 @@ def load_sensors(path=CONFIG_PATH):
     seen = set()
 
     for sensor in sensors:
-
         sid, wh = sensor["sensor_id"], sensor["warehouse_id"]
 
         if not SENSOR_ID_PATTERN.fullmatch(sid):

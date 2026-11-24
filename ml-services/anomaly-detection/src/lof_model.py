@@ -10,7 +10,6 @@ from src.tuning_utils import (
 
 
 class LOFModel:
-
     def __init__(
         self,
         contamination=0.004,
@@ -64,7 +63,6 @@ class LOFModel:
             n_neighbors_values,
             metric_values,
         ):
-
             model = LocalOutlierFactor(
                 contamination=contamination,
                 n_neighbors=n_neighbors,
@@ -94,4 +92,4 @@ class LOFModel:
                 )
             )
 
-        return rank_results(results,top_n=top_n)
+        return rank_results(results, top_n=top_n)

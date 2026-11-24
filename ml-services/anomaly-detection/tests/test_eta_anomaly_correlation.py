@@ -16,7 +16,6 @@ from src.eta_anomaly_correlation import (
     make_synthetic_joint,
 )
 
-
 FAST = {"n_bootstrap": 300, "n_permutations": 300}
 
 
@@ -64,9 +63,7 @@ def test_report_contains_every_statistic():
 
 
 def test_null_summary_states_what_cannot_be_ruled_out():
-    result = analyze_correlation(
-        make_synthetic_joint(coupling=0.0, seed=3), **FAST
-    )
+    result = analyze_correlation(make_synthetic_joint(coupling=0.0, seed=3), **FAST)
 
     assert result["verdict"] == "no_association_detected"
     assert "could not be reliably detected" in result["summary"]
@@ -83,9 +80,7 @@ def test_too_few_flagged_rows_is_insufficient_data():
 def test_analysis_is_reproducible():
     frame = make_synthetic_joint(seed=5)
 
-    assert analyze_correlation(frame, **FAST) == analyze_correlation(
-        frame, **FAST
-    )
+    assert analyze_correlation(frame, **FAST) == analyze_correlation(frame, **FAST)
 
 
 def test_join_matches_on_key_and_drops_unmatched():
@@ -94,9 +89,7 @@ def test_join_matches_on_key_and_drops_unmatched():
         {"shipment_id": [2, 3, 4], "is_anomaly": [0, 1, 1], "score": [0.1, 0.9, 0.8]}
     )
 
-    joined = join_eta_and_anomaly(
-        eta, anomaly, key="shipment_id", score_col="score"
-    )
+    joined = join_eta_and_anomaly(eta, anomaly, key="shipment_id", score_col="score")
 
     assert list(joined["shipment_id"]) == [2, 3]
     assert "anomaly_score" in joined.columns

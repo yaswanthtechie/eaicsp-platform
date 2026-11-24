@@ -206,9 +206,7 @@ def test_feed_gap_inside_an_incident_is_one_run():
 
     stopped = flat()
     stopped[100:] = 0.0
-    data = pd.concat(
-        [frame(stopped), frame(flat(), product="SKU-000002")]
-    )
+    data = pd.concat([frame(stopped), frame(flat(), product="SKU-000002")])
     gap = pd.Timestamp("2026-01-05") + pd.Timedelta(days=105)
     data = data[data["sale_date"] != gap]  # whole warehouse missing that day
 
@@ -233,7 +231,9 @@ def test_weekday_under_drop_minimum_does_not_split_an_incident():
 
 def test_run_starts_rule():
 
-    direction = np.array(["drop", "", "drop", "", "", "", "", "", "", "", "drop", "spike"])
+    direction = np.array(
+        ["drop", "", "drop", "", "", "", "", "", "", "", "drop", "spike"]
+    )
 
     assert list(np.flatnonzero(run_starts(direction))) == [0, 10, 11]
 
@@ -346,9 +346,7 @@ def test_missing_day_counts_as_zero_by_default():
 def test_day_missing_from_whole_warehouse_is_not_flagged():
 
     gap = pd.Timestamp("2026-01-05") + pd.Timedelta(days=100)
-    data = pd.concat(
-        [frame(flat(), product=f"SKU-{i:06d}") for i in range(1, 21)]
-    )
+    data = pd.concat([frame(flat(), product=f"SKU-{i:06d}") for i in range(1, 21)])
     data = data[data["sale_date"] != gap]  # whole warehouse missing that day
 
     scores, _ = detect(data)
@@ -386,7 +384,7 @@ def test_reads_the_322_client_sales_file():
         / "data-platform/etl/client_ingest/samples/client_format/sales_history.csv"
     )
 
-    scores, skipped = detect(pd.read_csv(path, dtype=str))
+    scores, _skipped = detect(pd.read_csv(path, dtype=str))
 
     assert scores["score"].notna().sum() > 0
     assert scores["product"].str.match(r"PRD-\d{5}$").all()

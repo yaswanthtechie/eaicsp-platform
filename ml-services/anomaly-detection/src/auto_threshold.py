@@ -55,7 +55,6 @@ from collections import deque
 import numpy as np
 from scipy import stats
 
-
 # Same per-model percentiles the project already validated for the
 # adaptive layer. Duplicated on purpose to keep this module standalone.
 DEFAULT_PERCENTILES = {
@@ -82,7 +81,7 @@ def robust_scale(values):
 
     std = float(np.std(values))
 
-    return std if std > 1e-12 else 1e-12
+    return max(1e-12, std)
 
 
 class SignificanceThresholdTuner:
@@ -180,11 +179,9 @@ class SignificanceThresholdTuner:
 
         # Initial threshold uses the FULL calibration set; only the
         # rolling reference used for later tests is truncated.
-        self.initial_threshold = float(
-            np.percentile(reference, self.percentile)
-        )
+        self.initial_threshold = float(np.percentile(reference, self.percentile))
 
-        self.reference = reference[-self.max_reference:]
+        self.reference = reference[-self.max_reference :]
         self.reference_scale = robust_scale(self.reference)
         self.initial_scale = self.reference_scale
         self.threshold = self.initial_threshold
@@ -223,9 +220,7 @@ class SignificanceThresholdTuner:
     def _bootstrap_ci(self, values):
         """Bootstrap CI of the configured percentile."""
 
-        idx = self._rng.integers(
-            0, values.size, size=(self.n_bootstrap, values.size)
-        )
+        idx = self._rng.integers(0, values.size, size=(self.n_bootstrap, values.size))
 
         estimates = np.percentile(values[idx], self.percentile, axis=1)
 
@@ -281,9 +276,7 @@ class SignificanceThresholdTuner:
         previous = self.threshold
         self.threshold = new_threshold
 
-        self._target = (
-            None if abs(new_threshold - candidate) < 1e-12 else candidate
-        )
+        self._target = None if abs(new_threshold - candidate) < 1e-12 else candidate
 
         self.refinements += 1
 
@@ -412,9 +405,7 @@ class SignificanceThresholdTuner:
             raise ValueError("scores must be finite.")
 
         if window.size < self.min_window:
-            raise ValueError(
-                f"window needs at least {self.min_window} scores."
-            )
+            raise ValueError(f"window needs at least {self.min_window} scores.")
 
         self.windows_seen += 1
 
@@ -426,9 +417,7 @@ class SignificanceThresholdTuner:
             self._cooldown -= 1
             self._pending = []
 
-            return self._result(
-                "hold", "drift_cooldown", n_trimmed=n_trimmed
-            )
+            return self._result("hold", "drift_cooldown", n_trimmed=n_trimmed)
 
         # 0. Slow drift spread over several windows.
 
@@ -440,8 +429,7 @@ class SignificanceThresholdTuner:
         ks_p = float(stats.ks_2samp(self.reference, trimmed).pvalue)
 
         effect = float(
-            abs(np.median(trimmed) - np.median(self.reference))
-            / self.reference_scale
+            abs(np.median(trimmed) - np.median(self.reference)) / self.reference_scale
         )
 
         diagnostics = {
@@ -511,13 +499,11 @@ class SignificanceThresholdTuner:
 
         self.threshold = float(self._limit_step(candidate))
 
-        self.reference = pooled[-self.max_reference:]
+        self.reference = pooled[-self.max_reference :]
         self.reference_scale = robust_scale(self.reference)
 
         self._pending = []
-        self._target = (
-            None if abs(self.threshold - candidate) < 1e-12 else candidate
-        )
+        self._target = None if abs(self.threshold - candidate) < 1e-12 else candidate
         self.adaptations += 1
 
         return self._result(

@@ -69,9 +69,7 @@ def in_window_drift():
     for t in range(TRIALS):
         tuner, rng = _tuner(t), np.random.default_rng(7000 + t)
 
-        result = tuner.evaluate_window(
-            _normal(rng) + np.linspace(0.0, 5.0, WINDOW)
-        )
+        result = tuner.evaluate_window(_normal(rng) + np.linspace(0.0, 5.0, WINDOW))
 
         frozen += result["action"] == "freeze"
 
@@ -101,6 +99,8 @@ def slow_cross_window_drift(warmup_windows):
         learned += tuner.adaptations > 0
 
     return {"trials": TRIALS, "learned_as_normal": int(learned)}
+
+
 def contaminated_windows(fraction):
     """Normal readings mixed with a cluster of anomalies: not learned."""
 
@@ -132,8 +132,14 @@ def main():
         ("no change (should not move)", stable_no_change()),
         ("stable +2 sigma shift (should adapt)", real_regime_shift()),
         ("drift inside a window (should freeze)", in_window_drift()),
-        ("slow drift, cold start, 0 warm-up windows (weak spot)", slow_cross_window_drift(0)),
-        ("slow drift, running tuner, 3 warm-up windows (should not learn)", slow_cross_window_drift(3)),
+        (
+            "slow drift, cold start, 0 warm-up windows (weak spot)",
+            slow_cross_window_drift(0),
+        ),
+        (
+            "slow drift, running tuner, 3 warm-up windows (should not learn)",
+            slow_cross_window_drift(3),
+        ),
         ("20% anomalous windows (should not learn)", contaminated_windows(0.2)),
         ("50% anomalous windows (should not learn)", contaminated_windows(0.5)),
     ]

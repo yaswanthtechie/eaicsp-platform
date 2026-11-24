@@ -19,11 +19,10 @@ so the detector itself does not need it.
 
 import json
 
-import mlflow.pyfunc
+from mlflow.pyfunc import PythonModel
 
 
-class SalesAnomalyModel(mlflow.pyfunc.PythonModel):
-
+class SalesAnomalyModel(PythonModel):
     def load_context(self, context):
 
         with open(context.artifacts["config"], encoding="utf-8") as handle:

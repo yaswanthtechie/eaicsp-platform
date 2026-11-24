@@ -5,8 +5,8 @@ care about.
 """
 
 import copy
-from datetime import UTC, date, datetime
 import json
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -27,15 +27,15 @@ EVENTS_DIR = REPO_ROOT / "contracts" / "events"
 CONTRACT = EVENTS_DIR / "anomaly.sales.detected.v1.json"
 EXAMPLE = EVENTS_DIR / "examples" / "anomaly.sales.detected.v1.json"
 
-GOOD = dict(
-    sku_id="SKU-000123",
-    warehouse_id="WH-BLR-01",
-    date="2026-11-14",
-    expected_quantity=52.0,
-    actual_quantity=214.0,
-    score=8.2,
-    severity="medium",
-)
+GOOD = {
+    "sku_id": "SKU-000123",
+    "warehouse_id": "WH-BLR-01",
+    "date": "2026-11-14",
+    "expected_quantity": 52.0,
+    "actual_quantity": 214.0,
+    "score": 8.2,
+    "severity": "medium",
+}
 
 
 @pytest.fixture(scope="module")
@@ -91,7 +91,9 @@ def test_every_severity_and_quantity_shape_matches_contract(
     validator, severity, actual
 ):
 
-    event = build_sales_anomaly_event(**{**GOOD, "actual_quantity": actual, "severity": severity})
+    event = build_sales_anomaly_event(
+        **{**GOOD, "actual_quantity": actual, "severity": severity}
+    )
 
     assert errors(validator, event) == []
 
@@ -178,7 +180,9 @@ def test_unknown_severity_rejected(validator, example, bad):
     assert errors(validator, example)
 
 
-@pytest.mark.parametrize("bad", ["14/11/2026", "2026-11-14T00:00:00", "yesterday", 20261114])
+@pytest.mark.parametrize(
+    "bad", ["14/11/2026", "2026-11-14T00:00:00", "yesterday", 20261114]
+)
 def test_date_must_be_a_plain_iso_date(validator, example, bad):
 
     example["payload"]["date"] = bad
@@ -258,6 +262,7 @@ def test_builder_rejects_bad_input(change):
 
     with pytest.raises(ValueError):
         build_sales_anomaly_event(**{**GOOD, **change})
+
 
 def test_numpy_numbers_are_accepted(validator):
 

@@ -16,13 +16,13 @@ client = InfluxDBClient(
     org=org,
 )
 
-flux = '''
+flux = """
 from(bucket: p_bucket)
   |> range(start: 2026-01-01T00:00:00Z, stop: 2027-01-01T00:00:00Z)
   |> filter(fn: (r) => r._measurement == "warehouse_sensor" and r._field == "is_flagged")
   |> group(columns: ["sensor_id"])
   |> count()
-'''
+"""
 
 total = 0
 

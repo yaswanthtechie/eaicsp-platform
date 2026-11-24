@@ -36,7 +36,6 @@ from .sales_anomaly_tracking import (
     severity_counts,
 )
 
-
 EVAL_SEED = 5151
 CLEAN_SEED = 5152
 N_SERIES = 40
@@ -48,7 +47,14 @@ FIRST_EVENT_DAY = 70
 DISPERSION = 8.0
 SLOW_SHARE = 0.25
 
-WAREHOUSES = ["WH-BLR-01", "WH-BOM-01", "WH-CCU-01", "WH-DEL-01", "WH-HYD-01", "WH-MAA-01"]
+WAREHOUSES = [
+    "WH-BLR-01",
+    "WH-BOM-01",
+    "WH-CCU-01",
+    "WH-DEL-01",
+    "WH-HYD-01",
+    "WH-MAA-01",
+]
 WEEKDAY_FACTOR = np.array([1.0, 0.95, 0.95, 1.0, 1.1, 1.3, 0.8])
 
 project_root = Path(__file__).resolve().parent.parent
@@ -85,7 +91,6 @@ def make_data(seed, with_events=True, dispersion=DISPERSION, slow_share=SLOW_SHA
     n_slow = int(N_SERIES * slow_share)
 
     for i in range(N_SERIES):
-
         product = f"SKU-{i + 1:06d}"
         warehouse = WAREHOUSES[i % len(WAREHOUSES)]
         slow = i < n_slow
@@ -126,9 +131,7 @@ def make_data(seed, with_events=True, dispersion=DISPERSION, slow_share=SLOW_SHA
             )
         )
 
-    label_frame = pd.DataFrame(
-        labels, columns=["date", "product", "warehouse", "kind"]
-    )
+    label_frame = pd.DataFrame(labels, columns=["date", "product", "warehouse", "kind"])
 
     return pd.concat(rows, ignore_index=True), label_frame
 
@@ -141,9 +144,7 @@ def evaluate(
     register=False,
 ):
 
-    sales, labels = make_data(
-        EVAL_SEED, dispersion=dispersion, slow_share=slow_share
-    )
+    sales, labels = make_data(EVAL_SEED, dispersion=dispersion, slow_share=slow_share)
     scores, _ = detect(sales)
     scored = scores[scores["score"].notna()].merge(
         labels, on=["date", "product", "warehouse"], how="left"
@@ -189,16 +190,13 @@ def evaluate(
             "part": "clean_series_false_alarms",
             "scored_days": len(clean_scored),
             "flagged_days": int(clean_scored["is_anomaly"].sum()),
-            "flagged_per_1000_days": round(
-                1000 * clean_scored["is_anomaly"].mean(), 2
-            ),
+            "flagged_per_1000_days": round(1000 * clean_scored["is_anomaly"].mean(), 2),
         }
     )
 
     registration_error = None
 
     if log_mlflow:
-
         start, end = date_range(sales["sale_date"])
 
         # Routine tracking only warns when MLflow fails. An explicit --register
@@ -226,7 +224,8 @@ def evaluate(
                     "f1": metrics["f1"],
                     "recall_spike": rows[1]["recall"],
                     "recall_drop": rows[2]["recall"],
-                    "clean_false_alarms_per_1000": 1000 * clean_scored["is_anomaly"].mean(),
+                    "clean_false_alarms_per_1000": 1000
+                    * clean_scored["is_anomaly"].mean(),
                 },
                 tags={"run_kind": "evaluation"},
                 register=register,
@@ -234,7 +233,7 @@ def evaluate(
 
             if register and logged is None:
                 raise RuntimeError("MLFLOW_TRACKING_URI is not set.")
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 - kept and reported by --register
             registration_error = error
 
     result = pd.DataFrame(rows)
@@ -259,17 +258,17 @@ def main(argv=None):
     runs = [
         (
             "realistic",
-            dict(log_mlflow=True, register=args.register),
+            {"log_mlflow": True, "register": args.register},
             "sales_anomaly_eval.csv",
         ),
         (
             "poisson (dispersion=None, slow_share=0.0)",
-            dict(
-                dispersion=None,
-                slow_share=0.0,
-                log_mlflow=True,
-                run_name="sales-anomaly-eval-poisson",
-            ),
+            {
+                "dispersion": None,
+                "slow_share": 0.0,
+                "log_mlflow": True,
+                "run_name": "sales-anomaly-eval-poisson",
+            },
             "sales_anomaly_eval_poisson.csv",
         ),
     ]
@@ -278,7 +277,9 @@ def main(argv=None):
 
     for name, kwargs, filename in runs:
         result = evaluate(**kwargs)
-        registration_error = registration_error or result.attrs.get("registration_error")
+        registration_error = registration_error or result.attrs.get(
+            "registration_error"
+        )
 
         print(f"== {name} ==")
         print(result.to_string(index=False))

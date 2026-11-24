@@ -63,7 +63,6 @@ class IsolationForestModel:
             n_estimators_values,
             max_samples_values,
         ):
-
             model = IsolationForest(
                 contamination=contamination,
                 n_estimators=n_estimators,
@@ -93,4 +92,4 @@ class IsolationForestModel:
                 )
             )
 
-        return rank_results(results,top_n=top_n)
+        return rank_results(results, top_n=top_n)

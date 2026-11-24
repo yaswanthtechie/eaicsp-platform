@@ -1,18 +1,13 @@
-import sys
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 import pytest
 
-from sklearn.svm import OneClassSVM
-
 from src import cost_threshold_tuning as ctt
-
 
 # ============================================================
 # Helpers
 # ============================================================
+
 
 class DecisionFunctionModel:
     """
@@ -73,19 +68,16 @@ class ModelWrapper:
     """
 
     def __init__(self, raw_scores):
-        self.model = DecisionFunctionModel(
-            raw_scores
-        )
+        self.model = DecisionFunctionModel(raw_scores)
 
     def predict(self, features):
-        return self.model.predict(
-            features
-        )
+        return self.model.predict(features)
 
 
 # ============================================================
 # Fixtures
 # ============================================================
+
 
 @pytest.fixture
 def feature_dataframe():
@@ -156,6 +148,7 @@ def four_point_dataset():
 # Project anomaly score convention
 # ============================================================
 
+
 def test_get_anomaly_scores_inverts_decision_function():
     """
     The project explicitly defines:
@@ -171,22 +164,16 @@ def test_get_anomaly_scores_inverts_decision_function():
         anomaly_score = [0.8, -0.2, -0.7]
     """
 
-    model = DecisionFunctionModel(
-        [-0.8, 0.2, 0.7]
-    )
+    model = DecisionFunctionModel([-0.8, 0.2, 0.7])
 
-    features = np.zeros(
-        (3, 3)
-    )
+    features = np.zeros((3, 3))
 
     scores = ctt.get_anomaly_scores(
         model,
         features,
     )
 
-    expected = np.array(
-        [0.8, -0.2, -0.7]
-    )
+    expected = np.array([0.8, -0.2, -0.7])
 
     np.testing.assert_allclose(
         scores,
@@ -199,14 +186,11 @@ def test_get_anomaly_scores_inverts_decision_function():
 # Higher score means more anomalous
 # ============================================================
 
-def test_higher_project_score_is_more_anomalous():
-    model = DecisionFunctionModel(
-        [-0.9, 0.0, 0.8]
-    )
 
-    features = np.zeros(
-        (3, 3)
-    )
+def test_higher_project_score_is_more_anomalous():
+    model = DecisionFunctionModel([-0.9, 0.0, 0.8])
+
+    features = np.zeros((3, 3))
 
     scores = ctt.get_anomaly_scores(
         model,
@@ -222,28 +206,23 @@ def test_higher_project_score_is_more_anomalous():
 # score() wrapper is supported
 # ============================================================
 
+
 def test_wrapper_score_is_inverted():
     """
     Wrapper score() represents the underlying decision
     function, so it must also be inverted.
     """
 
-    model = ScoreWrapper(
-        [-0.5, 0.1, 0.9]
-    )
+    model = ScoreWrapper([-0.5, 0.1, 0.9])
 
-    features = np.zeros(
-        (3, 3)
-    )
+    features = np.zeros((3, 3))
 
     scores = ctt.get_anomaly_scores(
         model,
         features,
     )
 
-    expected = np.array(
-        [0.5, -0.1, -0.9]
-    )
+    expected = np.array([0.5, -0.1, -0.9])
 
     np.testing.assert_allclose(
         scores,
@@ -256,23 +235,18 @@ def test_wrapper_score_is_inverted():
 # .model.decision_function() fallback
 # ============================================================
 
-def test_model_wrapper_decision_function_is_supported():
-    model = ModelWrapper(
-        [-0.4, 0.2, 0.7]
-    )
 
-    features = np.zeros(
-        (3, 3)
-    )
+def test_model_wrapper_decision_function_is_supported():
+    model = ModelWrapper([-0.4, 0.2, 0.7])
+
+    features = np.zeros((3, 3))
 
     scores = ctt.get_anomaly_scores(
         model,
         features,
     )
 
-    expected = np.array(
-        [0.4, -0.2, -0.7]
-    )
+    expected = np.array([0.4, -0.2, -0.7])
 
     np.testing.assert_allclose(
         scores,
@@ -285,15 +259,14 @@ def test_model_wrapper_decision_function_is_supported():
 # Unsupported model raises AttributeError
 # ============================================================
 
+
 def test_get_anomaly_scores_rejects_unsupported_model():
     class UnsupportedModel:
         pass
 
     model = UnsupportedModel()
 
-    features = np.zeros(
-        (2, 3)
-    )
+    features = np.zeros((2, 3))
 
     with pytest.raises(
         AttributeError,
@@ -310,6 +283,7 @@ def test_get_anomaly_scores_rejects_unsupported_model():
 # Non-finite scores are rejected
 # ============================================================
 
+
 def test_non_finite_decision_scores_are_rejected():
     model = DecisionFunctionModel(
         [
@@ -319,9 +293,7 @@ def test_non_finite_decision_scores_are_rejected():
         ]
     )
 
-    features = np.zeros(
-        (3, 3)
-    )
+    features = np.zeros((3, 3))
 
     with pytest.raises(
         ValueError,
@@ -338,25 +310,18 @@ def test_non_finite_decision_scores_are_rejected():
 # Native predictions use sklearn convention
 # ============================================================
 
+
 def test_reference_predictions_convert_minus_one_to_anomaly():
-    model = DecisionFunctionModel(
-        [-0.8, 0.1, -0.2, 0.5]
+    model = DecisionFunctionModel([-0.8, 0.1, -0.2, 0.5])
+
+    features = np.zeros((4, 3))
+
+    predictions = ctt.get_reference_predictions(
+        model,
+        features,
     )
 
-    features = np.zeros(
-        (4, 3)
-    )
-
-    predictions = (
-        ctt.get_reference_predictions(
-            model,
-            features,
-        )
-    )
-
-    expected = np.array(
-        [1, 0, 1, 0]
-    )
+    expected = np.array([1, 0, 1, 0])
 
     np.testing.assert_array_equal(
         predictions,
@@ -368,6 +333,7 @@ def test_reference_predictions_convert_minus_one_to_anomaly():
 # Test 8
 # Threshold direction
 # ============================================================
+
 
 def test_threshold_higher_score_means_anomaly():
     scores = np.array(
@@ -409,6 +375,7 @@ def test_threshold_higher_score_means_anomaly():
 # Test 9
 # Business cost calculation
 # ============================================================
+
 
 def test_expected_business_cost():
     """
@@ -475,6 +442,7 @@ def test_expected_business_cost():
 # Threshold grid is sorted and unique
 # ============================================================
 
+
 def test_build_thresholds_returns_unique_thresholds():
     scores = np.array(
         [
@@ -493,19 +461,16 @@ def test_build_thresholds_returns_unique_thresholds():
 
     assert len(thresholds) > 0
 
-    assert np.all(
-        np.diff(thresholds) >= 0
-    )
+    assert np.all(np.diff(thresholds) >= 0)
 
-    assert len(thresholds) == len(
-        np.unique(thresholds)
-    )
+    assert len(thresholds) == len(np.unique(thresholds))
 
 
 # ============================================================
 # Test 11
 # Threshold grid covers outside score range
 # ============================================================
+
 
 def test_threshold_grid_has_outside_boundaries():
     scores = np.array(
@@ -530,6 +495,7 @@ def test_threshold_grid_has_outside_boundaries():
 # Reference threshold reproduces native predictions
 # ============================================================
 
+
 def test_reference_threshold_agrees_with_native_prediction():
     scores = np.array(
         [
@@ -551,16 +517,12 @@ def test_reference_threshold_agrees_with_native_prediction():
         ]
     )
 
-    threshold, agreement = (
-        ctt.calculate_reference_threshold(
-            scores,
-            native_predictions,
-        )
+    threshold, agreement = ctt.calculate_reference_threshold(
+        scores,
+        native_predictions,
     )
 
-    predicted = (
-        scores >= threshold
-    ).astype(int)
+    predicted = (scores >= threshold).astype(int)
 
     assert agreement == 1.0
 
@@ -575,20 +537,15 @@ def test_reference_threshold_agrees_with_native_prediction():
 # Primary dataset definition
 # ============================================================
 
-def test_drift_is_not_a_primary_cost_dataset():
-    assert "temperature_drift" not in (
-        ctt.PRIMARY_DATASETS
-    )
 
-    assert (
-        ctt.PRIMARY_DATASETS
-        ==
-        [
-            "temperature_spike",
-            "stock_anomaly",
-            "combined_anomaly",
-        ]
-    )
+def test_drift_is_not_a_primary_cost_dataset():
+    assert "temperature_drift" not in (ctt.PRIMARY_DATASETS)
+
+    assert ctt.PRIMARY_DATASETS == [
+        "temperature_spike",
+        "stock_anomaly",
+        "combined_anomaly",
+    ]
 
 
 # ============================================================
@@ -596,18 +553,17 @@ def test_drift_is_not_a_primary_cost_dataset():
 # Primary aggregation excludes drift
 # ============================================================
 
+
 def test_aggregate_primary_cost_excludes_drift():
     model_results = pd.DataFrame(
         [
             {
                 "Model": "Test Model",
-                "Score Direction":
-                    "higher_is_anomaly",
+                "Score Direction": "higher_is_anomaly",
                 "Native Threshold": 0.5,
                 "Direction Agreement": 1.0,
                 "Threshold": 0.5,
-                "Test Dataset":
-                    "temperature_spike",
+                "Test Dataset": "temperature_spike",
                 "TP": 10,
                 "TN": 90,
                 "FP": 2,
@@ -615,13 +571,11 @@ def test_aggregate_primary_cost_excludes_drift():
             },
             {
                 "Model": "Test Model",
-                "Score Direction":
-                    "higher_is_anomaly",
+                "Score Direction": "higher_is_anomaly",
                 "Native Threshold": 0.5,
                 "Direction Agreement": 1.0,
                 "Threshold": 0.5,
-                "Test Dataset":
-                    "stock_anomaly",
+                "Test Dataset": "stock_anomaly",
                 "TP": 8,
                 "TN": 92,
                 "FP": 3,
@@ -629,13 +583,11 @@ def test_aggregate_primary_cost_excludes_drift():
             },
             {
                 "Model": "Test Model",
-                "Score Direction":
-                    "higher_is_anomaly",
+                "Score Direction": "higher_is_anomaly",
                 "Native Threshold": 0.5,
                 "Direction Agreement": 1.0,
                 "Threshold": 0.5,
-                "Test Dataset":
-                    "combined_anomaly",
+                "Test Dataset": "combined_anomaly",
                 "TP": 9,
                 "TN": 91,
                 "FP": 4,
@@ -643,13 +595,11 @@ def test_aggregate_primary_cost_excludes_drift():
             },
             {
                 "Model": "Test Model",
-                "Score Direction":
-                    "higher_is_anomaly",
+                "Score Direction": "higher_is_anomaly",
                 "Native Threshold": 0.5,
                 "Direction Agreement": 1.0,
                 "Threshold": 0.5,
-                "Test Dataset":
-                    "temperature_drift",
+                "Test Dataset": "temperature_drift",
                 "TP": 1,
                 "TN": 1,
                 "FP": 1000,
@@ -658,11 +608,7 @@ def test_aggregate_primary_cost_excludes_drift():
         ]
     )
 
-    result = (
-        ctt.aggregate_primary_cost(
-            model_results
-        )
-    )
+    result = ctt.aggregate_primary_cost(model_results)
 
     assert len(result) == 1
 
@@ -690,18 +636,17 @@ def test_aggregate_primary_cost_excludes_drift():
 # Aggregate precision and recall
 # ============================================================
 
+
 def test_primary_aggregate_metrics_are_calculated_from_counts():
     model_results = pd.DataFrame(
         [
             {
                 "Model": "Test Model",
-                "Score Direction":
-                    "higher_is_anomaly",
+                "Score Direction": "higher_is_anomaly",
                 "Native Threshold": 0.5,
                 "Direction Agreement": 1.0,
                 "Threshold": 0.5,
-                "Test Dataset":
-                    "temperature_spike",
+                "Test Dataset": "temperature_spike",
                 "TP": 8,
                 "TN": 90,
                 "FP": 2,
@@ -709,13 +654,11 @@ def test_primary_aggregate_metrics_are_calculated_from_counts():
             },
             {
                 "Model": "Test Model",
-                "Score Direction":
-                    "higher_is_anomaly",
+                "Score Direction": "higher_is_anomaly",
                 "Native Threshold": 0.5,
                 "Direction Agreement": 1.0,
                 "Threshold": 0.5,
-                "Test Dataset":
-                    "stock_anomaly",
+                "Test Dataset": "stock_anomaly",
                 "TP": 9,
                 "TN": 90,
                 "FP": 1,
@@ -723,13 +666,11 @@ def test_primary_aggregate_metrics_are_calculated_from_counts():
             },
             {
                 "Model": "Test Model",
-                "Score Direction":
-                    "higher_is_anomaly",
+                "Score Direction": "higher_is_anomaly",
                 "Native Threshold": 0.5,
                 "Direction Agreement": 1.0,
                 "Threshold": 0.5,
-                "Test Dataset":
-                    "combined_anomaly",
+                "Test Dataset": "combined_anomaly",
                 "TP": 10,
                 "TN": 89,
                 "FP": 1,
@@ -738,11 +679,7 @@ def test_primary_aggregate_metrics_are_calculated_from_counts():
         ]
     )
 
-    result = (
-        ctt.aggregate_primary_cost(
-            model_results
-        )
-    )
+    result = ctt.aggregate_primary_cost(model_results)
 
     row = result.iloc[0]
 
@@ -750,27 +687,20 @@ def test_primary_aggregate_metrics_are_calculated_from_counts():
     # FP = 4
     # FN = 3
 
-    expected_precision = (
-        27 / 31
-    )
+    expected_precision = 27 / 31
 
-    expected_recall = (
-        27 / 30
-    )
+    expected_recall = 27 / 30
 
-    assert row["Precision"] == pytest.approx(
-        expected_precision
-    )
+    assert row["Precision"] == pytest.approx(expected_precision)
 
-    assert row["Recall"] == pytest.approx(
-        expected_recall
-    )
+    assert row["Recall"] == pytest.approx(expected_recall)
 
 
 # ============================================================
 # Test 16
 # Cost-optimal selection prioritizes cost
 # ============================================================
+
 
 def test_cost_optimal_threshold_prioritizes_cost():
     primary_results = pd.DataFrame(
@@ -796,11 +726,7 @@ def test_cost_optimal_threshold_prioritizes_cost():
         ]
     )
 
-    selected = (
-        ctt.select_cost_optimal_threshold(
-            primary_results
-        )
-    )
+    selected = ctt.select_cost_optimal_threshold(primary_results)
 
     assert selected["Threshold"] == 0.20
 
@@ -809,6 +735,7 @@ def test_cost_optimal_threshold_prioritizes_cost():
 # Test 17
 # Recall breaks cost ties
 # ============================================================
+
 
 def test_cost_optimal_threshold_uses_recall_as_first_tiebreak():
     primary_results = pd.DataFrame(
@@ -834,11 +761,7 @@ def test_cost_optimal_threshold_uses_recall_as_first_tiebreak():
         ]
     )
 
-    selected = (
-        ctt.select_cost_optimal_threshold(
-            primary_results
-        )
-    )
+    selected = ctt.select_cost_optimal_threshold(primary_results)
 
     assert selected["Threshold"] == 0.20
 
@@ -847,6 +770,7 @@ def test_cost_optimal_threshold_uses_recall_as_first_tiebreak():
 # Test 18
 # Precision breaks remaining tie
 # ============================================================
+
 
 def test_cost_optimal_threshold_uses_precision_after_recall():
     primary_results = pd.DataFrame(
@@ -872,11 +796,7 @@ def test_cost_optimal_threshold_uses_precision_after_recall():
         ]
     )
 
-    selected = (
-        ctt.select_cost_optimal_threshold(
-            primary_results
-        )
-    )
+    selected = ctt.select_cost_optimal_threshold(primary_results)
 
     assert selected["Threshold"] == 0.20
 
@@ -885,6 +805,7 @@ def test_cost_optimal_threshold_uses_precision_after_recall():
 # Test 19
 # F1 diagnostic selector
 # ============================================================
+
 
 def test_f1_diagnostic_threshold_selects_highest_f1():
     primary_results = pd.DataFrame(
@@ -906,11 +827,7 @@ def test_f1_diagnostic_threshold_selects_highest_f1():
         ]
     )
 
-    selected = (
-        ctt.select_f1_diagnostic_threshold(
-            primary_results
-        )
-    )
+    selected = ctt.select_f1_diagnostic_threshold(primary_results)
 
     assert selected["Threshold"] == 0.20
 
@@ -919,6 +836,7 @@ def test_f1_diagnostic_threshold_selects_highest_f1():
 # Test 20
 # Evaluate threshold with all anomalies missed
 # ============================================================
+
 
 def test_threshold_can_produce_false_negatives():
     scores = np.array(
@@ -949,15 +867,14 @@ def test_threshold_can_produce_false_negatives():
     assert result["FP"] == 0
     assert result["FN"] == 2
 
-    assert result["Expected Cost"] == (
-        2 * ctt.COST_FN
-    )
+    assert result["Expected Cost"] == (2 * ctt.COST_FN)
 
 
 # ============================================================
 # Test 21
 # Evaluate threshold with all readings anomalous
 # ============================================================
+
 
 def test_threshold_can_produce_false_positives():
     scores = np.array(
@@ -988,9 +905,7 @@ def test_threshold_can_produce_false_positives():
     assert result["FP"] == 2
     assert result["FN"] == 0
 
-    assert result["Expected Cost"] == (
-        2 * ctt.COST_FP
-    )
+    assert result["Expected Cost"] == (2 * ctt.COST_FP)
 
 
 # ============================================================
@@ -998,18 +913,17 @@ def test_threshold_can_produce_false_positives():
 # Primary aggregation uses one common threshold
 # ============================================================
 
+
 def test_primary_aggregation_groups_by_threshold():
     model_results = pd.DataFrame(
         [
             {
                 "Model": "Test",
-                "Score Direction":
-                    "higher_is_anomaly",
+                "Score Direction": "higher_is_anomaly",
                 "Native Threshold": 0.0,
                 "Direction Agreement": 1.0,
                 "Threshold": 0.10,
-                "Test Dataset":
-                    "temperature_spike",
+                "Test Dataset": "temperature_spike",
                 "TP": 10,
                 "TN": 90,
                 "FP": 1,
@@ -1017,13 +931,11 @@ def test_primary_aggregation_groups_by_threshold():
             },
             {
                 "Model": "Test",
-                "Score Direction":
-                    "higher_is_anomaly",
+                "Score Direction": "higher_is_anomaly",
                 "Native Threshold": 0.0,
                 "Direction Agreement": 1.0,
                 "Threshold": 0.10,
-                "Test Dataset":
-                    "stock_anomaly",
+                "Test Dataset": "stock_anomaly",
                 "TP": 10,
                 "TN": 90,
                 "FP": 1,
@@ -1031,13 +943,11 @@ def test_primary_aggregation_groups_by_threshold():
             },
             {
                 "Model": "Test",
-                "Score Direction":
-                    "higher_is_anomaly",
+                "Score Direction": "higher_is_anomaly",
                 "Native Threshold": 0.0,
                 "Direction Agreement": 1.0,
                 "Threshold": 0.10,
-                "Test Dataset":
-                    "combined_anomaly",
+                "Test Dataset": "combined_anomaly",
                 "TP": 10,
                 "TN": 90,
                 "FP": 1,
@@ -1046,11 +956,7 @@ def test_primary_aggregation_groups_by_threshold():
         ]
     )
 
-    result = (
-        ctt.aggregate_primary_cost(
-            model_results
-        )
-    )
+    result = ctt.aggregate_primary_cost(model_results)
 
     assert len(result) == 1
     assert result.iloc[0]["Threshold"] == 0.10
@@ -1060,6 +966,7 @@ def test_primary_aggregation_groups_by_threshold():
 # Test 23
 # Full model threshold result generation
 # ============================================================
+
 
 def test_create_model_threshold_results(
     four_point_dataset,
@@ -1074,25 +981,16 @@ def test_create_model_threshold_results(
     )
 
     datasets = {
-        "temperature_spike":
-            four_point_dataset,
-
-        "temperature_drift":
-            four_point_dataset,
-
-        "stock_anomaly":
-            four_point_dataset,
-
-        "combined_anomaly":
-            four_point_dataset,
+        "temperature_spike": four_point_dataset,
+        "temperature_drift": four_point_dataset,
+        "stock_anomaly": four_point_dataset,
+        "combined_anomaly": four_point_dataset,
     }
 
-    results = (
-        ctt.create_model_threshold_results(
-            model=model,
-            model_name="Test Model",
-            datasets=datasets,
-        )
+    results = ctt.create_model_threshold_results(
+        model=model,
+        model_name="Test Model",
+        datasets=datasets,
     )
 
     assert not results.empty
@@ -1114,21 +1012,11 @@ def test_create_model_threshold_results(
         "Expected Cost",
     }
 
-    assert expected_columns.issubset(
-        results.columns
-    )
+    assert expected_columns.issubset(results.columns)
 
-    assert set(
-        results["Test Dataset"].unique()
-    ) == set(
-        datasets.keys()
-    )
+    assert set(results["Test Dataset"].unique()) == set(datasets.keys())
 
-    assert set(
-        results["Score Direction"].unique()
-    ) == {
-        "higher_is_anomaly"
-    }
+    assert set(results["Score Direction"].unique()) == {"higher_is_anomaly"}
 
 
 # ============================================================
@@ -1136,6 +1024,7 @@ def test_create_model_threshold_results(
 # Native predict agreement should be perfect for the
 # synthetic test model
 # ============================================================
+
 
 def test_create_model_results_has_native_prediction_agreement(
     four_point_dataset,
@@ -1150,38 +1039,23 @@ def test_create_model_results_has_native_prediction_agreement(
     )
 
     datasets = {
-        "temperature_spike":
-            four_point_dataset,
-
-        "temperature_drift":
-            four_point_dataset,
-
-        "stock_anomaly":
-            four_point_dataset,
-
-        "combined_anomaly":
-            four_point_dataset,
+        "temperature_spike": four_point_dataset,
+        "temperature_drift": four_point_dataset,
+        "stock_anomaly": four_point_dataset,
+        "combined_anomaly": four_point_dataset,
     }
 
-    results = (
-        ctt.create_model_threshold_results(
-            model,
-            "Test Model",
-            datasets,
-        )
+    results = ctt.create_model_threshold_results(
+        model,
+        "Test Model",
+        datasets,
     )
 
-    agreements = (
-        results[
-            "Direction Agreement"
-        ].unique()
-    )
+    agreements = results["Direction Agreement"].unique()
 
     assert len(agreements) == 1
 
-    assert agreements[0] == pytest.approx(
-        1.0
-    )
+    assert agreements[0] == pytest.approx(1.0)
 
 
 # ============================================================
@@ -1189,20 +1063,20 @@ def test_create_model_results_has_native_prediction_agreement(
 # Empty primary results are rejected
 # ============================================================
 
+
 def test_select_cost_optimal_threshold_rejects_empty_results():
     with pytest.raises(
         RuntimeError,
         match="No primary threshold results",
     ):
-        ctt.select_cost_optimal_threshold(
-            pd.DataFrame()
-        )
+        ctt.select_cost_optimal_threshold(pd.DataFrame())
 
 
 # ============================================================
 # Test 26
 # One-class score grid is rejected
 # ============================================================
+
 
 def test_build_thresholds_rejects_single_unique_score():
     scores = np.array(
@@ -1218,15 +1092,14 @@ def test_build_thresholds_rejects_single_unique_score():
         ValueError,
         match="fewer than two unique scores",
     ):
-        ctt.build_thresholds(
-            scores
-        )
+        ctt.build_thresholds(scores)
 
 
 # ============================================================
 # Test 27
 # Configuration constants
 # ============================================================
+
 
 def test_business_cost_configuration():
     assert ctt.COST_FP == 2
@@ -1237,6 +1110,7 @@ def test_business_cost_configuration():
 # Test 28
 # Feature configuration
 # ============================================================
+
 
 def test_feature_columns_are_correct():
     assert ctt.FEATURE_COLUMNS == [
@@ -1251,6 +1125,7 @@ def test_feature_columns_are_correct():
 # All required anomaly datasets are configured
 # ============================================================
 
+
 def test_all_required_datasets_are_configured():
     expected = {
         "temperature_spike",
@@ -1259,15 +1134,14 @@ def test_all_required_datasets_are_configured():
         "combined_anomaly",
     }
 
-    assert set(
-        ctt.DATASETS.keys()
-    ) == expected
+    assert set(ctt.DATASETS.keys()) == expected
 
 
 # ============================================================
 # Test 30
 # All three production models are configured
 # ============================================================
+
 
 def test_all_three_models_are_configured():
     expected = {
@@ -1276,6 +1150,4 @@ def test_all_three_models_are_configured():
         "Local Outlier Factor",
     }
 
-    assert set(
-        ctt.MODEL_FILES.keys()
-    ) == expected
+    assert set(ctt.MODEL_FILES.keys()) == expected

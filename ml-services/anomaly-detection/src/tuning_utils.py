@@ -1,13 +1,11 @@
 import numpy as np
 import pandas as pd
-
 from sklearn.metrics import (
     confusion_matrix,
+    f1_score,
     precision_score,
     recall_score,
-    f1_score,
 )
-
 
 # ==========================================================
 # Production model-selection configuration
@@ -53,6 +51,7 @@ RECALL_TOLERANCE = 0.02
 # Evaluation
 # ==========================================================
 
+
 def evaluate_model(
     model_name,
     model,
@@ -93,24 +92,14 @@ def evaluate_model(
     results = []
 
     for dataset_name, dataset in test_datasets.items():
+        X_test = dataset[feature_columns].to_numpy()
 
-        X_test = dataset[
-            feature_columns
-        ].to_numpy()
-
-        y_true = dataset[
-            "is_anomaly"
-        ].to_numpy()
+        y_true = dataset["is_anomaly"].to_numpy()
 
         if scaler is not None:
+            X_test = scaler.transform(X_test)
 
-            X_test = scaler.transform(
-                X_test
-            )
-
-        predictions = (
-            model.predict(X_test) == -1
-        ).astype(int)
+        predictions = (model.predict(X_test) == -1).astype(int)
 
         # --------------------------------------------------
         # Confusion matrix
@@ -122,9 +111,7 @@ def evaluate_model(
             labels=[0, 1],
         )
 
-        tn, fp, fn, tp = (
-            matrix.ravel()
-        )
+        tn, fp, fn, tp = matrix.ravel()
 
         # --------------------------------------------------
         # Metrics
@@ -153,9 +140,7 @@ def evaluate_model(
             "Test Dataset": dataset_name,
             "Precision": precision,
             "Recall": recall,
-            "PR Score": (
-                precision + recall
-            ) / 2,
+            "PR Score": (precision + recall) / 2,
             "F1": f1,
             "TP": tp,
             "TN": tn,
@@ -163,13 +148,9 @@ def evaluate_model(
             "FN": fn,
         }
 
-        row.update(
-            hyperparameters
-        )
+        row.update(hyperparameters)
 
-        results.append(
-            row
-        )
+        results.append(row)
 
     return results
 
@@ -177,6 +158,7 @@ def evaluate_model(
 # ==========================================================
 # Ranking
 # ==========================================================
+
 
 def rank_results(
     results,
@@ -292,9 +274,7 @@ def rank_results(
     ==========================================================
     """
 
-    results = pd.DataFrame(
-        results
-    )
+    results = pd.DataFrame(results)
 
     if results.empty:
         return results
@@ -303,18 +283,10 @@ def rank_results(
     # Validate recall tolerance
     # ------------------------------------------------------
 
-    recall_tolerance = float(
-        recall_tolerance
-    )
+    recall_tolerance = float(recall_tolerance)
 
-    if not (
-        0.0
-        <= recall_tolerance
-        <= 1.0
-    ):
-        raise ValueError(
-            "recall_tolerance must be between 0.0 and 1.0."
-        )
+    if not (0.0 <= recall_tolerance <= 1.0):
+        raise ValueError("recall_tolerance must be between 0.0 and 1.0.")
 
     # ------------------------------------------------------
     # Identify configuration columns
@@ -338,9 +310,7 @@ def rank_results(
     }
 
     configuration_columns = [
-        column
-        for column in results.columns
-        if column not in metric_columns
+        column for column in results.columns if column not in metric_columns
     ]
 
     # ------------------------------------------------------
@@ -348,21 +318,13 @@ def rank_results(
     # model selection.
     # ------------------------------------------------------
 
-    selection_results = results[
-        results["Test Dataset"].isin(
-            SELECTION_DATASETS
-        )
-    ].copy()
+    selection_results = results[results["Test Dataset"].isin(SELECTION_DATASETS)].copy()
 
     # ------------------------------------------------------
     # Make sure all required datasets are present.
     # ------------------------------------------------------
 
-    available_selection_datasets = set(
-        selection_results[
-            "Test Dataset"
-        ].unique()
-    )
+    available_selection_datasets = set(selection_results["Test Dataset"].unique())
 
     missing_datasets = [
         dataset
@@ -372,10 +334,7 @@ def rank_results(
 
     if missing_datasets:
         raise ValueError(
-            "Required selection datasets are missing: "
-            + ", ".join(
-                missing_datasets
-            )
+            "Required selection datasets are missing: " + ", ".join(missing_datasets)
         )
 
     # ------------------------------------------------------
@@ -389,8 +348,7 @@ def rank_results(
     # ------------------------------------------------------
 
     overall = (
-        selection_results
-        .groupby(
+        selection_results.groupby(
             configuration_columns,
             dropna=False,
         )
@@ -417,9 +375,7 @@ def rank_results(
     # ------------------------------------------------------
 
     overall.columns = [
-        " ".join(
-            column
-        ).strip()
+        " ".join(column).strip()
         if isinstance(
             column,
             tuple,
@@ -451,11 +407,7 @@ def rank_results(
     # Absolute maximum recall
     # ------------------------------------------------------
 
-    maximum_recall = float(
-        overall[
-            "Recall"
-        ].max()
-    )
+    maximum_recall = float(overall["Recall"].max())
 
     # ------------------------------------------------------
     # Minimum recall required to remain in the selection
@@ -464,30 +416,18 @@ def rank_results(
 
     minimum_eligible_recall = max(
         0.0,
-        maximum_recall
-        - recall_tolerance,
+        maximum_recall - recall_tolerance,
     )
 
     # ------------------------------------------------------
     # Mark recall-eligible configurations.
     # ------------------------------------------------------
 
-    overall[
-        "Recall Eligible"
-    ] = (
-        overall[
-            "Recall"
-        ]
-        >= minimum_eligible_recall
-    )
+    overall["Recall Eligible"] = overall["Recall"] >= minimum_eligible_recall
 
-    overall[
-        "Maximum Recall"
-    ] = maximum_recall
+    overall["Maximum Recall"] = maximum_recall
 
-    overall[
-        "Minimum Eligible Recall"
-    ] = minimum_eligible_recall
+    overall["Minimum Eligible Recall"] = minimum_eligible_recall
 
     # ------------------------------------------------------
     # Production ranking
@@ -511,40 +451,29 @@ def rank_results(
     # comes first, followed by precision etc.
     # ------------------------------------------------------
 
-    overall[
-        "_eligible_sort"
-    ] = (
-        overall[
-            "Recall Eligible"
-        ]
-        .astype(int)
-    )
+    overall["_eligible_sort"] = overall["Recall Eligible"].astype(int)
 
-    overall = (
-        overall
-        .sort_values(
-            by=[
-                "_eligible_sort",
-                "Precision",
-                "Recall",
-                "Minimum Recall",
-                "F1",
-                "FP",
-                "FN",
-            ],
-            ascending=[
-                False,
-                False,
-                False,
-                False,
-                False,
-                True,
-                True,
-            ],
-            kind="mergesort",
-        )
-        .copy()
-    )
+    overall = overall.sort_values(
+        by=[
+            "_eligible_sort",
+            "Precision",
+            "Recall",
+            "Minimum Recall",
+            "F1",
+            "FP",
+            "FN",
+        ],
+        ascending=[
+            False,
+            False,
+            False,
+            False,
+            False,
+            True,
+            True,
+        ],
+        kind="mergesort",
+    ).copy()
 
     # ------------------------------------------------------
     # Add rank
@@ -574,9 +503,7 @@ def rank_results(
     # ------------------------------------------------------
 
     overall.drop(
-        columns=[
-            "_eligible_sort"
-        ],
+        columns=["_eligible_sort"],
         inplace=True,
     )
 
@@ -586,19 +513,9 @@ def rank_results(
 
     ranked = []
 
-    for dataset_name in (
-        results[
-            "Test Dataset"
-        ].unique()
-    ):
-
+    for dataset_name in results["Test Dataset"].unique():
         dataset_df = (
-            results[
-                results[
-                    "Test Dataset"
-                ]
-                == dataset_name
-            ]
+            results[results["Test Dataset"] == dataset_name]
             .sort_values(
                 by=[
                     "Recall",
@@ -616,9 +533,7 @@ def rank_results(
                 ],
                 kind="mergesort",
             )
-            .head(
-                top_n
-            )
+            .head(top_n)
             .copy()
         )
 
@@ -631,23 +546,19 @@ def rank_results(
             ),
         )
 
-        ranked.append(
-            dataset_df
-        )
+        ranked.append(dataset_df)
 
     # ------------------------------------------------------
     # Combine per-dataset rankings
     # ------------------------------------------------------
 
     if ranked:
-
         per_dataset = pd.concat(
             ranked,
             ignore_index=True,
         )
 
     else:
-
         per_dataset = pd.DataFrame()
 
     # ------------------------------------------------------
@@ -655,7 +566,6 @@ def rank_results(
     # ------------------------------------------------------
 
     if per_dataset.empty:
-
         return overall
 
     return pd.concat(
@@ -671,6 +581,7 @@ def rank_results(
 # NumPy conversion helper
 # ==========================================================
 
+
 def to_numpy(data):
     """
     Convert pandas DataFrame/Series to NumPy array.
@@ -685,9 +596,6 @@ def to_numpy(data):
             pd.Series,
         ),
     ):
-
         return data.to_numpy()
 
-    return np.asarray(
-        data
-    )
+    return np.asarray(data)

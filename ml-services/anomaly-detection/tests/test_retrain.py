@@ -7,8 +7,8 @@ from src.retrain import (
     increment_version,
 )
 
-
 # Version Incrementing
+
 
 def test_increment_version():
     assert increment_version("1.0.0") == "1.0.1"
@@ -35,7 +35,6 @@ def test_generate_rolling_window_size():
         end_day,
         window_df,
     ) in windows:
-
         assert len(window_df) == WINDOW_SIZE
 
 
@@ -53,6 +52,7 @@ def test_generate_rolling_window_days():
 
 
 # Model Comparison
+
 
 def test_compare_models_deploy():
 

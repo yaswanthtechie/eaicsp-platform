@@ -75,7 +75,9 @@ def test_relationship_break_is_recognised_in_correlated_world():
         {
             "temperature_spike": inject_temperature_spikes(history_base, 50, seed=2001),
             "combined_anomaly": inject_combined_anomalies(history_base, 50, seed=2003),
-            "relationship_break": inject_relationship_breaks(history_base, 50, seed=2004),
+            "relationship_break": inject_relationship_breaks(
+                history_base, 50, seed=2004
+            ),
         },
     )
 

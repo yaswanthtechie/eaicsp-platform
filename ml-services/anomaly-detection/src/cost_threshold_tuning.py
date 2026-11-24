@@ -4,22 +4,18 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-
 from sklearn.metrics import (
     confusion_matrix,
+    f1_score,
     precision_score,
     recall_score,
-    f1_score,
 )
-
 
 # ============================================================
 # Project paths
 # ============================================================
 
-project_root = (
-    Path(__file__).resolve().parent.parent
-)
+project_root = Path(__file__).resolve().parent.parent
 
 if str(project_root) not in sys.path:
     sys.path.insert(
@@ -28,13 +24,9 @@ if str(project_root) not in sys.path:
     )
 
 
-output_dir = (
-    project_root / "output"
-)
+output_dir = project_root / "output"
 
-models_dir = (
-    project_root / "models"
-)
+models_dir = project_root / "models"
 
 
 # ============================================================
@@ -57,29 +49,17 @@ FEATURE_COLUMNS = [
 
 
 DATASETS = {
-    "temperature_spike":
-        "test_temperature_spike.csv",
-
-    "temperature_drift":
-        "test_temperature_drift.csv",
-
-    "stock_anomaly":
-        "test_stock_anomaly.csv",
-
-    "combined_anomaly":
-        "test_combined_anomaly.csv",
+    "temperature_spike": "test_temperature_spike.csv",
+    "temperature_drift": "test_temperature_drift.csv",
+    "stock_anomaly": "test_stock_anomaly.csv",
+    "combined_anomaly": "test_combined_anomaly.csv",
 }
 
 
 MODEL_FILES = {
-    "Isolation Forest":
-        "isolation_forest_model.joblib",
-
-    "One-Class SVM":
-        "one_class_svm_model.joblib",
-
-    "Local Outlier Factor":
-        "lof_model.joblib",
+    "Isolation Forest": "isolation_forest_model.joblib",
+    "One-Class SVM": "one_class_svm_model.joblib",
+    "Local Outlier Factor": "lof_model.joblib",
 }
 
 
@@ -112,6 +92,7 @@ MAX_THRESHOLDS = 201
 # Load datasets
 # ============================================================
 
+
 def load_test_datasets():
     """
     Load all R4 anomaly datasets.
@@ -120,20 +101,12 @@ def load_test_datasets():
     datasets = {}
 
     for dataset_name, filename in DATASETS.items():
-
-        path = (
-            output_dir / filename
-        )
+        path = output_dir / filename
 
         if not path.exists():
+            raise FileNotFoundError(f"Test dataset not found: {path}")
 
-            raise FileNotFoundError(
-                f"Test dataset not found: {path}"
-            )
-
-        datasets[dataset_name] = (
-            pd.read_csv(path)
-        )
+        datasets[dataset_name] = pd.read_csv(path)
 
     return datasets
 
@@ -142,6 +115,7 @@ def load_test_datasets():
 # Load deployed models
 # ============================================================
 
+
 def load_deployed_models():
     """
     Load the currently deployed models.
@@ -149,23 +123,13 @@ def load_deployed_models():
 
     models = {}
 
-    for model_name, filename in (
-        MODEL_FILES.items()
-    ):
-
-        path = (
-            models_dir / filename
-        )
+    for model_name, filename in MODEL_FILES.items():
+        path = models_dir / filename
 
         if not path.exists():
+            raise FileNotFoundError(f"Model file not found: {path}")
 
-            raise FileNotFoundError(
-                f"Model file not found: {path}"
-            )
-
-        models[model_name] = (
-            joblib.load(path)
-        )
+        models[model_name] = joblib.load(path)
 
     return models
 
@@ -173,6 +137,7 @@ def load_deployed_models():
 # ============================================================
 # Extract project anomaly score
 # ============================================================
+
 
 def get_anomaly_scores(
     model,
@@ -244,13 +209,7 @@ def get_anomaly_scores(
         model,
         "decision_function",
     ):
-
-        raw_score = (
-            model
-            .decision_function(
-                features
-            )
-        )
+        raw_score = model.decision_function(features)
 
         raw_score = np.asarray(
             raw_score,
@@ -258,19 +217,10 @@ def get_anomaly_scores(
         )
 
         if raw_score.ndim != 1:
+            raw_score = raw_score.reshape(-1)
 
-            raw_score = (
-                raw_score.reshape(-1)
-            )
-
-        if not np.all(
-            np.isfinite(raw_score)
-        ):
-
-            raise ValueError(
-                "Model decision_function() "
-                "produced non-finite values."
-            )
+        if not np.all(np.isfinite(raw_score)):
+            raise ValueError("Model decision_function() produced non-finite values.")
 
         # ----------------------------------------------------
         # Convert normality score to anomaly score.
@@ -294,12 +244,7 @@ def get_anomaly_scores(
         model,
         "score",
     ):
-
-        raw_score = (
-            model.score(
-                features
-            )
-        )
+        raw_score = model.score(features)
 
         raw_score = np.asarray(
             raw_score,
@@ -307,19 +252,10 @@ def get_anomaly_scores(
         )
 
         if raw_score.ndim != 1:
+            raw_score = raw_score.reshape(-1)
 
-            raw_score = (
-                raw_score.reshape(-1)
-            )
-
-        if not np.all(
-            np.isfinite(raw_score)
-        ):
-
-            raise ValueError(
-                "Model score() "
-                "produced non-finite values."
-            )
+        if not np.all(np.isfinite(raw_score)):
+            raise ValueError("Model score() produced non-finite values.")
 
         # ----------------------------------------------------
         # Project anomaly score.
@@ -341,22 +277,13 @@ def get_anomaly_scores(
         model,
         "model",
     ):
-
-        underlying_model = (
-            model.model
-        )
+        underlying_model = model.model
 
         if hasattr(
             underlying_model,
             "decision_function",
         ):
-
-            raw_score = (
-                underlying_model
-                .decision_function(
-                    features
-                )
-            )
+            raw_score = underlying_model.decision_function(features)
 
             raw_score = np.asarray(
                 raw_score,
@@ -364,15 +291,9 @@ def get_anomaly_scores(
             )
 
             if raw_score.ndim != 1:
+                raw_score = raw_score.reshape(-1)
 
-                raw_score = (
-                    raw_score.reshape(-1)
-                )
-
-            if not np.all(
-                np.isfinite(raw_score)
-            ):
-
+            if not np.all(np.isfinite(raw_score)):
                 raise ValueError(
                     "Underlying sklearn "
                     "model produced non-finite "
@@ -403,6 +324,7 @@ def get_anomaly_scores(
 # Reference predictions
 # ============================================================
 
+
 def get_reference_predictions(
     model,
     features,
@@ -414,22 +336,17 @@ def get_reference_predictions(
         +1 = normal
     """
 
-    predictions = model.predict(
-        features
-    )
+    predictions = model.predict(features)
 
-    predictions = np.asarray(
-        predictions
-    )
+    predictions = np.asarray(predictions)
 
-    return (
-        predictions == -1
-    ).astype(int)
+    return (predictions == -1).astype(int)
 
 
 # ============================================================
 # Check score convention
 # ============================================================
+
 
 def calculate_reference_threshold(
     scores,
@@ -452,47 +369,30 @@ def calculate_reference_threshold(
     It does NOT choose the production threshold.
     """
 
-    unique_scores = np.unique(
-        scores
-    )
+    unique_scores = np.unique(scores)
 
     if len(unique_scores) < 2:
-
         raise ValueError(
-            "Continuous anomaly scores contain "
-            "fewer than two unique values."
+            "Continuous anomaly scores contain fewer than two unique values."
         )
 
-    thresholds = (
-        unique_scores[:-1]
-        + unique_scores[1:]
-    ) / 2.0
+    thresholds = (unique_scores[:-1] + unique_scores[1:]) / 2.0
 
     lower_margin = max(
         1.0,
-        abs(
-            unique_scores[0]
-        ) * 0.01,
+        abs(unique_scores[0]) * 0.01,
     )
 
     upper_margin = max(
         1.0,
-        abs(
-            unique_scores[-1]
-        ) * 0.01,
+        abs(unique_scores[-1]) * 0.01,
     )
 
     thresholds = np.concatenate(
         [
-            [
-                unique_scores[0]
-                - lower_margin
-            ],
+            [unique_scores[0] - lower_margin],
             thresholds,
-            [
-                unique_scores[-1]
-                + upper_margin
-            ],
+            [unique_scores[-1] + upper_margin],
         ]
     )
 
@@ -500,27 +400,14 @@ def calculate_reference_threshold(
     best_agreement = -1.0
 
     for threshold in thresholds:
+        predicted = (scores >= threshold).astype(int)
 
-        predicted = (
-            scores >= threshold
-        ).astype(int)
-
-        agreement = float(
-            np.mean(
-                predicted
-                == reference_predictions
-            )
-        )
+        agreement = float(np.mean(predicted == reference_predictions))
 
         if agreement > best_agreement:
+            best_agreement = agreement
 
-            best_agreement = (
-                agreement
-            )
-
-            best_threshold = (
-                float(threshold)
-            )
+            best_threshold = float(threshold)
 
     return (
         best_threshold,
@@ -531,6 +418,7 @@ def calculate_reference_threshold(
 # ============================================================
 # Build common threshold grid
 # ============================================================
+
 
 def build_thresholds(
     scores,
@@ -556,15 +444,11 @@ def build_thresholds(
         dtype=float,
     )
 
-    unique_scores = np.unique(
-        scores
-    )
+    unique_scores = np.unique(scores)
 
     if len(unique_scores) < 2:
-
         raise ValueError(
-            "Cannot build threshold grid "
-            "from fewer than two unique scores."
+            "Cannot build threshold grid from fewer than two unique scores."
         )
 
     # --------------------------------------------------------
@@ -572,46 +456,28 @@ def build_thresholds(
     # use all separating thresholds.
     # --------------------------------------------------------
 
-    if len(unique_scores) <= (
-        max_thresholds - 2
-    ):
-
-        thresholds = (
-            unique_scores[:-1]
-            + unique_scores[1:]
-        ) / 2.0
+    if len(unique_scores) <= (max_thresholds - 2):
+        thresholds = (unique_scores[:-1] + unique_scores[1:]) / 2.0
 
         lower_margin = max(
             1.0,
-            abs(
-                unique_scores[0]
-            ) * 0.01,
+            abs(unique_scores[0]) * 0.01,
         )
 
         upper_margin = max(
             1.0,
-            abs(
-                unique_scores[-1]
-            ) * 0.01,
+            abs(unique_scores[-1]) * 0.01,
         )
 
         thresholds = np.concatenate(
             [
-                [
-                    unique_scores[0]
-                    - lower_margin
-                ],
+                [unique_scores[0] - lower_margin],
                 thresholds,
-                [
-                    unique_scores[-1]
-                    + upper_margin
-                ],
+                [unique_scores[-1] + upper_margin],
             ]
         )
 
-        return np.unique(
-            thresholds
-        )
+        return np.unique(thresholds)
 
     # --------------------------------------------------------
     # Large score sets:
@@ -629,48 +495,35 @@ def build_thresholds(
         quantiles,
     )
 
-    thresholds = np.unique(
-        thresholds
-    )
+    thresholds = np.unique(thresholds)
 
     # Add outside boundaries.
 
     lower_margin = max(
         1.0,
-        abs(
-            unique_scores[0]
-        ) * 0.01,
+        abs(unique_scores[0]) * 0.01,
     )
 
     upper_margin = max(
         1.0,
-        abs(
-            unique_scores[-1]
-        ) * 0.01,
+        abs(unique_scores[-1]) * 0.01,
     )
 
     thresholds = np.concatenate(
         [
-            [
-                unique_scores[0]
-                - lower_margin
-            ],
+            [unique_scores[0] - lower_margin],
             thresholds,
-            [
-                unique_scores[-1]
-                + upper_margin
-            ],
+            [unique_scores[-1] + upper_margin],
         ]
     )
 
-    return np.unique(
-        thresholds
-    )
+    return np.unique(thresholds)
 
 
 # ============================================================
 # Evaluate one threshold
 # ============================================================
+
 
 def evaluate_threshold(
     scores,
@@ -689,17 +542,13 @@ def evaluate_threshold(
             -> normal
     """
 
-    y_pred = (
-        scores >= threshold
-    ).astype(int)
+    y_pred = (scores >= threshold).astype(int)
 
-    tn, fp, fn, tp = (
-        confusion_matrix(
-            y_true,
-            y_pred,
-            labels=[0, 1],
-        ).ravel()
-    )
+    tn, fp, fn, tp = confusion_matrix(
+        y_true,
+        y_pred,
+        labels=[0, 1],
+    ).ravel()
 
     precision = precision_score(
         y_true,
@@ -719,45 +568,25 @@ def evaluate_threshold(
         zero_division=0,
     )
 
-    expected_cost = (
-        fp * COST_FP
-        +
-        fn * COST_FN
-    )
+    expected_cost = fp * COST_FP + fn * COST_FN
 
     return {
-        "Threshold":
-            float(threshold),
-
-        "Precision":
-            float(precision),
-
-        "Recall":
-            float(recall),
-
-        "F1":
-            float(f1),
-
-        "TP":
-            int(tp),
-
-        "TN":
-            int(tn),
-
-        "FP":
-            int(fp),
-
-        "FN":
-            int(fn),
-
-        "Expected Cost":
-            float(expected_cost),
+        "Threshold": float(threshold),
+        "Precision": float(precision),
+        "Recall": float(recall),
+        "F1": float(f1),
+        "TP": int(tp),
+        "TN": int(tn),
+        "FP": int(fp),
+        "FN": int(fn),
+        "Expected Cost": float(expected_cost),
     }
 
 
 # ============================================================
 # Prepare one model
 # ============================================================
+
 
 def prepare_model_scores(
     model,
@@ -793,22 +622,10 @@ def prepare_model_scores(
     # Calculate scores for every dataset.
     # --------------------------------------------------------
 
-    for dataset_name, dataset in (
-        datasets.items()
-    ):
+    for dataset_name, dataset in datasets.items():
+        features = dataset[FEATURE_COLUMNS].to_numpy()
 
-        features = dataset[
-            FEATURE_COLUMNS
-        ].to_numpy()
-
-        y_true = (
-            dataset[
-                "is_anomaly"
-            ]
-            .to_numpy(
-                dtype=int
-            )
-        )
+        y_true = dataset["is_anomaly"].to_numpy(dtype=int)
 
         # ----------------------------------------------------
         # PROJECT ANOMALY SCORE
@@ -819,47 +636,29 @@ def prepare_model_scores(
             features,
         )
 
-        native_predictions = (
-            get_reference_predictions(
-                model,
-                features,
-            )
+        native_predictions = get_reference_predictions(
+            model,
+            features,
         )
 
         prepared[dataset_name] = {
-            "scores":
-                scores,
-
-            "y_true":
-                y_true,
-
-            "native_predictions":
-                native_predictions,
+            "scores": scores,
+            "y_true": y_true,
+            "native_predictions": native_predictions,
         }
 
-        if dataset_name in (
-            PRIMARY_DATASETS
-        ):
+        if dataset_name in (PRIMARY_DATASETS):
+            all_primary_scores.append(scores)
 
-            all_primary_scores.append(
-                scores
-            )
-
-            all_primary_predictions.append(
-                native_predictions
-            )
+            all_primary_predictions.append(native_predictions)
 
     # --------------------------------------------------------
     # Combine primary scores.
     # --------------------------------------------------------
 
-    combined_scores = np.concatenate(
-        all_primary_scores
-    )
+    combined_scores = np.concatenate(all_primary_scores)
 
-    combined_predictions = np.concatenate(
-        all_primary_predictions
-    )
+    combined_predictions = np.concatenate(all_primary_predictions)
 
     # --------------------------------------------------------
     # Diagnostic native threshold.
@@ -886,6 +685,7 @@ def prepare_model_scores(
 # ============================================================
 # Create complete threshold sweep
 # ============================================================
+
 
 def create_model_threshold_results(
     model,
@@ -918,9 +718,7 @@ def create_model_threshold_results(
         datasets,
     )
 
-    thresholds = build_thresholds(
-        combined_primary_scores
-    )
+    thresholds = build_thresholds(combined_primary_scores)
 
     rows = []
 
@@ -928,20 +726,12 @@ def create_model_threshold_results(
     # Evaluate every dataset using the SAME thresholds.
     # --------------------------------------------------------
 
-    for dataset_name in (
-        datasets.keys()
-    ):
+    for dataset_name in datasets:
+        scores = prepared[dataset_name]["scores"]
 
-        scores = prepared[
-            dataset_name
-        ]["scores"]
-
-        y_true = prepared[
-            dataset_name
-        ]["y_true"]
+        y_true = prepared[dataset_name]["y_true"]
 
         for threshold in thresholds:
-
             row = evaluate_threshold(
                 scores=scores,
                 y_true=y_true,
@@ -950,35 +740,23 @@ def create_model_threshold_results(
 
             row.update(
                 {
-                    "Model":
-                        model_name,
-
-                    "Test Dataset":
-                        dataset_name,
-
-                    "Score Direction":
-                        "higher_is_anomaly",
-
-                    "Native Threshold":
-                        native_threshold,
-
-                    "Direction Agreement":
-                        agreement,
+                    "Model": model_name,
+                    "Test Dataset": dataset_name,
+                    "Score Direction": "higher_is_anomaly",
+                    "Native Threshold": native_threshold,
+                    "Direction Agreement": agreement,
                 }
             )
 
-            rows.append(
-                row
-            )
+            rows.append(row)
 
-    return pd.DataFrame(
-        rows
-    )
+    return pd.DataFrame(rows)
 
 
 # ============================================================
 # Aggregate primary datasets
 # ============================================================
+
 
 def aggregate_primary_cost(
     model_results,
@@ -993,24 +771,13 @@ def aggregate_primary_cost(
     This is the production calculation.
     """
 
-    primary = (
-        model_results[
-            model_results[
-                "Test Dataset"
-            ].isin(
-                PRIMARY_DATASETS
-            )
-        ]
-        .copy()
-    )
+    primary = model_results[model_results["Test Dataset"].isin(PRIMARY_DATASETS)].copy()
 
     if primary.empty:
-
         return pd.DataFrame()
 
     grouped = (
-        primary
-        .groupby(
+        primary.groupby(
             [
                 "Model",
                 "Score Direction",
@@ -1035,17 +802,11 @@ def aggregate_primary_cost(
     # Aggregate precision.
     # --------------------------------------------------------
 
-    denominator = (
-        grouped["TP"]
-        + grouped["FP"]
-    )
+    denominator = grouped["TP"] + grouped["FP"]
 
-    grouped[
-        "Precision"
-    ] = np.where(
+    grouped["Precision"] = np.where(
         denominator > 0,
-        grouped["TP"]
-        / denominator,
+        grouped["TP"] / denominator,
         0.0,
     )
 
@@ -1053,17 +814,11 @@ def aggregate_primary_cost(
     # Aggregate recall.
     # --------------------------------------------------------
 
-    denominator = (
-        grouped["TP"]
-        + grouped["FN"]
-    )
+    denominator = grouped["TP"] + grouped["FN"]
 
-    grouped[
-        "Recall"
-    ] = np.where(
+    grouped["Recall"] = np.where(
         denominator > 0,
-        grouped["TP"]
-        / denominator,
+        grouped["TP"] / denominator,
         0.0,
     )
 
@@ -1071,21 +826,11 @@ def aggregate_primary_cost(
     # Aggregate F1.
     # --------------------------------------------------------
 
-    denominator = (
-        grouped["Precision"]
-        + grouped["Recall"]
-    )
+    denominator = grouped["Precision"] + grouped["Recall"]
 
-    grouped[
-        "F1"
-    ] = np.where(
+    grouped["F1"] = np.where(
         denominator > 0,
-        (
-            2
-            * grouped["Precision"]
-            * grouped["Recall"]
-            / denominator
-        ),
+        (2 * grouped["Precision"] * grouped["Recall"] / denominator),
         0.0,
     )
 
@@ -1093,23 +838,13 @@ def aggregate_primary_cost(
     # Business cost.
     # --------------------------------------------------------
 
-    grouped[
-        "Expected Cost"
-    ] = (
-        grouped["FP"] * COST_FP
-        +
-        grouped["FN"] * COST_FN
-    )
+    grouped["Expected Cost"] = grouped["FP"] * COST_FP + grouped["FN"] * COST_FN
 
     # --------------------------------------------------------
     # Number of primary datasets.
     # --------------------------------------------------------
 
-    grouped[
-        "Datasets Included"
-    ] = len(
-        PRIMARY_DATASETS
-    )
+    grouped["Datasets Included"] = len(PRIMARY_DATASETS)
 
     return grouped
 
@@ -1117,6 +852,7 @@ def aggregate_primary_cost(
 # ============================================================
 # Select production threshold
 # ============================================================
+
 
 def select_cost_optimal_threshold(
     primary_results,
@@ -1147,15 +883,10 @@ def select_cost_optimal_threshold(
     """
 
     if primary_results.empty:
-
-        raise RuntimeError(
-            "No primary threshold results "
-            "available."
-        )
+        raise RuntimeError("No primary threshold results available.")
 
     selected = (
-        primary_results
-        .sort_values(
+        primary_results.sort_values(
             by=[
                 "Expected Cost",
                 "Recall",
@@ -1185,6 +916,7 @@ def select_cost_optimal_threshold(
 # Select F1 diagnostic threshold
 # ============================================================
 
+
 def select_f1_diagnostic_threshold(
     primary_results,
 ):
@@ -1204,15 +936,12 @@ def select_f1_diagnostic_threshold(
     """
 
     if primary_results.empty:
-
         raise RuntimeError(
-            "No primary threshold results "
-            "available for F1 diagnostic analysis."
+            "No primary threshold results available for F1 diagnostic analysis."
         )
 
     selected = (
-        primary_results
-        .sort_values(
+        primary_results.sort_values(
             by=[
                 "F1",
                 "Recall",
@@ -1238,6 +967,7 @@ def select_f1_diagnostic_threshold(
 # Main
 # ============================================================
 
+
 def run_cost_threshold_tuning():
     """
     Run the complete R4.5 cost-based threshold analysis.
@@ -1256,105 +986,60 @@ def run_cost_threshold_tuning():
     diagnostic comparison.
     """
 
-    print(
-        "=" * 70
-    )
+    print("=" * 70)
 
-    print(
-        "R4.5 COST-BASED THRESHOLD TUNING"
-    )
+    print("R4.5 COST-BASED THRESHOLD TUNING")
 
-    print(
-        "=" * 70
-    )
+    print("=" * 70)
 
     print()
 
-    print(
-        f"False-positive cost : {COST_FP}"
-    )
+    print(f"False-positive cost : {COST_FP}")
 
-    print(
-        f"False-negative cost : {COST_FN}"
-    )
+    print(f"False-negative cost : {COST_FN}")
 
     print()
 
-    print(
-        "Primary production objective:"
-    )
+    print("Primary production objective:")
 
-    print(
-        "  Minimize expected business cost."
-    )
+    print("  Minimize expected business cost.")
 
     print()
 
-    print(
-        "Production selection priority:"
-    )
+    print("Production selection priority:")
 
-    print(
-        "  1. Lowest Expected Cost"
-    )
+    print("  1. Lowest Expected Cost")
 
-    print(
-        "  2. Highest Recall"
-    )
+    print("  2. Highest Recall")
 
-    print(
-        "  3. Highest Precision"
-    )
+    print("  3. Highest Precision")
 
-    print(
-        "  4. Highest F1"
-    )
+    print("  4. Highest F1")
 
     print()
 
-    print(
-        "F1 threshold:"
-    )
+    print("F1 threshold:")
 
-    print(
-        "  Diagnostic comparison only."
-    )
+    print("  Diagnostic comparison only.")
 
-    print(
-        "  NOT used for production selection."
-    )
+    print("  NOT used for production selection.")
 
     print()
 
-    print(
-        "Project anomaly-score convention:"
-    )
+    print("Project anomaly-score convention:")
 
-    print(
-        "  score = -model.decision_function(features)"
-    )
+    print("  score = -model.decision_function(features)")
 
-    print(
-        "  higher score = MORE ANOMALOUS"
-    )
+    print("  higher score = MORE ANOMALOUS")
 
-    print(
-        "  score >= threshold -> ANOMALY"
-    )
+    print("  score >= threshold -> ANOMALY")
 
     print()
 
-    print(
-        "Primary cost datasets:"
-    )
+    print("Primary cost datasets:")
 
-    for dataset_name in (
-        PRIMARY_DATASETS
-    ):
-
-        print(
-            f"  - {dataset_name}"
-        )
+    for dataset_name in PRIMARY_DATASETS:
+        print(f"  - {dataset_name}")
 
     print()
 
@@ -1369,13 +1054,9 @@ def run_cost_threshold_tuning():
     # Load datasets and models.
     # --------------------------------------------------------
 
-    datasets = (
-        load_test_datasets()
-    )
+    datasets = load_test_datasets()
 
-    models = (
-        load_deployed_models()
-    )
+    models = load_deployed_models()
 
     all_results = []
 
@@ -1387,63 +1068,34 @@ def run_cost_threshold_tuning():
     # Process every model.
     # --------------------------------------------------------
 
-    for model_name, model in (
-        models.items()
-    ):
-
+    for model_name, model in models.items():
         print()
-        print(
-            model_name
+        print(model_name)
+
+        print("-" * 70)
+
+        print("  Building common PROJECT anomaly-score grid...")
+
+        model_results = create_model_threshold_results(
+            model=model,
+            model_name=model_name,
+            datasets=datasets,
         )
 
-        print(
-            "-" * 70
-        )
-
-        print(
-            "  Building common PROJECT anomaly-score grid..."
-        )
-
-        model_results = (
-            create_model_threshold_results(
-                model=model,
-                model_name=model_name,
-                datasets=datasets,
-            )
-        )
-
-        all_results.append(
-            model_results
-        )
+        all_results.append(model_results)
 
         # ----------------------------------------------------
         # Primary aggregate.
         # ----------------------------------------------------
 
-        primary_results = (
-            aggregate_primary_cost(
-                model_results
-            )
-        )
+        primary_results = aggregate_primary_cost(model_results)
 
         if primary_results.empty:
+            raise RuntimeError(f"No primary results for {model_name}.")
 
-            raise RuntimeError(
-                f"No primary results for "
-                f"{model_name}."
-            )
+        cost_best = select_cost_optimal_threshold(primary_results)
 
-        cost_best = (
-            select_cost_optimal_threshold(
-                primary_results
-            )
-        )
-
-        f1_diagnostic = (
-            select_f1_diagnostic_threshold(
-                primary_results
-            )
-        )
+        f1_diagnostic = select_f1_diagnostic_threshold(primary_results)
 
         # ----------------------------------------------------
         # Print score direction.
@@ -1451,15 +1103,9 @@ def run_cost_threshold_tuning():
 
         print()
 
-        print(
-            "  Score direction:"
-            " higher_is_anomaly"
-        )
+        print("  Score direction: higher_is_anomaly")
 
-        print(
-            "  Native predict() agreement:"
-            f" {cost_best['Direction Agreement']:.4f}"
-        )
+        print(f"  Native predict() agreement: {cost_best['Direction Agreement']:.4f}")
 
         print()
 
@@ -1467,40 +1113,19 @@ def run_cost_threshold_tuning():
         # F1 diagnostic result.
         # ----------------------------------------------------
 
-        print(
-            "  F1 diagnostic threshold:"
-            f" {f1_diagnostic['Threshold']:.8f}"
-        )
+        print(f"  F1 diagnostic threshold: {f1_diagnostic['Threshold']:.8f}")
 
-        print(
-            "    Precision:"
-            f" {f1_diagnostic['Precision']:.4f}"
-        )
+        print(f"    Precision: {f1_diagnostic['Precision']:.4f}")
 
-        print(
-            "    Recall:"
-            f" {f1_diagnostic['Recall']:.4f}"
-        )
+        print(f"    Recall: {f1_diagnostic['Recall']:.4f}")
 
-        print(
-            "    F1:"
-            f" {f1_diagnostic['F1']:.4f}"
-        )
+        print(f"    F1: {f1_diagnostic['F1']:.4f}")
 
-        print(
-            "    FP:"
-            f" {int(f1_diagnostic['FP'])}"
-        )
+        print(f"    FP: {int(f1_diagnostic['FP'])}")
 
-        print(
-            "    FN:"
-            f" {int(f1_diagnostic['FN'])}"
-        )
+        print(f"    FN: {int(f1_diagnostic['FN'])}")
 
-        print(
-            "    Expected Cost:"
-            f" {f1_diagnostic['Expected Cost']:.0f}"
-        )
+        print(f"    Expected Cost: {f1_diagnostic['Expected Cost']:.0f}")
 
         print()
 
@@ -1508,65 +1133,32 @@ def run_cost_threshold_tuning():
         # Cost result.
         # ----------------------------------------------------
 
-        print(
-            "  COST-optimal production threshold:"
-            f" {cost_best['Threshold']:.8f}"
-        )
+        print(f"  COST-optimal production threshold: {cost_best['Threshold']:.8f}")
 
-        print(
-            "    Precision:"
-            f" {cost_best['Precision']:.4f}"
-        )
+        print(f"    Precision: {cost_best['Precision']:.4f}")
 
-        print(
-            "    Recall:"
-            f" {cost_best['Recall']:.4f}"
-        )
+        print(f"    Recall: {cost_best['Recall']:.4f}")
 
-        print(
-            "    F1:"
-            f" {cost_best['F1']:.4f}"
-        )
+        print(f"    F1: {cost_best['F1']:.4f}")
 
-        print(
-            "    FP:"
-            f" {int(cost_best['FP'])}"
-        )
+        print(f"    FP: {int(cost_best['FP'])}")
 
-        print(
-            "    FN:"
-            f" {int(cost_best['FN'])}"
-        )
+        print(f"    FN: {int(cost_best['FN'])}")
 
-        print(
-            "    Expected Cost:"
-            f" {cost_best['Expected Cost']:.0f}"
-        )
+        print(f"    Expected Cost: {cost_best['Expected Cost']:.0f}")
 
         # ----------------------------------------------------
         # Cost reduction.
         # ----------------------------------------------------
 
-        cost_reduction = (
-            f1_diagnostic["Expected Cost"]
-            -
-            cost_best["Expected Cost"]
-        )
+        cost_reduction = f1_diagnostic["Expected Cost"] - cost_best["Expected Cost"]
 
-        if (
-            f1_diagnostic["Expected Cost"]
-            > 0
-        ):
-
+        if f1_diagnostic["Expected Cost"] > 0:
             cost_reduction_percent = (
-                cost_reduction
-                /
-                f1_diagnostic["Expected Cost"]
-                * 100.0
+                cost_reduction / f1_diagnostic["Expected Cost"] * 100.0
             )
 
         else:
-
             cost_reduction_percent = 0.0
 
         print()
@@ -1583,112 +1175,29 @@ def run_cost_threshold_tuning():
 
         production_rows.append(
             {
-                "Model":
-                    model_name,
-
-                "Score Direction":
-                    "higher_is_anomaly",
-
-                "Native Threshold":
-                    cost_best[
-                        "Native Threshold"
-                    ],
-
-                "Direction Agreement":
-                    cost_best[
-                        "Direction Agreement"
-                    ],
-
-                "F1 Diagnostic Threshold":
-                    f1_diagnostic[
-                        "Threshold"
-                    ],
-
-                "F1 Diagnostic Precision":
-                    f1_diagnostic[
-                        "Precision"
-                    ],
-
-                "F1 Diagnostic Recall":
-                    f1_diagnostic[
-                        "Recall"
-                    ],
-
-                "F1 Diagnostic Score":
-                    f1_diagnostic[
-                        "F1"
-                    ],
-
-                "F1 Diagnostic TP":
-                    f1_diagnostic[
-                        "TP"
-                    ],
-
-                "F1 Diagnostic FP":
-                    f1_diagnostic[
-                        "FP"
-                    ],
-
-                "F1 Diagnostic FN":
-                    f1_diagnostic[
-                        "FN"
-                    ],
-
-                "F1 Diagnostic Expected Cost":
-                    f1_diagnostic[
-                        "Expected Cost"
-                    ],
-
-                "Cost Threshold":
-                    cost_best[
-                        "Threshold"
-                    ],
-
-                "Cost Precision":
-                    cost_best[
-                        "Precision"
-                    ],
-
-                "Cost Recall":
-                    cost_best[
-                        "Recall"
-                    ],
-
-                "Cost F1":
-                    cost_best[
-                        "F1"
-                    ],
-
-                "Cost TP":
-                    cost_best[
-                        "TP"
-                    ],
-
-                "Cost FP":
-                    cost_best[
-                        "FP"
-                    ],
-
-                "Cost FN":
-                    cost_best[
-                        "FN"
-                    ],
-
-                "Cost Expected Cost":
-                    cost_best[
-                        "Expected Cost"
-                    ],
-
-                "Cost Reduction":
-                    cost_reduction,
-
-                "Cost Reduction %":
-                    cost_reduction_percent,
-
-                "Primary Datasets":
-                    ",".join(
-                        PRIMARY_DATASETS
-                    ),
+                "Model": model_name,
+                "Score Direction": "higher_is_anomaly",
+                "Native Threshold": cost_best["Native Threshold"],
+                "Direction Agreement": cost_best["Direction Agreement"],
+                "F1 Diagnostic Threshold": f1_diagnostic["Threshold"],
+                "F1 Diagnostic Precision": f1_diagnostic["Precision"],
+                "F1 Diagnostic Recall": f1_diagnostic["Recall"],
+                "F1 Diagnostic Score": f1_diagnostic["F1"],
+                "F1 Diagnostic TP": f1_diagnostic["TP"],
+                "F1 Diagnostic FP": f1_diagnostic["FP"],
+                "F1 Diagnostic FN": f1_diagnostic["FN"],
+                "F1 Diagnostic Expected Cost": f1_diagnostic["Expected Cost"],
+                "Cost Threshold": cost_best["Threshold"],
+                "Cost Precision": cost_best["Precision"],
+                "Cost Recall": cost_best["Recall"],
+                "Cost F1": cost_best["F1"],
+                "Cost TP": cost_best["TP"],
+                "Cost FP": cost_best["FP"],
+                "Cost FN": cost_best["FN"],
+                "Cost Expected Cost": cost_best["Expected Cost"],
+                "Cost Reduction": cost_reduction,
+                "Cost Reduction %": cost_reduction_percent,
+                "Primary Datasets": ",".join(PRIMARY_DATASETS),
             }
         )
 
@@ -1696,37 +1205,26 @@ def run_cost_threshold_tuning():
         # Drift report.
         # ----------------------------------------------------
 
-        drift = (
-            model_results[
-                model_results[
-                    "Test Dataset"
-                ]
-                == "temperature_drift"
-            ]
-            .copy()
-        )
+        drift = model_results[
+            model_results["Test Dataset"] == "temperature_drift"
+        ].copy()
 
         if not drift.empty:
-
-            drift_best = (
-                drift
-                .sort_values(
-                    by=[
-                        "F1",
-                        "Recall",
-                        "Precision",
-                        "Expected Cost",
-                    ],
-                    ascending=[
-                        False,
-                        False,
-                        False,
-                        True,
-                    ],
-                    kind="mergesort",
-                )
-                .iloc[0]
-            )
+            drift_best = drift.sort_values(
+                by=[
+                    "F1",
+                    "Recall",
+                    "Precision",
+                    "Expected Cost",
+                ],
+                ascending=[
+                    False,
+                    False,
+                    False,
+                    True,
+                ],
+                kind="mergesort",
+            ).iloc[0]
 
             # ------------------------------------------------
             # Evaluate production threshold on drift.
@@ -1734,145 +1232,51 @@ def run_cost_threshold_tuning():
             # Informational only.
             # ------------------------------------------------
 
-            production_threshold = (
-                cost_best[
-                    "Threshold"
-                ]
-            )
+            production_threshold = cost_best["Threshold"]
 
-            production_drift = (
-                drift[
-                    np.isclose(
-                        drift[
-                            "Threshold"
-                        ].to_numpy(
-                            dtype=float
-                        ),
-                        float(
-                            production_threshold
-                        ),
-                        rtol=1e-12,
-                        atol=1e-12,
-                    )
-                ]
-            )
+            production_drift = drift[
+                np.isclose(
+                    drift["Threshold"].to_numpy(dtype=float),
+                    float(production_threshold),
+                    rtol=1e-12,
+                    atol=1e-12,
+                )
+            ]
 
             if production_drift.empty:
-
                 production_drift_row = {
-                    "Precision":
-                        np.nan,
-
-                    "Recall":
-                        np.nan,
-
-                    "F1":
-                        np.nan,
-
-                    "TP":
-                        np.nan,
-
-                    "FP":
-                        np.nan,
-
-                    "FN":
-                        np.nan,
-
-                    "Expected Cost":
-                        np.nan,
+                    "Precision": np.nan,
+                    "Recall": np.nan,
+                    "F1": np.nan,
+                    "TP": np.nan,
+                    "FP": np.nan,
+                    "FN": np.nan,
+                    "Expected Cost": np.nan,
                 }
 
             else:
-
-                production_drift_row = (
-                    production_drift.iloc[0]
-                )
+                production_drift_row = production_drift.iloc[0]
 
             drift_rows.append(
                 {
-                    "Model":
-                        model_name,
-
-                    "Score Direction":
-                        "higher_is_anomaly",
-
-                    "F1 Diagnostic Threshold":
-                        drift_best[
-                            "Threshold"
-                        ],
-
-                    "F1 Diagnostic Precision":
-                        drift_best[
-                            "Precision"
-                        ],
-
-                    "F1 Diagnostic Recall":
-                        drift_best[
-                            "Recall"
-                        ],
-
-                    "F1 Diagnostic Score":
-                        drift_best[
-                            "F1"
-                        ],
-
-                    "F1 Diagnostic TP":
-                        drift_best[
-                            "TP"
-                        ],
-
-                    "F1 Diagnostic FP":
-                        drift_best[
-                            "FP"
-                        ],
-
-                    "F1 Diagnostic FN":
-                        drift_best[
-                            "FN"
-                        ],
-
-                    "F1 Diagnostic Expected Cost":
-                        drift_best[
-                            "Expected Cost"
-                        ],
-
-                    "Production Threshold":
-                        production_threshold,
-
-                    "Production Precision":
-                        production_drift_row[
-                            "Precision"
-                        ],
-
-                    "Production Recall":
-                        production_drift_row[
-                            "Recall"
-                        ],
-
-                    "Production F1":
-                        production_drift_row[
-                            "F1"
-                        ],
-
-                    "Production TP":
-                        production_drift_row[
-                            "TP"
-                        ],
-
-                    "Production FP":
-                        production_drift_row[
-                            "FP"
-                        ],
-
-                    "Production FN":
-                        production_drift_row[
-                            "FN"
-                        ],
-
-                    "Production Expected Cost":
-                        production_drift_row[
-                            "Expected Cost"
-                        ],
+                    "Model": model_name,
+                    "Score Direction": "higher_is_anomaly",
+                    "F1 Diagnostic Threshold": drift_best["Threshold"],
+                    "F1 Diagnostic Precision": drift_best["Precision"],
+                    "F1 Diagnostic Recall": drift_best["Recall"],
+                    "F1 Diagnostic Score": drift_best["F1"],
+                    "F1 Diagnostic TP": drift_best["TP"],
+                    "F1 Diagnostic FP": drift_best["FP"],
+                    "F1 Diagnostic FN": drift_best["FN"],
+                    "F1 Diagnostic Expected Cost": drift_best["Expected Cost"],
+                    "Production Threshold": production_threshold,
+                    "Production Precision": production_drift_row["Precision"],
+                    "Production Recall": production_drift_row["Recall"],
+                    "Production F1": production_drift_row["F1"],
+                    "Production TP": production_drift_row["TP"],
+                    "Production FP": production_drift_row["FP"],
+                    "Production FN": production_drift_row["FN"],
+                    "Production Expected Cost": production_drift_row["Expected Cost"],
                 }
             )
 
@@ -1880,17 +1284,12 @@ def run_cost_threshold_tuning():
     # Combine all threshold results.
     # ========================================================
 
-    all_results_df = (
-        pd.concat(
-            all_results,
-            ignore_index=True,
-        )
+    all_results_df = pd.concat(
+        all_results,
+        ignore_index=True,
     )
 
-    complete_file = (
-        output_dir
-        / "cost_threshold_tuning_results.csv"
-    )
+    complete_file = output_dir / "cost_threshold_tuning_results.csv"
 
     all_results_df.to_csv(
         complete_file,
@@ -1903,42 +1302,19 @@ def run_cost_threshold_tuning():
 
     primary_all = []
 
-    for model_name in (
-        all_results_df[
-            "Model"
-        ].unique()
-    ):
+    for model_name in all_results_df["Model"].unique():
+        model_df = all_results_df[all_results_df["Model"] == model_name]
 
-        model_df = (
-            all_results_df[
-                all_results_df[
-                    "Model"
-                ]
-                == model_name
-            ]
-        )
+        primary_df = aggregate_primary_cost(model_df)
 
-        primary_df = (
-            aggregate_primary_cost(
-                model_df
-            )
-        )
+        primary_all.append(primary_df)
 
-        primary_all.append(
-            primary_df
-        )
-
-    primary_results_df = (
-        pd.concat(
-            primary_all,
-            ignore_index=True,
-        )
+    primary_results_df = pd.concat(
+        primary_all,
+        ignore_index=True,
     )
 
-    primary_file = (
-        output_dir
-        / "cost_threshold_primary_results.csv"
-    )
+    primary_file = output_dir / "cost_threshold_primary_results.csv"
 
     primary_results_df.to_csv(
         primary_file,
@@ -1949,14 +1325,9 @@ def run_cost_threshold_tuning():
     # Production decision file.
     # ========================================================
 
-    winners_df = pd.DataFrame(
-        production_rows
-    )
+    winners_df = pd.DataFrame(production_rows)
 
-    winners_file = (
-        output_dir
-        / "cost_threshold_production_decision.csv"
-    )
+    winners_file = output_dir / "cost_threshold_production_decision.csv"
 
     winners_df.to_csv(
         winners_file,
@@ -1967,14 +1338,9 @@ def run_cost_threshold_tuning():
     # Drift report.
     # ========================================================
 
-    drift_df = pd.DataFrame(
-        drift_rows
-    )
+    drift_df = pd.DataFrame(drift_rows)
 
-    drift_file = (
-        output_dir
-        / "cost_threshold_drift_report.csv"
-    )
+    drift_file = output_dir / "cost_threshold_drift_report.csv"
 
     drift_df.to_csv(
         drift_file,
@@ -1987,76 +1353,36 @@ def run_cost_threshold_tuning():
 
     print()
 
-    print(
-        "=" * 70
-    )
+    print("=" * 70)
 
-    print(
-        "PRIMARY PRODUCTION DECISION"
-    )
+    print("PRIMARY PRODUCTION DECISION")
 
-    print(
-        "=" * 70
-    )
+    print("=" * 70)
 
-    for _, row in (
-        winners_df.iterrows()
-    ):
-
+    for _, row in winners_df.iterrows():
         print()
 
-        print(
-            row["Model"]
-        )
+        print(row["Model"])
 
-        print(
-            "-" * 70
-        )
+        print("-" * 70)
 
-        print(
-            "Score direction:"
-            " higher_is_anomaly"
-        )
+        print("Score direction: higher_is_anomaly")
 
-        print(
-            "Production threshold:"
-            f" {row['Cost Threshold']:.8f}"
-        )
+        print(f"Production threshold: {row['Cost Threshold']:.8f}")
 
-        print(
-            "Aggregate precision:"
-            f" {row['Cost Precision']:.4f}"
-        )
+        print(f"Aggregate precision: {row['Cost Precision']:.4f}")
 
-        print(
-            "Aggregate recall:"
-            f" {row['Cost Recall']:.4f}"
-        )
+        print(f"Aggregate recall: {row['Cost Recall']:.4f}")
 
-        print(
-            "Aggregate F1:"
-            f" {row['Cost F1']:.4f}"
-        )
+        print(f"Aggregate F1: {row['Cost F1']:.4f}")
 
-        print(
-            "Total TP:"
-            f" {int(row['Cost TP'])}"
-        )
+        print(f"Total TP: {int(row['Cost TP'])}")
 
-        print(
-            "Total FP:"
-            f" {int(row['Cost FP'])}"
-        )
+        print(f"Total FP: {int(row['Cost FP'])}")
 
-        print(
-            "Total FN:"
-            f" {int(row['Cost FN'])}"
-        )
+        print(f"Total FN: {int(row['Cost FN'])}")
 
-        print(
-            "Expected business cost:"
-            f" {row['Cost Expected Cost']:.0f}"
-        )
+        print(f"Expected business cost: {row['Cost Expected Cost']:.0f}")
 
         print(
             "Cost reduction vs F1 diagnostic:"
@@ -2066,131 +1392,75 @@ def run_cost_threshold_tuning():
 
     print()
 
-    print(
-        "=" * 70
-    )
+    print("=" * 70)
 
-    print(
-        "R4.5 COST TUNING COMPLETED"
-    )
+    print("R4.5 COST TUNING COMPLETED")
 
-    print(
-        "=" * 70
-    )
+    print("=" * 70)
 
     print()
 
-    print(
-        "Complete sweep:"
-    )
+    print("Complete sweep:")
 
-    print(
-        f"  {complete_file}"
-    )
+    print(f"  {complete_file}")
 
     print()
 
-    print(
-        "Primary aggregate:"
-    )
+    print("Primary aggregate:")
 
-    print(
-        f"  {primary_file}"
-    )
+    print(f"  {primary_file}")
 
     print()
 
-    print(
-        "Production decision:"
-    )
+    print("Production decision:")
 
-    print(
-        f"  {winners_file}"
-    )
+    print(f"  {winners_file}")
 
     print()
 
-    print(
-        "Drift report:"
-    )
+    print("Drift report:")
 
-    print(
-        f"  {drift_file}"
-    )
+    print(f"  {drift_file}")
 
     print()
 
-    print(
-        "Production selection rule:"
-    )
+    print("Production selection rule:")
 
-    print(
-        "  1. Minimize TOTAL expected business cost "
-        "across spike + stock + combined."
-    )
+    print("  1. Minimize TOTAL expected business cost across spike + stock + combined.")
 
-    print(
-        "  2. If tied, maximize aggregate recall."
-    )
+    print("  2. If tied, maximize aggregate recall.")
 
-    print(
-        "  3. If still tied, maximize aggregate precision."
-    )
+    print("  3. If still tied, maximize aggregate precision.")
 
-    print(
-        "  4. If still tied, maximize F1."
-    )
+    print("  4. If still tied, maximize F1.")
 
     print()
 
-    print(
-        "F1 diagnostic:"
-    )
+    print("F1 diagnostic:")
 
-    print(
-        "  Used only for comparison."
-    )
+    print("  Used only for comparison.")
 
-    print(
-        "  It is NOT used to select the production threshold."
-    )
+    print("  It is NOT used to select the production threshold.")
 
     print()
 
-    print(
-        "IMPORTANT:"
-    )
+    print("IMPORTANT:")
 
-    print(
-        "  Production anomaly rule:"
-    )
+    print("  Production anomaly rule:")
 
-    print(
-        "    score = -model.decision_function(features)"
-    )
+    print("    score = -model.decision_function(features)")
 
-    print(
-        "    score >= production_threshold -> ANOMALY"
-    )
+    print("    score >= production_threshold -> ANOMALY")
 
-    print(
-        "    higher score = more anomalous"
-    )
+    print("    higher score = more anomalous")
 
     print()
 
     return {
-        "all_results":
-            all_results_df,
-
-        "primary_results":
-            primary_results_df,
-
-        "production_decision":
-            winners_df,
-
-        "drift_report":
-            drift_df,
+        "all_results": all_results_df,
+        "primary_results": primary_results_df,
+        "production_decision": winners_df,
+        "drift_report": drift_df,
     }
 
 
@@ -2199,5 +1469,4 @@ def run_cost_threshold_tuning():
 # ============================================================
 
 if __name__ == "__main__":
-
     run_cost_threshold_tuning()

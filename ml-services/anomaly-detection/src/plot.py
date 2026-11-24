@@ -28,13 +28,9 @@ def generate_plot(df: pd.DataFrame):
     df = df.copy()
     df["timestamp"] = pd.to_datetime(df["timestamp"])
 
-    model = joblib.load(
-        models_dir / "isolation_forest_model.joblib"
-    )
+    model = joblib.load(models_dir / "isolation_forest_model.joblib")
 
-    features = df[
-        ["temperature", "humidity", "stock_count"]
-    ].to_numpy()
+    features = df[["temperature", "humidity", "stock_count"]].to_numpy()
 
     predictions = model.predict(features)
 

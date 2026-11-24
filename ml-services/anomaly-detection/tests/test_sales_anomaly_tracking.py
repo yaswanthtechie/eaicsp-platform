@@ -5,8 +5,9 @@ and the configuration is registered once per set of thresholds.
 """
 
 import logging
-from pathlib import Path
+import sys
 import types
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import mlflow
@@ -292,10 +293,10 @@ def registry(monkeypatch):
     monkeypatch.setattr("mlflow.tracking.MlflowClient", lambda *a, **k: client)
 
     registry.client = client
-    registry.log_model = MagicMock(return_value=types.SimpleNamespace(model_uri="runs:/run-1/model"))
+    registry.log_model = MagicMock(
+        return_value=types.SimpleNamespace(model_uri="runs:/run-1/model")
+    )
     registry.register_model = MagicMock(return_value=types.SimpleNamespace(version="3"))
-
-    import sys
 
     import mlflow.pyfunc  # load it for real, so the patch lands on the module itself
 
@@ -418,7 +419,9 @@ def test_the_evaluation_logs_precision_recall_and_severity_counts(mlflow_calls):
     assert 0 < metrics["precision"] <= 1
     assert 0 < metrics["recall"] <= 1
     assert metrics["anomalies_total"] == (
-        metrics["anomalies_high"] + metrics["anomalies_medium"] + metrics["anomalies_low"]
+        metrics["anomalies_high"]
+        + metrics["anomalies_medium"]
+        + metrics["anomalies_low"]
     )
     mlflow_calls.set_tags.assert_called_once_with({"run_kind": "evaluation"})
 
@@ -498,7 +501,9 @@ def test_a_run_is_stored_in_a_real_mlflow_database(tmp_path, monkeypatch):
     assert run.data.metrics["anomalies_total"] == 6.0
     assert run.data.metrics["precision"] == 0.8
     assert run.data.tags["run_kind"] == "batch"
-    assert [a.path for a in client.list_artifacts(run.info.run_id)] == ["drift_report.html"]
+    assert [a.path for a in client.list_artifacts(run.info.run_id)] == [
+        "drift_report.html"
+    ]
 
 
 # ---------------------------------------------------------------------
@@ -513,7 +518,9 @@ def test_tags_are_set_before_the_artifacts_are_uploaded(mlflow_calls):
     order.attach_mock(mlflow_calls.set_tags, "set_tags")
     order.attach_mock(mlflow_calls.log_text, "log_text")
 
-    log_run("batch", texts={"drift_report.html": "<html/>"}, tags={"drift_alert": "true"})
+    log_run(
+        "batch", texts={"drift_report.html": "<html/>"}, tags={"drift_alert": "true"}
+    )
 
     names = [call[0] for call in order.mock_calls]
 
@@ -674,7 +681,19 @@ def test_a_real_registration_round_trip_loads_back_and_predicts(tmp_path, monkey
 
     assert setup == {"version": 1, "precision": 0.8, "recall": 0.5}
 
+    path_before = list(sys.path)
     model = mlflow.pyfunc.load_model(f"models:/{MODEL_NAME}/1")
+
+    # Loading unpacks the model's code into a temporary folder and puts it on
+    # sys.path. Remove it again so later tests and the coverage report never
+    # see the deleted copy.
+    sys.path[:] = path_before
+
+    for name, module in list(sys.modules.items()):
+        location = getattr(module, "__file__", None) or ""
+
+        if "model/code" in location.replace("\\", "/"):
+            del sys.modules[name]
 
     days = pd.date_range("2026-01-01", periods=90, freq="D")
     quantity = np.full(90, 50)

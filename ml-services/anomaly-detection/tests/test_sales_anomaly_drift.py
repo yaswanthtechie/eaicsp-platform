@@ -185,7 +185,9 @@ def test_big_frames_are_sampled_to_the_row_limit():
     scores = make_scores(seed=1, days=60, series=20)
 
     assert len(drift_frame(scores, max_rows=300)) == 300
-    assert len(drift_frame(scores, max_rows=300)) == len(drift_frame(scores, max_rows=300))
+    assert len(drift_frame(scores, max_rows=300)) == len(
+        drift_frame(scores, max_rows=300)
+    )
 
 
 def test_a_side_with_no_days_is_an_error(reference):
@@ -202,7 +204,12 @@ def test_no_zero_days_on_either_side_still_works():
     ref = make_scores(seed=1, zero_share=0.0)
     ref.loc[ref["quantity"] == 0, "quantity"] = 1.0
 
-    result = check_drift(ref, make_scores(seed=2, zero_share=0.0).assign(quantity=lambda f: f["quantity"].clip(lower=1)))
+    result = check_drift(
+        ref,
+        make_scores(seed=2, zero_share=0.0).assign(
+            quantity=lambda f: f["quantity"].clip(lower=1)
+        ),
+    )
 
     assert result.reference_zero_share == 0
     assert result.latest_zero_share == 0

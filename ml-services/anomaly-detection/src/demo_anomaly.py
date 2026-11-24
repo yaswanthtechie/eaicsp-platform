@@ -21,6 +21,7 @@ Run (stack up, anomaly-detector running, from ml-services/anomaly-detection):
 """
 
 import argparse
+import contextlib
 import json
 import os
 import sys
@@ -33,7 +34,6 @@ from .sensor_config import CONFIG_PATH, load_sensors
 from .stream_consumer import GAP
 from .stream_events import EVENT_TYPE, make_episode_id
 from .stream_simulator import publish_to_kafka
-
 
 EPISODE_READINGS = 8
 EPISODE_STEP = timedelta(seconds=10)
@@ -101,7 +101,8 @@ def build_demo_readings(sensor_id, end=None, n=EPISODE_READINGS):
         {
             "sensor_id": sensor_id,
             "timestamp": first + i * EPISODE_STEP,
-            **{**NORMAL, **SPIKE},
+            **NORMAL,
+            **SPIKE,
         }
         for i in range(n)
     ]
@@ -124,10 +125,8 @@ def ensure_topics(bootstrap, topics):
     ]
 
     for future in admin.create_topics(missing).values() if missing else []:
-        try:
+        with contextlib.suppress(Exception):  # topic may already exist
             future.result()
-        except Exception:
-            pass
 
 
 def run_demo(bootstrap, readings_topic, events_topic, sensor_id, timeout=30.0):
@@ -172,7 +171,6 @@ def run_demo(bootstrap, readings_topic, events_topic, sensor_id, timeout=30.0):
         t_published = time.monotonic()
 
         while time.monotonic() < t0 + timeout:
-
             msg = consumer.poll(0.2)
 
             if msg is None or msg.error():

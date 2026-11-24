@@ -7,16 +7,13 @@ from schemas import (
     DetectWindowRequest,
     PredictionRequest,
 )
-
 from src.model_loader import (
     get_model_version,
 )
-
 from src.predict import (
     adaptive_engine_predict_with_explanation,
     predict_with_explanation,
 )
-
 from src.streaming import (
     get_history,
     get_latest,
@@ -26,17 +23,15 @@ from src.streaming import (
     stop_stream,
 )
 
-
 logger = logging.getLogger(__name__)
 
-app = FastAPI(
-    title="Anomaly Detection"
-)
+app = FastAPI(title="Anomaly Detection")
 
 
 # ============================================================
 # HELPERS
 # ============================================================
+
 
 def sensor_features(reading):
     """
@@ -57,6 +52,7 @@ def sensor_features(reading):
 # HEALTH
 # ============================================================
 
+
 @app.get("/health")
 async def health():
     return {
@@ -69,6 +65,7 @@ async def health():
 # ============================================================
 # SINGLE READING DETECTION
 # ============================================================
+
 
 @app.post("/detect")
 async def detect(
@@ -83,10 +80,7 @@ async def detect(
     """
 
     try:
-
-        features = sensor_features(
-            request.reading
-        )
+        features = sensor_features(request.reading)
 
         return predict_with_explanation(
             features,
@@ -94,25 +88,19 @@ async def detect(
         )
 
     except FileNotFoundError as exc:
-
         raise HTTPException(
             status_code=503,
             detail=str(exc),
         )
 
     except ValueError as exc:
-
         raise HTTPException(
             status_code=400,
             detail=str(exc),
         )
 
     except Exception:
-
-        logger.exception(
-            "Unexpected error while processing "
-            "/detect request."
-        )
+        logger.exception("Unexpected error while processing /detect request.")
 
         raise HTTPException(
             status_code=500,
@@ -123,6 +111,7 @@ async def detect(
 # ============================================================
 # ROLLING WINDOW DETECTION
 # ============================================================
+
 
 @app.post("/detect-window")
 async def detect_window(
@@ -137,16 +126,10 @@ async def detect_window(
     """
 
     try:
-
         anomalous_readings = []
 
-        for window_index, reading in enumerate(
-            request.readings
-        ):
-
-            features = sensor_features(
-                reading
-            )
+        for window_index, reading in enumerate(request.readings):
+            features = sensor_features(reading)
 
             result = predict_with_explanation(
                 features,
@@ -154,63 +137,38 @@ async def detect_window(
             )
 
             if result["is_anomaly"]:
-
                 anomalous_readings.append(
                     {
-                        "reading_id": (
-                            reading.reading_id
-                        ),
-                        "reading_index": (
-                            window_index
-                        ),
-                        "is_anomaly": (
-                            result["is_anomaly"]
-                        ),
-                        "score": (
-                            result["score"]
-                        ),
-                        "reasons": (
-                            result["reasons"]
-                        ),
+                        "reading_id": (reading.reading_id),
+                        "reading_index": (window_index),
+                        "is_anomaly": (result["is_anomaly"]),
+                        "score": (result["score"]),
+                        "reasons": (result["reasons"]),
                     }
                 )
 
         return {
             "model": request.model.value,
-            "model_version": (
-                get_model_version()
-            ),
-            "window_size": len(
-                request.readings
-            ),
-            "total_anomalies": len(
-                anomalous_readings
-            ),
-            "anomalous_readings": (
-                anomalous_readings
-            ),
+            "model_version": (get_model_version()),
+            "window_size": len(request.readings),
+            "total_anomalies": len(anomalous_readings),
+            "anomalous_readings": (anomalous_readings),
         }
 
     except FileNotFoundError as exc:
-
         raise HTTPException(
             status_code=503,
             detail=str(exc),
         )
 
     except ValueError as exc:
-
         raise HTTPException(
             status_code=400,
             detail=str(exc),
         )
 
     except Exception:
-
-        logger.exception(
-            "Unexpected error while processing "
-            "/detect-window request."
-        )
+        logger.exception("Unexpected error while processing /detect-window request.")
 
         raise HTTPException(
             status_code=500,
@@ -221,6 +179,7 @@ async def detect_window(
 # ============================================================
 # ADAPTIVE DETECTION
 # ============================================================
+
 
 @app.post("/detect-adaptive")
 async def detect_adaptive(
@@ -275,22 +234,16 @@ async def detect_adaptive(
     """
 
     try:
-
         # ----------------------------------------------------
         # SINGLE READING
         # ----------------------------------------------------
 
         if request.reading is not None:
+            features = sensor_features(request.reading)
 
-            features = sensor_features(
-                request.reading
-            )
-
-            return (
-                adaptive_engine_predict_with_explanation(
-                    features,
-                    request.model.value,
-                )
+            return adaptive_engine_predict_with_explanation(
+                features,
+                request.model.value,
             )
 
         # ----------------------------------------------------
@@ -301,45 +254,26 @@ async def detect_adaptive(
 
         anomalous_readings = []
 
-        for reading_index, reading in enumerate(
-            request.readings
-        ):
+        for reading_index, reading in enumerate(request.readings):
+            features = sensor_features(reading)
 
-            features = sensor_features(
-                reading
-            )
-
-            result = (
-                adaptive_engine_predict_with_explanation(
-                    features,
-                    request.model.value,
-                )
+            result = adaptive_engine_predict_with_explanation(
+                features,
+                request.model.value,
             )
 
             adaptive_result = {
-                "reading_id": (
-                    reading.reading_id
-                ),
-                "reading_index": (
-                    reading_index
-                ),
+                "reading_id": (reading.reading_id),
+                "reading_index": (reading_index),
                 "is_anomaly": bool(
                     result.get(
                         "is_anomaly",
                         False,
                     )
                 ),
-                "score": result.get(
-                    "score"
-                ),
-                "adaptive_threshold": (
-                    result.get(
-                        "adaptive_threshold"
-                    )
-                ),
-                "state": result.get(
-                    "state"
-                ),
+                "score": result.get("score"),
+                "adaptive_threshold": (result.get("adaptive_threshold")),
+                "state": result.get("state"),
                 "regime_changed": bool(
                     result.get(
                         "regime_changed",
@@ -376,60 +310,35 @@ async def detect_adaptive(
                 ),
             }
 
-            adaptive_results.append(
-                adaptive_result
-            )
+            adaptive_results.append(adaptive_result)
 
-            if adaptive_result[
-                "is_anomaly"
-            ]:
-
-                anomalous_readings.append(
-                    adaptive_result
-                )
+            if adaptive_result["is_anomaly"]:
+                anomalous_readings.append(adaptive_result)
 
         return {
             "model": request.model.value,
-            "model_version": (
-                get_model_version()
-            ),
-            "window_size": len(
-                request.readings
-            ),
-            "processed_readings": len(
-                request.readings
-            ),
-            "total_anomalies": len(
-                anomalous_readings
-            ),
-            "anomalous_readings": (
-                anomalous_readings
-            ),
-            "adaptive_results": (
-                adaptive_results
-            ),
+            "model_version": (get_model_version()),
+            "window_size": len(request.readings),
+            "processed_readings": len(request.readings),
+            "total_anomalies": len(anomalous_readings),
+            "anomalous_readings": (anomalous_readings),
+            "adaptive_results": (adaptive_results),
         }
 
     except FileNotFoundError as exc:
-
         raise HTTPException(
             status_code=503,
             detail=str(exc),
         )
 
     except ValueError as exc:
-
         raise HTTPException(
             status_code=400,
             detail=str(exc),
         )
 
     except Exception:
-
-        logger.exception(
-            "Unexpected error while processing "
-            "/detect-adaptive request."
-        )
+        logger.exception("Unexpected error while processing /detect-adaptive request.")
 
         raise HTTPException(
             status_code=500,
@@ -441,25 +350,17 @@ async def detect_adaptive(
 # BACKGROUND STREAMING
 # ============================================================
 
+
 @app.post("/stream/start")
 async def stream_start():
 
     try:
-
         if start_stream():
+            return {"message": "Streaming started."}
 
-            return {
-                "message": "Streaming started."
-            }
-
-        return {
-            "message": (
-                "Streaming is already running."
-            )
-        }
+        return {"message": ("Streaming is already running.")}
 
     except FileNotFoundError as exc:
-
         raise HTTPException(
             status_code=503,
             detail=str(exc),
@@ -471,9 +372,7 @@ async def stream_stop():
 
     stop_stream()
 
-    return {
-        "message": "Streaming stopped."
-    }
+    return {"message": "Streaming stopped."}
 
 
 @app.post("/stream/reset")
@@ -481,20 +380,18 @@ async def stream_reset():
 
     reset_stream()
 
-    return {
-        "message": "Streaming reset."
-    }
+    return {"message": "Streaming reset."}
 
 
 # ============================================================
 # ROLLING WINDOW
 # ============================================================
 
+
 @app.get("/stream/rolling-window")
 async def stream_rolling_window():
 
     try:
-
         window = get_window()
 
         return {
@@ -503,17 +400,11 @@ async def stream_rolling_window():
         }
 
     except Exception:
-
-        logger.exception(
-            "Unexpected error while retrieving "
-            "rolling window."
-        )
+        logger.exception("Unexpected error while retrieving rolling window.")
 
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Unable to retrieve rolling window."
-            ),
+            detail=("Unable to retrieve rolling window."),
         )
 
 
@@ -521,39 +412,26 @@ async def stream_rolling_window():
 # LATEST PREDICTION
 # ============================================================
 
+
 @app.get("/stream/latest/{model}")
 async def stream_latest(
     model: str,
 ):
 
     try:
-
-        result = get_latest(
-            model
-        )
+        result = get_latest(model)
 
         if result is None:
-
-            return {
-                "message": (
-                    "Streaming has not started yet."
-                )
-            }
+            return {"message": ("Streaming has not started yet.")}
 
         return result
 
     except Exception:
-
-        logger.exception(
-            "Unexpected error while retrieving "
-            "latest prediction."
-        )
+        logger.exception("Unexpected error while retrieving latest prediction.")
 
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Unable to retrieve latest prediction."
-            ),
+            detail=("Unable to retrieve latest prediction."),
         )
 
 
@@ -561,18 +439,14 @@ async def stream_latest(
 # PREDICTION HISTORY
 # ============================================================
 
-@app.get(
-    "/stream/prediction-history/{model}"
-)
+
+@app.get("/stream/prediction-history/{model}")
 async def stream_prediction_history(
     model: str,
 ):
 
     try:
-
-        history = get_history(
-            model
-        )
+        history = get_history(model)
 
         return {
             "model": model,
@@ -581,15 +455,9 @@ async def stream_prediction_history(
         }
 
     except Exception:
-
-        logger.exception(
-            "Unexpected error while retrieving "
-            "prediction history."
-        )
+        logger.exception("Unexpected error while retrieving prediction history.")
 
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Unable to retrieve prediction history."
-            ),
+            detail=("Unable to retrieve prediction history."),
         )

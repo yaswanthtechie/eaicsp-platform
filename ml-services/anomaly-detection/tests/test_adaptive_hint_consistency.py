@@ -3,7 +3,7 @@ Fix 6: the root-cause hint and the explanation must follow the FINAL
 (adaptive) alert decision, not the base model's own decision.
 """
 
-import src.predict as predict
+from src import predict
 
 READING = {"temperature": 30.0, "humidity": 40.0, "stock_count": 100.0}
 HINT = {
@@ -34,7 +34,9 @@ def _base_model(is_anomaly):
 
 def _patch_common(monkeypatch, base_is_anomaly):
     monkeypatch.setattr(
-        predict, "_get_prediction_details", lambda reading, model: _base_model(base_is_anomaly)
+        predict,
+        "_get_prediction_details",
+        lambda reading, model: _base_model(base_is_anomaly),
     )
     monkeypatch.setattr(predict, "get_incident_library", lambda: {"fake": "library"})
     monkeypatch.setattr(predict, "match_incident", lambda reading, library: HINT)
@@ -81,7 +83,9 @@ def test_engine_no_alert_has_no_hint_even_if_base_model_flagged(monkeypatch):
 def test_adaptive_predict_hint_follows_the_adaptive_alert(monkeypatch):
     _patch_common(monkeypatch, base_is_anomaly=False)
     monkeypatch.setattr(predict, "initialize_adaptive_thresholds", lambda: None)
-    monkeypatch.setattr(predict, "get_adaptive_threshold", lambda name: _Manager(alert=True))
+    monkeypatch.setattr(
+        predict, "get_adaptive_threshold", lambda name: _Manager(alert=True)
+    )
 
     out = predict.adaptive_predict(READING, "lof")
 

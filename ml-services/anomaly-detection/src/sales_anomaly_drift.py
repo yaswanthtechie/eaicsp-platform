@@ -18,9 +18,9 @@ This is the same rule the detector uses, because the days come from detect().
 Drift never stops the batch job: callers log the warning and carry on.
 """
 
-from dataclasses import dataclass, field
 import logging
 import re
+from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
@@ -32,7 +32,6 @@ from .config import (
     DRIFT_NUM_THRESHOLD,
     DRIFT_SAMPLE_ROWS,
 )
-
 
 log = logging.getLogger("sales_anomaly_drift")
 
@@ -201,7 +200,7 @@ def check_drift(
         if name.startswith(_VALUE_DRIFT_TEST):
             status = test.get("status")
             status = getattr(status, "value", status)
-            columns[name[len(_VALUE_DRIFT_TEST):]] = {
+            columns[name[len(_VALUE_DRIFT_TEST) :]] = {
                 "drift": str(status).upper() == "FAIL",
                 "score": None,
             }

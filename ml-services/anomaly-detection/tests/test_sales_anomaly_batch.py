@@ -5,13 +5,13 @@ publishes nothing new.
 
 import json
 import logging
-from pathlib import Path
 import sys
 import types
+from pathlib import Path
+from typing import ClassVar
 from unittest.mock import MagicMock
 
 import numpy as np
-
 import pandas as pd
 import pytest
 from jsonschema import FormatChecker
@@ -31,6 +31,7 @@ from src.sales_anomaly_events import anomaly_key
 REPO_ROOT = Path(__file__).resolve().parents[3]
 EVENTS_DIR = REPO_ROOT / "contracts" / "events"
 
+
 @pytest.fixture(autouse=True)
 def no_mlflow_server(monkeypatch):
     """These tests never talk to MLflow unless a test sets the URI itself."""
@@ -44,7 +45,6 @@ STOP_DAY = 75
 
 
 class ListPublisher:
-
     def __init__(self):
         self.events = []
 
@@ -77,7 +77,6 @@ def make_sales(days=90, extra_spike_day=None, sku_a="SKU-000001", sku_b="SKU-000
     rows = []
 
     for i, day in enumerate(pd.date_range(START, periods=days, freq="D")):
-
         spike = i == SPIKE_DAY or i == extra_spike_day
         rows.append((day, sku_a, "WH-BLR-01", 400 if spike else 50))
 
@@ -107,7 +106,9 @@ def contract_validator():
         .with_resource(envelope["$id"], Resource.from_contents(envelope))
     )
 
-    return validator_for(schema)(schema, registry=registry, format_checker=FormatChecker())
+    return validator_for(schema)(
+        schema, registry=registry, format_checker=FormatChecker()
+    )
 
 
 def run_once(sales, ledger_path, publisher=None, **kwargs):
@@ -133,7 +134,9 @@ def test_first_run_publishes_one_event_per_incident(ledger_path):
 
     summary, publisher = run_once(make_sales(), ledger_path)
 
-    published = {(e["payload"]["sku_id"], e["payload"]["date"]) for e in publisher.events}
+    published = {
+        (e["payload"]["sku_id"], e["payload"]["date"]) for e in publisher.events
+    }
 
     # The spike on SKU-000001, and the day SKU-000002 stopped selling.
     assert published == {
@@ -206,7 +209,7 @@ def test_no_anomalies_publishes_nothing(ledger_path):
 
 def test_rerun_publishes_nothing_new(ledger_path):
 
-    first, first_publisher = run_once(make_sales(), ledger_path)
+    _first, first_publisher = run_once(make_sales(), ledger_path)
     second, second_publisher = run_once(make_sales(), ledger_path)
 
     assert len(first_publisher.events) == 2
@@ -233,9 +236,9 @@ def test_only_the_new_anomaly_is_published_on_the_next_run(ledger_path):
 
     summary, publisher = run_once(make_sales(days=100, extra_spike_day=90), ledger_path)
 
-    assert [(e["payload"]["sku_id"], e["payload"]["date"]) for e in publisher.events] == [
-        ("SKU-000001", "2026-08-30")
-    ]
+    assert [
+        (e["payload"]["sku_id"], e["payload"]["date"]) for e in publisher.events
+    ] == [("SKU-000001", "2026-08-30")]
     assert summary["already_published"] == 2
     assert summary["new"] == 1
 
@@ -319,7 +322,9 @@ def test_last_days_dry_run_records_nothing(ledger_path):
 
 def test_last_days_keeps_recent_incidents(ledger_path):
 
-    summary, publisher = run_once(make_sales(days=100, extra_spike_day=90), ledger_path, last_days=10)
+    summary, publisher = run_once(
+        make_sales(days=100, extra_spike_day=90), ledger_path, last_days=10
+    )
 
     assert [e["payload"]["date"] for e in publisher.events] == ["2026-08-30"]
     assert summary["outside_window"] == 2
@@ -356,11 +361,15 @@ def test_command_line_writes_events_once(tmp_path, capsys):
     make_sales().to_csv(csv, index=False)
 
     args = [
-        "--input", str(csv),
-        "--ledger", str(tmp_path / "ledger.jsonl"),
+        "--input",
+        str(csv),
+        "--ledger",
+        str(tmp_path / "ledger.jsonl"),
         "--no-kafka",
-        "--events-log", str(tmp_path / "events.jsonl"),
-        "--last-days", "30",
+        "--events-log",
+        str(tmp_path / "events.jsonl"),
+        "--last-days",
+        "30",
     ]
 
     main(args)
@@ -389,15 +398,23 @@ def test_command_line_reads_a_folder_of_files(tmp_path):
 
     assert len(read_sales(folder)) == len(sales)
 
-    main([
-        "--input", str(folder),
-        "--ledger", str(tmp_path / "ledger.jsonl"),
-        "--no-kafka",
-        "--events-log", str(tmp_path / "events.jsonl"),
-        "--last-days", "30",
-    ])
+    main(
+        [
+            "--input",
+            str(folder),
+            "--ledger",
+            str(tmp_path / "ledger.jsonl"),
+            "--no-kafka",
+            "--events-log",
+            str(tmp_path / "events.jsonl"),
+            "--last-days",
+            "30",
+        ]
+    )
 
-    assert len((tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()) == 2
+    assert (
+        len((tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()) == 2
+    )
 
 
 def test_empty_folder_is_an_error(tmp_path):
@@ -472,7 +489,6 @@ def test_a_replay_after_a_crash_reuses_the_event_id(ledger_path, monkeypatch):
 def test_a_failed_delivery_is_retried_with_the_same_event_id(ledger_path):
 
     class FailOnce(ListPublisher):
-
         def __init__(self):
             super().__init__()
             self.attempted = []
@@ -554,7 +570,10 @@ def test_default_ledger_does_not_depend_on_the_working_directory(tmp_path, monke
     monkeypatch.chdir(tmp_path)
 
     assert batch.DEFAULT_LEDGER.is_absolute()
-    assert batch.DEFAULT_LEDGER.parent == Path(batch.__file__).resolve().parents[1] / "output"
+    assert (
+        batch.DEFAULT_LEDGER.parent
+        == Path(batch.__file__).resolve().parents[1] / "output"
+    )
 
 
 # ---------------------------------------------------------------------
@@ -570,10 +589,13 @@ def first_run_args(tmp_path, *extra):
         make_sales().to_csv(csv, index=False)
 
     return [
-        "--input", str(csv),
-        "--ledger", str(tmp_path / "ledger.jsonl"),
+        "--input",
+        str(csv),
+        "--ledger",
+        str(tmp_path / "ledger.jsonl"),
         "--no-kafka",
-        "--events-log", str(tmp_path / "events.jsonl"),
+        "--events-log",
+        str(tmp_path / "events.jsonl"),
         *extra,
     ]
 
@@ -649,8 +671,8 @@ def test_second_run_after_last_days_publishes_only_new_incidents(tmp_path, capsy
 class FakeProducer:
     """Stands in for confluent_kafka.Producer. `script` has one step per flush."""
 
-    script = []
-    instances = []
+    script: ClassVar[list] = []
+    instances: ClassVar[list] = []
 
     def __init__(self, config):
         self.config = config
@@ -685,7 +707,9 @@ class FakeProducer:
 def kafka(monkeypatch):
 
     FakeProducer.instances = []
-    monkeypatch.setitem(sys.modules, "confluent_kafka", types.SimpleNamespace(Producer=FakeProducer))
+    monkeypatch.setitem(
+        sys.modules, "confluent_kafka", types.SimpleNamespace(Producer=FakeProducer)
+    )
     monkeypatch.setattr("src.sales_anomaly_batch.time.sleep", lambda seconds: None)
 
     def make(*script):
@@ -770,6 +794,7 @@ def test_fan_out_sends_to_every_publisher_in_order():
 
     assert a.events == b.events == [{"x": 1}]
 
+
 # ---------------------------------------------------------------------
 # MLflow tracking and the drift check (R15-K6)
 # ---------------------------------------------------------------------
@@ -801,7 +826,9 @@ def drift_run(ledger_path, sales, reference, publisher=None, **kwargs):
     ledger = PublishedLedger(ledger_path)
 
     try:
-        summary = run(sales, publisher, ledger, reference=reference, last_days=30, **kwargs)
+        summary = run(
+            sales, publisher, ledger, reference=reference, last_days=30, **kwargs
+        )
     finally:
         ledger.close()
 
@@ -873,11 +900,15 @@ def csv_args(tmp_path, *extra):
     noisy_sales(seed=2, shift_last_days=28).to_csv(csv, index=False)
 
     return [
-        "--input", str(csv),
-        "--ledger", str(tmp_path / "ledger.jsonl"),
+        "--input",
+        str(csv),
+        "--ledger",
+        str(tmp_path / "ledger.jsonl"),
         "--no-kafka",
-        "--events-log", str(tmp_path / "events.jsonl"),
-        "--last-days", "30",
+        "--events-log",
+        str(tmp_path / "events.jsonl"),
+        "--last-days",
+        "30",
         *extra,
     ]
 
@@ -987,7 +1018,9 @@ def test_mlflow_being_down_does_not_stop_the_job(tmp_path, monkeypatch, capsys):
     assert len((tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()) > 0
 
 
-def test_a_failed_lookup_is_tagged_as_such_not_as_unregistered(tmp_path, logged, monkeypatch):
+def test_a_failed_lookup_is_tagged_as_such_not_as_unregistered(
+    tmp_path, logged, monkeypatch
+):
 
     monkeypatch.setenv("MLFLOW_TRACKING_URI", "http://mlflow.test:5000")
 

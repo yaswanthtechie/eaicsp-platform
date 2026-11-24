@@ -11,7 +11,6 @@ from src.tuning_utils import (
 
 
 class OneClassSVMModel:
-
     def __init__(
         self,
         nu=0.004,
@@ -32,37 +31,25 @@ class OneClassSVMModel:
         self,
         features,
     ):
-        scaled = self.scaler.fit_transform(
-            to_numpy(features)
-        )
+        scaled = self.scaler.fit_transform(to_numpy(features))
 
-        self.model.fit(
-            scaled
-        )
+        self.model.fit(scaled)
 
     def predict(
         self,
         features,
     ):
-        scaled = self.scaler.transform(
-            to_numpy(features)
-        )
+        scaled = self.scaler.transform(to_numpy(features))
 
-        return self.model.predict(
-            scaled
-        )
+        return self.model.predict(scaled)
 
     def score(
         self,
         features,
     ):
-        scaled = self.scaler.transform(
-            to_numpy(features)
-        )
+        scaled = self.scaler.transform(to_numpy(features))
 
-        return self.model.decision_function(
-            scaled
-        )
+        return self.model.decision_function(scaled)
 
     def tune(
         self,
@@ -105,22 +92,13 @@ class OneClassSVMModel:
             "stock_count",
         ]
 
-        print(
-            "Running One-Class SVM "
-            "Hyperparameter Tuning..."
-        )
+        print("Running One-Class SVM Hyperparameter Tuning...")
 
         # --------------------------------------------------
         # Scale training data once.
         # --------------------------------------------------
 
-        X_train = (
-            self.scaler.fit_transform(
-                to_numpy(
-                    train_features
-                )
-            )
-        )
+        X_train = self.scaler.fit_transform(to_numpy(train_features))
 
         results = []
 
@@ -129,56 +107,35 @@ class OneClassSVMModel:
         # --------------------------------------------------
 
         for kernel in kernels:
-
             for nu in nus:
-
                 # Linear kernel does not use gamma.
-                gamma_values = (
-                    [None]
-                    if kernel == "linear"
-                    else gammas
-                )
+                gamma_values = [None] if kernel == "linear" else gammas
 
                 # Only polynomial kernel uses degree.
-                degree_values = (
-                    degrees
-                    if kernel == "poly"
-                    else [None]
-                )
+                degree_values = degrees if kernel == "poly" else [None]
 
                 for gamma, degree in product(
                     gamma_values,
                     degree_values,
                 ):
-
                     params = {
                         "kernel": kernel,
                         "nu": nu,
                     }
 
                     if gamma is not None:
-
-                        params[
-                            "gamma"
-                        ] = gamma
+                        params["gamma"] = gamma
 
                     if degree is not None:
-
-                        params[
-                            "degree"
-                        ] = degree
+                        params["degree"] = degree
 
                     # --------------------------------------
                     # Train candidate
                     # --------------------------------------
 
-                    model = OneClassSVM(
-                        **params
-                    )
+                    model = OneClassSVM(**params)
 
-                    model.fit(
-                        X_train
-                    )
+                    model.fit(X_train)
 
                     # --------------------------------------
                     # Evaluate candidate against every
@@ -187,14 +144,10 @@ class OneClassSVMModel:
 
                     results.extend(
                         evaluate_model(
-                            model_name=(
-                                "One-Class SVM"
-                            ),
+                            model_name=("One-Class SVM"),
                             model=model,
                             test_datasets=test_datasets,
-                            feature_columns=(
-                                feature_columns
-                            ),
+                            feature_columns=(feature_columns),
                             hyperparameters={
                                 "Contamination": None,
                                 "n_estimators": None,

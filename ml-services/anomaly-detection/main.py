@@ -4,7 +4,6 @@ import pandas as pd
 
 from src.data import generate_all_datasets
 from src.evaluate import evaluate_models
-from src.plot import generate_plot
 from src.train import (
     save_models,
     train_models,
@@ -23,9 +22,7 @@ def main():
     generate_all_datasets()
 
     # Load training data
-    train_df = pd.read_csv(
-        output_dir / "train_normal.csv"
-    )
+    train_df = pd.read_csv(output_dir / "train_normal.csv")
 
     # Train candidate models
     models = train_models(train_df)
@@ -44,12 +41,9 @@ def main():
     all_results = []
 
     for dataset_name, filename in test_datasets.items():
-
         print(f"\nEvaluating {dataset_name}...")
 
-        df = pd.read_csv(
-            output_dir / filename
-        )
+        df = pd.read_csv(output_dir / filename)
 
         results = evaluate_models(df)
 
@@ -60,9 +54,6 @@ def main():
         )
 
         all_results.append(results)
-
-        # Optional: generate plot
-        # generate_plot(df)
 
     final_results = pd.concat(
         all_results,

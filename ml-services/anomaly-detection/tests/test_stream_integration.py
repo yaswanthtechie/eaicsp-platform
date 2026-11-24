@@ -24,7 +24,7 @@ def test_readings_reach_influx_and_one_event_per_episode(tmp_path):
     from influxdb_client import InfluxDBClient
 
     sensor = f"it-{uuid.uuid4().hex[:8]}"
-    readings, episodes = build_stream(
+    readings, _episodes = build_stream(
         sensor_ids=[sensor], n_per_sensor=700, warmup=200
     )
 
@@ -50,15 +50,14 @@ def test_readings_reach_influx_and_one_event_per_episode(tmp_path):
         token=settings["influx_token"],
         org=settings["influx_org"],
     ) as client:
-
-        flux = '''
+        flux = """
         from(bucket: p_bucket)
           |> range(start: 2026-01-01T00:00:00Z, stop: 2027-01-01T00:00:00Z)
           |> filter(fn: (r) => r._measurement == "warehouse_sensor"
                              and r._field == "is_flagged"
                              and r.sensor_id == p_sensor)
           |> count()
-        '''
+        """
 
         tables = client.query_api().query(
             flux,
@@ -70,9 +69,7 @@ def test_readings_reach_influx_and_one_event_per_episode(tmp_path):
     assert stored == len(readings)
 
     events = [
-        json.loads(line)
-        for line in events_log.read_text().splitlines()
-        if line.strip()
+        json.loads(line) for line in events_log.read_text().splitlines() if line.strip()
     ]
 
     ours = [e for e in events if e["payload"]["sensor_id"] == sensor]

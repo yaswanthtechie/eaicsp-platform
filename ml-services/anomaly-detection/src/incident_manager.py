@@ -77,9 +77,7 @@ class IncidentManager:
         """
 
         if model not in self.excluded_readings:
-            raise ValueError(
-                f"Invalid model: {model}"
-            )
+            raise ValueError(f"Invalid model: {model}")
 
     # Check whether reading is already excluded
 
@@ -96,13 +94,9 @@ class IncidentManager:
         reading_id = int(reading_id)
 
         with self.lock:
-
             self._validate_model(model)
 
-            return (
-                reading_id
-                in self.excluded_readings[model]
-            )
+            return reading_id in self.excluded_readings[model]
 
     # Register anomaly / create or extend an incident
 
@@ -141,52 +135,31 @@ class IncidentManager:
         reading_id = int(reading_id)
 
         with self.lock:
-
             self._validate_model(model)
 
             # Already processed this exact reading before.
 
-            if (
-                reading_id
-                in self.excluded_readings[model]
-            ):
-
+            if reading_id in self.excluded_readings[model]:
                 return "duplicate", None
 
-            self.excluded_readings[model].add(
-                reading_id
-            )
+            self.excluded_readings[model].add(reading_id)
 
             incident = self.open_incidents[model]
 
             # Extend the currently open incident if this
             # reading is close enough to its last reading.
 
-            if (
-                incident is not None
-                and (
-                    reading_id - incident["end"]
-                    <= self.GAP_TOLERANCE
-                )
+            if incident is not None and (
+                reading_id - incident["end"] <= self.GAP_TOLERANCE
             ):
-
                 incident["end"] = reading_id
                 incident["count"] += 1
 
-                if (
-                    score is not None
-                    and (
-                        incident["max_score"] is None
-                        or score > incident["max_score"]
-                    )
+                if score is not None and (
+                    incident["max_score"] is None or score > incident["max_score"]
                 ):
-
                     incident["max_score"] = score
-                    incident["reasons"] = (
-                        reasons
-                        if reasons
-                        else incident["reasons"]
-                    )
+                    incident["reasons"] = reasons if reasons else incident["reasons"]
 
                 return "extended", incident
 
@@ -194,10 +167,7 @@ class IncidentManager:
             # Close the old one (if any) and open a new one.
 
             if incident is not None:
-
-                self.closed_incidents[model].append(
-                    incident
-                )
+                self.closed_incidents[model].append(incident)
 
             new_incident = {
                 "start": reading_id,
@@ -232,12 +202,9 @@ class IncidentManager:
         was closed.
         """
 
-        current_reading_id = int(
-            current_reading_id
-        )
+        current_reading_id = int(current_reading_id)
 
         with self.lock:
-
             self._validate_model(model)
 
             incident = self.open_incidents[model]
@@ -245,14 +212,8 @@ class IncidentManager:
             if incident is None:
                 return None
 
-            if (
-                current_reading_id - incident["end"]
-                > self.GAP_TOLERANCE
-            ):
-
-                self.closed_incidents[model].append(
-                    incident
-                )
+            if current_reading_id - incident["end"] > self.GAP_TOLERANCE:
+                self.closed_incidents[model].append(incident)
 
                 self.open_incidents[model] = None
 
@@ -272,12 +233,9 @@ class IncidentManager:
         """
 
         with self.lock:
-
             self._validate_model(model)
 
-            return set(
-                self.excluded_readings[model]
-            )
+            return set(self.excluded_readings[model])
 
     # Remove one reading from exclusion
 
@@ -296,12 +254,9 @@ class IncidentManager:
         reading_id = int(reading_id)
 
         with self.lock:
-
             self._validate_model(model)
 
-            self.excluded_readings[model].discard(
-                reading_id
-            )
+            self.excluded_readings[model].discard(reading_id)
 
     # Get exclusion count
 
@@ -315,12 +270,9 @@ class IncidentManager:
         """
 
         with self.lock:
-
             self._validate_model(model)
 
-            return len(
-                self.excluded_readings[model]
-            )
+            return len(self.excluded_readings[model])
 
     # Get all incidents (closed + currently open)
 
@@ -335,18 +287,12 @@ class IncidentManager:
         """
 
         with self.lock:
-
             self._validate_model(model)
 
-            incidents = list(
-                self.closed_incidents[model]
-            )
+            incidents = list(self.closed_incidents[model])
 
             if self.open_incidents[model] is not None:
-
-                incidents.append(
-                    self.open_incidents[model]
-                )
+                incidents.append(self.open_incidents[model])
 
             return incidents
 
@@ -358,9 +304,7 @@ class IncidentManager:
         """
 
         with self.lock:
-
             for model in self.excluded_readings:
-
                 self.excluded_readings[model].clear()
                 self.open_incidents[model] = None
                 self.closed_incidents[model].clear()

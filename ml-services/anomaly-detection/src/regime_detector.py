@@ -1,5 +1,6 @@
-from collections import deque
+import itertools
 import threading
+from collections import deque
 
 import numpy as np
 
@@ -74,68 +75,45 @@ class RegimeDetector:
             candidate_sizes = [10, 25, 50, 100, 200]
 
         candidate_sizes = sorted(
-            set(
-                int(size)
-                for size in candidate_sizes
-                if int(size) > 0
-            )
+            {int(size) for size in candidate_sizes if int(size) > 0}
         )
 
         if not candidate_sizes:
             raise ValueError(
-                "candidate_sizes must contain at least one "
-                "positive value."
+                "candidate_sizes must contain at least one positive value."
             )
 
         if baseline_size <= 1:
-            raise ValueError(
-                "baseline_size must be greater than 1."
-            )
+            raise ValueError("baseline_size must be greater than 1.")
 
         if shift_sigma <= 0:
-            raise ValueError(
-                "shift_sigma must be greater than 0."
-            )
+            raise ValueError("shift_sigma must be greater than 0.")
 
         if stability_tolerance < 0:
-            raise ValueError(
-                "stability_tolerance cannot be negative."
-            )
+            raise ValueError("stability_tolerance cannot be negative.")
 
         if min_stable_blocks < 1:
-            raise ValueError(
-                "min_stable_blocks must be at least 1."
-            )
+            raise ValueError("min_stable_blocks must be at least 1.")
 
         self.candidate_sizes = candidate_sizes
         self.baseline_size = int(baseline_size)
         self.shift_sigma = float(shift_sigma)
-        self.stability_tolerance = float(
-            stability_tolerance
-        )
-        self.min_stable_blocks = int(
-            min_stable_blocks
-        )
+        self.stability_tolerance = float(stability_tolerance)
+        self.min_stable_blocks = int(min_stable_blocks)
 
         # ----------------------------------------------------
         # TRUSTED BASELINE
         # ----------------------------------------------------
 
-        self.baseline_scores = deque(
-            maxlen=self.baseline_size
-        )
+        self.baseline_scores = deque(maxlen=self.baseline_size)
 
         # ----------------------------------------------------
         # CANDIDATE WINDOW
         # ----------------------------------------------------
 
-        self.max_candidate_size = (
-            self.candidate_sizes[-1]
-        )
+        self.max_candidate_size = self.candidate_sizes[-1]
 
-        self.candidate_scores = deque(
-            maxlen=self.max_candidate_size
-        )
+        self.candidate_scores = deque(maxlen=self.max_candidate_size)
 
         self.confirmed_regime_scores = []
 
@@ -168,8 +146,7 @@ class RegimeDetector:
 
         self.validation_interval = max(
             25,
-            self.max_candidate_size
-            // self.min_stable_blocks,
+            self.max_candidate_size // self.min_stable_blocks,
         )
 
         self.validation_observations = 0
@@ -195,9 +172,7 @@ class RegimeDetector:
             dtype=float,
         )
 
-        return values[
-            np.isfinite(values)
-        ]
+        return values[np.isfinite(values)]
 
     @staticmethod
     def _mad(scores):
@@ -208,11 +183,7 @@ class RegimeDetector:
 
         median = np.median(values)
 
-        return float(
-            np.median(
-                np.abs(values - median)
-            )
-        )
+        return float(np.median(np.abs(values - median)))
 
     @staticmethod
     def _iqr(scores):
@@ -245,12 +216,8 @@ class RegimeDetector:
             if values.size == 0:
                 return
 
-            for score in values[
-                -self.baseline_size:
-            ]:
-                self.baseline_scores.append(
-                    float(score)
-                )
+            for score in values[-self.baseline_size :]:
+                self.baseline_scores.append(float(score))
 
     # ========================================================
     # STATISTICS
@@ -313,14 +280,10 @@ class RegimeDetector:
         return 1e-12
 
     def _baseline_scale(self):
-        return self._scale_from_statistics(
-            self._baseline_statistics()
-        )
+        return self._scale_from_statistics(self._baseline_statistics())
 
     def _candidate_scale(self):
-        return self._scale_from_statistics(
-            self._candidate_statistics()
-        )
+        return self._scale_from_statistics(self._candidate_statistics())
 
     # ========================================================
     # SHIFT
@@ -331,10 +294,7 @@ class RegimeDetector:
 
         candidate_values = self._clean(values)
 
-        if (
-            baseline is None
-            or candidate_values.size == 0
-        ):
+        if baseline is None or candidate_values.size == 0:
             return 0.0
 
         baseline_scale = self._baseline_scale()
@@ -342,15 +302,10 @@ class RegimeDetector:
         if baseline_scale is None:
             return 0.0
 
-        candidate_median = float(
-            np.median(candidate_values)
-        )
+        candidate_median = float(np.median(candidate_values))
 
         return float(
-            abs(
-                candidate_median
-                - baseline["median"]
-            )
+            abs(candidate_median - baseline["median"])
             / max(
                 baseline_scale,
                 1e-12,
@@ -362,9 +317,7 @@ class RegimeDetector:
             self.last_shift_strength = 0.0
             return False
 
-        strength = self._shift_strength(
-            self.candidate_scores
-        )
+        strength = self._shift_strength(self.candidate_scores)
 
         self.last_shift_strength = strength
 
@@ -382,9 +335,7 @@ class RegimeDetector:
 
         block_count = 3
 
-        block_size = (
-            values.size // block_count
-        )
+        block_size = values.size // block_count
 
         if block_size < 5:
             return []
@@ -409,19 +360,14 @@ class RegimeDetector:
     def _block_medians(self, values):
         blocks = self._get_blocks(values)
 
-        return [
-            float(np.median(block))
-            for block in blocks
-        ]
+        return [float(np.median(block)) for block in blocks]
 
     # ========================================================
     # STABILITY
     # ========================================================
 
     def _stability_diagnostics(self):
-        values = self._clean(
-            self.candidate_scores
-        )
+        values = self._clean(self.candidate_scores)
 
         diagnostics = {
             "sample_count": int(values.size),
@@ -442,26 +388,16 @@ class RegimeDetector:
         baseline_scale = self._baseline_scale()
         candidate_scale = self._candidate_scale()
 
-        diagnostics["baseline_scale"] = (
-            baseline_scale
-        )
+        diagnostics["baseline_scale"] = baseline_scale
 
-        diagnostics["candidate_scale"] = (
-            candidate_scale
-        )
+        diagnostics["candidate_scale"] = candidate_scale
 
-        shift_strength = self._shift_strength(
-            values
-        )
+        shift_strength = self._shift_strength(values)
 
-        diagnostics["shift_strength"] = (
-            shift_strength
-        )
+        diagnostics["shift_strength"] = shift_strength
 
         if shift_strength < self.shift_sigma:
-            diagnostics["reason"] = (
-                "shift_below_gate"
-            )
+            diagnostics["reason"] = "shift_below_gate"
             return diagnostics
 
         medians = self._block_medians(values)
@@ -469,38 +405,25 @@ class RegimeDetector:
         diagnostics["block_medians"] = medians
 
         if len(medians) < 3:
-            diagnostics["reason"] = (
-                "insufficient_blocks"
-            )
+            diagnostics["reason"] = "insufficient_blocks"
             return diagnostics
 
         changes = [
-            current - previous
-            for previous, current in zip(
-                medians[:-1],
-                medians[1:],
-            )
+            current - previous for previous, current in itertools.pairwise(medians)
         ]
 
         diagnostics["block_changes"] = changes
 
         if candidate_scale is None:
-            diagnostics["reason"] = (
-                "candidate_scale_unavailable"
-            )
+            diagnostics["reason"] = "candidate_scale_unavailable"
             return diagnostics
 
-        movement_limit = (
-            self.stability_tolerance
-            * max(
-                candidate_scale,
-                1e-12,
-            )
+        movement_limit = self.stability_tolerance * max(
+            candidate_scale,
+            1e-12,
         )
 
-        diagnostics["movement_limit"] = (
-            movement_limit
-        )
+        diagnostics["movement_limit"] = movement_limit
 
         # ----------------------------------------------------
         # STABILITY GATE
@@ -513,38 +436,20 @@ class RegimeDetector:
         # a stable shifted regime.
         # ----------------------------------------------------
 
-        if any(
-            abs(change) > movement_limit
-            for change in changes
-        ):
-            diagnostics["reason"] = (
-                "block_movement_too_large"
-            )
+        if any(abs(change) > movement_limit for change in changes):
+            diagnostics["reason"] = "block_movement_too_large"
             return diagnostics
 
-        meaningful = [
-            change
-            for change in changes
-            if abs(change) > 1e-12
-        ]
+        meaningful = [change for change in changes if abs(change) > 1e-12]
 
         directional = False
 
         if len(meaningful) >= 2:
+            positive = all(change > 0 for change in meaningful)
 
-            positive = all(
-                change > 0
-                for change in meaningful
-            )
+            negative = all(change < 0 for change in meaningful)
 
-            negative = all(
-                change < 0
-                for change in meaningful
-            )
-
-            directional = (
-                positive or negative
-            )
+            directional = positive or negative
 
         diagnostics["directional"] = directional
 
@@ -568,36 +473,24 @@ class RegimeDetector:
         return diagnostics
 
     def _is_candidate_stable(self):
-        diagnostics = (
-            self._stability_diagnostics()
-        )
+        diagnostics = self._stability_diagnostics()
 
-        self.last_stability_reason = (
-            diagnostics["reason"]
-        )
+        self.last_stability_reason = diagnostics["reason"]
 
-        self.last_stability_diagnostics = (
-            diagnostics
-        )
+        self.last_stability_diagnostics = diagnostics
 
-        return bool(
-            diagnostics["stable"]
-        )
+        return bool(diagnostics["stable"])
 
     # ========================================================
     # STAGES
     # ========================================================
 
     def _next_stage(self):
-        for index, size in enumerate(
-            self.candidate_sizes
-        ):
+        for index, size in enumerate(self.candidate_sizes):
             if self.candidate_observations < size:
                 return index
 
-        return (
-            len(self.candidate_sizes) - 1
-        )
+        return len(self.candidate_sizes) - 1
 
     def _stage_ready(self):
         next_stage = self._next_stage()
@@ -605,39 +498,24 @@ class RegimeDetector:
         if next_stage <= self.current_stage:
             return None
 
-        if (
-            self.candidate_observations
-            >= self.candidate_sizes[next_stage]
-        ):
+        if self.candidate_observations >= self.candidate_sizes[next_stage]:
             return next_stage
 
         return None
 
     def _validation_ready(self):
-        if (
-            self.current_stage
-            != len(self.candidate_sizes) - 1
-        ):
+        if self.current_stage != len(self.candidate_sizes) - 1:
             return False
 
-        if (
-            self.candidate_observations
-            < self.max_candidate_size
-        ):
+        if self.candidate_observations < self.max_candidate_size:
             return False
 
         if self.validation_checks == 0:
             return True
 
-        elapsed = (
-            self.candidate_observations
-            - self.max_candidate_size
-        )
+        elapsed = self.candidate_observations - self.max_candidate_size
 
-        return (
-            elapsed > 0
-            and elapsed % self.validation_interval == 0
-        )
+        return elapsed > 0 and elapsed % self.validation_interval == 0
 
     # ========================================================
     # RESULT
@@ -645,40 +523,18 @@ class RegimeDetector:
 
     def _build_result(self, shift_detected):
         return {
-            "regime_confirmed": bool(
-                self.regime_confirmed
-            ),
-            "candidate_started": bool(
-                self.candidate_started
-            ),
-            "candidate_size": int(
-                len(self.candidate_scores)
-            ),
-            "candidate_observations": int(
-                self.candidate_observations
-            ),
+            "regime_confirmed": bool(self.regime_confirmed),
+            "candidate_started": bool(self.candidate_started),
+            "candidate_size": len(self.candidate_scores),
+            "candidate_observations": int(self.candidate_observations),
             "stage": int(self.current_stage),
-            "stable_blocks": int(
-                self.stable_blocks
-            ),
-            "validation_checks": int(
-                self.validation_checks
-            ),
-            "validation_interval": int(
-                self.validation_interval
-            ),
-            "shift_detected": bool(
-                shift_detected
-            ),
-            "shift_strength": float(
-                self.last_shift_strength
-            ),
-            "stability_reason": (
-                self.last_stability_reason
-            ),
-            "stability_diagnostics": dict(
-                self.last_stability_diagnostics
-            ),
+            "stable_blocks": int(self.stable_blocks),
+            "validation_checks": int(self.validation_checks),
+            "validation_interval": int(self.validation_interval),
+            "shift_detected": bool(shift_detected),
+            "shift_strength": float(self.last_shift_strength),
+            "stability_reason": (self.last_stability_reason),
+            "stability_diagnostics": dict(self.last_stability_diagnostics),
         }
 
     # ========================================================
@@ -698,21 +554,15 @@ class RegimeDetector:
         score = float(score)
 
         if not np.isfinite(score):
-            raise ValueError(
-                "score must be a finite number."
-            )
+            raise ValueError("score must be a finite number.")
 
         with self.lock:
-
             # Once confirmed, hold state until caller accepts
             # or rejects the candidate.
             if self.regime_confirmed:
-                return self._build_result(
-                    shift_detected=True
-                )
+                return self._build_result(shift_detected=True)
 
             if not self.candidate_started:
-
                 self.candidate_started = True
                 self.current_stage = -1
                 self.last_stage_evaluated = None
@@ -724,9 +574,7 @@ class RegimeDetector:
                 self.validation_observations = 0
                 self.candidate_observations = 0
 
-                self.last_stability_reason = (
-                    "not_evaluated"
-                )
+                self.last_stability_reason = "not_evaluated"
 
                 self.last_stability_diagnostics = {}
 
@@ -740,7 +588,6 @@ class RegimeDetector:
             stage = self._stage_ready()
 
             if stage is not None:
-
                 self.current_stage = stage
                 self.last_stage_evaluated = stage
 
@@ -749,51 +596,34 @@ class RegimeDetector:
                 self.last_shift_detected = shifted
 
                 if not shifted:
-
                     self.stable_blocks = 0
-                    self.last_stability_reason = (
-                        "shift_below_gate"
-                    )
+                    self.last_stability_reason = "shift_below_gate"
 
-                    return self._build_result(
-                        shift_detected=False
-                    )
+                    return self._build_result(shift_detected=False)
 
-                stable = (
-                    self._is_candidate_stable()
-                )
+                stable = self._is_candidate_stable()
 
                 if stable:
                     self.stable_blocks += 1
                 else:
                     self.stable_blocks = 0
 
-                if (
-                    stable
-                    and self.stable_blocks
-                    >= self.min_stable_blocks
-                ):
+                if stable and self.stable_blocks >= self.min_stable_blocks:
                     self.regime_confirmed = True
 
-                    self.confirmed_regime_scores = list(
-                        self.candidate_scores
-                    )
+                    self.confirmed_regime_scores = list(self.candidate_scores)
 
-                return self._build_result(
-                    shift_detected=True
-                )
+                return self._build_result(shift_detected=True)
 
             # ------------------------------------------------
             # Rolling validation
             # ------------------------------------------------
 
             if self._validation_ready():
-
                 self.validation_checks += 1
 
                 self.validation_observations = (
-                    self.candidate_observations
-                    - self.max_candidate_size
+                    self.candidate_observations - self.max_candidate_size
                 )
 
                 shifted = self._is_shifted()
@@ -801,39 +631,24 @@ class RegimeDetector:
                 self.last_shift_detected = shifted
 
                 if not shifted:
-
                     self.stable_blocks = 0
-                    self.last_stability_reason = (
-                        "shift_lost_during_validation"
-                    )
+                    self.last_stability_reason = "shift_lost_during_validation"
 
-                    return self._build_result(
-                        shift_detected=False
-                    )
+                    return self._build_result(shift_detected=False)
 
-                stable = (
-                    self._is_candidate_stable()
-                )
+                stable = self._is_candidate_stable()
 
                 if stable:
                     self.stable_blocks += 1
                 else:
                     self.stable_blocks = 0
 
-                if (
-                    stable
-                    and self.stable_blocks
-                    >= self.min_stable_blocks
-                ):
+                if stable and self.stable_blocks >= self.min_stable_blocks:
                     self.regime_confirmed = True
 
-                    self.confirmed_regime_scores = list(
-                        self.candidate_scores
-                    )
+                    self.confirmed_regime_scores = list(self.candidate_scores)
 
-                return self._build_result(
-                    shift_detected=True
-                )
+                return self._build_result(shift_detected=True)
 
             # ------------------------------------------------
             # Candidate continuation
@@ -844,13 +659,9 @@ class RegimeDetector:
             self.last_shift_detected = shifted
 
             if not shifted:
-                self.last_stability_reason = (
-                    "shift_below_gate"
-                )
+                self.last_stability_reason = "shift_below_gate"
 
-            return self._build_result(
-                shift_detected=shifted
-            )
+            return self._build_result(shift_detected=shifted)
 
     # ========================================================
     # PUBLIC API
@@ -864,15 +675,11 @@ class RegimeDetector:
         and has not been accepted/rejected.
         """
         with self.lock:
-            return bool(
-                self.regime_confirmed
-            )
+            return bool(self.regime_confirmed)
 
     def get_confirmed_scores(self):
         with self.lock:
-            return list(
-                self.confirmed_regime_scores
-            )
+            return list(self.confirmed_regime_scores)
 
     # ========================================================
     # ACCEPT
@@ -888,28 +695,18 @@ class RegimeDetector:
         """
 
         with self.lock:
-
             if scores is None:
-                scores = (
-                    self.confirmed_regime_scores
-                )
+                scores = self.confirmed_regime_scores
 
             values = self._clean(scores)
 
             if values.size == 0:
-                raise ValueError(
-                    "Cannot accept a regime without "
-                    "valid scores."
-                )
+                raise ValueError("Cannot accept a regime without valid scores.")
 
             self.baseline_scores.clear()
 
-            for score in values[
-                -self.baseline_size:
-            ]:
-                self.baseline_scores.append(
-                    float(score)
-                )
+            for score in values[-self.baseline_size :]:
+                self.baseline_scores.append(float(score))
 
             self._clear_candidate_state()
 
@@ -951,9 +748,7 @@ class RegimeDetector:
 
         self.candidate_observations = 0
 
-        self.last_stability_reason = (
-            "not_evaluated"
-        )
+        self.last_stability_reason = "not_evaluated"
 
         self.last_stability_diagnostics = {}
 
@@ -963,74 +758,29 @@ class RegimeDetector:
 
     def get_state(self):
         with self.lock:
-
             return {
-                "baseline_size": (
-                    self.baseline_size
-                ),
-                "baseline_sample_count": (
-                    len(self.baseline_scores)
-                ),
-                "candidate_sample_count": (
-                    len(self.candidate_scores)
-                ),
-                "candidate_observations": (
-                    self.candidate_observations
-                ),
-                "candidate_sizes": list(
-                    self.candidate_sizes
-                ),
-                "current_stage": (
-                    self.current_stage
-                ),
-                "last_stage_evaluated": (
-                    self.last_stage_evaluated
-                ),
-                "shift_sigma": (
-                    self.shift_sigma
-                ),
-                "stability_tolerance": (
-                    self.stability_tolerance
-                ),
-                "min_stable_blocks": (
-                    self.min_stable_blocks
-                ),
-                "candidate_started": (
-                    self.candidate_started
-                ),
-                "regime_confirmed": (
-                    self.regime_confirmed
-                ),
-                "stable_blocks": (
-                    self.stable_blocks
-                ),
-                "last_shift_detected": (
-                    self.last_shift_detected
-                ),
-                "last_shift_strength": (
-                    self.last_shift_strength
-                ),
-                "validation_interval": (
-                    self.validation_interval
-                ),
-                "validation_observations": (
-                    self.validation_observations
-                ),
-                "validation_checks": (
-                    self.validation_checks
-                ),
-                "last_stability_reason": (
-                    self.last_stability_reason
-                ),
-                "last_stability_diagnostics": dict(
-                    self.last_stability_diagnostics
-                ),
-                "baseline_statistics": (
-                    self._baseline_statistics()
-                ),
-                "candidate_statistics": (
-                    self._candidate_statistics()
-                ),
+                "baseline_size": (self.baseline_size),
+                "baseline_sample_count": (len(self.baseline_scores)),
+                "candidate_sample_count": (len(self.candidate_scores)),
+                "candidate_observations": (self.candidate_observations),
+                "candidate_sizes": list(self.candidate_sizes),
+                "current_stage": (self.current_stage),
+                "last_stage_evaluated": (self.last_stage_evaluated),
+                "shift_sigma": (self.shift_sigma),
+                "stability_tolerance": (self.stability_tolerance),
+                "min_stable_blocks": (self.min_stable_blocks),
+                "candidate_started": (self.candidate_started),
+                "regime_confirmed": (self.regime_confirmed),
+                "stable_blocks": (self.stable_blocks),
+                "last_shift_detected": (self.last_shift_detected),
+                "last_shift_strength": (self.last_shift_strength),
+                "validation_interval": (self.validation_interval),
+                "validation_observations": (self.validation_observations),
+                "validation_checks": (self.validation_checks),
+                "last_stability_reason": (self.last_stability_reason),
+                "last_stability_diagnostics": dict(self.last_stability_diagnostics),
+                "baseline_statistics": (self._baseline_statistics()),
+                "candidate_statistics": (self._candidate_statistics()),
             }
 
     # ========================================================
@@ -1046,7 +796,6 @@ class RegimeDetector:
         """
 
         with self.lock:
-
             self.baseline_scores.clear()
             self.candidate_scores.clear()
 
@@ -1068,8 +817,6 @@ class RegimeDetector:
 
             self.candidate_observations = 0
 
-            self.last_stability_reason = (
-                "not_evaluated"
-            )
+            self.last_stability_reason = "not_evaluated"
 
             self.last_stability_diagnostics = {}

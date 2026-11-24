@@ -3,7 +3,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-
 # Paths
 
 project_root = Path(__file__).resolve().parent.parent
@@ -16,6 +15,7 @@ output_dir.mkdir(
 
 
 # Normal data generation
+
 
 def generate_normal_data(
     n: int = 5000,
@@ -37,9 +37,9 @@ def generate_normal_data(
                 periods=n,
                 freq="5min",
             ),
-            "temperature": np.random.normal(22,1.5,n),
-            "humidity": np.random.normal(45,5,n),
-            "stock_count": np.random.normal(500,30,n).round().astype(int),
+            "temperature": np.random.normal(22, 1.5, n),
+            "humidity": np.random.normal(45, 5, n),
+            "stock_count": np.random.normal(500, 30, n).round().astype(int),
         }
     )
 
@@ -49,6 +49,7 @@ def generate_normal_data(
 
 
 # Seasonal normal data generation
+
 
 def generate_seasonal_normal_data(
     n: int = 5000,
@@ -94,9 +95,9 @@ def generate_seasonal_normal_data(
                 periods=n,
                 freq="5min",
             ),
-            "temperature": np.random.normal(25,1,n),
-            "humidity": np.random.normal(45,5,n),
-            "stock_count": np.random.normal(500,30,n).round().astype(int),
+            "temperature": np.random.normal(25, 1, n),
+            "humidity": np.random.normal(45, 5, n),
+            "stock_count": np.random.normal(500, 30, n).round().astype(int),
         }
     )
 
@@ -106,6 +107,7 @@ def generate_seasonal_normal_data(
 
 
 # Anomaly injection: temperature spikes
+
 
 def inject_temperature_spikes(
     df: pd.DataFrame,
@@ -120,16 +122,17 @@ def inject_temperature_spikes(
 
     df = df.copy()
 
-    anomaly_idx = np.random.choice(df.index,size=n_anomalies,replace=False)
+    anomaly_idx = np.random.choice(df.index, size=n_anomalies, replace=False)
 
-    df.loc[anomaly_idx,"temperature"] += np.random.uniform(8,15,n_anomalies)
+    df.loc[anomaly_idx, "temperature"] += np.random.uniform(8, 15, n_anomalies)
 
-    df.loc[anomaly_idx,"is_anomaly"] = 1
+    df.loc[anomaly_idx, "is_anomaly"] = 1
 
     return df
 
 
 # Anomaly injection: stock anomalies
+
 
 def inject_stock_anomalies(
     df: pd.DataFrame,
@@ -144,16 +147,17 @@ def inject_stock_anomalies(
 
     df = df.copy()
 
-    anomaly_idx = np.random.choice(df.index,size=n_anomalies,replace=False)
+    anomaly_idx = np.random.choice(df.index, size=n_anomalies, replace=False)
 
-    df.loc[anomaly_idx,"stock_count"] += np.random.randint(250,450,n_anomalies)
+    df.loc[anomaly_idx, "stock_count"] += np.random.randint(250, 450, n_anomalies)
 
-    df.loc[anomaly_idx,"is_anomaly"] = 1
+    df.loc[anomaly_idx, "is_anomaly"] = 1
 
     return df
 
 
 # Anomaly injection: temperature drift
+
 
 def inject_temperature_drift(
     df: pd.DataFrame,
@@ -179,31 +183,30 @@ def inject_temperature_drift(
 
     readings = hours * 12
 
-    drift_per_reading = (drift_per_hour / 12)
+    drift_per_reading = drift_per_hour / 12
 
     if len(df) < readings:
-
         raise ValueError(
-            "Dataset is too small for the requested "
-            "temperature drift duration."
+            "Dataset is too small for the requested temperature drift duration."
         )
 
     # Randomly choose where the drift starts.
 
-    start_idx = np.random.randint(0,len(df) - readings + 1)
+    start_idx = np.random.randint(0, len(df) - readings + 1)
 
-    end_idx = (start_idx + readings)
+    end_idx = start_idx + readings
 
-    drift = (np.arange(readings) * drift_per_reading)
+    drift = np.arange(readings) * drift_per_reading
 
-    df.loc[start_idx:end_idx - 1,"temperature"] += drift
+    df.loc[start_idx : end_idx - 1, "temperature"] += drift
 
-    df.loc[start_idx:end_idx - 1,"is_anomaly"] = 1
+    df.loc[start_idx : end_idx - 1, "is_anomaly"] = 1
 
     return df
 
 
 # Anomaly injection: combined anomalies
+
 
 def inject_combined_anomalies(
     df: pd.DataFrame,
@@ -218,15 +221,17 @@ def inject_combined_anomalies(
 
     df = df.copy()
 
-    anomaly_idx = np.random.choice(df.index,size=n_anomalies,replace=False)
+    anomaly_idx = np.random.choice(df.index, size=n_anomalies, replace=False)
 
-    df.loc[anomaly_idx,"temperature"] += np.random.uniform(5,8,n_anomalies)
+    df.loc[anomaly_idx, "temperature"] += np.random.uniform(5, 8, n_anomalies)
 
-    df.loc[anomaly_idx,"humidity"] += np.random.uniform(15,25,n_anomalies)
+    df.loc[anomaly_idx, "humidity"] += np.random.uniform(15, 25, n_anomalies)
 
-    df.loc[anomaly_idx,"is_anomaly"] = 1
+    df.loc[anomaly_idx, "is_anomaly"] = 1
 
     return df
+
+
 # ============================================================
 # M3: CORRELATED NORMAL DATA + RELATIONSHIP BREAKS
 # ============================================================
@@ -239,8 +244,8 @@ def inject_combined_anomalies(
 # RISES (warm air holds more moisture, so the same water content
 # reads as a lower %RH). These generators model that.
 
-HUMIDITY_TEMP_SLOPE = -2.5    # %RH change per +1 degree C
-HUMIDITY_NOISE_SD = 3.3       # keeps humidity's overall sd ~5, same as before
+HUMIDITY_TEMP_SLOPE = -2.5  # %RH change per +1 degree C
+HUMIDITY_NOISE_SD = 3.3  # keeps humidity's overall sd ~5, same as before
 
 
 def generate_correlated_normal_data(
@@ -315,6 +320,8 @@ def inject_relationship_breaks(
     df.loc[anomaly_idx, "is_anomaly"] = 1
 
     return df
+
+
 def inject_weaker_relationship_breaks(
     df: pd.DataFrame,
     n_anomalies: int = 20,
@@ -342,11 +349,7 @@ def inject_weaker_relationship_breaks(
         size=n_anomalies,
     )
 
-    temp_offset = (
-        direction
-        * rng.uniform(1.5, 2.0, n_anomalies)
-        * 1.5
-    )
+    temp_offset = direction * rng.uniform(1.5, 2.0, n_anomalies) * 1.5
 
     df.loc[anomaly_idx, "temperature"] = 22 + temp_offset
 
@@ -357,9 +360,7 @@ def inject_weaker_relationship_breaks(
     )
 
     df.loc[anomaly_idx, "humidity"] = (
-        45
-        - 0.5 * HUMIDITY_TEMP_SLOPE * temp_offset
-        + humidity_noise
+        45 - 0.5 * HUMIDITY_TEMP_SLOPE * temp_offset + humidity_noise
     )
 
     df.loc[anomaly_idx, "is_anomaly"] = 1
@@ -369,6 +370,7 @@ def inject_weaker_relationship_breaks(
 
 # Save dataset
 
+
 def save_dataset(
     df: pd.DataFrame,
     filename: str,
@@ -377,10 +379,11 @@ def save_dataset(
     Save a dataset into the output directory.
     """
 
-    df.to_csv(output_dir / filename,index=False)
+    df.to_csv(output_dir / filename, index=False)
 
 
 # Generate all datasets
+
 
 def generate_all_datasets():
     """
@@ -429,23 +432,23 @@ def generate_all_datasets():
 
     # 1. TRAINING DATA
 
-    train_normal = generate_normal_data(n=5000,seed=42)
+    train_normal = generate_normal_data(n=5000, seed=42)
 
-    save_dataset(train_normal,"train_normal.csv")
+    save_dataset(train_normal, "train_normal.csv")
 
     # 2. CALIBRATION DATA
 
-    calibration_normal = generate_normal_data(n=5000,seed=123)
+    calibration_normal = generate_normal_data(n=5000, seed=123)
 
-    save_dataset(calibration_normal,"calibration_normal.csv")
+    save_dataset(calibration_normal, "calibration_normal.csv")
 
     ## TEST NORMAL BASE
 
     # All four anomaly datasets are generated from copies
     # of this same normal dataset.
 
-    test_normal = generate_normal_data(n=5000,seed=456)
-        # M3: CORRELATED NORMAL DATA
+    test_normal = generate_normal_data(n=5000, seed=456)
+    # M3: CORRELATED NORMAL DATA
 
     correlated_normal = generate_correlated_normal_data(
         n=5000,
@@ -459,37 +462,31 @@ def generate_all_datasets():
 
     # 3. TEMPERATURE SPIKE TEST
 
-    test_temperature_spike = (
-        inject_temperature_spikes(
-            test_normal,
-            n_anomalies=20,
-            seed=1001,
-        )
+    test_temperature_spike = inject_temperature_spikes(
+        test_normal,
+        n_anomalies=20,
+        seed=1001,
     )
 
-    save_dataset(test_temperature_spike,"test_temperature_spike.csv")
+    save_dataset(test_temperature_spike, "test_temperature_spike.csv")
 
     # 4. STOCK ANOMALY TEST
 
-    test_stock_anomaly = (
-        inject_stock_anomalies(
-            test_normal,
-            n_anomalies=20,
-            seed=1002,
-        )
+    test_stock_anomaly = inject_stock_anomalies(
+        test_normal,
+        n_anomalies=20,
+        seed=1002,
     )
 
-    save_dataset(test_stock_anomaly,"test_stock_anomaly.csv")
+    save_dataset(test_stock_anomaly, "test_stock_anomaly.csv")
 
     # 5. TEMPERATURE DRIFT TEST
 
-    test_temperature_drift = (
-        inject_temperature_drift(
-            test_normal,
-            hours=24,
-            drift_per_hour=0.5,
-            seed=1003,
-        )
+    test_temperature_drift = inject_temperature_drift(
+        test_normal,
+        hours=24,
+        drift_per_hour=0.5,
+        seed=1003,
     )
 
     save_dataset(
@@ -499,23 +496,19 @@ def generate_all_datasets():
 
     # 6. COMBINED ANOMALY TEST
 
-    test_combined_anomaly = (
-        inject_combined_anomalies(
-            test_normal,
-            n_anomalies=20,
-            seed=1004,
-        )
+    test_combined_anomaly = inject_combined_anomalies(
+        test_normal,
+        n_anomalies=20,
+        seed=1004,
     )
 
-    save_dataset(test_combined_anomaly,"test_combined_anomaly.csv")
-        # 6B. RELATIONSHIP BREAK TEST
+    save_dataset(test_combined_anomaly, "test_combined_anomaly.csv")
+    # 6B. RELATIONSHIP BREAK TEST
 
-    test_relationship_break = (
-        inject_relationship_breaks(
-            correlated_normal,
-            n_anomalies=20,
-            seed=1005,
-        )
+    test_relationship_break = inject_relationship_breaks(
+        correlated_normal,
+        n_anomalies=20,
+        seed=1005,
     )
 
     save_dataset(
@@ -529,14 +522,12 @@ def generate_all_datasets():
     # It has the same humidity and stock distributions,
     # but operates at a different normal temperature.
 
-    test_seasonal_normal = (
-        generate_seasonal_normal_data(
-            n=5000,
-            seed=789,
-        )
+    test_seasonal_normal = generate_seasonal_normal_data(
+        n=5000,
+        seed=789,
     )
 
-    save_dataset(test_seasonal_normal,"test_seasonal_normal.csv")
+    save_dataset(test_seasonal_normal, "test_seasonal_normal.csv")
 
     # Summary
 
@@ -548,60 +539,36 @@ def generate_all_datasets():
     print("TRAINING")
     print("-" * 60)
 
-    print(
-        f"train_normal.csv       : "
-        f"{len(train_normal)}"
-    )
+    print(f"train_normal.csv       : {len(train_normal)}")
 
     print()
     print("CALIBRATION")
     print("-" * 60)
 
-    print(
-        f"calibration_normal.csv : "
-        f"{len(calibration_normal)}"
-    )
+    print(f"calibration_normal.csv : {len(calibration_normal)}")
 
     print()
     print("TEST")
     print("-" * 60)
-    print(
-        "test_relationship_break.csv"
-    )
+    print("test_relationship_break.csv")
 
-    print(
-        "test_temperature_spike.csv"
-    )
+    print("test_temperature_spike.csv")
 
-    print(
-        "test_stock_anomaly.csv"
-    )
+    print("test_stock_anomaly.csv")
 
-    print(
-        "test_temperature_drift.csv"
-    )
+    print("test_temperature_drift.csv")
 
-    print(
-        "test_combined_anomaly.csv"
-    )
+    print("test_combined_anomaly.csv")
 
     print()
     print("SEASONAL NORMAL")
     print("-" * 60)
 
-    print(
-        f"test_seasonal_normal.csv : "
-        f"{len(test_seasonal_normal)}"
-    )
+    print(f"test_seasonal_normal.csv : {len(test_seasonal_normal)}")
 
-    print(
-        "Temperature regime: "
-        "approximately 26°C"
-    )
+    print("Temperature regime: approximately 26°C")
 
-    print(
-        "All seasonal readings are normal."
-    )
+    print("All seasonal readings are normal.")
 
     print()
     print("=" * 60)

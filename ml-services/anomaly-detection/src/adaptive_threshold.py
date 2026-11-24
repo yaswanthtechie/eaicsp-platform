@@ -1,5 +1,5 @@
-from collections import deque
 import threading
+from collections import deque
 
 import numpy as np
 
@@ -21,9 +21,7 @@ class AdaptiveThreshold:
         self.window_size = window_size
         self.percentile = percentile
 
-        self.scores = deque(
-            maxlen=window_size
-        )
+        self.scores = deque(maxlen=window_size)
 
         self.initial_threshold = None
 
@@ -43,7 +41,6 @@ class AdaptiveThreshold:
         """
 
         with self.lock:
-
             self.scores.clear()
 
             self.initial_threshold = None
@@ -56,7 +53,6 @@ class AdaptiveThreshold:
             )
 
             if scores.size == 0:
-
                 return
 
             self.initial_threshold = float(
@@ -66,11 +62,8 @@ class AdaptiveThreshold:
                 )
             )
 
-            for score in scores[-self.window_size:]:
-
-                self.scores.append(
-                    float(score)
-                )
+            for score in scores[-self.window_size :]:
+                self.scores.append(float(score))
 
     def update(self, score):
         """
@@ -81,10 +74,7 @@ class AdaptiveThreshold:
         """
 
         with self.lock:
-
-            self.scores.append(
-                float(score)
-            )
+            self.scores.append(float(score))
 
             self.adaptive_started = True
 
@@ -102,13 +92,10 @@ class AdaptiveThreshold:
         """
 
         with self.lock:
-
             if not self.scores:
-
                 return None
 
             if not self.adaptive_started:
-
                 return self.initial_threshold
 
             return float(
@@ -149,17 +136,13 @@ class AdaptiveThreshold:
         """
 
         with self.lock:
-
             threshold = None
 
             if self.scores:
-
                 if not self.adaptive_started:
-
                     threshold = self.initial_threshold
 
                 else:
-
                     threshold = float(
                         np.percentile(
                             np.asarray(
@@ -171,9 +154,7 @@ class AdaptiveThreshold:
                     )
 
             return {
-                "sample_count": len(
-                    self.scores
-                ),
+                "sample_count": len(self.scores),
                 "window_size": self.window_size,
                 "percentile": self.percentile,
                 "threshold": threshold,
@@ -187,7 +168,6 @@ class AdaptiveThreshold:
         """
 
         with self.lock:
-
             self.scores.clear()
 
             self.initial_threshold = None
@@ -221,10 +201,7 @@ def get_adaptive_threshold(model_name):
     """
 
     if model_name not in adaptive_thresholds:
-
-        raise ValueError(
-            f"Unknown model: {model_name}"
-        )
+        raise ValueError(f"Unknown model: {model_name}")
 
     return adaptive_thresholds[model_name]
 

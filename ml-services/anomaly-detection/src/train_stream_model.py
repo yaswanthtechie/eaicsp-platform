@@ -20,7 +20,6 @@ def main():
     mlflow.set_experiment("anomaly-detection-r14-streaming")
 
     with mlflow.start_run(run_name=f"train-{MODEL_VERSION}"):
-
         mlflow.log_params(
             {
                 "model": "IsolationForest",

@@ -48,7 +48,6 @@ from .stream_simulator import (
     build_stream,
 )
 
-
 PERCENTILE = 97.0
 GAP = 3 * STEP
 SEVERE_MARGIN = 3.0
@@ -98,12 +97,11 @@ def evaluate_events(
     y_pred = {s: np.zeros(n, dtype=int) for s, n in n_per_sensor.items()}
 
     for ep in episodes:
-        y_true[ep["sensor_id"]][ep["start_idx"]: ep["end_idx"] + 1] = 1
+        y_true[ep["sensor_id"]][ep["start_idx"] : ep["end_idx"] + 1] = 1
 
     parsed = []
 
     for event in events:
-
         p = event["payload"]
         sensor = p["sensor_id"]
 
@@ -115,7 +113,7 @@ def evaluate_events(
         ws = _idx(datetime.fromisoformat(p["window_start"]), start, step)
         we = _idx(datetime.fromisoformat(p["window_end"]), start, step)
 
-        y_pred[sensor][max(ws, 0): min(we, n - 1) + 1] = 1
+        y_pred[sensor][max(ws, 0) : min(we, n - 1) + 1] = 1
 
         parsed.append(
             {
@@ -132,7 +130,6 @@ def evaluate_events(
     totals = {"n_true": 0, "n_pred": 0, "detected": 0, "false_alarms": 0}
 
     for sensor in n_per_sensor:
-
         scores = event_scores(y_true[sensor], y_pred[sensor])
 
         totals["n_true"] += scores["n_true_events"]
@@ -154,7 +151,6 @@ def evaluate_events(
     detected_mine = 0
 
     for ep in episodes:
-
         kind_counts = by_kind.setdefault(ep["kind"], [0, 0])
         kind_counts[1] += 1
 
@@ -175,9 +171,7 @@ def evaluate_events(
 
         first = min(matches, key=lambda e: e["first"])
 
-        delays_first.append(
-            (first["first"] - ep["start_time"]).total_seconds() / 60.0
-        )
+        delays_first.append((first["first"] - ep["start_time"]).total_seconds() / 60.0)
         delays_confirm.append(
             (first["confirmed"] - ep["start_time"]).total_seconds() / 60.0
         )
@@ -208,9 +202,7 @@ def evaluate_events(
         ),
         "median_delay_first_flag_min": _median(delays_first),
         "median_delay_confirmed_min": _median(delays_confirm),
-        "max_delay_confirmed_min": (
-            max(delays_confirm) if delays_confirm else None
-        ),
+        "max_delay_confirmed_min": (max(delays_confirm) if delays_confirm else None),
         "episode_cost": missed * MISS_COST + totals["false_alarms"] * FALSE_ALARM_COST,
         "by_kind": {k: tuple(v) for k, v in by_kind.items()},
     }
@@ -227,9 +219,7 @@ def run_once(
     percentile=PERCENTILE,
 ):
 
-    tuner = SignificanceThresholdTuner(
-        model.calibration_scores, percentile=percentile
-    )
+    tuner = SignificanceThresholdTuner(model.calibration_scores, percentile=percentile)
 
     detector = EpisodeDetector(
         gap=GAP,
@@ -336,7 +326,6 @@ def main(argv=None):
     results_dir.mkdir(parents=True, exist_ok=True)
 
     if args.events_file:
-
         with open(args.events_file, encoding="utf-8") as handle:
             events = [json.loads(line) for line in handle if line.strip()]
 
@@ -364,7 +353,6 @@ def main(argv=None):
     heldout_row = None
 
     with mlflow.start_run(run_name="stream-eval"):
-
         mlflow.log_params(
             {
                 "percentile": PERCENTILE,
@@ -377,7 +365,6 @@ def main(argv=None):
         )
 
         for label, min_flagged, tuner_on in RUNS:
-
             metrics, _, _ = run_once(
                 readings, scores, episodes, model, min_flagged, tuner_on, n_per_sensor
             )
@@ -427,7 +414,6 @@ def main(argv=None):
 
         # Optional run E: percentile chosen on a SEPARATE tuning stream.
         if args.extra_percentile:
-
             extra_metrics, _, _ = run_once(
                 readings,
                 scores,
@@ -439,9 +425,7 @@ def main(argv=None):
                 percentile=args.extra_percentile,
             )
 
-            extra_row = _row(
-                "E", 2, f"frozen p{args.extra_percentile}", extra_metrics
-            )
+            extra_row = _row("E", 2, f"frozen p{args.extra_percentile}", extra_metrics)
 
             with mlflow.start_run(run_name="run-E", nested=True):
                 mlflow.log_params(

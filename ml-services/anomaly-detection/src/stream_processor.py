@@ -20,7 +20,6 @@ from .stream_events import build_anomaly_event
 
 
 class InMemoryWriter:
-
     def __init__(self):
         self.rows = []
 
@@ -32,7 +31,6 @@ class InMemoryWriter:
 
 
 class InMemoryPublisher:
-
     def __init__(self):
         self.events = []
 
@@ -44,7 +42,6 @@ class InMemoryPublisher:
 
 
 class StreamProcessor:
-
     def __init__(
         self,
         model,
@@ -125,11 +122,7 @@ class StreamProcessor:
         if episode is not None:
             events.append(self._publish(episode))
 
-        if (
-            self.use_tuner
-            and not flagged
-            and not self.detector.is_active(sensor_id)
-        ):
+        if self.use_tuner and not flagged and not self.detector.is_active(sensor_id):
             result = self.tuner.observe(score)
 
             if result is not None:

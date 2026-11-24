@@ -32,12 +32,12 @@ from pathlib import Path
 
 from .auto_threshold import SignificanceThresholdTuner, robust_scale
 from .episode_detector import EpisodeDetector
-from .sensor_config import CONFIG_PATH, load_sensors, sensor_map as build_sensor_map
+from .sensor_config import CONFIG_PATH, load_sensors
+from .sensor_config import sensor_map as build_sensor_map
 from .stream_events import EVENT_TYPE, event_key
 from .stream_model import load_stream_model
 from .stream_processor import StreamProcessor
 from .stream_simulator import STEP, reading_from_json
-
 
 log = logging.getLogger(__name__)
 
@@ -163,7 +163,6 @@ def to_line_protocol(reading, score, flagged):
 
 
 class InfluxWriter:
-
     def __init__(self, url, token, org, bucket):
 
         if not token:
@@ -192,7 +191,6 @@ class InfluxWriter:
 
 
 class KafkaEventPublisher:
-
     def __init__(self, bootstrap_servers, topic, flush_timeout=10.0):
 
         from confluent_kafka import Producer
@@ -211,10 +209,9 @@ class KafkaEventPublisher:
         last_error = None
 
         for attempt in range(1, attempts + 1):
-
             errors = []
 
-            def on_delivery(err, msg):
+            def on_delivery(err, msg, errors=errors):
                 if err is not None:
                     errors.append(str(err))
 
@@ -261,7 +258,7 @@ class JsonlEventLog:
                     except (ValueError, KeyError, TypeError):
                         continue
 
-        self._file = open(path, "a", encoding="utf-8")
+        self._file = open(path, "a", encoding="utf-8")  # noqa: SIM115 - closed in close()
 
     def publish(self, event):
 
@@ -279,7 +276,6 @@ class JsonlEventLog:
 
 
 class MultiPublisher:
-
     def __init__(self, *publishers):
         self._publishers = publishers
 
@@ -299,9 +295,7 @@ def build_processor(settings, model, writer, publisher, sensor_map):
             "sensor_map is required: every event needs a canonical warehouse_id."
         )
 
-    tuner = SignificanceThresholdTuner(
-        model.calibration_scores, percentile=PERCENTILE
-    )
+    tuner = SignificanceThresholdTuner(model.calibration_scores, percentile=PERCENTILE)
 
     detector = EpisodeDetector(
         gap=GAP,
@@ -338,9 +332,7 @@ def run(
     )
 
     publishers = [
-        KafkaEventPublisher(
-            settings["bootstrap_servers"], settings["events_topic"]
-        )
+        KafkaEventPublisher(settings["bootstrap_servers"], settings["events_topic"])
     ]
 
     if events_log:
@@ -371,7 +363,6 @@ def run(
     try:
         try:
             while True:
-
                 msg = consumer.poll(1.0)
 
                 if msg is None:

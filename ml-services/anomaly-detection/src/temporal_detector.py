@@ -1,5 +1,5 @@
-from collections import deque
 import math
+from collections import deque
 
 import numpy as np
 
@@ -34,64 +34,40 @@ class TemporalDetector:
     ):
 
         if window_size < 5:
-            raise ValueError(
-                "window_size must be at least 5."
-            )
+            raise ValueError("window_size must be at least 5.")
 
         if min_slope <= 0:
-            raise ValueError(
-                "min_slope must be positive."
-            )
+            raise ValueError("min_slope must be positive.")
 
         if min_total_change <= 0:
-            raise ValueError(
-                "min_total_change must be positive."
-            )
+            raise ValueError("min_total_change must be positive.")
 
         if not 0.0 <= min_r_squared <= 1.0:
-            raise ValueError(
-                "min_r_squared must be between 0 and 1."
-            )
+            raise ValueError("min_r_squared must be between 0 and 1.")
 
         if required_consecutive_windows < 1:
-            raise ValueError(
-                "required_consecutive_windows must be at least 1."
-            )
+            raise ValueError("required_consecutive_windows must be at least 1.")
 
         if evaluation_step < 1:
-            raise ValueError(
-                "evaluation_step must be positive."
-            )
+            raise ValueError("evaluation_step must be positive.")
 
         self.window_size = int(window_size)
 
-        self.min_slope = float(
-            min_slope
-        )
+        self.min_slope = float(min_slope)
 
-        self.min_total_change = float(
-            min_total_change
-        )
+        self.min_total_change = float(min_total_change)
 
-        self.min_r_squared = float(
-            min_r_squared
-        )
+        self.min_r_squared = float(min_r_squared)
 
-        self.required_consecutive_windows = int(
-            required_consecutive_windows
-        )
+        self.required_consecutive_windows = int(required_consecutive_windows)
 
-        self.evaluation_step = int(
-            evaluation_step
-        )
+        self.evaluation_step = int(evaluation_step)
 
         # ------------------------------------------------------
         # Temperature history
         # ------------------------------------------------------
 
-        self.temperature_history = deque(
-            maxlen=self.window_size
-        )
+        self.temperature_history = deque(maxlen=self.window_size)
 
         self.samples_seen = 0
         self.samples_since_evaluation = 0
@@ -171,9 +147,7 @@ class TemporalDetector:
         # Historical evidence
         # ------------------------------------------------------
 
-        self.evidence_history = deque(
-            maxlen=100
-        )
+        self.evidence_history = deque(maxlen=100)
 
     # ==========================================================
     # Validation
@@ -185,26 +159,16 @@ class TemporalDetector:
     ):
 
         try:
-            temperature = float(
-                temperature
-            )
+            temperature = float(temperature)
 
         except (
             TypeError,
             ValueError,
         ) as exc:
+            raise ValueError("temperature must be numeric.") from exc
 
-            raise ValueError(
-                "temperature must be numeric."
-            ) from exc
-
-        if not math.isfinite(
-            temperature
-        ):
-
-            raise ValueError(
-                "temperature must be finite."
-            )
+        if not math.isfinite(temperature):
+            raise ValueError("temperature must be finite.")
 
         return temperature
 
@@ -217,19 +181,13 @@ class TemporalDetector:
         temperature,
     ):
 
-        temperature = (
-            self._validate_temperature(
-                temperature
-            )
-        )
+        temperature = self._validate_temperature(temperature)
 
         self.samples_seen += 1
 
         self.samples_since_evaluation += 1
 
-        self.temperature_history.append(
-            temperature
-        )
+        self.temperature_history.append(temperature)
 
         # is_drift is an event.
         self.last_is_drift = False
@@ -238,26 +196,15 @@ class TemporalDetector:
         # Warm-up
         # ------------------------------------------------------
 
-        if len(
-            self.temperature_history
-        ) < self.window_size:
-
-            return self._build_result(
-                is_drift=False
-            )
+        if len(self.temperature_history) < self.window_size:
+            return self._build_result(is_drift=False)
 
         # ------------------------------------------------------
         # Evaluation cadence
         # ------------------------------------------------------
 
-        if (
-            self.samples_since_evaluation
-            < self.evaluation_step
-        ):
-
-            return self._build_result(
-                is_drift=False
-            )
+        if self.samples_since_evaluation < self.evaluation_step:
+            return self._build_result(is_drift=False)
 
         self.samples_since_evaluation = 0
 
@@ -265,84 +212,53 @@ class TemporalDetector:
         # Calculate evidence
         # ------------------------------------------------------
 
-        evidence = (
-            self._evaluate_window()
-        )
+        evidence = self._evaluate_window()
 
         # ------------------------------------------------------
         # Public metrics
         # ------------------------------------------------------
 
-        self.last_slope = float(
-            evidence["slope"]
-        )
+        self.last_slope = float(evidence["slope"])
 
-        self.last_total_change = float(
-            evidence["total_change"]
-        )
+        self.last_total_change = float(evidence["total_change"])
 
-        self.last_r_squared = float(
-            evidence["r_squared"]
-        )
+        self.last_r_squared = float(evidence["r_squared"])
 
-        self.last_direction = (
-            evidence["direction"]
-        )
+        self.last_direction = evidence["direction"]
 
-        self.last_directional_fraction = float(
-            evidence["directional_fraction"]
-        )
+        self.last_directional_fraction = float(evidence["directional_fraction"])
 
-        self.last_is_trend = bool(
-            evidence["is_trend"]
-        )
+        self.last_is_trend = bool(evidence["is_trend"])
 
         # ------------------------------------------------------
         # Linear trend path
         # ------------------------------------------------------
 
-        trend_confirmed = (
-            self._process_trend_candidate(
-                evidence
-            )
-        )
+        trend_confirmed = self._process_trend_candidate(evidence)
 
-        strong_drift = (
-            self._is_strong_drift_window(
-                evidence
-            )
-        )
+        strong_drift = self._is_strong_drift_window(evidence)
 
         # ------------------------------------------------------
         # Level shift path
         # ------------------------------------------------------
 
-        level_confirmed = (
-            self._process_level_shift_candidate(
-                evidence
-            )
-        )
+        level_confirmed = self._process_level_shift_candidate(evidence)
 
         confirmed_now = bool(
-            (trend_confirmed and strong_drift)
-            or level_confirmed
-            or strong_drift
+            (trend_confirmed and strong_drift) or level_confirmed or strong_drift
         )
 
         # ------------------------------------------------------
         # Save evidence
         # ------------------------------------------------------
 
-        self.evidence_history.append(
-            dict(evidence)
-        )
+        self.evidence_history.append(dict(evidence))
 
         # ------------------------------------------------------
         # Confirmation
         # ------------------------------------------------------
 
         if confirmed_now:
-
             self.last_is_drift = True
 
             self.drift_confirmed = True
@@ -355,9 +271,7 @@ class TemporalDetector:
 
             self._clear_level_shift_candidate()
 
-        return self._build_result(
-            is_drift=confirmed_now
-        )
+        return self._build_result(is_drift=confirmed_now)
 
     # ==========================================================
     # Calculate rolling metrics
@@ -381,131 +295,71 @@ class TemporalDetector:
         # Linear regression
         # ------------------------------------------------------
 
-        x_mean = float(
-            np.mean(x)
-        )
+        x_mean = float(np.mean(x))
 
-        y_mean = float(
-            np.mean(values)
-        )
+        y_mean = float(np.mean(values))
 
-        x_centered = (
-            x - x_mean
-        )
+        x_centered = x - x_mean
 
-        y_centered = (
-            values - y_mean
-        )
+        y_centered = values - y_mean
 
-        denominator = float(
-            np.sum(
-                x_centered ** 2
-            )
-        )
+        denominator = float(np.sum(x_centered**2))
 
         if denominator <= 0:
-
             slope = 0.0
 
         else:
+            slope = float(np.sum(x_centered * y_centered) / denominator)
 
-            slope = float(
-                np.sum(
-                    x_centered
-                    * y_centered
-                )
-                / denominator
-            )
+        predicted = y_mean + slope * x_centered
 
-        predicted = (
-            y_mean
-            + slope
-            * x_centered
-        )
+        ss_res = float(np.sum((values - predicted) ** 2))
 
-        ss_res = float(
-            np.sum(
-                (values - predicted) ** 2
-            )
-        )
-
-        ss_tot = float(
-            np.sum(
-                (values - y_mean) ** 2
-            )
-        )
+        ss_tot = float(np.sum((values - y_mean) ** 2))
 
         if ss_tot <= 1e-12:
-
             r_squared = 0.0
 
         else:
-
             r_squared = max(
                 0.0,
                 min(
                     1.0,
-                    1.0
-                    - (
-                        ss_res
-                        / ss_tot
-                    ),
+                    1.0 - (ss_res / ss_tot),
                 ),
             )
 
-        total_change = float(
-            values[-1]
-            - values[0]
-        )
+        total_change = float(values[-1] - values[0])
 
         # ------------------------------------------------------
         # Direction
         # ------------------------------------------------------
 
         if slope > 0:
-
             direction = "up"
 
         elif slope < 0:
-
             direction = "down"
 
         else:
-
             direction = None
 
         # ------------------------------------------------------
         # Directional fraction
         # ------------------------------------------------------
 
-        differences = np.diff(
-            values
-        )
+        differences = np.diff(values)
 
-        if len(
-            differences
-        ) == 0:
-
+        if len(differences) == 0:
             directional_fraction = 0.0
 
         elif direction == "up":
-
-            directional_fraction = float(
-                np.mean(
-                    differences >= 0
-                )
-            )
+            directional_fraction = float(np.mean(differences >= 0))
 
         elif direction == "down":
-
-            directional_fraction = float(
-                np.mean(
-                    differences <= 0
-                )
-            )
+            directional_fraction = float(np.mean(differences <= 0))
 
         else:
-
             directional_fraction = 0.0
 
         # ------------------------------------------------------
@@ -517,52 +371,22 @@ class TemporalDetector:
             n // 2,
         )
 
-        older_start = (
-            n
-            - (
-                recent_n * 2
-            )
-        )
+        older_start = n - (recent_n * 2)
 
-        older_end = (
-            n
-            - recent_n
-        )
+        older_end = n - recent_n
 
         if older_start >= 0:
+            older_values = values[older_start:older_end]
 
-            older_values = (
-                values[
-                    older_start:
-                    older_end
-                ]
-            )
+            recent_values = values[older_end:]
 
-            recent_values = (
-                values[
-                    older_end:
-                ]
-            )
+            older_mean = float(np.mean(older_values))
 
-            older_mean = float(
-                np.mean(
-                    older_values
-                )
-            )
+            recent_mean = float(np.mean(recent_values))
 
-            recent_mean = float(
-                np.mean(
-                    recent_values
-                )
-            )
-
-            level_shift = (
-                recent_mean
-                - older_mean
-            )
+            level_shift = recent_mean - older_mean
 
         else:
-
             older_mean = y_mean
 
             recent_mean = y_mean
@@ -576,26 +400,13 @@ class TemporalDetector:
         half = n // 2
 
         if half > 0:
+            first_half_mean = float(np.mean(values[:half]))
 
-            first_half_mean = float(
-                np.mean(
-                    values[:half]
-                )
-            )
+            second_half_mean = float(np.mean(values[-half:]))
 
-            second_half_mean = float(
-                np.mean(
-                    values[-half:]
-                )
-            )
-
-            smoothed_change = (
-                second_half_mean
-                - first_half_mean
-            )
+            smoothed_change = second_half_mean - first_half_mean
 
         else:
-
             smoothed_change = 0.0
 
         # ------------------------------------------------------
@@ -603,14 +414,9 @@ class TemporalDetector:
         # ------------------------------------------------------
 
         is_trend = bool(
-            abs(slope)
-            >= self.min_slope
-            and
-            abs(total_change)
-            >= self.min_total_change
-            and
-            r_squared
-            >= self.min_r_squared
+            abs(slope) >= self.min_slope
+            and abs(total_change) >= self.min_total_change
+            and r_squared >= self.min_r_squared
         )
 
         return {
@@ -618,21 +424,12 @@ class TemporalDetector:
             "total_change": total_change,
             "r_squared": r_squared,
             "direction": direction,
-            "directional_fraction":
-                directional_fraction,
+            "directional_fraction": directional_fraction,
             "is_trend": is_trend,
-
-            "older_mean":
-                older_mean,
-
-            "recent_mean":
-                recent_mean,
-
-            "level_shift":
-                level_shift,
-
-            "smoothed_change":
-                smoothed_change,
+            "older_mean": older_mean,
+            "recent_mean": recent_mean,
+            "level_shift": level_shift,
+            "smoothed_change": smoothed_change,
         }
 
     # ==========================================================
@@ -652,17 +449,11 @@ class TemporalDetector:
         evidence,
     ):
 
-        slope = abs(
-            evidence["slope"]
-        )
+        slope = abs(evidence["slope"])
 
-        total_change = abs(
-            evidence["total_change"]
-        )
+        total_change = abs(evidence["total_change"])
 
-        r_squared = (
-            evidence["r_squared"]
-        )
+        r_squared = evidence["r_squared"]
 
         strong_slope = max(
             self.min_slope * 3.0,
@@ -679,30 +470,19 @@ class TemporalDetector:
             0.24,
         )
 
-        directional_fraction = float(
-            evidence["directional_fraction"]
-        )
+        directional_fraction = float(evidence["directional_fraction"])
 
-        level_shift = abs(
-            float(evidence["level_shift"])
-        )
+        level_shift = abs(float(evidence["level_shift"]))
 
-        gradual_change = abs(
-            float(evidence["total_change"])
-        )
+        gradual_change = abs(float(evidence["total_change"]))
 
         return bool(
             slope >= strong_slope
-            and
-            total_change >= strong_change
-            and
-            r_squared >= strong_r_squared
-            and
-            directional_fraction >= 0.55
-            and
-            level_shift < 1.5
-            and
-            gradual_change < 4.5
+            and total_change >= strong_change
+            and r_squared >= strong_r_squared
+            and directional_fraction >= 0.55
+            and level_shift < 1.5
+            and gradual_change < 4.5
         )
 
     # ==========================================================
@@ -714,66 +494,33 @@ class TemporalDetector:
         evidence,
     ):
 
-        is_trend = bool(
-            evidence["is_trend"]
-        )
+        is_trend = bool(evidence["is_trend"])
 
-        direction = (
-            evidence["direction"]
-        )
+        direction = evidence["direction"]
 
         # ------------------------------------------------------
         # Existing candidate
         # ------------------------------------------------------
 
         if self.candidate_active:
+            if is_trend and direction == self.candidate_direction:
+                gap = self.samples_seen - self.candidate_last_sample
 
-            if (
-                is_trend
-                and
-                direction
-                == self.candidate_direction
-            ):
-
-                gap = (
-                    self.samples_seen
-                    - self.candidate_last_sample
-                )
-
-                if (
-                    gap
-                    <= self.max_candidate_gap
-                ):
-
+                if gap <= self.max_candidate_gap:
                     self.candidate_windows += 1
 
-                    self.candidate_last_sample = (
-                        self.samples_seen
-                    )
+                    self.candidate_last_sample = self.samples_seen
 
-                    if (
-                        self.candidate_windows
-                        >= self.required_consecutive_windows
-                    ):
-
+                    if self.candidate_windows >= self.required_consecutive_windows:
                         return True
 
                 else:
-
                     self._clear_trend_candidate()
 
             else:
+                gap = self.samples_seen - self.candidate_last_sample
 
-                gap = (
-                    self.samples_seen
-                    - self.candidate_last_sample
-                )
-
-                if (
-                    gap
-                    > self.max_candidate_gap
-                ):
-
+                if gap > self.max_candidate_gap:
                     self._clear_trend_candidate()
 
         # ------------------------------------------------------
@@ -781,28 +528,17 @@ class TemporalDetector:
         # ------------------------------------------------------
 
         elif is_trend:
-
             self.candidate_active = True
 
-            self.candidate_direction = (
-                direction
-            )
+            self.candidate_direction = direction
 
             self.candidate_windows = 1
 
-            self.candidate_start_sample = (
-                self.samples_seen
-            )
+            self.candidate_start_sample = self.samples_seen
 
-            self.candidate_last_sample = (
-                self.samples_seen
-            )
+            self.candidate_last_sample = self.samples_seen
 
-            if (
-                self.candidate_windows
-                >= self.required_consecutive_windows
-            ):
-
+            if self.candidate_windows >= self.required_consecutive_windows:
                 return True
 
         return False
@@ -830,49 +566,31 @@ class TemporalDetector:
         This deliberately rejects ordinary noisy fluctuations.
         """
 
-        shift = float(
-            evidence["level_shift"]
-        )
+        shift = float(evidence["level_shift"])
 
-        smoothed_change = float(
-            evidence["smoothed_change"]
-        )
+        smoothed_change = float(evidence["smoothed_change"])
 
-        directional_fraction = float(
-            evidence["directional_fraction"]
-        )
+        directional_fraction = float(evidence["directional_fraction"])
 
         # ------------------------------------------------------
         # Minimum level movement
         # ------------------------------------------------------
 
-        if (
-            abs(shift)
-            < self.min_level_shift
-        ):
-
+        if abs(shift) < self.min_level_shift:
             return False
 
         # ------------------------------------------------------
         # Whole-window movement must agree
         # ------------------------------------------------------
 
-        if (
-            abs(smoothed_change)
-            < self.min_level_shift
-        ):
-
+        if abs(smoothed_change) < self.min_level_shift:
             return False
 
         # ------------------------------------------------------
         # Reject noisy/non-directional windows
         # ------------------------------------------------------
 
-        if (
-            directional_fraction
-            < 0.58
-        ):
-
+        if directional_fraction < 0.58:
             return False
 
         # ------------------------------------------------------
@@ -880,16 +598,10 @@ class TemporalDetector:
         # ------------------------------------------------------
 
         if shift > 0:
-
-            return (
-                smoothed_change > 0
-            )
+            return smoothed_change > 0
 
         if shift < 0:
-
-            return (
-                smoothed_change < 0
-            )
+            return smoothed_change < 0
 
         return False
 
@@ -902,32 +614,17 @@ class TemporalDetector:
         evidence,
     ):
 
-        is_shift = (
-            self._is_level_shift_window(
-                evidence
-            )
-        )
+        is_shift = self._is_level_shift_window(evidence)
 
         # ------------------------------------------------------
         # Current window is not evidence
         # ------------------------------------------------------
 
         if not is_shift:
+            if self.level_shift_candidate_active:
+                gap = self.samples_seen - self.level_shift_last_sample
 
-            if (
-                self.level_shift_candidate_active
-            ):
-
-                gap = (
-                    self.samples_seen
-                    - self.level_shift_last_sample
-                )
-
-                if (
-                    gap
-                    > self.max_level_shift_gap
-                ):
-
+                if gap > self.max_level_shift_gap:
                     self._clear_level_shift_candidate()
 
             return False
@@ -936,65 +633,43 @@ class TemporalDetector:
         # Determine direction
         # ------------------------------------------------------
 
-        direction = (
-            "up"
-            if evidence["level_shift"] > 0
-            else "down"
-        )
+        direction = "up" if evidence["level_shift"] > 0 else "down"
 
         # ------------------------------------------------------
         # Start candidate
         # ------------------------------------------------------
 
         if not self.level_shift_candidate_active:
-
             self.level_shift_candidate_active = True
 
-            self.level_shift_direction = (
-                direction
-            )
+            self.level_shift_direction = direction
 
             self.level_shift_candidate_windows = 1
 
-            self.level_shift_start_sample = (
-                self.samples_seen
-            )
+            self.level_shift_start_sample = self.samples_seen
 
-            self.level_shift_last_sample = (
-                self.samples_seen
-            )
+            self.level_shift_last_sample = self.samples_seen
 
             return (
-                self.level_shift_candidate_windows
-                >= self.level_shift_required_windows
+                self.level_shift_candidate_windows >= self.level_shift_required_windows
             )
 
         # ------------------------------------------------------
         # Direction changed
         # ------------------------------------------------------
 
-        if (
-            direction
-            != self.level_shift_direction
-        ):
-
+        if direction != self.level_shift_direction:
             self._clear_level_shift_candidate()
 
             self.level_shift_candidate_active = True
 
-            self.level_shift_direction = (
-                direction
-            )
+            self.level_shift_direction = direction
 
             self.level_shift_candidate_windows = 1
 
-            self.level_shift_start_sample = (
-                self.samples_seen
-            )
+            self.level_shift_start_sample = self.samples_seen
 
-            self.level_shift_last_sample = (
-                self.samples_seen
-            )
+            self.level_shift_last_sample = self.samples_seen
 
             return False
 
@@ -1002,16 +677,9 @@ class TemporalDetector:
         # Check gap
         # ------------------------------------------------------
 
-        gap = (
-            self.samples_seen
-            - self.level_shift_last_sample
-        )
+        gap = self.samples_seen - self.level_shift_last_sample
 
-        if (
-            gap
-            > self.max_level_shift_gap
-        ):
-
+        if gap > self.max_level_shift_gap:
             self._clear_level_shift_candidate()
 
             return False
@@ -1022,14 +690,9 @@ class TemporalDetector:
 
         self.level_shift_candidate_windows += 1
 
-        self.level_shift_last_sample = (
-            self.samples_seen
-        )
+        self.level_shift_last_sample = self.samples_seen
 
-        return (
-            self.level_shift_candidate_windows
-            >= self.level_shift_required_windows
-        )
+        return self.level_shift_candidate_windows >= self.level_shift_required_windows
 
     # ==========================================================
     # Candidate clearing
@@ -1075,96 +738,35 @@ class TemporalDetector:
     def get_state(self):
 
         return {
-            "window_size":
-                self.window_size,
-
-            "min_slope":
-                self.min_slope,
-
-            "min_total_change":
-                self.min_total_change,
-
-            "min_r_squared":
-                self.min_r_squared,
-
-            "required_consecutive_windows":
-                self.required_consecutive_windows,
-
-            "evaluation_step":
-                self.evaluation_step,
-
-            "sample_count":
-                self.samples_seen,
-
-            "history_size":
-                len(
-                    self.temperature_history
-                ),
-
-            "drift_confirmed":
-                self.drift_confirmed,
-
-            "candidate_active":
-                self.candidate_active,
-
-            "candidate_direction":
-                self.candidate_direction,
-
-            "candidate_windows":
-                self.candidate_windows,
-
-            "level_shift_candidate_active":
-                self.level_shift_candidate_active,
-
-            "level_shift_direction":
-                self.level_shift_direction,
-
-            "level_shift_candidate_windows":
-                self.level_shift_candidate_windows,
-
-            "level_shift_window":
-                self.level_shift_window,
-
-            "min_level_shift":
-                self.min_level_shift,
-
-            "consecutive_windows":
-                self.candidate_windows,
-
-            "consecutive_trend_windows":
-                self.candidate_windows,
-
-            "direction":
-                self.last_direction,
-
-            "slope":
-                self.last_slope,
-
-            "total_change":
-                self.last_total_change,
-
-            "r_squared":
-                self.last_r_squared,
-
-            "directional_fraction":
-                self.last_directional_fraction,
-
-            "is_trend":
-                self.last_is_trend,
-
-            "is_drift":
-                self.last_is_drift,
-
-            "validation_windows":
-                self.validation_windows,
-
-            "validation_complete":
-                self.validation_complete,
-
-            "evidence_history_size":
-                len(
-                    self.evidence_history
-                ),
+            "window_size": self.window_size,
+            "min_slope": self.min_slope,
+            "min_total_change": self.min_total_change,
+            "min_r_squared": self.min_r_squared,
+            "required_consecutive_windows": self.required_consecutive_windows,
+            "evaluation_step": self.evaluation_step,
+            "sample_count": self.samples_seen,
+            "history_size": len(self.temperature_history),
+            "drift_confirmed": self.drift_confirmed,
+            "candidate_active": self.candidate_active,
+            "candidate_direction": self.candidate_direction,
+            "candidate_windows": self.candidate_windows,
+            "level_shift_candidate_active": self.level_shift_candidate_active,
+            "level_shift_direction": self.level_shift_direction,
+            "level_shift_candidate_windows": self.level_shift_candidate_windows,
+            "level_shift_window": self.level_shift_window,
+            "min_level_shift": self.min_level_shift,
+            "consecutive_windows": self.candidate_windows,
+            "consecutive_trend_windows": self.candidate_windows,
+            "direction": self.last_direction,
+            "slope": self.last_slope,
+            "total_change": self.last_total_change,
+            "r_squared": self.last_r_squared,
+            "directional_fraction": self.last_directional_fraction,
+            "is_trend": self.last_is_trend,
+            "is_drift": self.last_is_drift,
+            "validation_windows": self.validation_windows,
+            "validation_complete": self.validation_complete,
+            "evidence_history_size": len(self.evidence_history),
         }
 
     # ==========================================================
@@ -1177,88 +779,31 @@ class TemporalDetector:
     ):
 
         if is_drift:
-
-            state = (
-                "drift_confirmed"
-            )
+            state = "drift_confirmed"
 
         elif self.candidate_active:
+            state = "trend_candidate"
 
-            state = (
-                "trend_candidate"
-            )
-
-        elif (
-            self.level_shift_candidate_active
-        ):
-
-            state = (
-                "level_shift_candidate"
-            )
+        elif self.level_shift_candidate_active:
+            state = "level_shift_candidate"
 
         else:
-
             state = "monitoring"
 
         return {
-            "is_drift":
-                bool(is_drift),
-
-            "state":
-                state,
-
-            "direction":
-                self.last_direction,
-
-            "slope":
-                float(
-                    self.last_slope
-                ),
-
-            "total_change":
-                float(
-                    self.last_total_change
-                ),
-
-            "r_squared":
-                float(
-                    self.last_r_squared
-                ),
-
-            "directional_fraction":
-                float(
-                    self.last_directional_fraction
-                ),
-
-            "is_trend":
-                bool(
-                    self.last_is_trend
-                ),
-
-            "drift_confirmed":
-                bool(
-                    self.drift_confirmed
-                ),
-
-            "consecutive_windows":
-                int(
-                    self.candidate_windows
-                ),
-
-            "consecutive_trend_windows":
-                int(
-                    self.candidate_windows
-                ),
-
-            "level_shift_candidate_windows":
-                int(
-                    self.level_shift_candidate_windows
-                ),
-
-            "sample_count":
-                int(
-                    self.samples_seen
-                ),
+            "is_drift": bool(is_drift),
+            "state": state,
+            "direction": self.last_direction,
+            "slope": float(self.last_slope),
+            "total_change": float(self.last_total_change),
+            "r_squared": float(self.last_r_squared),
+            "directional_fraction": float(self.last_directional_fraction),
+            "is_trend": bool(self.last_is_trend),
+            "drift_confirmed": bool(self.drift_confirmed),
+            "consecutive_windows": int(self.candidate_windows),
+            "consecutive_trend_windows": int(self.candidate_windows),
+            "level_shift_candidate_windows": int(self.level_shift_candidate_windows),
+            "sample_count": int(self.samples_seen),
         }
 
     # ==========================================================
@@ -1308,6 +853,4 @@ class TemporalDetector:
         temperature,
     ):
 
-        return self.update(
-            temperature
-        )
+        return self.update(temperature)

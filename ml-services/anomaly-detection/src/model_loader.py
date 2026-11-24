@@ -1,5 +1,5 @@
-from pathlib import Path
 import json
+from pathlib import Path
 
 import joblib
 import numpy as np
@@ -9,7 +9,6 @@ import shap
 from .adaptive_threshold import (
     get_adaptive_threshold,
 )
-
 
 project_root = Path(__file__).resolve().parent.parent
 models_dir = project_root / "models"
@@ -31,7 +30,6 @@ def get_model_metadata():
     metadata_path = models_dir / "model_metadata.json"
 
     if not metadata_path.exists():
-
         metadata = {
             "model_version": "1.0.0",
             "last_retrained": None,
@@ -59,18 +57,12 @@ def make_prediction(model):
     def predict_with_feature_names(values):
 
         if isinstance(values, pd.DataFrame):
-
-            model_input = values[
-                feature_names
-            ].to_numpy()
+            model_input = values[feature_names].to_numpy()
 
         else:
-
             model_input = np.asarray(values)
 
-        return model.score(
-            model_input
-        )
+        return model.score(model_input)
 
     return predict_with_feature_names
 
@@ -95,7 +87,6 @@ def get_incident_library():
     global _incident_library
 
     if _incident_library is None:
-
         library_path = models_dir / "incident_library.joblib"
 
         if not library_path.exists():
@@ -111,40 +102,22 @@ def get_models():
     global _models
 
     if _models is None:
-
         model_paths = {
-            "iforest": (
-                models_dir
-                / "isolation_forest_model.joblib"
-            ),
-            "lof": (
-                models_dir
-                / "lof_model.joblib"
-            ),
-            "ocsvm": (
-                models_dir
-                / "one_class_svm_model.joblib"
-            ),
+            "iforest": (models_dir / "isolation_forest_model.joblib"),
+            "lof": (models_dir / "lof_model.joblib"),
+            "ocsvm": (models_dir / "one_class_svm_model.joblib"),
         }
 
-        missing = [
-            str(path.name)
-            for path in model_paths.values()
-            if not path.exists()
-        ]
+        missing = [str(path.name) for path in model_paths.values() if not path.exists()]
 
         if missing:
-
             raise FileNotFoundError(
                 "Model artifacts not found. "
                 "Run 'python main.py' to generate "
                 "the trained models."
             )
 
-        _models = {
-            name: joblib.load(path)
-            for name, path in model_paths.items()
-        }
+        _models = {name: joblib.load(path) for name, path in model_paths.items()}
 
     return _models
 
@@ -154,23 +127,16 @@ def get_background():
     global _background
 
     if _background is None:
-
-        background_path = (
-            models_dir
-            / "background_sample.csv"
-        )
+        background_path = models_dir / "background_sample.csv"
 
         if not background_path.exists():
-
             raise FileNotFoundError(
                 "background_sample.csv not found. "
                 "Run 'python main.py' to generate "
                 "the required artifacts."
             )
 
-        _background = pd.read_csv(
-            background_path
-        ).to_numpy()
+        _background = pd.read_csv(background_path).to_numpy()
 
     return _background
 
@@ -180,29 +146,19 @@ def get_explainer(model_name):
     global masker
 
     if model_name not in explainers:
-
         if masker is None:
+            masker = shap.maskers.Independent(get_background())
 
-            masker = shap.maskers.Independent(
-                get_background()
-            )
-
-        model = get_models()[
-            model_name
-        ]
+        model = get_models()[model_name]
 
         try:
-
-            explainers[model_name] = (
-                shap.Explainer(
-                    make_prediction(model),
-                    masker,
-                    feature_names=feature_names,
-                )
+            explainers[model_name] = shap.Explainer(
+                make_prediction(model),
+                masker,
+                feature_names=feature_names,
             )
 
-        except Exception:
-
+        except Exception:  # noqa: BLE001 - no explainer for this model
             explainers[model_name] = None
 
     return explainers[model_name]
@@ -211,6 +167,7 @@ def get_explainer(model_name):
 # ------------------------------------------------------------
 # Adaptive Threshold Calibration
 # ------------------------------------------------------------
+
 
 def initialize_adaptive_thresholds():
     """
@@ -242,34 +199,24 @@ def initialize_adaptive_thresholds():
     global _adaptive_thresholds_initialized
 
     if _adaptive_thresholds_initialized:
-
         return
 
-    calibration_path = (
-        output_dir
-        / "calibration_normal.csv"
-    )
+    calibration_path = output_dir / "calibration_normal.csv"
 
     if not calibration_path.exists():
-
         raise FileNotFoundError(
             "calibration_normal.csv not found. "
             "Run the calibration data generation step "
             "before using adaptive prediction."
         )
 
-    calibration_df = pd.read_csv(
-        calibration_path
-    )
+    calibration_df = pd.read_csv(calibration_path)
 
     missing_columns = [
-        column
-        for column in feature_names
-        if column not in calibration_df.columns
+        column for column in feature_names if column not in calibration_df.columns
     ]
 
     if missing_columns:
-
         raise ValueError(
             "Calibration dataset is missing "
             "required feature columns: "
@@ -277,25 +224,14 @@ def initialize_adaptive_thresholds():
         )
 
     if calibration_df.empty:
+        raise ValueError("calibration_normal.csv contains no calibration samples.")
 
-        raise ValueError(
-            "calibration_normal.csv contains "
-            "no calibration samples."
-        )
-
-    X_calibration = (
-        calibration_df[
-            feature_names
-        ].to_numpy()
-    )
+    X_calibration = calibration_df[feature_names].to_numpy()
 
     models = get_models()
 
     for model_name, model in models.items():
-
-        raw_scores = model.score(
-            X_calibration
-        )
+        raw_scores = model.score(X_calibration)
 
         # Project convention:
         #
@@ -306,13 +242,9 @@ def initialize_adaptive_thresholds():
             dtype=float,
         )
 
-        manager = get_adaptive_threshold(
-            model_name
-        )
+        manager = get_adaptive_threshold(model_name)
 
-        manager.initialize(
-            anomaly_scores
-        )
+        manager.initialize(anomaly_scores)
 
     _adaptive_thresholds_initialized = True
 

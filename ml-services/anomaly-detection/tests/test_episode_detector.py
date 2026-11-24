@@ -5,19 +5,18 @@ import pytest
 from src.episode_detector import EpisodeDetector
 from src.stream_events import build_anomaly_event
 
-
 T0 = datetime(2026, 1, 1, tzinfo=UTC)
 STEP = timedelta(minutes=5)
 GAP = 3 * STEP
 
 NORMAL = 0.0
-FLAG = 1.5      # >= threshold 1.0, below the severe level (4.0)
+FLAG = 1.5  # >= threshold 1.0, below the severe level (4.0)
 SEVERE = 10.0
 
 
 def make(**overrides):
 
-    params = dict(gap=GAP, scale=1.0, min_flagged_readings=2, severe_margin=3.0)
+    params = {"gap": GAP, "scale": 1.0, "min_flagged_readings": 2, "severe_margin": 3.0}
     params.update(overrides)
 
     return EpisodeDetector(**params)
@@ -29,7 +28,6 @@ def feed(detector, scores, sensor="s1", threshold=1.0):
     out = []
 
     for i, score in enumerate(scores):
-
         episode = detector.process(
             sensor, T0 + i * STEP, score, threshold, reading={"i": i}
         )
@@ -49,7 +47,7 @@ def test_two_flags_make_one_episode():
 
     index, ep = out[0]
 
-    assert index == 5                      # closed by the first reading after the gap
+    assert index == 5  # closed by the first reading after the gap
     assert ep["window_start"] == T0
     assert ep["window_end"] == T0 + STEP
     assert ep["n_flagged"] == 2
@@ -262,7 +260,12 @@ def test_episode_output_fits_the_event_builder():
     event = build_anomaly_event(
         **ep,
         top_features=[
-            {"feature": "temperature", "contribution": 1.0, "shap_value": 0.1, "direction": "high"}
+            {
+                "feature": "temperature",
+                "contribution": 1.0,
+                "shap_value": 0.1,
+                "direction": "high",
+            }
         ],
         model_version="test",
     )

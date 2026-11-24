@@ -58,17 +58,13 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install ruff==0.17.4 mypy==1.14.0 bandit==1.9.4 pip-audit==2.7.3 pytest-cov==6.0.0
 
-      # Report-only until the owner issue linked in the PR is closed.
-      - name: Ruff lint (report-only)
-        continue-on-error: true
+      - name: Ruff lint
         run: python -m ruff check --output-format=github .
 
-      - name: Ruff format check (report-only)
-        continue-on-error: true
+      - name: Ruff format check
         run: python -m ruff format --check .
 
-      - name: Mypy (report-only)
-        continue-on-error: true
+      - name: Mypy
         run: python -m mypy src --ignore-missing-imports
 
       - name: Python syntax check
@@ -77,8 +73,7 @@ jobs:
       - name: Bandit (code security)
         run: python -m bandit -r src -ll
 
-      - name: pip-audit (report-only)
-        continue-on-error: true
+      - name: pip-audit
         run: python -m pip_audit --desc --skip-editable
 
       - name: Unit tests with coverage
@@ -91,14 +86,14 @@ jobs:
             --cov-report=xml:coverage.xml \
             --cov-fail-under=65
 
-      # Display only. Must not fail the job.
+      # Fails if coverage cannot read a recorded file, for example a
+      # temporary MLflow model/code copy that .coveragerc should omit.
       - name: Coverage summary
         if: always()
-        continue-on-error: true
         run: |
           echo "## Coverage Summary - ${{ env.IMAGE_NAME }}" >> "$GITHUB_STEP_SUMMARY"
           if [ -f .coverage ]; then
-            python -m coverage report --format=markdown -i >> "$GITHUB_STEP_SUMMARY"
+            python -m coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Upload coverage report
@@ -138,9 +133,7 @@ jobs:
           docker run --rm ${{ env.IMAGE_NAME }}:${{ github.sha }} \
             python -c "import src.stream_consumer; print('image imports OK')"
 
-      # Report-only until the owner issue linked in the PR is closed.
-      - name: Scan image with Trivy (report-only)
-        continue-on-error: true
+      - name: Scan image with Trivy
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
           image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
