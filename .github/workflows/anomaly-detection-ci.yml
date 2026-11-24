@@ -58,17 +58,13 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install ruff==0.17.4 mypy==1.14.0 bandit==1.9.4 pip-audit==2.7.3 pytest-cov==6.0.0
 
-      # Report-only until the owner issue linked in the PR is closed.
-      - name: Ruff lint (report-only)
-        continue-on-error: true
+      - name: Ruff lint
         run: python -m ruff check --output-format=github .
 
-      - name: Ruff format check (report-only)
-        continue-on-error: true
+      - name: Ruff format check
         run: python -m ruff format --check .
 
-      - name: Mypy (report-only)
-        continue-on-error: true
+      - name: Mypy
         run: python -m mypy src --ignore-missing-imports
 
       - name: Python syntax check
@@ -138,9 +134,7 @@ jobs:
           docker run --rm ${{ env.IMAGE_NAME }}:${{ github.sha }} \
             python -c "import src.stream_consumer; print('image imports OK')"
 
-      # Report-only until the owner issue linked in the PR is closed.
-      - name: Scan image with Trivy (report-only)
-        continue-on-error: true
+      - name: Scan image with Trivy
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
           image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
