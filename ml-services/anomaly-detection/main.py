@@ -55,9 +55,6 @@ def main():
 
         all_results.append(results)
 
-        # Optional: generate plot
-        # generate_plot(df)
-
     final_results = pd.concat(
         all_results,
         ignore_index=True,

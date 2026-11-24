@@ -10,7 +10,7 @@ uvicorn
 pytest
 httpx
 requests
-mlflow==3.17.0
+mlflow==3.17.2
 boto3==1.44.5
 confluent-kafka==2.15.1
 influxdb-client==1.50.0

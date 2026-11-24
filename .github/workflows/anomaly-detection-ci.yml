@@ -73,8 +73,7 @@ jobs:
       - name: Bandit (code security)
         run: python -m bandit -r src -ll
 
-      - name: pip-audit (report-only)
-        continue-on-error: true
+      - name: pip-audit
         run: python -m pip_audit --desc --skip-editable
 
       - name: Unit tests with coverage
@@ -87,14 +86,14 @@ jobs:
             --cov-report=xml:coverage.xml \
             --cov-fail-under=65
 
-      # Display only. Must not fail the job.
+      # Fails if coverage cannot read a recorded file, for example a
+      # temporary MLflow model/code copy that .coveragerc should omit.
       - name: Coverage summary
         if: always()
-        continue-on-error: true
         run: |
           echo "## Coverage Summary - ${{ env.IMAGE_NAME }}" >> "$GITHUB_STEP_SUMMARY"
           if [ -f .coverage ]; then
-            python -m coverage report --format=markdown -i >> "$GITHUB_STEP_SUMMARY"
+            python -m coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Upload coverage report
