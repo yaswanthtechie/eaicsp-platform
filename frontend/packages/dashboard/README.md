@@ -14,6 +14,7 @@ frontend/
             |    ├── auth.ts
             |    ├── kpis.ts
             |    ├── inventory.ts
+            |    ├── supplierScoreCard.ts
             |    └── dashboardGraphql.ts
             ├── components/
             │   ├── AlertsPanel.tsx
@@ -46,6 +47,8 @@ frontend/
             |       ├── popover.tsx
             |       ├── separator.tsx
             |       └── select.tsx
+            ├── pages/
+            |   └── SupplierScorecard.tsx
             ├── graphql/
             │   ├── client.ts
             |   ├── queries.ts
@@ -97,6 +100,7 @@ frontend/
             |   ├── setup.ts
             |   ├── SupplierRiskDistribution.test.tsx
             │   ├── SupplierRisk.test.tsx
+            |   ├── SupplierScorecard.test.tsx
             |   ├── dashboardGraphql.test.tsx
             │   ├── AlertMapper.test.tsx
             |   ├── theme.test.tsx
@@ -1235,11 +1239,11 @@ npm run test:e2e
 
 Test verification completed successfully.
 
-* Vitest: 26 test files, 254/254 tests passed
+* Vitest: 28 test files, 270/270 tests passed
 * Playwright Dashboard E2E: 4/4 tests passed
 * Authentication E2E: 14/14 passed with valid credentials.
 * Live Alerts WebSocket: 1/1 test  passed.
-* Total: 273 tests passed across the three reported test groups.
+* Total: 289 tests passed across the four reported test groups.
 
 The authentication tests are run separately using
 npm run test:e2e:auth.
@@ -1698,3 +1702,49 @@ The dashboard supports two modes through VITE_USE_MOCK_INVENTORY_NAMES in `.env.
 VITE_USE_MOCK_INVENTORY_NAMES=true – Uses synthetic mock product and warehouse names for development preview.
 
 VITE_USE_MOCK_INVENTORY_NAMES=false – Uses the real Inventory service endpoints through the API Gateway.
+
+## R15 [C8] — Supplier Risk Scorecard
+
+### Overview
+
+Implemented a Supplier Risk Scorecard to help buyers monitor supplier risk and delivery performance.
+
+### Features
+
+- Displays supplier name, supplier ID, risk score, and risk tier.
+- Shows on-time delivery percentage and incidents in the last 12 months.
+- Displays the top three risk reasons when a supplier is selected.
+- Supports sorting, with highest-risk suppliers shown first by default.
+- Displays **Not tracked** when on-time delivery data is unavailable.
+- Handles loading, empty, and error states.
+- Keeps available data visible when one API fails.
+
+### API Integration
+
+Integrated the following API Gateway endpoints:
+
+- `GET /api/v1/suppliers/{supplier_id}/risk-score` — Supplier risk score, tier, and risk reasons.
+- `GET /api/v1/inventory/suppliers/performance` — Supplier details and delivery performance.
+
+### Routing and Navigation
+
+- `/` — Executive Dashboard.
+- `/suppliers` — Supplier Risk Scorecard.
+- Added navigation between both pages using React Router.
+- Supports direct URL access and browser Back/Forward navigation.
+
+### Testing
+
+Added tests for sorting, missing delivery data, supplier risk details, and API failure handling.
+
+### Files Updated
+
+- `src/pages/SupplierScorecard.tsx`
+- `src/api/supplierScoreCard.ts`
+- `src/test/SupplierScorecard.test.tsx`
+
+### Backend Verification
+
+- Verified the risk endpoint for 60 suppliers; three currently returned populated risk scores.
+- Verified the performance endpoint for 60 suppliers; on-time delivery data was unavailable because no purchase orders were recorded.
+- Missing backend data is displayed as unavailable instead of using fabricated values.

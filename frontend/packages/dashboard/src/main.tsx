@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ApolloProvider } from "@apollo/client/react";
+import { BrowserRouter } from "react-router-dom";
 import './index.css';
 import App from './App.tsx';
 import { apolloClient } from './graphql/client.ts';
@@ -13,7 +14,9 @@ applyTokenTheme();
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <ApolloProvider client={apolloClient}>
-        <App />
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
       </ApolloProvider>
     </StrictMode>,
   )
