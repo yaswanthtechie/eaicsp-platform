@@ -19,6 +19,9 @@ TABLES = (
     "purchase_orders",
     "po_lines",
     "goods_receipt_lines",
+    "client_daily_sales",
+    "client_stock_cover",
+    "client_supplier_on_time",
 )
 
 VIEWS = (
@@ -149,8 +152,8 @@ def test_apply_ddl_uses_fake_client_and_is_repeatable(monkeypatch):
     expected += [f"views/{view}.sql" for view in VIEWS]
 
     assert first == second == expected
-    assert len(first_commands) == 12  # database + 7 tables + 4 views
-    assert len(client.commands) == 24
+    assert len(first_commands) == 15  # database + 10 tables + 4 views
+    assert len(client.commands) == 30
     assert first_commands[0] == (
         "CREATE DATABASE IF NOT EXISTS `unit_test_analytics`"
     )
