@@ -4,7 +4,7 @@ import os
 import re
 import time
 from collections import OrderedDict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 from .eta_publisher import create_producer, publish_dlq, publish_prediction
@@ -144,12 +144,58 @@ def validate_event(event):
 
     _parse_aware_datetime(payload["dispatched_at"], "dispatched_at")
 
+    if "planned_delivery_date" in payload:
+        planned = payload["planned_delivery_date"]
+        if not isinstance(planned, str) or not re.fullmatch(
+            r"[0-9]{4}-[0-9]{2}-[0-9]{2}", planned
+        ):
+            raise ValueError(
+                "Invalid planned_delivery_date: expected YYYY-MM-DD."
+            )
+
+        try:
+            datetime.strptime(planned, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError(
+                "Invalid planned_delivery_date: expected YYYY-MM-DD."
+            ) from None
+
     return event
 
 def build_prediction_event(event, prediction, model_version):
-    """Build the eta.shipment.predicted event from a dispatched shipment."""
+    """Build the ETA prediction event with optional delay information."""
 
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    payload = {
+        "shipment_id": event["payload"]["shipment_id"],
+        "po_number": event["payload"]["po_number"],
+        **prediction,
+        "model_version": model_version,
+        "predicted_at": now,
+    }
+    planned_delivery_date = event["payload"].get("planned_delivery_date")
+
+    if planned_delivery_date is not None:
+        planned_date = datetime.strptime(
+            planned_delivery_date, "%Y-%m-%d"
+        ).date()
+
+        dispatched_at = _parse_aware_datetime(
+            event["payload"]["dispatched_at"],
+            "dispatched_at",
+        )
+
+        # Compare calendar dates in UTC, the same way the ClickHouse sink
+        # stores predicted_eta.
+        predicted_arrival = (
+            dispatched_at + timedelta(days=float(prediction["eta_days"]))
+        ).astimezone(timezone.utc)
+
+        payload["planned_delivery_date"] = planned_date.isoformat()
+        payload["predicted_delay_days"] = (
+            predicted_arrival.date() - planned_date
+        ).days
 
     return {
         "event_id": str(uuid4()),
@@ -158,15 +204,8 @@ def build_prediction_event(event, prediction, model_version):
         "occurred_at": now,
         "producer": "eta-prediction",
         "trace_id": event.get("trace_id"),
-        "payload": {
-            "shipment_id": event["payload"]["shipment_id"],
-            "po_number": event["payload"]["po_number"],
-            **prediction,
-            "model_version": model_version,
-            "predicted_at": now,
-        },
+        "payload": payload,
     }
-
 
 class EventDeduplicator:
     """Remember the last max_size processed event_ids (LRU)."""
@@ -294,7 +333,12 @@ def run(settings):
                     event["payload"],
                     routes,
                 )
-            except (ValueError, KeyError) as exc:
+                prediction_event = build_prediction_event(
+                    event,
+                    prediction,
+                    settings["model_version"],
+                )
+            except (ValueError, KeyError, OverflowError) as exc:
                 log.warning(
                     "Cannot predict ETA for event_id=%s: %s",
                     event_id,
@@ -305,12 +349,6 @@ def run(settings):
                     f"Prediction failed: {exc}",
                 )
                 continue
-
-            prediction_event = build_prediction_event(
-                event,
-                prediction,
-                settings["model_version"],
-            )
 
             # 3. Publish. Broker failure raises and prevents offset commit.
             publish_prediction(

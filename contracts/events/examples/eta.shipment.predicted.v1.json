@@ -12,6 +12,8 @@
     "confidence_high": 7.3,
     "model_version": "eta_pipeline/3",
     "predicted_at": "2026-10-15T06:31:04Z",
+    "planned_delivery_date": "2026-10-20",
+    "predicted_delay_days": 0,
     "top_features": [
       {
         "feature": "distance_km",

@@ -25,7 +25,7 @@ EXAMPLE_EVENT_PATH = (
     / "supplierportal.shipment.dispatched.v1.json"
 )
 
-VALID_EVENT = json.loads(EXAMPLE_EVENT_PATH.read_text())
+VALID_EVENT = json.loads(EXAMPLE_EVENT_PATH.read_text(encoding="utf-8"))
 
 
 def test_validate_event_accepts_valid_dispatched_event():
@@ -514,7 +514,7 @@ def test_real_route_prediction_matches_output_contract():
         / "eta.shipment.predicted.v1.json"
     )
 
-    schema = json.loads(contract_path.read_text())
+    schema = json.loads(contract_path.read_text(encoding="utf-8"))
     jsonschema.validate(
         result,
         schema,
@@ -682,3 +682,256 @@ def test_run_stops_on_fatal_kafka_error():
 
         with pytest.raises(Exception):
             run(settings)
+
+ETA_CONTRACT_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "contracts"
+    / "events"
+    / "eta.shipment.predicted.v1.json"
+)
+
+ETA_CONTRACT = json.loads(ETA_CONTRACT_PATH.read_text(encoding="utf-8"))
+
+PREDICTION = {
+    "eta_days": 5.2,
+    "confidence_low": 4.1,
+    "confidence_high": 7.3,
+    "top_features": [],
+}
+
+RUN_SETTINGS = {
+    "bootstrap_servers": "localhost:9092",
+    "group_id": "test-group",
+    "input_topic": "supplierportal.shipment.dispatched",
+    "output_topic": "eta.shipment.predicted",
+    "dlq_topic": "supplierportal.shipment.dispatched.dlq",
+    "seed_dir": str(SEED_SAMPLES_DIR),
+    "model_version": "eta_seed_routes/1",
+}
+
+
+def _event_with(**payload_fields):
+    event = json.loads(json.dumps(VALID_EVENT))
+    event["payload"].update(payload_fields)
+    return event
+
+
+def _message_for(event, offset):
+    message = MagicMock()
+    message.value.return_value = json.dumps(event).encode("utf-8")
+    message.error.return_value = None
+    message.topic.return_value = "supplierportal.shipment.dispatched"
+    message.partition.return_value = 0
+    message.offset.return_value = offset
+    return message
+
+
+@pytest.mark.parametrize(
+    ("planned_date", "expected_delay"),
+    [
+        ("2026-10-19", 1),
+        ("2026-10-21", -1),
+        ("2026-10-20", 0),
+    ],
+)
+def test_prediction_event_delay_fields(planned_date, expected_delay):
+    event = _event_with(planned_delivery_date=planned_date)
+
+    result = build_prediction_event(
+        event,
+        PREDICTION,
+        "eta_seed_routes/1",
+    )
+
+    assert result["payload"]["planned_delivery_date"] == planned_date
+    assert result["payload"]["predicted_delay_days"] == expected_delay
+
+    jsonschema.validate(
+        result,
+        ETA_CONTRACT,
+        format_checker=jsonschema.FormatChecker(),
+    )
+
+
+def test_prediction_event_omits_delay_fields_without_planned_date():
+    event = _event_with()
+    event["payload"].pop("planned_delivery_date", None)
+
+    result = build_prediction_event(
+        event,
+        PREDICTION,
+        "eta_seed_routes/1",
+    )
+
+    assert "planned_delivery_date" not in result["payload"]
+    assert "predicted_delay_days" not in result["payload"]
+
+    jsonschema.validate(
+        result,
+        ETA_CONTRACT,
+        format_checker=jsonschema.FormatChecker(),
+    )
+
+
+def test_prediction_event_calculates_delay_using_utc_date():
+    event = _event_with(
+        dispatched_at="2026-10-15T21:00:00-05:00",
+        planned_delivery_date="2026-10-19",
+    )
+
+    prediction = {
+        **PREDICTION,
+        "eta_days": 4.0,
+    }
+
+    result = build_prediction_event(
+        event,
+        prediction,
+        "eta_seed_routes/1",
+    )
+
+    assert result["payload"]["predicted_delay_days"] == 1
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    [
+        "planned_delivery_date",
+        "predicted_delay_days",
+    ],
+)
+def test_prediction_event_contract_requires_delay_fields_together(
+    missing_field,
+):
+    result = build_prediction_event(
+        _event_with(planned_delivery_date="2026-10-19"),
+        PREDICTION,
+        "eta_seed_routes/1",
+    )
+
+    del result["payload"][missing_field]
+
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(
+            result,
+            ETA_CONTRACT,
+            format_checker=jsonschema.FormatChecker(),
+        )
+
+
+@pytest.mark.parametrize(
+    "planned_date",
+    [
+        "2026-15-45",
+        "19/10/2026",
+        "2026-10-19T00:00:00Z",
+        20261019,
+        "",
+        None,
+        "２０２６-１０-１９",
+    ],
+)
+def test_validate_event_rejects_invalid_planned_delivery_date(planned_date):
+    event = _event_with(planned_delivery_date=planned_date)
+
+    with pytest.raises(ValueError, match="planned_delivery_date"):
+        validate_event(event)
+
+
+def test_validate_event_accepts_valid_planned_delivery_date():
+    event = _event_with(planned_delivery_date="2026-10-19")
+
+    validated = validate_event(event)
+
+    assert validated["payload"]["planned_delivery_date"] == "2026-10-19"
+
+
+def test_run_sends_invalid_planned_date_to_dlq_and_commits():
+    event = _event_with(planned_delivery_date="2026-15-45")
+    message = _message_for(event, 30)
+
+    consumer = MagicMock()
+    consumer.poll.side_effect = [message, KeyboardInterrupt]
+
+    producer = MagicMock()
+
+    with (
+        patch("confluent_kafka.Consumer", return_value=consumer),
+        patch("src.stream_consumer.create_producer", return_value=producer),
+        patch("src.stream_consumer.load_seed_routes", return_value=MagicMock()),
+        patch("src.stream_consumer.load_h2_artifacts"),
+        patch("src.stream_consumer.publish_dlq") as dlq_mock,
+        patch("src.stream_consumer.publish_prediction") as publish_mock,
+    ):
+        with pytest.raises(KeyboardInterrupt):
+            run(RUN_SETTINGS)
+
+    dlq_mock.assert_called_once()
+    publish_mock.assert_not_called()
+    consumer.commit.assert_called_once_with(
+        message=message,
+        asynchronous=False,
+    )
+
+
+def test_run_publishes_prediction_with_valid_planned_date():
+    event = _event_with(planned_delivery_date="2026-10-19")
+    message = _message_for(event, 31)
+
+    consumer = MagicMock()
+    consumer.poll.side_effect = [message, KeyboardInterrupt]
+
+    producer = MagicMock()
+
+    with (
+        patch("confluent_kafka.Consumer", return_value=consumer),
+        patch("src.stream_consumer.create_producer", return_value=producer),
+        patch("src.stream_consumer.load_seed_routes", return_value=MagicMock()),
+        patch("src.stream_consumer.load_h2_artifacts"),
+        patch("src.stream_consumer.predict_h2", return_value=PREDICTION),
+        patch("src.stream_consumer.publish_prediction") as publish_mock,
+    ):
+        with pytest.raises(KeyboardInterrupt):
+            run(RUN_SETTINGS)
+
+    publish_mock.assert_called_once()
+
+    published_event = publish_mock.call_args.args[1]
+
+    assert published_event["payload"]["planned_delivery_date"] == "2026-10-19"
+    assert published_event["payload"]["predicted_delay_days"] == 1
+
+    consumer.commit.assert_called_once_with(
+        message=message,
+        asynchronous=False,
+    )
+
+
+def test_run_sends_date_overflow_to_dlq_and_commits():
+    event = _event_with(
+        dispatched_at="9999-12-30T00:00:00Z",
+        planned_delivery_date="9999-12-31",
+    )
+    message = _message_for(event, 31)
+
+    consumer = MagicMock()
+    consumer.poll.side_effect = [message, KeyboardInterrupt]
+
+    with (
+        patch("confluent_kafka.Consumer", return_value=consumer),
+        patch("src.stream_consumer.create_producer", return_value=MagicMock()),
+        patch("src.stream_consumer.load_seed_routes", return_value=MagicMock()),
+        patch("src.stream_consumer.load_h2_artifacts"),
+        patch("src.stream_consumer.predict_h2", return_value=dict(PREDICTION)),
+        patch("src.stream_consumer.publish_dlq") as dlq_mock,
+        patch("src.stream_consumer.publish_prediction") as publish_mock,
+    ):
+        with pytest.raises(KeyboardInterrupt):
+            run(RUN_SETTINGS)
+
+    dlq_mock.assert_called_once()
+    publish_mock.assert_not_called()
+    consumer.commit.assert_called_once_with(
+        message=message,
+        asynchronous=False,
+    )
