@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eaicsp.platform/contracts/events/inventory.transfer.recommended.v1.json",
+  "title": "InventoryTransferRecommendedEvent",
+  "description": "Event emitted by Inventory Service when an inter-warehouse stock transfer is recommended instead of placing a purchase order.",
+  "type": "object",
+  "required": [
+    "event_id",
+    "event_type",
+    "event_version",
+    "occurred_at",
+    "producer",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique UUID v4 for idempotency tracking."
+    },
+    "event_type": {
+      "type": "string",
+      "const": "inventory.transfer.recommended",
+      "description": "Event type identifier."
+    },
+    "event_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version number (integer 1)."
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC ISO-8601 timestamp when the recommendation occurred."
+    },
+    "producer": {
+      "type": "string",
+      "const": "inventory-service",
+      "description": "Originating service."
+    },
+    "trace_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Distributed tracing correlation identifier."
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "sku_id",
+        "source_warehouse_id",
+        "destination_warehouse_id",
+        "transfer_quantity",
+        "transfer_lead_time_days",
+        "transfer_cost",
+        "po_lead_time_days",
+        "po_cost",
+        "reason"
+      ],
+      "properties": {
+        "sku_id": {
+          "type": "string",
+          "pattern": "^SKU-\\d{6}$",
+          "description": "Canonical SKU ID (e.g. SKU-000123)."
+        },
+        "source_warehouse_id": {
+          "type": "string",
+          "pattern": "^WH-[A-Z]{3}-\\d{2}$",
+          "description": "Canonical Source Warehouse ID (e.g. WH-BOM-01)."
+        },
+        "destination_warehouse_id": {
+          "type": "string",
+          "pattern": "^WH-[A-Z]{3}-\\d{2}$",
+          "description": "Canonical Destination Warehouse ID (e.g. WH-BLR-01)."
+        },
+        "transfer_quantity": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Recommended transfer quantity."
+        },
+        "transfer_lead_time_days": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Transfer transit lead time in days."
+        },
+        "transfer_cost": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Total transfer cost (quantity * cost_per_unit)."
+        },
+        "po_lead_time_days": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Alternative Purchase Order lead time in days."
+        },
+        "po_cost": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Alternative Purchase Order total cost."
+        },
+        "cost_savings": {
+          "type": "number",
+          "description": "Estimated cost savings (po_cost - transfer_cost)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Explanation of why transfer was recommended."
+        }
+      }
+    }
+  }
+}
