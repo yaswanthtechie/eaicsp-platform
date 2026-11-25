@@ -2,7 +2,6 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.inventory import Inventory
-from app.models.product import Product
 from app.services import demand_service
 from app.services.abc_service import (
     calculate_tier_safety_stock,
@@ -10,6 +9,8 @@ from app.services.abc_service import (
 )
 from app.services.safety_stock_service import (
     calculate_service_level_safety_stock,
+    classify_abc_by_revenue,
+    classify_all_skus_by_revenue,
 )
 
 ROLLING_WINDOW_DAYS = 30
@@ -35,10 +36,16 @@ def build_reorder_context(
     )
 
     classifications = classify_skus(db)
+    revenue_classifications = (
+        classify_all_skus_by_revenue(db)
+        if getattr(settings, "USE_DYNAMIC_SAFETY_STOCK", False)
+        else {}
+    )
 
     return {
         "demand": demand,
         "classifications": classifications,
+        "revenue_classifications": revenue_classifications,
         "inventory_by_sku": inventory_by_sku,
         "demand_days": demand_days,
     }
@@ -134,30 +141,25 @@ def calculate_reorder_point(
         classifications = context["classifications"]
 
     classification = classifications.get(key)
-
-    product = db.query(Product).filter(Product.sku_id == sku_id).first()
-    if product and product.abc_class in ("A", "B", "C"):
-        abc_tier = str(product.abc_class)
-    elif classification:
-        abc_tier = classification["abc_tier"]
-    else:
-        abc_tier = "C"
+    abc_tier = classification["abc_tier"] if classification else "C"
 
     if settings.USE_DYNAMIC_SAFETY_STOCK:
+        if context is not None and "revenue_classifications" in context:
+            revenue_abc = context["revenue_classifications"].get(sku_id)
+        else:
+            revenue_abc = None
+
+        if revenue_abc is None:
+            revenue_abc = classify_abc_by_revenue(db=db, sku_id=sku_id)
+
         dynamic_result = calculate_service_level_safety_stock(
             db=db,
             sku_id=sku_id,
             warehouse_id=warehouse_id,
             base_safety_stock=safety_stock,
-            abc_class=abc_tier,
+            abc_class=revenue_abc,
         )
-        if dynamic_result["is_fallback"]:
-            adjusted_safety_stock = calculate_tier_safety_stock(
-                base_safety_stock=safety_stock,
-                abc_tier=abc_tier,
-            )
-        else:
-            adjusted_safety_stock = dynamic_result["safety_stock"]
+        adjusted_safety_stock = dynamic_result["safety_stock"]
     else:
         adjusted_safety_stock = calculate_tier_safety_stock(
             base_safety_stock=safety_stock,

@@ -821,11 +821,11 @@ paths:
           anyOf:
           - type: integer
             maximum: 104
-            minimum: 1
+            minimum: 2
           - type: 'null'
-          description: Optional demand history window in weeks (max 104 weeks)
+          description: Optional demand history window in weeks (min 2, max 104 weeks)
           title: Weeks
-        description: Optional demand history window in weeks (max 104 weeks)
+        description: Optional demand history window in weeks (min 2, max 104 weeks)
       responses:
         '200':
           description: Service-level safety stock calculation result

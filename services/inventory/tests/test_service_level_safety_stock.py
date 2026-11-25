@@ -609,6 +609,10 @@ def test_service_level_safety_stock_short_history_fallback(db_session):
     assert "Insufficient demand history" in str(result["fallback_reason"])
     assert result["safety_stock"] == 18
     assert result["current_safety_stock"] == 18
+    assert result["xyz_class"] == "N/A"
+    assert result["abc_xyz_class"] == "N/A"
+    assert result["service_level"] == 0.0
+    assert result["z_score"] == 0.0
 
 
 # ============================================================
@@ -666,7 +670,8 @@ def test_reorder_logic_behind_config_flag(db_session, monkeypatch):
     monkeypatch.setattr(settings, "USE_DYNAMIC_SAFETY_STOCK", True)
     calc_on = calculate_reorder_point(db=db_session, inventory=inv)
     assert calc_on["adjusted_safety_stock"] != calc_off["adjusted_safety_stock"]
-    assert calc_on["adjusted_safety_stock"] > 0
+    assert calc_on["adjusted_safety_stock"] == 18
+    assert calc_on["reorder_point"] == 58
 
     # Case C: Flag ON with insufficient history -> falls back to current calculation preserving ABC tier multiplier
     sku_fallback = "SKU-000124"
@@ -706,6 +711,166 @@ def test_reorder_logic_behind_config_flag(db_session, monkeypatch):
     calc_fallback = calculate_reorder_point(db=db_session, inventory=inv_fallback)
     # Fallback must preserve the A-tier multiplier: 20 * 1.5 = 30
     assert calc_fallback["adjusted_safety_stock"] == 30
+
+
+def test_reorder_flag_off_preserves_volume_tier_ignoring_stored_abc_class(
+    db_session, monkeypatch
+):
+    """
+    Item A verification: When flag is OFF, reorder logic strictly uses classify_skus volume tier
+    and ignores any stored Product.abc_class, preserving develop behavior.
+    """
+    sku_id = "SKU-000130"
+    wh_id = "WH-BLR-01"
+    today = date.today()
+
+    # Product stored with abc_class="C"
+    db_session.add(
+        Product(
+            sku_id=sku_id,
+            name="Volume Leader Item",
+            category="Switches",
+            unit_price=10.0,
+            unit_cost=5.0,
+            abc_class="C",
+        )
+    )
+    inv = Inventory(
+        sku_id=sku_id,
+        product_name="Volume Leader Item",
+        warehouse_id=wh_id,
+        category="Switches",
+        quantity_on_hand=50,
+        lead_time_days=4,
+        safety_stock=20,
+        warehouse_type="local",
+    )
+    db_session.add(inv)
+
+    # 30 days of high sales volume -> volume tier A in classify_skus
+    for offset in range(30):
+        db_session.add(
+            SalesHistory(
+                sku_id=sku_id,
+                warehouse_id=wh_id,
+                sale_date=today - timedelta(days=offset),
+                quantity_sold=100,
+            )
+        )
+    db_session.commit()
+
+    monkeypatch.setattr(settings, "USE_DYNAMIC_SAFETY_STOCK", False)
+    calc = calculate_reorder_point(db=db_session, inventory=inv)
+
+    # With flag OFF, volume tier A is used (1.5x multiplier), giving 20 * 1.5 = 30
+    assert calc["abc_tier"] == "A"
+    assert calc["adjusted_safety_stock"] == 30
+    assert calc["reorder_point"] == int(calc["rolling_avg_demand"] * 4 + 30)
+
+
+def test_reorder_and_endpoint_agree_on_revenue_abc_when_flag_on(
+    client, db_session, monkeypatch
+):
+    """
+    Item B verification: When flag is ON, both reorder (with or without context)
+    and the API endpoint use revenue ABC ranking (e.g. high price low volume SKU is A).
+    """
+    from app.services.reorder_service import build_reorder_context
+
+    sku_high_rev = "SKU-000131"
+    sku_low_rev = "SKU-000132"
+    wh_id = "WH-BLR-01"
+    today = date.today()
+
+    # High unit price item (no explicit abc_class)
+    db_session.add(
+        Product(
+            sku_id=sku_high_rev,
+            name="Expensive Low Volume Item",
+            category="Enterprise",
+            unit_price=10000.0,
+            unit_cost=5000.0,
+            abc_class=None,
+        )
+    )
+    inv_high = Inventory(
+        sku_id=sku_high_rev,
+        product_name="Expensive Low Volume Item",
+        warehouse_id=wh_id,
+        category="Enterprise",
+        quantity_on_hand=20,
+        lead_time_days=3,
+        safety_stock=10,
+        warehouse_type="local",
+    )
+    db_session.add(inv_high)
+
+    # Cheap high volume item
+    db_session.add(
+        Product(
+            sku_id=sku_low_rev,
+            name="Cheap High Volume Item",
+            category="Accessories",
+            unit_price=1.0,
+            unit_cost=0.5,
+            abc_class=None,
+        )
+    )
+    inv_low = Inventory(
+        sku_id=sku_low_rev,
+        product_name="Cheap High Volume Item",
+        warehouse_id=wh_id,
+        category="Accessories",
+        quantity_on_hand=500,
+        lead_time_days=2,
+        safety_stock=20,
+        warehouse_type="local",
+    )
+    db_session.add(inv_low)
+
+    # High rev SKU has 2 units/day for 20 days -> revenue = 20 * 2 * 10000 = 400,000 (> 99% total revenue)
+    for offset in range(20):
+        db_session.add(
+            SalesHistory(
+                sku_id=sku_high_rev,
+                warehouse_id=wh_id,
+                sale_date=today - timedelta(days=offset),
+                quantity_sold=2,
+            )
+        )
+        # Low rev SKU has 50 units/day for 20 days -> revenue = 20 * 50 * 1 = 1,000
+        db_session.add(
+            SalesHistory(
+                sku_id=sku_low_rev,
+                warehouse_id=wh_id,
+                sale_date=today - timedelta(days=offset),
+                quantity_sold=50,
+            )
+        )
+    db_session.commit()
+
+    monkeypatch.setattr(settings, "USE_DYNAMIC_SAFETY_STOCK", True)
+
+    # 1. API endpoint
+    res = client.get(
+        f"/api/v1/inventory/{sku_high_rev}/{wh_id}/safety-stock",
+        headers={"Authorization": "Bearer warehouse-token"},
+    )
+    assert res.status_code == 200
+    api_data = res.json()
+    assert api_data["abc_class"] == "A"
+
+    # 2. Reorder calculation with context
+    context = build_reorder_context(db=db_session)
+    assert context["revenue_classifications"].get(sku_high_rev) == "A"
+    calc_ctx = calculate_reorder_point(
+        db=db_session, inventory=inv_high, context=context
+    )
+    assert calc_ctx["adjusted_safety_stock"] == api_data["safety_stock"]
+
+    # 3. Reorder calculation without context
+    calc_no_ctx = calculate_reorder_point(db=db_session, inventory=inv_high)
+    assert calc_no_ctx["adjusted_safety_stock"] == api_data["safety_stock"]
 
 
 # ============================================================
@@ -752,14 +917,17 @@ def test_safety_stock_api_endpoint(client, db_session):
     assert data["sku_id"] == sku_id
     assert data["warehouse_id"] == wh_id
     assert data["abc_class"] == "B"
-    assert data["xyz_class"] in ("X", "Y", "Z")
-    assert "service_level" in data
-    assert "z_score" in data
+    assert data["xyz_class"] == "N/A"
+    assert data["abc_xyz_class"] == "N/A"
+    assert data["service_level"] == 0.0
+    assert data["z_score"] == 0.0
+    assert data["method"] == "fallback"
+    assert data["is_fallback"] is True
     assert "inputs_used" in data
     assert data["current_safety_stock"] == 25
-    assert "calculated_safety_stock" in data
-    assert "method" in data
-    assert "is_fallback" in data
+    # Tier B multiplier is 1.2: 25 * 1.2 = 30
+    assert data["safety_stock"] == 30
+    assert data["calculated_safety_stock"] == 30.0
 
     # Alias route: /safety-stock/{sku_id}/{warehouse_id}
     res_alias = client.get(
@@ -768,6 +936,84 @@ def test_safety_stock_api_endpoint(client, db_session):
     )
     assert res_alias.status_code == 200
     assert res_alias.json() == data
+
+
+def test_safety_stock_api_endpoint_statistical_with_sufficient_history(
+    client, db_session
+):
+    """Test API endpoint with sufficient demand and PO history returns method='statistical' and exact number."""
+    sku_id = "SKU-000133"
+    wh_id = "WH-BLR-01"
+    sup_id = "SUP-00101"
+    today = date.today()
+
+    db_session.add(
+        Product(
+            sku_id=sku_id,
+            name="Statistical API SKU",
+            category="Electronics",
+            unit_price=200.0,
+            unit_cost=100.0,
+            abc_class="A",
+            supplier_id=sup_id,
+        )
+    )
+    db_session.add(
+        Inventory(
+            sku_id=sku_id,
+            product_name="Statistical API SKU",
+            warehouse_id=wh_id,
+            category="Electronics",
+            quantity_on_hand=100,
+            lead_time_days=4,
+            safety_stock=20,
+            warehouse_type="local",
+        )
+    )
+    # 20 days of sales history (mean = 10, sd = 5.12989, CV = 0.513 -> class AY, SL = 0.96)
+    for offset in range(20):
+        db_session.add(
+            SalesHistory(
+                sku_id=sku_id,
+                warehouse_id=wh_id,
+                sale_date=today - timedelta(days=offset),
+                quantity_sold=15 if offset % 2 == 0 else 5,
+            )
+        )
+    # 3 received POs with fixed 4 days lead time (mean LT = 4, sd LT = 0)
+    for po_idx in range(3):
+        db_session.add(
+            PurchaseOrder(
+                po_id=f"PO-2026-00013{po_idx}",
+                sku_id=sku_id,
+                warehouse_id=wh_id,
+                supplier_id=sup_id,
+                quantity=100,
+                unit_cost=100.0,
+                expected_cost=10000.0,
+                order_date=today - timedelta(days=20 + po_idx * 5),
+                received_date=today - timedelta(days=16 + po_idx * 5),
+                status="Received",
+            )
+        )
+    db_session.commit()
+
+    res = client.get(
+        f"/api/v1/inventory/{sku_id}/{wh_id}/safety-stock",
+        headers={"Authorization": "Bearer warehouse-token"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["method"] == "statistical"
+    assert data["is_fallback"] is False
+    assert data["fallback_reason"] is None
+    assert data["abc_class"] == "A"
+    assert data["xyz_class"] == "Y"
+    assert data["abc_xyz_class"] == "AY"
+    assert data["service_level"] == 0.96
+    # Exact safety stock formula value: ceil(1.7507 * sqrt(4 * 5.1299^2 + 0)) = 18
+    assert data["safety_stock"] == 18
+    assert data["current_safety_stock"] == 20
 
 
 def test_safety_stock_api_404_not_found(client):
@@ -781,15 +1027,23 @@ def test_safety_stock_api_404_not_found(client):
 
 
 def test_safety_stock_api_weeks_validation(client, db_session):
-    """Large weeks parameter exceeding maximum returns 422 Unprocessable Entity."""
+    """Weeks parameter bounds validation: < 2 and > 104 return 422 Unprocessable Entity."""
     sku_id = "SKU-000108"
     wh_id = "WH-BLR-01"
 
-    res = client.get(
+    # 1. Exceeding max weeks (104)
+    res_large = client.get(
         f"/api/v1/inventory/{sku_id}/{wh_id}/safety-stock?weeks=999999999999",
         headers={"Authorization": "Bearer warehouse-token"},
     )
-    assert res.status_code == 422
+    assert res_large.status_code == 422
+
+    # 2. Below minimum weeks (2)
+    res_small = client.get(
+        f"/api/v1/inventory/{sku_id}/{wh_id}/safety-stock?weeks=1",
+        headers={"Authorization": "Bearer warehouse-token"},
+    )
+    assert res_small.status_code == 422
 
 
 def test_safety_stock_api_permissions(db_session):

@@ -17,6 +17,7 @@ from app.core.auth import (
     require_permission,
     require_roles,
 )
+from app.core.config import settings
 from app.database import get_db
 from app.models.inventory import Inventory
 from app.schemas.inventory import (
@@ -894,12 +895,21 @@ def get_safety_stock_route(
     warehouse_id: str,
     weeks: int | None = Query(
         default=None,
-        ge=1,
+        ge=2,
         le=104,
-        description="Optional demand history window in weeks (max 104 weeks)",
+        description="Optional demand history window in weeks (min 2, max 104 weeks)",
     ),
     db: Session = Depends(get_db),
 ):
+    if weeks is not None and weeks * 7 < settings.SAFETY_STOCK_MIN_DEMAND_DAYS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Requested weeks={weeks} ({weeks * 7} days) is less than the "
+                f"minimum demand history days ({settings.SAFETY_STOCK_MIN_DEMAND_DAYS})"
+            ),
+        )
+
     inventory = get_inventory(
         db=db,
         sku_id=sku_id,

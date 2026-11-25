@@ -13,6 +13,7 @@ from app.models.product import Product
 from app.models.purchase_order import PurchaseOrder
 from app.models.sales_history import SalesHistory
 from app.models.supplier import SupplierLeadTime
+from app.services.abc_service import calculate_tier_safety_stock
 
 
 def calculate_z_score(service_level: float) -> float:
@@ -87,7 +88,7 @@ def calculate_demand_statistics(
     distinct_sale_days = len(daily_sales)
     has_sufficient = (
         observed_days >= settings.SAFETY_STOCK_MIN_DEMAND_DAYS
-        and distinct_sale_days >= 2
+        and distinct_sale_days >= settings.SAFETY_STOCK_MIN_DISTINCT_SALE_DAYS
     )
 
     return {
@@ -147,6 +148,7 @@ def calculate_lead_time_statistics(
         if product and product.supplier_id:
             resolved_supplier_id = product.supplier_id
 
+    checked_po_count = len(sku_lead_times)
     if resolved_supplier_id:
         supplier_pos = base_query.filter(
             PurchaseOrder.supplier_id == resolved_supplier_id
@@ -156,6 +158,7 @@ def calculate_lead_time_statistics(
             for po in supplier_pos
             if po.received_date and po.order_date
         ]
+        checked_po_count = len(supplier_lead_times)
         if len(supplier_lead_times) >= settings.SAFETY_STOCK_MIN_PO_COUNT:
             avg_lt = sum(supplier_lead_times) / len(supplier_lead_times)
             sd_lt = (
@@ -204,7 +207,7 @@ def calculate_lead_time_statistics(
     return {
         "avg_lead_time": round(static_lt, 4),
         "sd_lead_time": 0.0,
-        "po_count": len(sku_lead_times),
+        "po_count": checked_po_count,
         "lead_time_source": lead_time_source,
         "has_sufficient_history": False,
         "supplier_id": resolved_supplier_id,
@@ -226,6 +229,58 @@ def get_abc_tier_from_cumulative_share(cum_share: float) -> str:
     return "C"
 
 
+def classify_all_skus_by_revenue(db: Session) -> dict[str, str]:
+    """
+    Computes revenue ABC classification for all SKUs across the catalog.
+    If Product.abc_class is explicitly set, it takes precedence.
+    Otherwise, computes revenue contribution per SKU from SalesHistory and Product.unit_price.
+    Returns a dict mapping sku_id -> 'A' | 'B' | 'C'.
+    """
+    result: dict[str, str] = {}
+    products = db.query(Product).all()
+    unclassified_skus: set[str] = set()
+    for p in products:
+        if p.abc_class in ("A", "B", "C"):
+            result[p.sku_id] = str(p.abc_class)
+        else:
+            unclassified_skus.add(p.sku_id)
+
+    if unclassified_skus:
+        revenues = (
+            db.query(
+                SalesHistory.sku_id,
+                func.sum(SalesHistory.quantity_sold * Product.unit_price).label(
+                    "total_revenue"
+                ),
+            )
+            .join(Product, Product.sku_id == SalesHistory.sku_id)
+            .group_by(SalesHistory.sku_id)
+            .all()
+        )
+        if revenues:
+            sorted_rev = sorted(
+                revenues,
+                key=lambda r: float(r.total_revenue or 0.0),
+                reverse=True,
+            )
+            total_rev = sum(float(r.total_revenue or 0.0) for r in sorted_rev)
+            if total_rev > 0:
+                prior_cum = 0.0
+                for r in sorted_rev:
+                    if r.sku_id in unclassified_skus:
+                        prior_ratio = prior_cum / total_rev
+                        result[r.sku_id] = get_abc_tier_from_cumulative_share(
+                            prior_ratio
+                        )
+                    prior_cum += float(r.total_revenue or 0.0)
+
+    for p in products:
+        if p.sku_id not in result:
+            result[p.sku_id] = "C"
+
+    return result
+
+
 def classify_abc_by_revenue(
     db: Session,
     sku_id: str,
@@ -239,38 +294,8 @@ def classify_abc_by_revenue(
     if product and product.abc_class in ("A", "B", "C"):
         return str(product.abc_class)
 
-    revenues = (
-        db.query(
-            SalesHistory.sku_id,
-            func.sum(SalesHistory.quantity_sold * Product.unit_price).label(
-                "total_revenue"
-            ),
-        )
-        .join(Product, Product.sku_id == SalesHistory.sku_id)
-        .group_by(SalesHistory.sku_id)
-        .all()
-    )
-
-    if not revenues:
-        return "C"
-
-    sorted_rev = sorted(
-        revenues,
-        key=lambda r: float(r.total_revenue or 0.0),
-        reverse=True,
-    )
-    total_rev = sum(float(r.total_revenue or 0.0) for r in sorted_rev)
-    if total_rev <= 0:
-        return "C"
-
-    prior_cum = 0.0
-    for r in sorted_rev:
-        prior_ratio = prior_cum / total_rev
-        if r.sku_id == sku_id:
-            return get_abc_tier_from_cumulative_share(prior_ratio)
-        prior_cum += float(r.total_revenue or 0.0)
-
-    return "C"
+    all_ranks = classify_all_skus_by_revenue(db)
+    return all_ranks.get(sku_id, "C")
 
 
 def classify_xyz_by_cv(cv: float) -> str:
@@ -369,13 +394,8 @@ def calculate_service_level_safety_stock(
 
     # 3. ABC & XYZ Classification
     resolved_abc = abc_class or classify_abc_by_revenue(db=db, sku_id=sku_id)
-    xyz_class = classify_xyz_by_cv(demand_stats["cv"])
-    abc_xyz_class = f"{resolved_abc}{xyz_class}"
 
-    # 4. Service Level & Z-Score
-    service_level, z_score = get_service_level_and_z(resolved_abc, xyz_class)
-
-    # 5. Check if history is sufficient or if fallback is required
+    # 4. Check if history is sufficient or if fallback is required
     inputs_used = {
         "avg_daily_demand": demand_stats["avg_daily_demand"],
         "sd_daily_demand": demand_stats["sd_daily_demand"],
@@ -396,11 +416,22 @@ def calculate_service_level_safety_stock(
             f"Insufficient demand history: observed {demand_stats['observed_days']} days "
             f"(minimum {settings.SAFETY_STOCK_MIN_DEMAND_DAYS} required)"
         )
-        safety_stock = current_ss
-        calculated_ss = float(current_ss)
+        safety_stock = calculate_tier_safety_stock(
+            base_safety_stock=current_ss,
+            abc_tier=resolved_abc,
+        )
+        calculated_ss = float(safety_stock)
+        xyz_class = "N/A"
+        abc_xyz_class = "N/A"
+        service_level = 0.0
+        z_score = 0.0
     else:
         is_fallback = False
         fallback_reason = None
+        xyz_class = classify_xyz_by_cv(demand_stats["cv"])
+        abc_xyz_class = f"{resolved_abc}{xyz_class}"
+        service_level, z_score = get_service_level_and_z(resolved_abc, xyz_class)
+
         if not lt_stats["has_sufficient_history"]:
             method = "statistical_static_lead_time"
         else:
