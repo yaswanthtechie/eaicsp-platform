@@ -1,0 +1,74 @@
+﻿apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eta-consumer
+  namespace: eaicsp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: eta-consumer
+  template:
+    metadata:
+      labels:
+        app: eta-consumer
+    spec:
+      containers:
+        - name: eta-consumer
+          image: eaicsp/eta-consumer:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: eaicsp-service-config
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: ETA_SEED_DIR
+              value: /app/data-platform/seed/samples
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: anomaly-simulator
+  namespace: eaicsp
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app: anomaly-simulator
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: anomaly-simulator
+          image: eaicsp/anomaly-detection:local
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -m
+            - src.stream_simulator
+          args:
+            - --publish
+            - --n-per-sensor
+            - "1500"
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: eaicsp-service-config
+                  key: KAFKA_BOOTSTRAP_SERVERS
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+

@@ -1,0 +1,479 @@
+﻿apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform
+  namespace: eaicsp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: platform
+  template:
+    metadata:
+      labels:
+        app: platform
+    spec:
+      containers:
+        - name: platform
+          image: eaicsp/platform:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8005
+          env:
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: SECRET_KEY
+            - name: PLATFORM_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: PLATFORM_DB_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: POSTGRES_DB
+            - name: DATABASE_URL
+              value: "postgresql+psycopg2://platform_user:$(PLATFORM_DB_PASSWORD)@postgres:5432/$(POSTGRES_DB)"
+            - name: REDIS_URL
+              value: redis://redis:6379/0
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka:9092
+            - name: BASE_URL
+              value: http://platform:8005
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: platform
+  namespace: eaicsp
+spec:
+  selector:
+    app: platform
+  ports:
+    - name: http
+      port: 8005
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory
+  namespace: eaicsp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inventory
+  template:
+    metadata:
+      labels:
+        app: inventory
+    spec:
+      containers:
+        - name: inventory
+          image: eaicsp/inventory:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8001
+          env:
+            - name: INVENTORY_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: INVENTORY_DB_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: POSTGRES_DB
+            - name: DATABASE_URL
+              value: "postgresql+psycopg2://inventory_user:$(INVENTORY_DB_PASSWORD)@postgres:5432/$(POSTGRES_DB)"
+            - name: PLATFORM_AUTH_URL
+              value: http://platform:8005
+            - name: COMPLIANCE_SERVICE_URL
+              value: http://compliance:8003
+            - name: REDIS_URL
+              value: redis://redis:6379/0
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka:9092
+            - name: ENABLE_OUTBOX_RELAY
+              value: "true"
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 36
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory
+  namespace: eaicsp
+spec:
+  selector:
+    app: inventory
+  ports:
+    - name: http
+      port: 8001
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logistics
+  namespace: eaicsp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: logistics
+  template:
+    metadata:
+      labels:
+        app: logistics
+    spec:
+      containers:
+        - name: logistics
+          image: eaicsp/logistics:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8002
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: logistics
+  namespace: eaicsp
+spec:
+  selector:
+    app: logistics
+  ports:
+    - name: http
+      port: 8002
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: compliance
+  namespace: eaicsp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: compliance
+  template:
+    metadata:
+      labels:
+        app: compliance
+    spec:
+      containers:
+        - name: compliance
+          image: eaicsp/compliance:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8003
+          env:
+            - name: COMPLIANCE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: COMPLIANCE_DB_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: POSTGRES_DB
+            - name: DATABASE_URL
+              value: "postgresql+psycopg://compliance_user:$(COMPLIANCE_DB_PASSWORD)@postgres:5432/$(POSTGRES_DB)"
+            - name: PLATFORM_AUTH_URL
+              value: http://platform:8005
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka:9092
+            - name: USE_FIXTURES
+              value: "false"
+            - name: ENVIRONMENT
+              value: development
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 36
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: compliance
+  namespace: eaicsp
+spec:
+  selector:
+    app: compliance
+  ports:
+    - name: http
+      port: 8003
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: supplier-portal
+  namespace: eaicsp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: supplier-portal
+  template:
+    metadata:
+      labels:
+        app: supplier-portal
+    spec:
+      containers:
+        - name: supplier-portal
+          image: eaicsp/supplier-portal:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8004
+          env:
+            - name: SUPPLIER_PORTAL_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: SUPPLIER_PORTAL_DB_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: POSTGRES_DB
+            - name: DATABASE_URL
+              value: "postgresql+psycopg://supplier_portal_user:$(SUPPLIER_PORTAL_DB_PASSWORD)@postgres:5432/$(POSTGRES_DB)"
+            - name: SUPPLIER_DB_SCHEMA
+              value: supplier_portal
+            - name: PLATFORM_AUTH_URL
+              value: http://platform:8005
+            - name: COMPLIANCE_SERVICE_URL
+              value: http://compliance:8003
+            - name: MINIO_ENDPOINT
+              value: minio:9000
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: MINIO_ROOT_USER
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: MINIO_ROOT_PASSWORD
+            - name: MINIO_BUCKET
+              value: supplier-docs
+            - name: MINIO_SECURE
+              value: "false"
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka:9092
+            - name: KAFKA_ENABLED
+              value: "true"
+            - name: COMPLIANCE_DB_PATH
+              value: /app/data/compliance_state.db
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 36
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: supplier-portal
+  namespace: eaicsp
+spec:
+  selector:
+    app: supplier-portal
+  ports:
+    - name: http
+      port: 8004
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: eaicsp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+        - name: api-gateway
+          image: eaicsp/api-gateway:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: SECRET_KEY
+            - name: PLATFORM_SERVICE_URL
+              value: http://platform:8005
+            - name: INVENTORY_SERVICE_URL
+              value: http://inventory:8001
+            - name: SHIPMENTS_SERVICE_URL
+              value: http://logistics:8002
+            - name: COMPLIANCE_SERVICE_URL
+              value: http://compliance:8003
+            - name: PURCHASE_ORDERS_SERVICE_URL
+              value: http://supplier-portal:8004
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: eaicsp
+spec:
+  selector:
+    app: api-gateway
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
