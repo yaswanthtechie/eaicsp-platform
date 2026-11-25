@@ -1,0 +1,9 @@
+freshness:
+  max_age_days: 30
+  per_file_max_age_days:
+    supplier_lead_times: 365
+    supplier_incidents: 90
+referential_integrity:
+  max_invalid_rows: 0
+sales_gaps:
+  max_missing_days_per_pair: 0

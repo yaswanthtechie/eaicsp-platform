@@ -309,14 +309,17 @@ def process_unique_row(seen_record_keys, key, raw, rules, known, load):
         seen_record_keys.add(record_key)
 
     return process_row(key, raw, rules, known, load_once)
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--dir", required=True)
-    args = parser.parse_args()
+def main(folder=None, run_id=None):
+    if folder is None:
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--dir", required=True)
+        args = parser.parse_args()
+        folder = Path(args.dir)
+    else:
+        folder = Path(folder)
 
-    folder = Path(args.dir)
     if not folder.is_dir():
-        parser.error(f"Folder not found: {folder}")
+        raise FileNotFoundError(f"Folder not found: {folder}")
 
     spec = yaml.safe_load(SPEC.read_text(encoding="utf-8"))
     paths = {p.stem: p for p in folder.glob("*.csv")}
@@ -335,7 +338,7 @@ def main():
         for (carrier_name,) in carrier_rows:
             if carrier_name:
                 known["carrier"].add(_known_value("carrier", carrier_name))
-    run_id = str(uuid.uuid4())
+    run_id = str(run_id or uuid.uuid4())
 
     warehouse_cities = {}
     if "warehouse_master" in paths:
@@ -447,6 +450,7 @@ def main():
         f"rejected={totals['rejected']}"
     )
     print(f"Report run ID: {run_id}")
+    return run_id
 
 
 if __name__ == "__main__":
