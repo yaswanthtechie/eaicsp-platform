@@ -820,11 +820,12 @@ paths:
         schema:
           anyOf:
           - type: integer
+            maximum: 104
             minimum: 1
           - type: 'null'
-          description: Optional demand history window in weeks
+          description: Optional demand history window in weeks (max 104 weeks)
           title: Weeks
-        description: Optional demand history window in weeks
+        description: Optional demand history window in weeks (max 104 weeks)
       responses:
         '200':
           description: Service-level safety stock calculation result
@@ -832,6 +833,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SafetyStockResponse'
+        '400':
+          description: Invalid parameters
         '401':
           description: Missing or invalid token
         '403':

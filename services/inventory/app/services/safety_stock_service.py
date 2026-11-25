@@ -84,8 +84,10 @@ def calculate_demand_statistics(
         sd_daily_demand = 0.0
 
     cv = (sd_daily_demand / avg_daily_demand) if avg_daily_demand > 0 else 0.0
+    distinct_sale_days = len(daily_sales)
     has_sufficient = (
-        observed_days >= settings.SAFETY_STOCK_MIN_DEMAND_DAYS and total_days >= 2
+        observed_days >= settings.SAFETY_STOCK_MIN_DEMAND_DAYS
+        and distinct_sale_days >= 2
     )
 
     return {
@@ -93,6 +95,7 @@ def calculate_demand_statistics(
         "sd_daily_demand": round(sd_daily_demand, 4),
         "cv": round(cv, 4),
         "observed_days": observed_days,
+        "distinct_sale_days": distinct_sale_days,
         "demand_window_weeks": weeks,
         "has_sufficient_history": has_sufficient,
     }
@@ -101,6 +104,7 @@ def calculate_demand_statistics(
 def calculate_lead_time_statistics(
     db: Session,
     sku_id: str,
+    warehouse_id: str | None = None,
     supplier_id: str | None = None,
 ) -> dict[str, Any]:
     """
@@ -170,6 +174,7 @@ def calculate_lead_time_statistics(
 
     # Fallback to static lead time (from SupplierLeadTime or Inventory)
     static_lt = None
+    lead_time_source = "static_lead_time"
     if resolved_supplier_id:
         slt = (
             db.query(SupplierLeadTime)
@@ -181,20 +186,26 @@ def calculate_lead_time_statistics(
         )
         if slt and slt.average_lead_time_days:
             static_lt = float(slt.average_lead_time_days)
+            lead_time_source = "supplier_lead_time"
 
     if static_lt is None:
-        inv = db.query(Inventory).filter(Inventory.sku_id == sku_id).first()
+        inv_query = db.query(Inventory).filter(Inventory.sku_id == sku_id)
+        if warehouse_id:
+            inv_query = inv_query.filter(Inventory.warehouse_id == warehouse_id)
+        inv = inv_query.first()
         if inv and inv.lead_time_days:
             static_lt = float(inv.lead_time_days)
+            lead_time_source = "inventory_lead_time"
 
     if static_lt is None:
-        static_lt = 1.0
+        static_lt = float(settings.SAFETY_STOCK_DEFAULT_LEAD_TIME_DAYS)
+        lead_time_source = "default_config"
 
     return {
         "avg_lead_time": round(static_lt, 4),
         "sd_lead_time": 0.0,
         "po_count": len(sku_lead_times),
-        "lead_time_source": "fallback_config",
+        "lead_time_source": lead_time_source,
         "has_sufficient_history": False,
         "supplier_id": resolved_supplier_id,
     }
@@ -252,12 +263,12 @@ def classify_abc_by_revenue(
     if total_rev <= 0:
         return "C"
 
-    cum = 0.0
+    prior_cum = 0.0
     for r in sorted_rev:
-        cum += float(r.total_revenue or 0.0)
-        ratio = cum / total_rev
+        prior_ratio = prior_cum / total_rev
         if r.sku_id == sku_id:
-            return get_abc_tier_from_cumulative_share(ratio)
+            return get_abc_tier_from_cumulative_share(prior_ratio)
+        prior_cum += float(r.total_revenue or 0.0)
 
     return "C"
 
@@ -312,6 +323,8 @@ def calculate_service_level_safety_stock(
     warehouse_id: str,
     weeks: int | None = None,
     as_of_date: date | None = None,
+    base_safety_stock: int | None = None,
+    abc_class: str | None = None,
 ) -> dict[str, Any]:
     """
     Computes service-level safety stock from demand and lead-time variability.
@@ -330,7 +343,9 @@ def calculate_service_level_safety_stock(
     supplier_id = product.supplier_id if product else None
 
     # Current safety stock on the item, or fallback to default
-    if inventory is not None and inventory.safety_stock is not None:
+    if base_safety_stock is not None:
+        current_ss = int(base_safety_stock)
+    elif inventory is not None and inventory.safety_stock is not None:
         current_ss = int(inventory.safety_stock)
     else:
         current_ss = int(settings.DEFAULT_SAFETY_STOCK)
@@ -348,35 +363,19 @@ def calculate_service_level_safety_stock(
     lt_stats = calculate_lead_time_statistics(
         db=db,
         sku_id=sku_id,
+        warehouse_id=warehouse_id,
         supplier_id=supplier_id,
     )
 
     # 3. ABC & XYZ Classification
-    abc_class = classify_abc_by_revenue(db=db, sku_id=sku_id)
+    resolved_abc = abc_class or classify_abc_by_revenue(db=db, sku_id=sku_id)
     xyz_class = classify_xyz_by_cv(demand_stats["cv"])
-    abc_xyz_class = f"{abc_class}{xyz_class}"
+    abc_xyz_class = f"{resolved_abc}{xyz_class}"
 
     # 4. Service Level & Z-Score
-    service_level, z_score = get_service_level_and_z(abc_class, xyz_class)
+    service_level, z_score = get_service_level_and_z(resolved_abc, xyz_class)
 
     # 5. Check if history is sufficient or if fallback is required
-    is_fallback = False
-    fallback_reasons: list[str] = []
-
-    if not demand_stats["has_sufficient_history"]:
-        is_fallback = True
-        fallback_reasons.append(
-            f"Insufficient demand history: observed {demand_stats['observed_days']} days "
-            f"(minimum {settings.SAFETY_STOCK_MIN_DEMAND_DAYS} required)"
-        )
-
-    if not lt_stats["has_sufficient_history"]:
-        is_fallback = True
-        fallback_reasons.append(
-            f"Insufficient lead time history: observed {lt_stats['po_count']} received POs "
-            f"(minimum {settings.SAFETY_STOCK_MIN_PO_COUNT} required)"
-        )
-
     inputs_used = {
         "avg_daily_demand": demand_stats["avg_daily_demand"],
         "sd_daily_demand": demand_stats["sd_daily_demand"],
@@ -390,14 +389,23 @@ def calculate_service_level_safety_stock(
         "supplier_id": lt_stats["supplier_id"],
     }
 
-    if is_fallback:
+    if not demand_stats["has_sufficient_history"]:
+        is_fallback = True
         method = "fallback"
-        fallback_reason: str | None = "; ".join(fallback_reasons)
+        fallback_reason: str | None = (
+            f"Insufficient demand history: observed {demand_stats['observed_days']} days "
+            f"(minimum {settings.SAFETY_STOCK_MIN_DEMAND_DAYS} required)"
+        )
         safety_stock = current_ss
         calculated_ss = float(current_ss)
     else:
-        method = "statistical"
+        is_fallback = False
         fallback_reason = None
+        if not lt_stats["has_sufficient_history"]:
+            method = "statistical_static_lead_time"
+        else:
+            method = "statistical"
+
         calculated_ss = calculate_safety_stock_formula(
             avg_demand=demand_stats["avg_daily_demand"],
             sd_demand=demand_stats["sd_daily_demand"],
@@ -410,7 +418,7 @@ def calculate_service_level_safety_stock(
     return {
         "sku_id": sku_id,
         "warehouse_id": warehouse_id,
-        "abc_class": abc_class,
+        "abc_class": resolved_abc,
         "xyz_class": xyz_class,
         "abc_xyz_class": abc_xyz_class,
         "service_level": round(service_level, 4),

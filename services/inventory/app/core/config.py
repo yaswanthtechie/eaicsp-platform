@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     ABC_REVENUE_B_THRESHOLD: float = 0.95
     XYZ_CV_X_THRESHOLD: float = 0.50
     XYZ_CV_Y_THRESHOLD: float = 1.00
+    SAFETY_STOCK_DEFAULT_LEAD_TIME_DAYS: float = 1.0
     SAFETY_STOCK_SERVICE_LEVELS: dict[str, float] = Field(
         default_factory=lambda: {
             "AX": 0.98,
@@ -81,6 +82,16 @@ class Settings(BaseSettings):
         env_file=".env",
         extra="ignore",
     )
+
+    @field_validator("SAFETY_STOCK_SERVICE_LEVELS", mode="after")
+    @classmethod
+    def validate_service_levels(cls, v: dict[str, float]) -> dict[str, float]:
+        for k, sl in v.items():
+            if not (0.0 < sl < 1.0):
+                raise ValueError(
+                    f"Service level for {k} must be strictly between 0 and 1, got {sl}"
+                )
+        return v
 
     @field_validator("DATABASE_URL", "TEST_DATABASE_URL", mode="after")
     @classmethod

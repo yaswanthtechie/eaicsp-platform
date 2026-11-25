@@ -2,10 +2,14 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.inventory import Inventory
+from app.models.product import Product
 from app.services import demand_service
 from app.services.abc_service import (
     calculate_tier_safety_stock,
     classify_skus,
+)
+from app.services.safety_stock_service import (
+    calculate_service_level_safety_stock,
 )
 
 ROLLING_WINDOW_DAYS = 30
@@ -131,19 +135,29 @@ def calculate_reorder_point(
 
     classification = classifications.get(key)
 
-    abc_tier = classification["abc_tier"] if classification else "C"
+    product = db.query(Product).filter(Product.sku_id == sku_id).first()
+    if product and product.abc_class in ("A", "B", "C"):
+        abc_tier = str(product.abc_class)
+    elif classification:
+        abc_tier = classification["abc_tier"]
+    else:
+        abc_tier = "C"
 
-    if getattr(settings, "USE_DYNAMIC_SAFETY_STOCK", False):
-        from app.services.safety_stock_service import (
-            calculate_service_level_safety_stock,
-        )
-
+    if settings.USE_DYNAMIC_SAFETY_STOCK:
         dynamic_result = calculate_service_level_safety_stock(
             db=db,
             sku_id=sku_id,
             warehouse_id=warehouse_id,
+            base_safety_stock=safety_stock,
+            abc_class=abc_tier,
         )
-        adjusted_safety_stock = dynamic_result["safety_stock"]
+        if dynamic_result["is_fallback"]:
+            adjusted_safety_stock = calculate_tier_safety_stock(
+                base_safety_stock=safety_stock,
+                abc_tier=abc_tier,
+            )
+        else:
+            adjusted_safety_stock = dynamic_result["safety_stock"]
     else:
         adjusted_safety_stock = calculate_tier_safety_stock(
             base_safety_stock=safety_stock,

@@ -876,6 +876,7 @@ def simulate_route(
     ),
     responses={
         200: {"description": "Service-level safety stock calculation result"},
+        400: {"description": "Invalid parameters"},
         401: {"description": "Missing or invalid token"},
         403: {"description": "Insufficient permissions"},
         404: {"description": "Inventory not found"},
@@ -894,7 +895,8 @@ def get_safety_stock_route(
     weeks: int | None = Query(
         default=None,
         ge=1,
-        description="Optional demand history window in weeks",
+        le=104,
+        description="Optional demand history window in weeks (max 104 weeks)",
     ),
     db: Session = Depends(get_db),
 ):
@@ -917,7 +919,7 @@ def get_safety_stock_route(
             warehouse_id=warehouse_id,
             weeks=weeks,
         )
-    except ValueError as exc:
+    except (ValueError, OverflowError) as exc:
         raise HTTPException(
             status_code=400,
             detail=str(exc),

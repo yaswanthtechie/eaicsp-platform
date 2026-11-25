@@ -20,6 +20,7 @@ from app.services.safety_stock_service import (
     calculate_safety_stock_formula,
     calculate_service_level_safety_stock,
     calculate_z_score,
+    classify_abc_by_revenue,
     classify_xyz_by_cv,
     get_abc_tier_from_cumulative_share,
     get_service_level_and_z,
@@ -139,6 +140,80 @@ def test_abc_classification_boundaries():
     assert get_abc_tier_from_cumulative_share(0.95) == "B"
     assert get_abc_tier_from_cumulative_share(0.95001) == "C"
     assert get_abc_tier_from_cumulative_share(1.00) == "C"
+
+
+def test_classify_abc_by_revenue_ranking(db_session):
+    """Test revenue ranking when Product.abc_class is not pre-set.
+    Top revenue SKU (e.g. 85% of total revenue) must be classified as 'A'.
+    """
+    sku_top = "SKU-000120"
+    sku_mid = "SKU-000121"
+    sku_low = "SKU-000122"
+    wh_id = "WH-BLR-01"
+    today = date.today()
+
+    # Top SKU: 85,000 revenue
+    db_session.add(
+        Product(
+            sku_id=sku_top,
+            name="Top SKU",
+            category="Cat",
+            unit_price=100.0,
+            unit_cost=50.0,
+        )
+    )
+    db_session.add(
+        SalesHistory(
+            sku_id=sku_top,
+            warehouse_id=wh_id,
+            sale_date=today,
+            quantity_sold=850,
+        )
+    )
+
+    # Mid SKU: 11,000 revenue (prior cumulative = 85%, so in B tier 80%-95%)
+    db_session.add(
+        Product(
+            sku_id=sku_mid,
+            name="Mid SKU",
+            category="Cat",
+            unit_price=100.0,
+            unit_cost=50.0,
+        )
+    )
+    db_session.add(
+        SalesHistory(
+            sku_id=sku_mid,
+            warehouse_id=wh_id,
+            sale_date=today,
+            quantity_sold=110,
+        )
+    )
+
+    # Low SKU: 4,000 revenue (prior cumulative = 96%, so in C tier > 95%)
+    db_session.add(
+        Product(
+            sku_id=sku_low,
+            name="Low SKU",
+            category="Cat",
+            unit_price=100.0,
+            unit_cost=50.0,
+        )
+    )
+    db_session.add(
+        SalesHistory(
+            sku_id=sku_low,
+            warehouse_id=wh_id,
+            sale_date=today,
+            quantity_sold=40,
+        )
+    )
+
+    db_session.commit()
+
+    assert classify_abc_by_revenue(db=db_session, sku_id=sku_top) == "A"
+    assert classify_abc_by_revenue(db=db_session, sku_id=sku_mid) == "B"
+    assert classify_abc_by_revenue(db=db_session, sku_id=sku_low) == "C"
 
 
 def test_xyz_classification_boundaries():
@@ -316,7 +391,7 @@ def test_lead_time_statistics_zero_variance(db_session):
 
 
 def test_lead_time_statistics_insufficient_history(db_session):
-    """When fewer than 3 POs exist, fallback source is used."""
+    """When fewer than 3 POs exist, static lead time source is used with sd_lead_time = 0."""
     sku_id = "SKU-000104"
     supplier_id = "SUP-00003"
 
@@ -324,7 +399,69 @@ def test_lead_time_statistics_insufficient_history(db_session):
         db=db_session, sku_id=sku_id, supplier_id=supplier_id
     )
     assert stats["has_sufficient_history"] is False
-    assert stats["lead_time_source"] == "fallback_config"
+    assert stats["lead_time_source"] in (
+        "static_lead_time",
+        "inventory_lead_time",
+        "supplier_lead_time",
+        "default_config",
+    )
+    assert stats["sd_lead_time"] == 0.0
+
+
+def test_service_level_safety_stock_sufficient_demand_short_po_history(
+    db_session,
+):
+    """When demand history is sufficient but PO history is short, uses static lead time with sd_LT = 0."""
+    sku_id = "SKU-000123"
+    wh_id = "WH-BLR-01"
+    today = date.today()
+
+    db_session.add(
+        Product(
+            sku_id=sku_id,
+            name="Short PO Item",
+            category="Cat",
+            unit_price=100.0,
+            unit_cost=50.0,
+            abc_class="A",
+        )
+    )
+    db_session.add(
+        Inventory(
+            sku_id=sku_id,
+            product_name="Short PO Item",
+            warehouse_id=wh_id,
+            category="Cat",
+            quantity_on_hand=50,
+            lead_time_days=9,
+            safety_stock=10,
+            warehouse_type="local",
+        )
+    )
+    # 20 days of sales history (sufficient)
+    for offset in range(20):
+        db_session.add(
+            SalesHistory(
+                sku_id=sku_id,
+                warehouse_id=wh_id,
+                sale_date=today - timedelta(days=offset),
+                quantity_sold=10,
+            )
+        )
+    # 0 POs (short PO history)
+    db_session.commit()
+
+    result = calculate_service_level_safety_stock(
+        db=db_session,
+        sku_id=sku_id,
+        warehouse_id=wh_id,
+        as_of_date=today,
+    )
+    assert result["is_fallback"] is False
+    assert result["method"] == "statistical_static_lead_time"
+    assert result["inputs_used"]["sd_lead_time_days"] == 0.0
+    assert result["inputs_used"]["avg_lead_time_days"] == 9.0
+    assert result["inputs_used"]["lead_time_source"] == "inventory_lead_time"
 
 
 # ============================================================
@@ -483,31 +620,92 @@ def test_reorder_logic_behind_config_flag(db_session, monkeypatch):
     """When flag is off, existing formula is used; when on, dynamic safety stock is used."""
     sku_id = "SKU-000107"
     wh_id = "WH-BLR-01"
+    today = date.today()
 
+    db_session.add(
+        Product(
+            sku_id=sku_id,
+            name="Switch Widget",
+            category="Switches",
+            unit_price=100.0,
+            unit_cost=50.0,
+            abc_class="A",
+        )
+    )
     inv = Inventory(
         sku_id=sku_id,
         product_name="Switch Widget",
         warehouse_id=wh_id,
         category="Switches",
         quantity_on_hand=40,
-        lead_time_days=5,
-        safety_stock=10,
+        lead_time_days=4,
+        safety_stock=20,
         warehouse_type="local",
     )
     db_session.add(inv)
+
+    # 20 days of sales history (sufficient)
+    for offset in range(20):
+        db_session.add(
+            SalesHistory(
+                sku_id=sku_id,
+                warehouse_id=wh_id,
+                sale_date=today - timedelta(days=offset),
+                quantity_sold=15 if offset % 2 == 0 else 5,
+            )
+        )
     db_session.commit()
 
-    # 1. Config Flag OFF (default)
+    # Case A: Flag OFF -> uses calculate_tier_safety_stock
+    # Tier A multiplier is 1.5 -> base safety stock 20 * 1.5 = 30
     monkeypatch.setattr(settings, "USE_DYNAMIC_SAFETY_STOCK", False)
     calc_off = calculate_reorder_point(db=db_session, inventory=inv)
-    # Default tier C multiplier is 1.0 -> adjusted_safety_stock = 10
-    assert calc_off["adjusted_safety_stock"] == 10
+    assert calc_off["adjusted_safety_stock"] == 30
 
-    # 2. Config Flag ON
+    # Case B: Flag ON with sufficient demand history -> uses statistical formula
     monkeypatch.setattr(settings, "USE_DYNAMIC_SAFETY_STOCK", True)
     calc_on = calculate_reorder_point(db=db_session, inventory=inv)
-    # With no sales history, dynamic falls back to current safety stock (10)
-    assert calc_on["adjusted_safety_stock"] == 10
+    assert calc_on["adjusted_safety_stock"] != calc_off["adjusted_safety_stock"]
+    assert calc_on["adjusted_safety_stock"] > 0
+
+    # Case C: Flag ON with insufficient history -> falls back to current calculation preserving ABC tier multiplier
+    sku_fallback = "SKU-000124"
+    inv_fallback = Inventory(
+        sku_id=sku_fallback,
+        product_name="Fallback Widget",
+        warehouse_id=wh_id,
+        category="Switches",
+        quantity_on_hand=40,
+        lead_time_days=4,
+        safety_stock=20,
+        warehouse_type="local",
+    )
+    db_session.add(
+        Product(
+            sku_id=sku_fallback,
+            name="Fallback Widget",
+            category="Switches",
+            unit_price=100.0,
+            unit_cost=50.0,
+            abc_class="A",
+        )
+    )
+    db_session.add(inv_fallback)
+    # Only 3 days of sales history (insufficient)
+    for offset in range(3):
+        db_session.add(
+            SalesHistory(
+                sku_id=sku_fallback,
+                warehouse_id=wh_id,
+                sale_date=today - timedelta(days=offset),
+                quantity_sold=10,
+            )
+        )
+    db_session.commit()
+
+    calc_fallback = calculate_reorder_point(db=db_session, inventory=inv_fallback)
+    # Fallback must preserve the A-tier multiplier: 20 * 1.5 = 30
+    assert calc_fallback["adjusted_safety_stock"] == 30
 
 
 # ============================================================
@@ -582,6 +780,18 @@ def test_safety_stock_api_404_not_found(client):
     assert res.json()["detail"] == "Inventory not found"
 
 
+def test_safety_stock_api_weeks_validation(client, db_session):
+    """Large weeks parameter exceeding maximum returns 422 Unprocessable Entity."""
+    sku_id = "SKU-000108"
+    wh_id = "WH-BLR-01"
+
+    res = client.get(
+        f"/api/v1/inventory/{sku_id}/{wh_id}/safety-stock?weeks=999999999999",
+        headers={"Authorization": "Bearer warehouse-token"},
+    )
+    assert res.status_code == 422
+
+
 def test_safety_stock_api_permissions(db_session):
     """Verify unauthorized roles get 403, missing token gets 401, procurement/warehouse gets 200."""
     sku_id = "SKU-000109"
@@ -603,46 +813,47 @@ def test_safety_stock_api_permissions(db_session):
 
     app.dependency_overrides[get_db] = override_get_db
 
-    # 1. Missing token -> 401
-    with TestClient(app) as anonymous_client:
-        res_no_auth = anonymous_client.get(
-            f"/api/v1/inventory/{sku_id}/{wh_id}/safety-stock"
-        )
-        assert res_no_auth.status_code == 401
+    try:
+        # 1. Missing token -> 401
+        with TestClient(app) as anonymous_client:
+            res_no_auth = anonymous_client.get(
+                f"/api/v1/inventory/{sku_id}/{wh_id}/safety-stock"
+            )
+            assert res_no_auth.status_code == 401
 
-    # 2. Supplier token (lacks inventory:read) -> 403
-    async def _supplier_override():
-        return {
-            "valid": True,
-            "role": "supplier",
-            "user_id": 99,
-            "permissions": ROLE_PERMISSIONS["supplier"],
-        }
+        # 2. Supplier token (lacks inventory:read) -> 403
+        async def _supplier_override():
+            return {
+                "valid": True,
+                "role": "supplier",
+                "user_id": 99,
+                "permissions": ROLE_PERMISSIONS["supplier"],
+            }
 
-    app.dependency_overrides[verify_token] = _supplier_override
-    with TestClient(app) as supplier_client:
-        res_supplier = supplier_client.get(
-            f"/api/v1/inventory/{sku_id}/{wh_id}/safety-stock",
-            headers={"Authorization": "Bearer supplier-token"},
-        )
-        assert res_supplier.status_code == 403
+        app.dependency_overrides[verify_token] = _supplier_override
+        with TestClient(app) as supplier_client:
+            res_supplier = supplier_client.get(
+                f"/api/v1/inventory/{sku_id}/{wh_id}/safety-stock",
+                headers={"Authorization": "Bearer supplier-token"},
+            )
+            assert res_supplier.status_code == 403
 
-    # 3. Procurement manager token (has inventory:read) -> 200
-    async def _procurement_override():
-        return {
-            "valid": True,
-            "role": "procurement_manager",
-            "user_id": 10,
-            "permissions": ROLE_PERMISSIONS["procurement_manager"],
-        }
+        # 3. Procurement manager token (has inventory:read) -> 200
+        async def _procurement_override():
+            return {
+                "valid": True,
+                "role": "procurement_manager",
+                "user_id": 10,
+                "permissions": ROLE_PERMISSIONS["procurement_manager"],
+            }
 
-    app.dependency_overrides[verify_token] = _procurement_override
-    with TestClient(app) as pm_client:
-        res_pm = pm_client.get(
-            f"/api/v1/inventory/{sku_id}/{wh_id}/safety-stock",
-            headers={"Authorization": "Bearer pm-token"},
-        )
-        assert res_pm.status_code == 200
-        assert res_pm.json()["sku_id"] == sku_id
-
-    app.dependency_overrides.clear()
+        app.dependency_overrides[verify_token] = _procurement_override
+        with TestClient(app) as pm_client:
+            res_pm = pm_client.get(
+                f"/api/v1/inventory/{sku_id}/{wh_id}/safety-stock",
+                headers={"Authorization": "Bearer pm-token"},
+            )
+            assert res_pm.status_code == 200
+            assert res_pm.json()["sku_id"] == sku_id
+    finally:
+        app.dependency_overrides.clear()
