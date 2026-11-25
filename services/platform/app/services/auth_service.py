@@ -1,20 +1,25 @@
 import logging
 import secrets
 import threading
+import uuid
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
+from jwt.exceptions import InvalidTokenError
 from sqlalchemy.orm import Session
 
 from app.core import config as app_config
 from app.core.event_publisher import publish_event
 from app.core.password_validator import validate_password
+from app.core.revocation_store import revoke_family_cache
 from app.core.security import (
     build_access_claims,
     create_access_token,
     create_refresh_token,
+    decode_token,
     hash_password,
+    hash_token,
     verify_password,
 )
 from app.core.token_cache import token_cache
@@ -64,11 +69,24 @@ def save_refresh_token(
     user_id: int,
     token: str,
     expires_at: datetime,
+    family_id: str | None = None,
 ):
+    token_hash = hash_token(token)
+
+    if family_id is None:
+        try:
+            payload = decode_token(token)
+            family_id = payload.get("family_id")
+        except InvalidTokenError:
+            pass
+    if family_id is None:
+        family_id = str(uuid.uuid4())
+
     refresh = RefreshToken(
         user_id=user_id,
-        token=token,
+        token=token_hash,
         expires_at=expires_at,
+        family_id=family_id,
     )
 
     db.add(refresh)
@@ -81,11 +99,12 @@ def get_refresh_token(
     token: str,
 ):
     now = datetime.now(UTC)
+    token_hash = hash_token(token)
 
     refresh = (
         db.query(RefreshToken)
         .filter(
-            RefreshToken.token == token,
+            RefreshToken.token == token_hash,
             RefreshToken.is_revoked.is_(False),
             RefreshToken.expires_at > now,
         )
@@ -111,10 +130,11 @@ def revoke_refresh_token(
     db: Session,
     token: str,
 ):
+    token_hash = hash_token(token)
     refresh = (
         db.query(RefreshToken)
         .filter(
-            RefreshToken.token == token,
+            RefreshToken.token == token_hash,
         )
         .first()
     )
@@ -122,7 +142,28 @@ def revoke_refresh_token(
     if refresh is None:
         return False
     refresh.is_revoked = True
+    refresh.revoked_at = datetime.now(UTC)
     return True
+
+
+def revoke_token_family(
+    db: Session,
+    family_id: str,
+):
+    if not family_id:
+        return
+    now = datetime.now(UTC)
+    db.query(RefreshToken).filter(
+        RefreshToken.family_id == family_id,
+        RefreshToken.is_revoked.is_(False),
+    ).update(
+        {RefreshToken.is_revoked: True, RefreshToken.revoked_at: now},
+        synchronize_session=False,
+    )
+    revoke_family_cache(
+        family_id,
+        ttl_seconds=app_config.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+    )
 
 
 # ============================================================
@@ -536,7 +577,10 @@ def login_user(
                 db=db,
                 user_id=user.id,
                 token=refresh_token,
-                expires_at=(datetime.now(UTC) + timedelta(days=7)),
+                expires_at=(
+                    datetime.now(UTC)
+                    + timedelta(days=app_config.REFRESH_TOKEN_EXPIRE_DAYS)
+                ),
             )
 
             login_response = {
@@ -756,7 +800,8 @@ def complete_mfa_login(
         db=db,
         user_id=user.id,
         token=refresh_token,
-        expires_at=datetime.now(UTC) + timedelta(days=7),
+        expires_at=datetime.now(UTC)
+        + timedelta(days=app_config.REFRESH_TOKEN_EXPIRE_DAYS),
     )
 
     create_audit_log(

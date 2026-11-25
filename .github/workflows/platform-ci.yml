@@ -107,7 +107,7 @@ jobs:
   # containers and tests they actually need.
   # ---------------------------------------------------------------
   integration:
-    name: Redis and Kafka integration tests
+    name: Redis, Kafka, and PostgreSQL integration tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -116,12 +116,27 @@ jobs:
     env:
       # integration job env (line 118)
       TEST_DATABASE_URL: sqlite:////tmp/platform-integration-ci.db
+      POSTGRES_URL: postgresql://platform_user:platform_test_password@localhost:5432/platform_integration_test
       REDIS_URL: redis://localhost:6379/0
       KAFKA_BOOTSTRAP_SERVERS: localhost:9092
       # Integration tests must fail, not skip, if a container is missing.
       CI_REQUIRE_SERVICES: "1"
 
     services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: platform_integration_test
+          POSTGRES_USER: platform_user
+          POSTGRES_PASSWORD: platform_test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U platform_user -d platform_integration_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
       redis:
         image: redis:7-alpine
         ports:
@@ -240,6 +255,36 @@ jobs:
           python -m pytest -o addopts= -m integration -v --tb=short -ra \
             tests/test_event_publisher_integration.py \
             tests/test_account_lock_event_integration.py
+
+      - name: Wait for PostgreSQL
+        run: |
+          python - <<'PY'
+          import os
+          import time
+          import psycopg2
+
+          url = os.environ.get(
+              "POSTGRES_URL",
+              "postgresql://platform_user:platform_test_password@localhost:5432/platform_integration_test",
+          )
+          for attempt in range(30):
+              try:
+                  conn = psycopg2.connect(url)
+                  conn.close()
+                  print("PostgreSQL is ready")
+                  break
+              except Exception:
+                  if attempt == 29:
+                      raise
+                  time.sleep(1)
+          PY
+
+      - name: PostgreSQL refresh token rotation and concurrency integration tests
+        env:
+          TEST_DATABASE_URL: postgresql://platform_user:platform_test_password@localhost:5432/platform_integration_test
+        run: |
+          python -m pytest -o addopts= -m integration -v --tb=short -ra \
+            tests/test_refresh_token_postgres.py
 
   # ---------------------------------------------------------------
   # PLATFORM-SPECIFIC: live HTTP tests against a seeded API.

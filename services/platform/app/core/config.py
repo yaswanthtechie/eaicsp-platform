@@ -14,6 +14,10 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 15
 
 REFRESH_TOKEN_EXPIRE_DAYS = 7
 
+REFRESH_TOKEN_GRACE_PERIOD_SECONDS = int(
+    os.getenv("REFRESH_TOKEN_GRACE_PERIOD_SECONDS", "10")
+)
+
 # Set to true only when the service runs behind a reverse proxy / load balancer
 # that sets X-Forwarded-For itself.
 TRUST_PROXY = os.getenv("TRUST_PROXY", "false").lower() == "true"

@@ -1,5 +1,7 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from datetime import UTC, datetime
+
+from sqlalchemy import create_engine, func, select
+from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 from app.core.config import DATABASE_URL
 
@@ -21,3 +23,17 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def get_db_now(db: Session) -> datetime:
+    """Return the current timestamp from the central database clock as a UTC datetime.
+
+    Guarantees a consistent, monotonic clock source across multiple Platform Service
+    instances, eliminating reliance on synchronized physical host clocks.
+    """
+    ts = db.scalar(select(func.now()))
+    if ts is None:
+        return datetime.now(UTC)
+    if ts.tzinfo is None:
+        return ts.replace(tzinfo=UTC)
+    return ts.astimezone(UTC)

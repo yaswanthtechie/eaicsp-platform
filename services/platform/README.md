@@ -503,58 +503,66 @@ Flow:
 Refresh Token
       |
       v
-Validate token
+Validate token & format
       |
       v
-Check expiration
+Check expiration & Redis family revocation
       |
       v
-Check revocation
-      |
-      v
-Revoke old refresh token
+Atomic DB UPDATE (mark old token revoked + record DB timestamp)
       |
       v
 Generate new access token
       |
       v
-Generate new refresh token
+Generate new refresh token (preserving family_id)
+      |
+      v
+Return both tokens to client
 ```
 
-This is called **refresh-token rotation**.
+This is called **refresh-token rotation** (Issue #405 / R16-RH1).
 
-The old refresh token cannot be reused after successful rotation.
+> [!IMPORTANT]
+> **Client Persistence Requirement:** Every successful call to `/api/v1/auth/refresh` returns both a new `access_token` and a new `refresh_token`. Calling clients (web frontend, mobile, API callers) **MUST immediately persist and replace their stored refresh token with the new one**. Retaining or re-sending the old refresh token will result in `401 Unauthorized` and risks revoking the entire session family if replayed outside the grace period.
+
 ---
 
-# Refresh Token Replay Protection
+# Refresh Token Replay Protection & Reuse Detection
 
-If an already-used refresh token is presented again, the service treats it as a possible replay attack.
-
-Example:
+If an already-used refresh token is presented again, the service distinguishes between benign network retries/in-flight concurrent requests and genuine token replay attacks using a configurable grace period (`REFRESH_TOKEN_GRACE_PERIOD_SECONDS`, default 10 seconds):
 
 ```text
 Original Refresh Token
         |
         v
-Used successfully
+Rotated successfully (Token A -> Token B)
         |
         v
-Old token revoked
+Token A marked revoked (revoked_at recorded via central DB clock)
 ```
 
-If the same token is used again:
+If the old token (Token A) is replayed:
 
 ```text
-Refresh Token
-      |
-      v
-Already revoked
-      |
-      v
-401 Unauthorized
+Replay Old Token A
+        |
+        v
+Check elapsed time since revocation (request_db_time - revoked_at)
+        |
+        +---> Elapsed <= 10s (Grace Period / Concurrent Loser):
+        |       - Return 401 Unauthorized
+        |       - Do NOT issue tokens
+        |       - Do NOT revoke token family (Token B remains valid)
+        |
+        +---> Elapsed > 10s (Genuine Replay Attack):
+                - Return 401 Unauthorized
+                - REVOKE ENTIRE TOKEN FAMILY (Token B and all descendants invalidated)
+                - Evict Redis family cache
+                - Record security audit log (TOKEN_REVOKED)
 ```
 
-This protects against stolen refresh-token reuse.
+For the comprehensive technical specification, database architecture, migration procedures, and test commands, see [Refresh Token Rotation with Reuse Detection (Round 16 – Issue #405 / R16-RH1)](#refresh-token-rotation-with-reuse-detection-round-16--issue-405--r16-rh1).
 ---
 
 # Logout
@@ -4210,3 +4218,193 @@ Repeated runs of `seed_database()` preserve these UUIDs and do not overwrite or 
 - **Automatic Startup Migration:** The migration script `scripts/migrate_add_user_uuid.py` is included in the Platform Docker container and executed automatically via `init_db()` and FastAPI `lifespan` before accepting traffic. If migration fails, application startup halts immediately.
 - **SQLite Safety:** NOT NULL enforcement uses safe table recreation executed under SQLAlchemy's `AUTOCOMMIT` isolation level with foreign key integrity checks.
 - **PostgreSQL Concurrency & Deployment Ordering:** The PostgreSQL migration acquires a `SHARE ROW EXCLUSIVE` lock on `users` inside a single transaction to prevent concurrent modifications while backfilling and applying `NOT NULL`. The table schema is re-inspected within the lock to guard against stale schema states. **Important Deployment Ordering:** This migration does not support zero-downtime mixed-version writes. Because `user_uuid` uses a Python-side application default rather than a database server default, older instances omitting `user_uuid` will fail with a NOT NULL constraint violation once `NOT NULL` is enforced. Old application instances must stop writing (or be fully drained/replaced) before enforcing `NOT NULL`, or write traffic must be paused during the migration window.
+
+---
+
+# Refresh Token Rotation with Reuse Detection (Round 16-RH1)
+
+## 1. Overview & Rotation Lifecycle
+The Platform Service implements refresh token rotation with cryptographic reuse detection under issue #405 (R16-RH1).
+* **Token Rotation:** On every successful invocation of `POST /api/v1/auth/refresh`, the presented refresh token is immediately invalidated (`is_revoked = True`, `revoked_at` recorded) and a new refresh token is issued alongside the new access token.
+* **Token Family Tracking:** All refresh tokens derived from an initial login session belong to the same **token family**, bound by a persistent `family_id` (UUID v4) claim in the JWT and stored in the database.
+* **Client Persistence Requirement:** Web frontends, mobile clients, and API consumers **MUST persist and use the newly returned `refresh_token`** on every refresh call. Retaining or presenting the previously used refresh token will be rejected with `401 Unauthorized` and risks revoking the user's entire session family if replayed outside the grace period.
+
+## 2. Configurable Grace Period (`REFRESH_TOKEN_GRACE_PERIOD_SECONDS`)
+To accommodate in-flight concurrent requests, network race conditions, and automatic client retries without disrupting legitimate user sessions:
+* **Configuration:** Controlled by the `REFRESH_TOKEN_GRACE_PERIOD_SECONDS` environment variable.
+* **Default Value:** `10` seconds (integer).
+* **Evaluated Clock Source:** Both request timing (`request_db_time`) and token revocation (`revoked_at`) are captured directly from the central PostgreSQL database server clock (`SELECT func.now()`) via `get_db_now(db)`. This guarantees consistent monotonic comparisons across distributed Platform Service instances without clock drift.
+
+## 3. Grace Period vs. Replay Attack Handling
+
+| Scenario | Elapsed Since Revocation | HTTP Status | New Tokens Issued? | Token Family Revoked? | Security Audit Logged? |
+|---|---|---|---|---|---|
+| **Normal Refresh (Active Token)** | N/A (Token valid & active) | `200 OK` | Yes (New Access & Refresh) | No | No |
+| **Concurrent Loser / Network Retry** | $\le 10\,\text{s}$ (`-10s <= elapsed <= 10s`) | `401 Unauthorized` | No | **No** (Winner remains active) | No |
+| **Genuine Replay Attack** | $> 10\,\text{s}$ (`elapsed > 10s`) | `401 Unauthorized` | No | **YES (Entire family revoked)** | **YES** (`TOKEN_REVOKED`) |
+
+* **Reuse Within Grace Period ($\le 10$ seconds):**
+  A request presenting a recently rotated token within the 10-second grace window receives `401 Unauthorized` (`"Invalid or revoked refresh token"`). No new tokens are issued, but the winning concurrent request's token family remains intact.
+* **Reuse After Grace Period ($> 10$ seconds):**
+  A request presenting an already-rotated token more than 10 seconds after revocation is classified as a genuine token reuse/replay attack. The service immediately:
+  1. Revokes every active token in the family (`UPDATE refresh_token SET is_revoked = TRUE, revoked_at = :now WHERE family_id = :family_id`).
+  2. Evicts the family cache in Redis (`revoke_family_cache(family_id)` with 7-day TTL).
+  3. Invalidates local memory token cache (`token_cache.invalidate_user(user_id)`).
+  4. Records a security audit log entry (`event_type="TOKEN_REVOKED"`).
+  5. **Privacy Guarantee:** Never logs raw refresh tokens or token hashes in audit logs or application logs (only `user_id` and `family_id` UUID are recorded).
+
+## 4. Token Family Revocation Triggers
+A token family is revoked as a single unit across all associated tokens under the following lifecycle events:
+1. **Token Reuse Attack:** Replaying any old token in the family after the 10-second grace period.
+2. **User Logout (`POST /api/v1/auth/logout`):** Invalidates all tokens in the caller's active session family.
+3. **Admin Session Revocation (`DELETE /api/v1/admin/users/{user_id}/sessions/{session_id}`):** Invalidates the specific token family associated with that session.
+4. **Admin User Deactivation (`POST /api/v1/admin/users/{user_id}/deactivate`):** Invalidates all token families and sessions across the user.
+5. **Admin Force Password Reset (`POST /api/v1/admin/users/{user_id}/force-password-reset`):** Invalidates all active token families for the user.
+6. **Family Isolation:** Revoking one token family has zero effect on separate token families (e.g., active logins on other devices or other users remain valid).
+
+## 5. Storage Architecture: PostgreSQL, Redis & SHA-256 Hashing
+* **PostgreSQL as Authoritative Source of Truth:**
+  - PostgreSQL holds the authoritative state in the `refresh_token` table (`id`, `user_id`, `token`, `expires_at`, `is_revoked`, `created_at`, `family_id`, `revoked_at`).
+  - **Atomic Concurrency Guarantee:** The refresh transition uses an atomic SQL `UPDATE`:
+    ```sql
+    UPDATE refresh_token
+    SET is_revoked = TRUE, revoked_at = :request_db_time
+    WHERE token = :token_hash AND is_revoked = FALSE AND expires_at > :request_db_time;
+    ```
+    PostgreSQL's row-level lock ensures that under multiple simultaneous requests presenting the same token, exactly one request updates the row (`rowcount == 1`) and wins. Losing requests receive `rowcount == 0` and are evaluated against the database timestamp.
+* **Redis as Revocation Cache:**
+  - Redis provides a fast-path cache for family revocation lookups (`is_family_revoked_in_cache(family_id)`).
+  - **Graceful Fallback:** If Redis is down, unreachable, or restarted with an empty cache, Platform automatically falls back to PostgreSQL without failing requests. Cache entries are repopulated as token operations execute.
+* **SHA-256 Hash Storage:**
+  - Raw refresh token JWTs are never stored in the database.
+  - The database only stores 64-character hexadecimal SHA-256 digests (`hash_token(raw_jwt)`).
+
+## 6. Migration & Session Preservation
+* **Migration Script:** `scripts/migrate_refresh_tokens_family_and_hash.py`
+  - Safe, idempotent, and re-runnable against PostgreSQL and SQLite.
+  - Adds `family_id VARCHAR(64)` and `revoked_at TIMESTAMP WITH TIME ZONE` columns if missing.
+  - Creates index `CREATE INDEX IF NOT EXISTS ix_refresh_token_family_id ON refresh_token (family_id)`.
+  - On PostgreSQL, acquires `LOCK TABLE refresh_token IN SHARE ROW EXCLUSIVE MODE;` inside a transaction to prevent race conditions during schema updates.
+  - Automatically identifies raw unhashed tokens, converts them to SHA-256 digests, and generates unique `family_id` UUIDs.
+* **Session Preservation:**
+  - Active login sessions created before migration remain valid. When a user presents a pre-migration raw refresh token, `/refresh` hashes the incoming token, finds the migrated row in PostgreSQL, and rotates it to a new token with its assigned family ID.
+* **Historical Limitation:**
+  - Pre-migration already-consumed tokens from earlier login sessions were assigned synthetic individual family IDs during migration. If an ancient consumed token from before the migration is replayed, only its synthetic family is revoked rather than linking back to newer sessions. Active sessions migrated at cutover remain fully protected going forward.
+
+## 7. Verification & Test Commands
+All test commands should be executed from the `services/platform/` directory using the active virtual environment:
+
+### Unit Tests (SQLite)
+Runs normal rotation, grace period, reuse detection, and admin revocation unit tests:
+```bash
+python -m pytest -o addopts= -v tests/test_refresh_token_rotation.py
+```
+
+### PostgreSQL Integration Tests
+Runs the dedicated PostgreSQL test suite with five concurrent workers, row locking, ancestor replay, family isolation, and migration idempotency:
+```bash
+# Set TEST_DATABASE_URL to your PostgreSQL integration test database:
+TEST_DATABASE_URL="postgresql://platform_user:platform_test_password@localhost:5432/platform_integration_test" \
+  python -m pytest -o addopts= -m integration -v --tb=short -ra tests/test_refresh_token_postgres.py
+```
+
+### CI Pipeline Execution
+In GitHub Actions (`.github/workflows/platform-ci.yml`), tests execute inside the `integration` job with a `postgres:15-alpine` service container and TCP health check barrier:
+```bash
+python -m pytest -o addopts= -m integration -v --tb=short -ra tests/test_refresh_token_postgres.py
+```
+
+---
+
+# Refresh Token Rotation with Reuse Detection (Round 16 – Issue #405 / R16-RH1)
+
+## 1. Overview & Rotation Lifecycle
+The Platform Service implements refresh token rotation with cryptographic reuse detection under issue #405 (R16-RH1).
+* **Token Rotation:** On every successful invocation of `POST /api/v1/auth/refresh`, the presented refresh token is immediately invalidated (`is_revoked = True`, `revoked_at` recorded) and a new refresh token is issued alongside the new access token.
+* **Token Family Tracking:** All refresh tokens derived from an initial login session belong to the same **token family**, bound by a persistent `family_id` (UUID v4) claim in the JWT and stored in the database.
+* **Client Persistence Requirement:** Web frontends, mobile clients, and API consumers **MUST persist and use the newly returned `refresh_token`** on every refresh call. Retaining or presenting the previously used refresh token will be rejected with `401 Unauthorized` and risks revoking the user's entire session family if replayed outside the grace period.
+
+## 2. Configurable Grace Period (`REFRESH_TOKEN_GRACE_PERIOD_SECONDS`)
+To accommodate in-flight concurrent requests, network race conditions, and automatic client retries without disrupting legitimate user sessions:
+* **Configuration:** Controlled by the `REFRESH_TOKEN_GRACE_PERIOD_SECONDS` environment variable.
+* **Default Value:** `10` seconds (integer).
+* **Evaluated Clock Source:** Both request timing (`request_db_time`) and token revocation (`revoked_at`) are captured directly from the central PostgreSQL database server clock (`SELECT func.now()`) via `get_db_now(db)`. This guarantees consistent monotonic comparisons across distributed Platform Service instances without clock drift.
+
+## 3. Grace Period vs. Replay Attack Handling
+
+| Scenario | Elapsed Since Revocation | HTTP Status | New Tokens Issued? | Token Family Revoked? | Security Audit Logged? |
+|---|---|---|---|---|---|
+| **Normal Refresh (Active Token)** | N/A (Token valid & active) | `200 OK` | Yes (New Access & Refresh) | No | No |
+| **Concurrent Loser / Network Retry** | $\le 10\,\text{s}$ (`-10s <= elapsed <= 10s`) | `401 Unauthorized` | No | **No** (Winner remains active) | No |
+| **Genuine Replay Attack** | $> 10\,\text{s}$ (`elapsed > 10s`) | `401 Unauthorized` | No | **YES (Entire family revoked)** | **YES** (`TOKEN_REVOKED`) |
+
+* **Reuse Within Grace Period ($\le 10$ seconds):**
+  A request presenting a recently rotated token within the 10-second grace window receives `401 Unauthorized` (`"Invalid or revoked refresh token"`). No new tokens are issued, but the winning concurrent request's token family remains intact.
+* **Reuse After Grace Period ($> 10$ seconds):**
+  A request presenting an already-rotated token more than 10 seconds after revocation is classified as a genuine token reuse/replay attack. The service immediately:
+  1. Revokes every active token in the family (`UPDATE refresh_token SET is_revoked = TRUE, revoked_at = :now WHERE family_id = :family_id`).
+  2. Evicts the family cache in Redis (`revoke_family_cache(family_id)` with 7-day TTL).
+  3. Invalidates local memory token cache (`token_cache.invalidate_user(user_id)`).
+  4. Records a security audit log entry (`event_type="TOKEN_REVOKED"`).
+  5. **Privacy Guarantee:** Never logs raw refresh tokens or token hashes in audit logs or application logs (only `user_id` and `family_id` UUID are recorded).
+
+## 4. Token Family Revocation Triggers
+A token family is revoked as a single unit across all associated tokens under the following lifecycle events:
+1. **Token Reuse Attack:** Replaying any old token in the family after the 10-second grace period.
+2. **User Logout (`POST /api/v1/auth/logout`):** Invalidates all tokens in the caller's active session family.
+3. **Admin Session Revocation (`DELETE /api/v1/admin/users/{user_id}/sessions/{session_id}`):** Invalidates the specific token family associated with that session.
+4. **Admin User Deactivation (`POST /api/v1/admin/users/{user_id}/deactivate`):** Invalidates all token families and sessions across the user.
+5. **Admin Force Password Reset (`POST /api/v1/admin/users/{user_id}/force-password-reset`):** Invalidates all active token families for the user.
+6. **Family Isolation:** Revoking one token family has zero effect on separate token families (e.g., active logins on other devices or other users remain valid).
+
+## 5. Storage Architecture: PostgreSQL, Redis & SHA-256 Hashing
+* **PostgreSQL as Authoritative Source of Truth:**
+  - PostgreSQL holds the authoritative state in the `refresh_token` table (`id`, `user_id`, `token`, `expires_at`, `is_revoked`, `created_at`, `family_id`, `revoked_at`).
+  - **Atomic Concurrency Guarantee:** The refresh transition uses an atomic SQL `UPDATE`:
+    ```sql
+    UPDATE refresh_token
+    SET is_revoked = TRUE, revoked_at = :request_db_time
+    WHERE token = :token_hash AND is_revoked = FALSE AND expires_at > :request_db_time;
+    ```
+    PostgreSQL's row-level lock ensures that under multiple simultaneous requests presenting the same token, exactly one request updates the row (`rowcount == 1`) and wins. Losing requests receive `rowcount == 0` and are evaluated against the database timestamp.
+* **Redis as Revocation Cache:**
+  - Redis provides a fast-path cache for family revocation lookups (`is_family_revoked_in_cache(family_id)`).
+  - **Graceful Fallback:** If Redis is down, unreachable, or restarted with an empty cache, Platform automatically falls back to PostgreSQL without failing requests. Cache entries are repopulated as token operations execute.
+* **SHA-256 Hash Storage:**
+  - Raw refresh token JWTs are never stored in the database.
+  - The database only stores 64-character hexadecimal SHA-256 digests (`hash_token(raw_jwt)`).
+
+## 6. Migration & Session Preservation
+* **Migration Script:** `scripts/migrate_refresh_tokens_family_and_hash.py`
+  - Safe, idempotent, and re-runnable against PostgreSQL and SQLite.
+  - Adds `family_id VARCHAR(64)` and `revoked_at TIMESTAMP WITH TIME ZONE` columns if missing.
+  - Creates index `CREATE INDEX IF NOT EXISTS ix_refresh_token_family_id ON refresh_token (family_id)`.
+  - On PostgreSQL, acquires `LOCK TABLE refresh_token IN SHARE ROW EXCLUSIVE MODE;` inside a transaction to prevent race conditions during schema updates.
+  - Automatically identifies raw unhashed tokens, converts them to SHA-256 digests, and generates unique `family_id` UUIDs.
+* **Session Preservation:**
+  - Active login sessions created before migration remain valid. When a user presents a pre-migration raw refresh token, `/refresh` hashes the incoming token, finds the migrated row in PostgreSQL, and rotates it to a new token with its assigned family ID.
+* **Historical Limitation:**
+  - Pre-migration already-consumed tokens from earlier login sessions were assigned synthetic individual family IDs during migration. If an ancient consumed token from before the migration is replayed, only its synthetic family is revoked rather than linking back to newer sessions. Active sessions migrated at cutover remain fully protected going forward.
+
+## 7. Verification & Test Commands
+All test commands should be executed from the `services/platform/` directory using the active virtual environment:
+
+### Unit Tests (SQLite)
+Runs normal rotation, grace period, reuse detection, and admin revocation unit tests:
+```bash
+python -m pytest -o addopts= -v tests/test_refresh_token_rotation.py
+```
+
+### PostgreSQL Integration Tests
+Runs the dedicated PostgreSQL test suite with five concurrent workers, row locking, ancestor replay, family isolation, and migration idempotency:
+```bash
+# Set TEST_DATABASE_URL to your PostgreSQL integration test database:
+TEST_DATABASE_URL="postgresql://platform_user:platform_test_password@localhost:5432/platform_integration_test" \
+  python -m pytest -o addopts= -m integration -v --tb=short -ra tests/test_refresh_token_postgres.py
+```
+
+### CI Pipeline Execution
+In GitHub Actions (`.github/workflows/platform-ci.yml`), tests execute inside the `integration` job with a `postgres:15-alpine` service container and TCP health check barrier:
+```bash
+python -m pytest -o addopts= -m integration -v --tb=short -ra tests/test_refresh_token_postgres.py
+```

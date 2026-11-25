@@ -128,7 +128,8 @@ def mock_sso_login(
         db=db,
         user_id=user.id,
         token=refresh_token,
-        expires_at=datetime.now(UTC) + timedelta(days=7),
+        expires_at=datetime.now(UTC)
+        + timedelta(days=app_config.REFRESH_TOKEN_EXPIRE_DAYS),
     )
 
     create_audit_log(

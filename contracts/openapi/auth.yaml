@@ -1,0 +1,166 @@
+openapi: 3.1.0
+
+info:
+  title: Platform Service Authentication & Token Lifecycle API
+  version: 1.1.0
+  description: >
+    OpenAPI contract for Platform Service authentication, token rotation, and
+    session management endpoints (Pod 1 Foundation, Issue #405).
+
+    ### Refresh Token Rotation with Reuse Detection:
+    - Every successful POST `/api/v1/auth/refresh` rotates the refresh token:
+      the previously used token is marked revoked, and a brand new refresh token
+      is returned in the response.
+    - All tokens issued from the same root login session belong to a single
+      **token family**.
+    - **Frontend Storage Requirement**: The frontend client MUST immediately store
+      the newly returned `refresh_token` after every successful refresh. Re-sending
+      a previously used refresh token after the grace period triggers reuse detection
+      and terminates the entire login family.
+    - **Grace Period (10s default)**: A 10-second grace period protects against
+      losing concurrent requests and network retries. Re-submitting a token within
+      10 seconds of its initial rotation returns HTTP 401 without issuing a new token
+      and WITHOUT revoking the token family.
+    - **Reuse Detection (>10s)**: Replaying a token after the 10-second grace window
+      is treated as a token theft/compromise attempt. The entire token family is
+      immediately revoked, active sessions are terminated, and a security audit event
+      is logged.
+    - **Concurrent Refresh**: Handled atomically via database row locks so that
+      exactly one concurrent request succeeds while the losing request receives
+      HTTP 401 without family destruction.
+    - **Logout**: POST `/api/v1/auth/logout` invalidates the active access token and
+      revokes the entire refresh token family.
+
+paths:
+  /api/v1/auth/refresh:
+    post:
+      summary: Refresh Access Token
+      description: >
+        Exchange a valid refresh token for a newly issued access token and a
+        rotated refresh token in the same token family.
+
+        FRONTEND REQUIREMENT: The frontend client MUST replace its stored refresh
+        token with the new `refresh_token` returned by this endpoint.
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+            example:
+              refresh_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+      responses:
+        "200":
+          description: Successful refresh; tokens rotated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessTokenResponse"
+              example:
+                access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+                refresh_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+                token_type: "bearer"
+        "401":
+          description: >
+            Unauthorized. Returned when the token is invalid, expired, revoked,
+            or replayed. If reused after the 10-second grace period, the entire
+            token family is revoked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                detail: "Invalid or revoked refresh token"
+
+  /api/v1/auth/logout:
+    post:
+      summary: Revoke Session and Family
+      description: >
+        Revoke the caller's access token and the entire refresh-token family
+        associated with the provided refresh token.
+      operationId: logoutUser
+      security:
+        - OAuth2Bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LogoutRequest"
+            example:
+              refresh_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+      responses:
+        "200":
+          description: Successfully logged out and revoked family.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Logged out successfully"
+        "400":
+          description: Token already revoked.
+        "401":
+          description: Invalid or unauthenticated credentials.
+        "403":
+          description: Cannot revoke another user's session.
+        "404":
+          description: Refresh token not found.
+        "503":
+          description: Shared revocation store temporarily unavailable.
+
+components:
+  securitySchemes:
+    OAuth2Bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    RefreshRequest:
+      type: object
+      required:
+        - refresh_token
+      properties:
+        refresh_token:
+          type: string
+          description: The current unrevoked refresh token.
+
+    LogoutRequest:
+      type: object
+      required:
+        - refresh_token
+      properties:
+        refresh_token:
+          type: string
+          description: Refresh token belonging to the session family to revoke.
+
+    AccessTokenResponse:
+      type: object
+      required:
+        - access_token
+        - refresh_token
+        - token_type
+      properties:
+        access_token:
+          type: string
+          description: Newly issued short-lived access token (JWT).
+        refresh_token:
+          type: string
+          description: Newly issued rotated refresh token (JWT) in the same token family.
+        token_type:
+          type: string
+          description: Token authorization type.
+          example: "bearer"
+
+    ErrorResponse:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          description: Human-readable error explanation.

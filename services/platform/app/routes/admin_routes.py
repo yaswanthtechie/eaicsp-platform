@@ -14,13 +14,14 @@ from app.core.dependencies import (
     require_role,
 )
 from app.core.password_validator import validate_password
+from app.core.revocation_store import revoke_family_cache
 from app.core.security import hash_password
 from app.core.service_auth import (
     generate_service_api_key,
     hash_service_api_key,
 )
 from app.core.token_cache import token_cache
-from app.database import get_db
+from app.database import get_db, get_db_now
 from app.models.auth_audit_logs import AuthAuditLog
 from app.models.refresh_token import RefreshToken
 from app.models.role_change_history import RoleChangeHistory
@@ -201,11 +202,12 @@ def deactivate_user(
     # Deactivate account
     user.is_active = False
     # Revoke all active refresh tokens/sessions
+    now = get_db_now(db)
     db.query(RefreshToken).filter(
         RefreshToken.user_id == user.id,
         RefreshToken.is_revoked.is_(False),
     ).update(
-        {RefreshToken.is_revoked: True},
+        {RefreshToken.is_revoked: True, RefreshToken.revoked_at: now},
         synchronize_session=False,
     )
 
@@ -365,7 +367,7 @@ def force_reset_password(
 
     user.password = hash_password(request.new_password)
 
-    now = datetime.now(UTC)
+    now = get_db_now(db)
 
     user.password_changed_at = now
     user.password_expires_at = now + timedelta(days=90)
@@ -375,7 +377,7 @@ def force_reset_password(
         RefreshToken.user_id == user.id,
         RefreshToken.is_revoked.is_(False),
     ).update(
-        {RefreshToken.is_revoked: True},
+        {RefreshToken.is_revoked: True, RefreshToken.revoked_at: now},
         synchronize_session=False,
     )
     # Remove cached authentication responses
@@ -467,7 +469,19 @@ def revoke_user_session(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Session already revoked"
         )
 
+    now = get_db_now(db)
     session.is_revoked = True
+    session.revoked_at = now
+    if session.family_id:
+        db.query(RefreshToken).filter(
+            RefreshToken.family_id == session.family_id,
+            RefreshToken.is_revoked.is_(False),
+        ).update(
+            {RefreshToken.is_revoked: True, RefreshToken.revoked_at: now},
+            synchronize_session=False,
+        )
+        revoke_family_cache(session.family_id)
+
     create_audit_log(
         db=db,
         event_type=TOKEN_REVOKED,
@@ -576,7 +590,11 @@ def security_dashboard(
             "session_id": session.id,
             "user_id": session.user_id,
             "email": email,
-            "created_at": session.created_at.isoformat(),
+            "created_at": (
+                session.created_at.isoformat()
+                if session.created_at is not None
+                else None
+            ),
             "expires_at": session.expires_at.isoformat(),
         }
         for session, email in active_sessions

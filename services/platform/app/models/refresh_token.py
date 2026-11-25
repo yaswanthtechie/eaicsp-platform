@@ -19,6 +19,10 @@ class RefreshToken(Base):
         String(512), unique=True, nullable=False, index=True
     )
     is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    family_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=True
     )
