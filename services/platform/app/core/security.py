@@ -47,16 +47,7 @@ def build_access_claims(user: Any, role_name: str | None = None) -> dict[str, An
 
 
 def hash_token(token: str) -> str:
-    """Return SHA-256 hex digest of the given token.
-
-    If the token is already a 64-char hex digest (without JWT dots), return as is.
-    """
-    if len(token) == 64 and "." not in token:
-        try:
-            int(token, 16)
-            return token
-        except ValueError:
-            pass
+    """Return SHA-256 hex digest of the given token."""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 

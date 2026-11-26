@@ -4,15 +4,22 @@ import threading
 import uuid
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
+import jwt
 from fastapi import HTTPException, status
 from jwt.exceptions import InvalidTokenError
+from sqlalchemy import CursorResult, update
 from sqlalchemy.orm import Session
 
 from app.core import config as app_config
 from app.core.event_publisher import publish_event
 from app.core.password_validator import validate_password
-from app.core.revocation_store import revoke_family_cache
+from app.core.revocation_store import (
+    is_family_revoked_in_cache,
+    revoke_family_cache,
+    set_family_active_token,
+)
 from app.core.security import (
     build_access_claims,
     create_access_token,
@@ -23,6 +30,7 @@ from app.core.security import (
     verify_password,
 )
 from app.core.token_cache import token_cache
+from app.database import get_db_now
 from app.models.failed_login_attempts import FailedLoginAttempt
 from app.models.password_reset_tokens import PasswordResetToken
 from app.models.refresh_token import RefreshToken
@@ -35,6 +43,7 @@ from app.services.audit_service import (
     MFA_FAILED,
     MFA_VERIFIED,
     PASSWORD_RESET,
+    TOKEN_REVOKED,
     create_audit_log,
 )
 from app.services.email_service import MockEmailService
@@ -98,7 +107,7 @@ def get_refresh_token(
     db: Session,
     token: str,
 ):
-    now = datetime.now(UTC)
+    now = get_db_now(db)
     token_hash = hash_token(token)
 
     refresh = (
@@ -149,10 +158,10 @@ def revoke_refresh_token(
 def revoke_token_family(
     db: Session,
     family_id: str,
-):
+) -> None:
     if not family_id:
         return
-    now = datetime.now(UTC)
+    now = get_db_now(db)
     db.query(RefreshToken).filter(
         RefreshToken.family_id == family_id,
         RefreshToken.is_revoked.is_(False),
@@ -160,10 +169,265 @@ def revoke_token_family(
         {RefreshToken.is_revoked: True, RefreshToken.revoked_at: now},
         synchronize_session=False,
     )
+    db.commit()
     revoke_family_cache(
         family_id,
         ttl_seconds=app_config.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
     )
+
+
+def logout_family(
+    db: Session,
+    refresh: RefreshToken | None = None,
+    *,
+    family_id: str | None = None,
+    user_id: int | None = None,
+) -> None:
+    """Revoke all refresh tokens in the family and cache family revocation after DB commit."""
+    now = get_db_now(db)
+    fam_id = refresh.family_id if refresh is not None else family_id
+    uid = refresh.user_id if refresh is not None else user_id
+
+    if fam_id:
+        db.query(RefreshToken).filter(
+            RefreshToken.family_id == fam_id,
+            RefreshToken.is_revoked.is_(False),
+        ).update(
+            {RefreshToken.is_revoked: True, RefreshToken.revoked_at: now},
+            synchronize_session=False,
+        )
+    elif refresh is not None:
+        refresh.is_revoked = True
+        refresh.revoked_at = now
+
+    if uid is not None:
+        create_audit_log(
+            db=db,
+            event_type=TOKEN_REVOKED,
+            user_id=uid,
+            details="Refresh token family and access token revoked during logout",
+        )
+
+    db.commit()
+
+    if fam_id:
+        revoke_family_cache(
+            fam_id,
+            ttl_seconds=app_config.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+        )
+
+
+def rotate_refresh_token(db: Session, raw_token: str) -> dict[str, str]:
+    """Rotate a refresh token atomically under the same family.
+
+    Enforces:
+    - Single-winner atomic database UPDATE.
+    - Configurable grace period window (default: 10s) for in-flight concurrent requests.
+    - Token family reuse detection when an ancestor is replayed with active descendants.
+    - Fast-path Redis caching and cache reconstruction from DB.
+    - Redis cache writes occur strictly AFTER PostgreSQL commits.
+    """
+    try:
+        payload = decode_token(raw_token)
+    except jwt.InvalidTokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        ) from None
+
+    if payload.get("type") != "refresh":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
+        )
+
+    token_hash = hash_token(raw_token)
+    request_db_time = get_db_now(db)
+
+    # Fast-path Redis cache check for family revocation
+    family_id_claim = payload.get("family_id")
+    if family_id_claim and is_family_revoked_in_cache(family_id_claim):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or revoked refresh token",
+        )
+
+    # Atomic PostgreSQL UPDATE to check and mark the refresh token as used
+    stmt = (
+        update(RefreshToken)
+        .where(
+            RefreshToken.token == token_hash,
+            RefreshToken.is_revoked.is_(False),
+            RefreshToken.expires_at > request_db_time,
+        )
+        .values(
+            is_revoked=True,
+            revoked_at=request_db_time,
+        )
+    )
+    result = cast(CursorResult[Any], db.execute(stmt))
+
+    if result.rowcount == 0:
+        # Atomic update failed: token not found, expired, or already used/revoked
+        existing = (
+            db.query(RefreshToken).filter(RefreshToken.token == token_hash).first()
+        )
+
+        if existing is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or revoked refresh token",
+            )
+
+        expires_at = existing.expires_at
+        if expires_at is not None:
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=UTC)
+            if expires_at <= request_db_time:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid or expired refresh token",
+                )
+
+        # Token was already revoked / used.
+        # Check whether this request arrived within the configurable grace period.
+        revoked_at = existing.revoked_at
+        if revoked_at is not None:
+            if revoked_at.tzinfo is None:
+                revoked_at = revoked_at.replace(tzinfo=UTC)
+            elapsed_at_arrival = (request_db_time - revoked_at).total_seconds()
+        else:
+            elapsed_at_arrival = 999999.0
+
+        if (
+            -app_config.REFRESH_TOKEN_GRACE_PERIOD_SECONDS
+            <= elapsed_at_arrival
+            <= app_config.REFRESH_TOKEN_GRACE_PERIOD_SECONDS
+        ):
+            # Concurrent in-flight request or loser within grace period: return 401 without family revocation.
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or revoked refresh token",
+            )
+
+        # Token arrived after grace period (> 10s).
+        # Check for genuine reuse:
+        # Only treat as genuine reuse if the family actually has active descendants to revoke!
+        # If the family was already legitimately revoked (e.g. via logout, password reset,
+        # admin session revocation, or previous reuse revocation), there are no active tokens
+        # to revoke, and classifying it as a new reuse event would trigger a false security alert.
+        fam_id = existing.family_id
+        if fam_id:
+            active_descendants = (
+                db.query(RefreshToken)
+                .filter(
+                    RefreshToken.family_id == fam_id,
+                    RefreshToken.is_revoked.is_(False),
+                )
+                .update(
+                    {
+                        RefreshToken.is_revoked: True,
+                        RefreshToken.revoked_at: request_db_time,
+                    },
+                    synchronize_session=False,
+                )
+            )
+            if active_descendants > 0:
+                # Active tokens were compromised/revoked by this reuse attempt
+                token_cache.invalidate_user(existing.user_id)
+                logger.warning(
+                    "Refresh token reuse detected: user_id=%s, family_id=%s. Entire token family revoked.",
+                    existing.user_id,
+                    fam_id,
+                )
+                create_audit_log(
+                    db=db,
+                    event_type=TOKEN_REVOKED,
+                    user_id=existing.user_id,
+                    details=f"Token reuse detected for family_id={fam_id}. Entire token family revoked.",
+                )
+                db.commit()
+                # Redis family-revocation cache write strictly AFTER PostgreSQL commit
+                revoke_family_cache(
+                    fam_id,
+                    ttl_seconds=app_config.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+                )
+            else:
+                db.rollback()
+        else:
+            db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or revoked refresh token",
+        )
+
+    # Atomic update succeeded: 1 row transitioned from active to revoked
+    refresh = db.query(RefreshToken).filter(RefreshToken.token == token_hash).first()
+    if refresh is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or revoked refresh token",
+        )
+
+    user = db.query(User).filter(User.id == refresh.user_id).first()
+
+    if user is None or not user.is_active:
+        if refresh.family_id:
+            revoke_token_family(db, refresh.family_id)
+        else:
+            db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user"
+        )
+
+    if user.role is None:
+        if refresh.family_id:
+            revoke_token_family(db, refresh.family_id)
+        else:
+            db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user"
+        )
+
+    family_id = refresh.family_id or family_id_claim or str(uuid.uuid4())
+
+    new_access_token = create_access_token(build_access_claims(user))
+    new_refresh_token = create_refresh_token(
+        {
+            "sub": user.email,
+            "user_id": user.id,
+        },
+        family_id=family_id,
+    )
+
+    new_refresh_expires_at = request_db_time + timedelta(
+        days=app_config.REFRESH_TOKEN_EXPIRE_DAYS
+    )
+
+    # Save new refresh token under the same family
+    save_refresh_token(
+        db=db,
+        user_id=user.id,
+        token=new_refresh_token,
+        expires_at=new_refresh_expires_at,
+        family_id=family_id,
+    )
+
+    db.commit()
+
+    # Update active token hash in Redis cache (best-effort, after DB commit)
+    new_token_hash = hash_token(new_refresh_token)
+    set_family_active_token(
+        family_id,
+        new_token_hash,
+        ttl_seconds=app_config.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+    )
+
+    return {
+        "access_token": new_access_token,
+        "refresh_token": new_refresh_token,
+        "token_type": "bearer",
+    }
 
 
 # ============================================================
@@ -319,7 +583,7 @@ def register_user(
     validate_password(request.password)
 
     hashed_password = hash_password(request.password)
-    now = datetime.now(UTC)
+    now = get_db_now(db)
     user = User(
         email=email_address,
         full_name=request.full_name,
@@ -529,7 +793,7 @@ def login_user(
         # 9. Check password expiry
         # ----------------------------------------------------
 
-        now = datetime.now(UTC)
+        now = get_db_now(db)
 
         if user.password_expires_at:
             password_expires_at = user.password_expires_at
@@ -706,7 +970,7 @@ def reset_password(
             detail="Password reset token already used",
         )
 
-    now = datetime.now(UTC)
+    now = get_db_now(db)
 
     expires_at = reset_token.expires_at
 
@@ -742,12 +1006,26 @@ def reset_password(
     # Unlock account after successful password reset
     user.locked_until = None
 
-    # Revoke all active refresh tokens
+    # Collect active family IDs to evict from Redis cache after DB commit
+    active_family_ids = [
+        row[0]
+        for row in db.query(RefreshToken.family_id)
+        .filter(
+            RefreshToken.user_id == user.id,
+            RefreshToken.is_revoked.is_(False),
+            RefreshToken.family_id.isnot(None),
+        )
+        .distinct()
+        .all()
+        if row[0] is not None
+    ]
+
+    # Revoke all active refresh tokens with revoked_at set
     db.query(RefreshToken).filter(
         RefreshToken.user_id == user.id,
         RefreshToken.is_revoked.is_(False),
     ).update(
-        {RefreshToken.is_revoked: True},
+        {RefreshToken.is_revoked: True, RefreshToken.revoked_at: now},
         synchronize_session=False,
     )
 
@@ -763,6 +1041,11 @@ def reset_password(
     )
 
     db.commit()
+
+    # Evict Redis family cache after successful DB commit
+    for fid in active_family_ids:
+        if fid:
+            revoke_family_cache(fid)
 
 
 def complete_mfa_login(

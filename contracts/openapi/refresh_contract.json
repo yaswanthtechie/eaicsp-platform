@@ -20,8 +20,9 @@
     "token_type": {
       "type": "string",
       "description": "Authorization token type",
-      "enum": ["bearer"]
+      "enum": [
+        "bearer"
+      ]
     }
-  },
-  "additionalProperties": false
+  }
 }

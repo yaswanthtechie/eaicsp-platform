@@ -9,9 +9,10 @@ import pytest
 import redis
 from fastapi.testclient import TestClient
 
+from app.core import config as app_config
 from app.core.redis_client import get_redis
 from app.core.security import decode_token, hash_token
-from app.database import SessionLocal
+from app.database import SessionLocal, get_db_now
 from app.main import app
 from app.models.auth_audit_logs import AuthAuditLog
 from app.models.refresh_token import RefreshToken
@@ -26,6 +27,7 @@ from scripts.migrate_refresh_tokens_family_and_hash import (
 )
 from tests.test_auth import (
     auth_header,
+    get_password_reset_token,
     login_as_ceo,
     login_as_vp,
     reset_test_security_state,
@@ -170,7 +172,7 @@ def test_delayed_request_already_in_flight_when_another_request_won():
     req1_won = threading.Event()
     results = {}
 
-    import app.routes.auth_routes as auth_mod
+    import app.services.auth_service as auth_mod
 
     original_get_db_now = auth_mod.get_db_now
     first_call_lock = threading.Lock()
@@ -200,7 +202,7 @@ def test_delayed_request_already_in_flight_when_another_request_won():
         )
 
     with patch(
-        "app.routes.auth_routes.get_db_now",
+        "app.services.auth_service.get_db_now",
         side_effect=hooked_get_db_now,
     ):
         t2 = threading.Thread(target=run_req2)
@@ -698,3 +700,573 @@ def test_admin_force_password_reset_invalidates_family():
         json={"refresh_token": user_refresh},
     )
     assert refresh_resp.status_code == 401
+
+
+def test_password_reset_sets_revoked_at_and_avoids_false_reuse_alert():
+    """Verify reset_password sets revoked_at and does not trigger false reuse alert on subsequent refresh."""
+    email = unique_email("pwd_reset_revoked_at")
+    reg_resp = client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Reset Revoked User",
+            "email": email,
+            "password": "Password123!",
+        },
+    )
+    assert reg_resp.status_code == 200
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        assert user is not None
+        role = (
+            db.query(Role).filter(Role.name == "analyst").first()
+            or db.query(Role).first()
+        )
+        if role and user.role_id is None:
+            user.role_id = role.id
+            db.commit()
+    finally:
+        db.close()
+
+    # User logs in and receives refresh token
+    user_login = client.post(
+        "/api/v1/auth/login",
+        data={"username": email, "password": "Password123!"},
+    )
+    assert user_login.status_code == 200
+    user_refresh = user_login.json()["refresh_token"]
+
+    # Request password reset
+    req_resp = client.post(
+        "/api/v1/auth/password-reset/request",
+        json={"email": email},
+    )
+    assert req_resp.status_code == 200
+    reset_token = get_password_reset_token(email)
+
+    # Perform password reset
+    confirm_resp = client.post(
+        "/api/v1/auth/password-reset/reset",
+        json={
+            "token": reset_token,
+            "new_password": "NewPassword123!",
+        },
+    )
+    assert confirm_resp.status_code == 200
+
+    # Verify that in DB, user's refresh token record has revoked_at set
+    refresh_hash = hash_token(user_refresh)
+    db = SessionLocal()
+    try:
+        row = db.query(RefreshToken).filter(RefreshToken.token == refresh_hash).first()
+        assert row is not None
+        assert row.is_revoked is True
+        assert row.revoked_at is not None
+
+        # Backdate revoked_at past grace period to test reuse classification
+        row.revoked_at = datetime.now(UTC) - timedelta(seconds=15)
+        db.commit()
+    finally:
+        db.close()
+
+    # Attempt to refresh with the old token
+    ref_resp = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": user_refresh},
+    )
+    assert ref_resp.status_code == 401
+
+    # Verify NO false reuse alert was logged for this family
+    family_id = decode_token(user_refresh).get("family_id")
+    db = SessionLocal()
+    try:
+        reuse_log = (
+            db.query(AuthAuditLog)
+            .filter(
+                AuthAuditLog.event_type == TOKEN_REVOKED,
+                AuthAuditLog.details.contains("Token reuse detected"),
+            )
+            .all()
+        )
+        if family_id:
+            for entry in reuse_log:
+                assert family_id not in entry.details
+    finally:
+        db.close()
+
+
+def test_logged_out_token_refresh_does_not_trigger_false_reuse_alert():
+    """Verify attempting to refresh a legitimately logged-out session returns 401 without false reuse alert."""
+    login = login_as_ceo()
+    refresh_token = login["refresh_token"]
+    family_id = decode_token(refresh_token)["family_id"]
+
+    logout_resp = client.post(
+        "/api/v1/auth/logout",
+        json={"refresh_token": refresh_token},
+        headers={"Authorization": f"Bearer {login['access_token']}"},
+    )
+    assert logout_resp.status_code == 200
+
+    # Backdate revoked_at past grace period
+    token_h = hash_token(refresh_token)
+    db = SessionLocal()
+    try:
+        row = db.query(RefreshToken).filter(RefreshToken.token == token_h).first()
+        assert row is not None
+        row.revoked_at = datetime.now(UTC) - timedelta(seconds=15)
+        db.commit()
+    finally:
+        db.close()
+
+    # Attempt refresh with logged-out token after grace period
+    ref_resp = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": refresh_token},
+    )
+    assert ref_resp.status_code == 401
+
+    # Verify no false reuse alert was created
+    db = SessionLocal()
+    try:
+        reuse_logs = (
+            db.query(AuthAuditLog)
+            .filter(
+                AuthAuditLog.event_type == TOKEN_REVOKED,
+                AuthAuditLog.details.contains(family_id),
+                AuthAuditLog.details.contains("Token reuse detected"),
+            )
+            .all()
+        )
+        assert len(reuse_logs) == 0
+    finally:
+        db.close()
+
+
+def test_direct_service_calls_rotate_and_logout_family():
+    """Verify rotate_refresh_token and logout_family work directly from auth_service."""
+    from app.services.auth_service import logout_family, rotate_refresh_token
+
+    login = login_as_ceo()
+    token_1 = login["refresh_token"]
+
+    db = SessionLocal()
+    try:
+        # Test rotate_refresh_token service function directly
+        result = rotate_refresh_token(db, token_1)
+        assert "access_token" in result
+        assert "refresh_token" in result
+        token_2 = result["refresh_token"]
+        assert token_2 != token_1
+
+        # Test logout_family service function directly
+        token_2_hash = hash_token(token_2)
+        row_2 = (
+            db.query(RefreshToken).filter(RefreshToken.token == token_2_hash).first()
+        )
+        assert row_2 is not None
+        assert row_2.is_revoked is False
+
+        logout_family(db, row_2)
+
+        # After logout_family, row_2 must be revoked with revoked_at set
+        row_2_after = (
+            db.query(RefreshToken).filter(RefreshToken.token == token_2_hash).first()
+        )
+        assert row_2_after is not None
+        assert row_2_after.is_revoked is True
+        assert row_2_after.revoked_at is not None
+    finally:
+        db.close()
+
+
+def test_grace_period_config_parsing_and_fallback():
+    """Verify parse_grace_period_seconds validates input and falls back safely to default 10s."""
+    from app.core.config import parse_grace_period_seconds
+
+    assert parse_grace_period_seconds("10") == 10
+    assert parse_grace_period_seconds("0") == 0
+    assert parse_grace_period_seconds("30") == 30
+    # Negative values fall back to default
+    assert parse_grace_period_seconds("-1") == 10
+    assert parse_grace_period_seconds("-10") == 10
+    # Non-numeric / invalid strings fall back to default
+    assert parse_grace_period_seconds("invalid") == 10
+    assert parse_grace_period_seconds("") == 10
+    assert parse_grace_period_seconds("   ") == 10
+
+
+def test_grace_period_boundary_within_and_exceeded():
+    """Verify grace period window: replay just inside window preserves family; replay clearly outside window revokes family."""
+    login = login_as_ceo()
+    token_a = login["refresh_token"]
+
+    # 1. Rotate A -> B
+    resp_1 = client.post("/api/v1/auth/refresh", json={"refresh_token": token_a})
+    assert resp_1.status_code == 200
+    token_b = resp_1.json()["refresh_token"]
+
+    # Set token A revoked_at to just inside the grace window (e.g. 5 seconds ago) using the DB clock
+    db = SessionLocal()
+    try:
+        db_now = get_db_now(db)
+        hash_a = hash_token(token_a)
+        row_a = db.query(RefreshToken).filter(RefreshToken.token == hash_a).first()
+        assert row_a is not None
+        row_a.revoked_at = db_now - timedelta(
+            seconds=app_config.REFRESH_TOKEN_GRACE_PERIOD_SECONDS - 5
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    # Replay token A within grace window: gets 401, but family must NOT be revoked
+    resp_replay = client.post("/api/v1/auth/refresh", json={"refresh_token": token_a})
+    assert resp_replay.status_code == 401
+
+    # Token B must still be valid
+    resp_b_check = client.post("/api/v1/auth/refresh", json={"refresh_token": token_b})
+    assert resp_b_check.status_code == 200
+    token_c = resp_b_check.json()["refresh_token"]
+
+    # Now set token B revoked_at to clearly outside the grace window (e.g. 15 seconds ago) using the DB clock
+    db = SessionLocal()
+    try:
+        db_now = get_db_now(db)
+        hash_b = hash_token(token_b)
+        row_b = db.query(RefreshToken).filter(RefreshToken.token == hash_b).first()
+        assert row_b is not None
+        row_b.revoked_at = db_now - timedelta(
+            seconds=app_config.REFRESH_TOKEN_GRACE_PERIOD_SECONDS + 5
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    # Replay token B after grace period exceeded: gets 401 AND revokes the family
+    resp_replay_b = client.post("/api/v1/auth/refresh", json={"refresh_token": token_b})
+    assert resp_replay_b.status_code == 401
+
+    # Active Token C must now be revoked
+    resp_c_check = client.post("/api/v1/auth/refresh", json={"refresh_token": token_c})
+    assert resp_c_check.status_code == 401
+
+
+def test_redis_active_token_cache_failure_does_not_break_rotation():
+    """Verify that Redis failure during set_family_active_token does not prevent successful rotation."""
+    login = login_as_ceo()
+    token = login["refresh_token"]
+
+    with patch("app.services.auth_service.set_family_active_token") as mock_set_active:
+        mock_set_active.return_value = False
+
+        resp = client.post("/api/v1/auth/refresh", json={"refresh_token": token})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "access_token" in data
+        assert "refresh_token" in data
+        new_token = data["refresh_token"]
+        assert new_token != token
+
+        # Verify next rotation succeeds from DB
+        next_resp = client.post(
+            "/api/v1/auth/refresh", json={"refresh_token": new_token}
+        )
+        assert next_resp.status_code == 200
+
+
+def test_is_sha256_hex_strict_validation():
+    """Verify is_sha256_hex strictly validates 64 hexadecimal characters and rejects non-hex."""
+    # Valid 64-char hex digests
+    valid_lower = hashlib.sha256(b"test").hexdigest()
+    assert is_sha256_hex(valid_lower) is True
+    assert is_sha256_hex(valid_lower.upper()) is True
+
+    # Rejects invalid lengths
+    assert is_sha256_hex("a" * 63) is False
+    assert is_sha256_hex("a" * 65) is False
+    assert is_sha256_hex("") is False
+
+    # Rejects leading/trailing sign or whitespace that int(x, 16) would otherwise accept
+    assert is_sha256_hex("+" + "a" * 63) is False
+    assert is_sha256_hex("-" + "a" * 63) is False
+    assert is_sha256_hex(" " + "a" * 63) is False
+    assert is_sha256_hex("a" * 63 + " ") is False
+
+    # Rejects non-hex characters
+    assert is_sha256_hex("g" * 64) is False
+    assert is_sha256_hex("z" * 64) is False
+    assert is_sha256_hex("@" * 64) is False
+
+    # Rejects JWTs containing dots
+    jwt_mock = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIn0." + "a" * 40
+    assert is_sha256_hex(jwt_mock) is False
+
+
+def test_migration_mixed_state_and_preservation():
+    """Verify migration correctly handles mixed token states without double-hashing or overwriting."""
+    from app.core.security import create_refresh_token
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == "ceo@company.com").first()
+        assert user is not None
+
+        raw_jwt_1 = create_refresh_token(
+            {"sub": user.email, "user_id": user.id, "nonce": "1"}
+        )
+        raw_jwt_2 = create_refresh_token(
+            {"sub": user.email, "user_id": user.id, "nonce": "2"}
+        )
+        raw_jwt_3 = create_refresh_token(
+            {"sub": user.email, "user_id": user.id, "nonce": "3"}
+        )
+
+        existing_hash_1 = hashlib.sha256(b"already_hashed_token_1").hexdigest()
+        existing_hash_2 = hashlib.sha256(b"already_hashed_token_2").hexdigest()
+        existing_hash_3 = hashlib.sha256(b"already_hashed_token_3").hexdigest()
+
+        past_revocation = datetime.now(UTC) - timedelta(days=2)
+
+        # Row 1: Raw JWT, null family, active
+        r1 = RefreshToken(
+            user_id=user.id,
+            token=raw_jwt_1,
+            is_revoked=False,
+            family_id=None,
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+        # Row 2: Already-hashed, existing family, active
+        r2 = RefreshToken(
+            user_id=user.id,
+            token=existing_hash_1,
+            is_revoked=False,
+            family_id="fam-preserve-1",
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+        # Row 3: Already-hashed, null family, active
+        r3 = RefreshToken(
+            user_id=user.id,
+            token=existing_hash_2,
+            is_revoked=False,
+            family_id=None,
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+        # Row 4: Raw JWT, existing family, active
+        r4 = RefreshToken(
+            user_id=user.id,
+            token=raw_jwt_2,
+            is_revoked=False,
+            family_id="fam-preserve-2",
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+        # Row 5: Raw JWT, null family, revoked without revoked_at
+        r5 = RefreshToken(
+            user_id=user.id,
+            token=raw_jwt_3,
+            is_revoked=True,
+            revoked_at=None,
+            family_id=None,
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+        # Row 6: Already-hashed, existing family, revoked with existing revoked_at
+        r6 = RefreshToken(
+            user_id=user.id,
+            token=existing_hash_3,
+            is_revoked=True,
+            revoked_at=past_revocation,
+            family_id="fam-preserve-3",
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+
+        db.add_all([r1, r2, r3, r4, r5, r6])
+        db.commit()
+        ids = [r1.id, r2.id, r3.id, r4.id, r5.id, r6.id]
+    finally:
+        db.close()
+
+    # Run migration with a small batch size of 2 to exercise keyset batching across chunks
+    summary = run_refresh_migration(batch_size=2)
+    assert summary["tokens_hashed"] == 3  # r1, r4, r5
+    assert summary["families_backfilled"] == 3  # r1, r3, r5
+
+    db = SessionLocal()
+    try:
+        rows = {
+            r.id: r
+            for r in db.query(RefreshToken).filter(RefreshToken.id.in_(ids)).all()
+        }
+
+        # Row 1: hashed, fresh family
+        assert (
+            rows[ids[0]].token == hashlib.sha256(raw_jwt_1.encode("utf-8")).hexdigest()
+        )
+        assert rows[ids[0]].family_id is not None
+        assert is_sha256_hex(rows[ids[0]].token)
+
+        # Row 2: preserved hash (NOT double-hashed), preserved family
+        assert rows[ids[1]].token == existing_hash_1
+        assert rows[ids[1]].family_id == "fam-preserve-1"
+
+        # Row 3: preserved hash, fresh family
+        assert rows[ids[2]].token == existing_hash_2
+        assert rows[ids[2]].family_id is not None
+
+        # Row 4: hashed, preserved family
+        assert (
+            rows[ids[3]].token == hashlib.sha256(raw_jwt_2.encode("utf-8")).hexdigest()
+        )
+        assert rows[ids[3]].family_id == "fam-preserve-2"
+
+        # Row 5: hashed, fresh family, revoked_at backfilled
+        assert (
+            rows[ids[4]].token == hashlib.sha256(raw_jwt_3.encode("utf-8")).hexdigest()
+        )
+        assert rows[ids[4]].family_id is not None
+        assert rows[ids[4]].revoked_at is not None
+
+        # Row 6: preserved hash, preserved family, preserved revoked_at
+        assert rows[ids[5]].token == existing_hash_3
+        assert rows[ids[5]].family_id == "fam-preserve-3"
+    finally:
+        db.close()
+
+
+def test_migration_second_run_idempotency_zero_updates():
+    """Verify that running migration when all rows are already migrated produces exactly zero updates."""
+    summary_2 = run_refresh_migration(batch_size=2)
+    assert summary_2["tokens_hashed"] == 0
+    assert summary_2["families_backfilled"] == 0
+    assert summary_2["columns_added"] == 0
+    assert summary_2["index_created"] == 0
+
+
+def test_migration_large_batch_processing():
+    """Verify bounded keyset batching across many rows with multiple batch chunks."""
+    from app.core.security import create_refresh_token
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == "ceo@company.com").first()
+        assert user is not None
+
+        legacy_rows = []
+        for i in range(25):
+            raw_jwt = create_refresh_token(
+                {"sub": user.email, "user_id": user.id, "nonce": f"batch_{i}"}
+            )
+            legacy_rows.append(
+                RefreshToken(
+                    user_id=user.id,
+                    token=raw_jwt,
+                    is_revoked=False,
+                    family_id=None,
+                    expires_at=datetime.now(UTC) + timedelta(days=7),
+                )
+            )
+        db.add_all(legacy_rows)
+        db.commit()
+        batch_ids = [r.id for r in legacy_rows]
+    finally:
+        db.close()
+
+    # Process in batches of 7 (requiring 4 batch queries)
+    summary = run_refresh_migration(batch_size=7)
+    assert summary["tokens_hashed"] >= 25
+    assert summary["families_backfilled"] >= 25
+
+    db = SessionLocal()
+    try:
+        migrated_rows = (
+            db.query(RefreshToken).filter(RefreshToken.id.in_(batch_ids)).all()
+        )
+        assert len(migrated_rows) == 25
+        for r in migrated_rows:
+            assert is_sha256_hex(r.token)
+            assert r.family_id is not None
+            assert "." not in r.token
+    finally:
+        db.close()
+
+    # Rerun immediately: 0 tokens hashed
+    summary_rerun = run_refresh_migration(batch_size=7)
+    assert summary_rerun["tokens_hashed"] == 0
+    assert summary_rerun["families_backfilled"] == 0
+
+
+def test_migration_64_char_non_hex_token_with_existing_family_id():
+    """Verify migration identifies and hashes 64-char non-hex tokens even when family_id is already present, while leaving valid SHA-256 tokens untouched."""
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == "ceo@company.com").first()
+        assert user is not None
+
+        invalid_64_a = "g" * 64
+        invalid_64_b = "a" * 63 + "z"
+        valid_sha256 = hashlib.sha256(b"already_valid_untouched").hexdigest()
+
+        r1 = RefreshToken(
+            user_id=user.id,
+            token=invalid_64_a,
+            is_revoked=False,
+            family_id="fam-existing-64nonhex-1",
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+        r2 = RefreshToken(
+            user_id=user.id,
+            token=invalid_64_b,
+            is_revoked=False,
+            family_id="fam-existing-64nonhex-2",
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+        r3 = RefreshToken(
+            user_id=user.id,
+            token=valid_sha256,
+            is_revoked=False,
+            family_id="fam-existing-valid-preserved",
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+        db.add_all([r1, r2, r3])
+        db.commit()
+        ids = [r1.id, r2.id, r3.id]
+    finally:
+        db.close()
+
+    # Run migration with batch_size=1 to verify keyset pagination across single-item batches
+    summary = run_refresh_migration(batch_size=1)
+    assert summary["tokens_hashed"] >= 2
+
+    db = SessionLocal()
+    try:
+        rows = {
+            r.id: r
+            for r in db.query(RefreshToken).filter(RefreshToken.id.in_(ids)).all()
+        }
+
+        # Row 1: 64-char non-hex token was hashed, family_id preserved
+        assert (
+            rows[ids[0]].token
+            == hashlib.sha256(invalid_64_a.encode("utf-8")).hexdigest()
+        )
+        assert rows[ids[0]].family_id == "fam-existing-64nonhex-1"
+        assert is_sha256_hex(rows[ids[0]].token)
+
+        # Row 2: 64-char non-hex token was hashed, family_id preserved
+        assert (
+            rows[ids[1]].token
+            == hashlib.sha256(invalid_64_b.encode("utf-8")).hexdigest()
+        )
+        assert rows[ids[1]].family_id == "fam-existing-64nonhex-2"
+        assert is_sha256_hex(rows[ids[1]].token)
+
+        # Row 3: valid SHA-256 token remains strictly UNTOUCHED
+        assert rows[ids[2]].token == valid_sha256
+        assert rows[ids[2]].family_id == "fam-existing-valid-preserved"
+    finally:
+        db.close()
+
+    # Second run produces zero updates
+    summary_rerun = run_refresh_migration(batch_size=1)
+    assert summary_rerun["tokens_hashed"] == 0
+    assert summary_rerun["families_backfilled"] == 0

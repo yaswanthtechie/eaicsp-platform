@@ -365,3 +365,228 @@ def test_postgres_migration_idempotency_and_raw_token_hashing(
     summary_2 = run_refresh_token_migration(pg_engine)
     assert summary_2["tokens_hashed"] == 0
     assert summary_2["columns_added"] == 0
+
+
+def test_postgres_migration_posix_regex_filtering_and_preservation(
+    pg_engine, pg_session_factory
+):
+    """Verify PostgreSQL POSIX regex filtering, family_id/timestamp preservation,
+    and multi-batch keyset pagination with batch_size=1.
+    """
+    user_id, email = create_test_user(pg_session_factory, "pg_posix_filt")
+
+    # Generate unique inputs so repeated test executions do not violate
+    # the global unique constraint on refresh_token.token.
+    test_run_id = uuid.uuid4().hex
+
+    raw_jwt = create_refresh_token(
+        {
+            "sub": email,
+            "user_id": user_id,
+            "nonce": f"pg_jwt_1_{test_run_id}",
+        }
+    )
+
+    valid_sha256 = hashlib.sha256(
+        f"pg_valid_token_keep:{test_run_id}".encode("utf-8")
+    ).hexdigest()
+
+    # Both values remain exactly 64 characters and contain non-hex characters.
+    invalid_64_a = "g" + test_run_id + ("g" * 31)
+    invalid_64_b = "z" + test_run_id + ("z" * 31)
+
+    revoked_hash = hashlib.sha256(
+        f"pg_revoked_pres:{test_run_id}".encode("utf-8")
+    ).hexdigest()
+
+    raw_revoked_jwt = create_refresh_token(
+        {
+            "sub": email,
+            "user_id": user_id,
+            "nonce": f"pg_jwt_rev_{test_run_id}",
+        }
+    )
+
+    existing_rev_time = datetime.now(UTC) - timedelta(days=3)
+
+    with pg_session_factory() as db:
+        # Row 1: Valid SHA-256 hash with existing family.
+        # Migration must leave it unchanged.
+        r1 = RefreshToken(
+            user_id=user_id,
+            token=valid_sha256,
+            is_revoked=False,
+            family_id=f"fam-pg-preserve-valid-{test_run_id}",
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+
+        # Row 2: 64-character non-hex token with existing family.
+        # Migration must hash it and preserve its family.
+        r2 = RefreshToken(
+            user_id=user_id,
+            token=invalid_64_a,
+            is_revoked=False,
+            family_id=f"fam-pg-preserve-nonhex1-{test_run_id}",
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+
+        # Row 3: Another 64-character non-hex token.
+        r3 = RefreshToken(
+            user_id=user_id,
+            token=invalid_64_b,
+            is_revoked=False,
+            family_id=f"fam-pg-preserve-nonhex2-{test_run_id}",
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+
+        # Row 4: Raw JWT with no family.
+        # Migration must hash it and assign a family.
+        r4 = RefreshToken(
+            user_id=user_id,
+            token=raw_jwt,
+            is_revoked=False,
+            family_id=None,
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+
+        # Row 5: Revoked token with an existing revoked_at timestamp.
+        # Migration must preserve that timestamp.
+        r5 = RefreshToken(
+            user_id=user_id,
+            token=revoked_hash,
+            is_revoked=True,
+            revoked_at=existing_rev_time,
+            family_id=f"fam-pg-preserve-rev-{test_run_id}",
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+
+        # Row 6: Revoked raw JWT without revoked_at or family.
+        # Migration must hash it, backfill revoked_at and assign a family.
+        r6 = RefreshToken(
+            user_id=user_id,
+            token=raw_revoked_jwt,
+            is_revoked=True,
+            revoked_at=None,
+            family_id=None,
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+
+        db.add_all([r1, r2, r3, r4, r5, r6])
+        db.commit()
+
+        ids = [r1.id, r2.id, r3.id, r4.id, r5.id, r6.id]
+
+    # Run migration with batch_size=1 to exercise multi-batch keyset pagination.
+    summary_1 = run_refresh_token_migration(pg_engine, batch_size=1)
+
+    # Rows 2, 3, 4 and 6 require hashing.
+    assert summary_1["tokens_hashed"] >= 4
+
+    # Rows 4 and 6 require family backfill.
+    assert summary_1["families_backfilled"] >= 2
+
+    with pg_session_factory() as db:
+        rows = {
+            r.id: r
+            for r in (db.query(RefreshToken).filter(RefreshToken.id.in_(ids)).all())
+        }
+
+        assert len(rows) == 6
+
+        # Row 1: Existing valid SHA-256 hash remains unchanged.
+        assert rows[ids[0]].token == valid_sha256
+        assert rows[ids[0]].family_id == f"fam-pg-preserve-valid-{test_run_id}"
+
+        # Row 2: Non-hex token is hashed; existing family is preserved.
+        assert (
+            rows[ids[1]].token
+            == hashlib.sha256(invalid_64_a.encode("utf-8")).hexdigest()
+        )
+        assert rows[ids[1]].family_id == f"fam-pg-preserve-nonhex1-{test_run_id}"
+        assert is_sha256_hex(rows[ids[1]].token)
+
+        # Row 3: Second non-hex token is hashed; family is preserved.
+        assert (
+            rows[ids[2]].token
+            == hashlib.sha256(invalid_64_b.encode("utf-8")).hexdigest()
+        )
+        assert rows[ids[2]].family_id == f"fam-pg-preserve-nonhex2-{test_run_id}"
+        assert is_sha256_hex(rows[ids[2]].token)
+
+        # Row 4: Raw JWT is hashed and a new family is assigned.
+        assert rows[ids[3]].token == hashlib.sha256(raw_jwt.encode("utf-8")).hexdigest()
+        assert rows[ids[3]].family_id is not None
+        assert is_sha256_hex(rows[ids[3]].token)
+
+        # Row 5: Existing family and revoked_at timestamp are preserved.
+        assert rows[ids[4]].family_id == f"fam-pg-preserve-rev-{test_run_id}"
+        assert rows[ids[4]].revoked_at is not None
+
+        # Compare actual instants after converting both timestamps to UTC.
+        assert rows[ids[4]].revoked_at.astimezone(UTC) == (
+            existing_rev_time.astimezone(UTC)
+        )
+
+        # Row 6: Revoked token is hashed and missing metadata is backfilled.
+        assert (
+            rows[ids[5]].token
+            == hashlib.sha256(raw_revoked_jwt.encode("utf-8")).hexdigest()
+        )
+        assert rows[ids[5]].revoked_at is not None
+        assert rows[ids[5]].family_id is not None
+        assert is_sha256_hex(rows[ids[5]].token)
+
+    # Verify idempotency: a second migration run must not hash or backfill again.
+    summary_2 = run_refresh_token_migration(pg_engine, batch_size=1)
+
+    assert summary_2["tokens_hashed"] == 0
+    assert summary_2["families_backfilled"] == 0
+
+
+def test_postgres_migration_transaction_rollback_on_failure(
+    pg_engine, pg_session_factory
+):
+    """Verify that failure during batch update execution rolls back the entire PostgreSQL transaction."""
+    from unittest.mock import patch
+
+    import scripts.migrate_refresh_tokens_family_and_hash as mig_mod
+
+    user_id, email = create_test_user(pg_session_factory, "pg_rollback")
+    raw_jwt = create_refresh_token(
+        {"sub": email, "user_id": user_id, "nonce": "rollback_jwt"}
+    )
+
+    with pg_session_factory() as db:
+        row = RefreshToken(
+            user_id=user_id,
+            token=raw_jwt,
+            is_revoked=False,
+            family_id=None,
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        inserted_id = row.id
+
+    original_migrate_rows = mig_mod._migrate_token_rows
+
+    def failing_migrate_rows(conn, summary, batch_size=1000, dialect_name="postgresql"):
+        # Call original to update in-memory / staging, then simulate sudden database error before commit
+        original_migrate_rows(
+            conn, summary, batch_size=batch_size, dialect_name=dialect_name
+        )
+        raise RuntimeError("Simulated mid-migration failure before transaction commit")
+
+    with patch.object(mig_mod, "_migrate_token_rows", side_effect=failing_migrate_rows):
+        with pytest.raises(RuntimeError, match="Simulated mid-migration failure"):
+            run_refresh_token_migration(pg_engine)
+
+    # Verify atomic rollback in PostgreSQL: token remains unmigrated raw JWT and family_id remains None
+    with pg_session_factory() as db:
+        row_after_rollback = (
+            db.query(RefreshToken).filter(RefreshToken.id == inserted_id).first()
+        )
+        assert row_after_rollback is not None
+        assert row_after_rollback.token == raw_jwt
+        assert row_after_rollback.family_id is None

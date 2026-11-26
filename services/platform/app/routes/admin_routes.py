@@ -203,6 +203,18 @@ def deactivate_user(
     user.is_active = False
     # Revoke all active refresh tokens/sessions
     now = get_db_now(db)
+    active_family_ids = [
+        row[0]
+        for row in db.query(RefreshToken.family_id)
+        .filter(
+            RefreshToken.user_id == user.id,
+            RefreshToken.is_revoked.is_(False),
+            RefreshToken.family_id.isnot(None),
+        )
+        .distinct()
+        .all()
+        if row[0] is not None
+    ]
     db.query(RefreshToken).filter(
         RefreshToken.user_id == user.id,
         RefreshToken.is_revoked.is_(False),
@@ -215,6 +227,10 @@ def deactivate_user(
     token_cache.invalidate_user(user.id)
     db.commit()
     db.refresh(user)
+
+    for fid in active_family_ids:
+        if fid:
+            revoke_family_cache(fid)
 
     return {
         "user_id": user.id,
@@ -373,6 +389,18 @@ def force_reset_password(
     user.password_expires_at = now + timedelta(days=90)
 
     # Revoke all active sessions after force password reset
+    active_family_ids = [
+        row[0]
+        for row in db.query(RefreshToken.family_id)
+        .filter(
+            RefreshToken.user_id == user.id,
+            RefreshToken.is_revoked.is_(False),
+            RefreshToken.family_id.isnot(None),
+        )
+        .distinct()
+        .all()
+        if row[0] is not None
+    ]
     db.query(RefreshToken).filter(
         RefreshToken.user_id == user.id,
         RefreshToken.is_revoked.is_(False),
@@ -383,6 +411,10 @@ def force_reset_password(
     # Remove cached authentication responses
     token_cache.invalidate_user(user.id)
     db.commit()
+
+    for fid in active_family_ids:
+        if fid:
+            revoke_family_cache(fid)
 
     return {"message": "Password reset successfully"}
 
@@ -472,15 +504,15 @@ def revoke_user_session(
     now = get_db_now(db)
     session.is_revoked = True
     session.revoked_at = now
-    if session.family_id:
+    family_id_to_revoke = session.family_id
+    if family_id_to_revoke:
         db.query(RefreshToken).filter(
-            RefreshToken.family_id == session.family_id,
+            RefreshToken.family_id == family_id_to_revoke,
             RefreshToken.is_revoked.is_(False),
         ).update(
             {RefreshToken.is_revoked: True, RefreshToken.revoked_at: now},
             synchronize_session=False,
         )
-        revoke_family_cache(session.family_id)
 
     create_audit_log(
         db=db,
@@ -490,6 +522,9 @@ def revoke_user_session(
     )
 
     db.commit()
+
+    if family_id_to_revoke:
+        revoke_family_cache(family_id_to_revoke)
 
     return {"message": "Session revoked successfully"}
 
