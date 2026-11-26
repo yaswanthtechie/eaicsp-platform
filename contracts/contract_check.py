@@ -7,9 +7,24 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
 from tools.breaking_checker import check_breaking_changes
-from tools.event_checker import check_events
+from tools.event_checker import (
+    FILENAME_RE,
+    NON_EVENT_FILES,
+    _load_registry,
+    check_events,
+    find_const as _find_const,
+)
 from tools.models import Finding
 from tools.openapi_checker import check_openapi_dir
+
+__all__ = [
+    "FILENAME_RE",
+    "NON_EVENT_FILES",
+    "_find_const",
+    "_load_registry",
+    "check_contracts",
+    "main",
+]
 
 
 def check_contracts(target_dir: str, against: str | None = None) -> list[Finding]:
