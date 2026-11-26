@@ -13,7 +13,7 @@ from app.models.product import Product
 from app.models.purchase_order import PurchaseOrder
 from app.models.sales_history import SalesHistory
 from app.models.supplier import SupplierLeadTime
-from app.services.abc_service import calculate_tier_safety_stock
+from app.services.abc_service import calculate_tier_safety_stock, classify_skus
 
 
 def calculate_z_score(service_level: float) -> float:
@@ -187,7 +187,7 @@ def calculate_lead_time_statistics(
             )
             .first()
         )
-        if slt and slt.average_lead_time_days:
+        if slt and slt.average_lead_time_days is not None:
             static_lt = float(slt.average_lead_time_days)
             lead_time_source = "supplier_lead_time"
 
@@ -196,7 +196,7 @@ def calculate_lead_time_statistics(
         if warehouse_id:
             inv_query = inv_query.filter(Inventory.warehouse_id == warehouse_id)
         inv = inv_query.first()
-        if inv and inv.lead_time_days:
+        if inv and inv.lead_time_days is not None:
             static_lt = float(inv.lead_time_days)
             lead_time_source = "inventory_lead_time"
 
@@ -350,6 +350,7 @@ def calculate_service_level_safety_stock(
     as_of_date: date | None = None,
     base_safety_stock: int | None = None,
     abc_class: str | None = None,
+    fallback_abc_tier: str | None = None,
 ) -> dict[str, Any]:
     """
     Computes service-level safety stock from demand and lead-time variability.
@@ -414,11 +415,18 @@ def calculate_service_level_safety_stock(
         method = "fallback"
         fallback_reason: str | None = (
             f"Insufficient demand history: observed {demand_stats['observed_days']} days "
-            f"(minimum {settings.SAFETY_STOCK_MIN_DEMAND_DAYS} required)"
+            f"(minimum {settings.SAFETY_STOCK_MIN_DEMAND_DAYS}) and "
+            f"{demand_stats.get('distinct_sale_days', 0)} days with sales "
+            f"(minimum {settings.SAFETY_STOCK_MIN_DISTINCT_SALE_DAYS})"
         )
+        # Fallback = today's calculation: base safety stock x volume ABC tier
+        # (classify_skus), not the revenue class used on the statistical path.
+        if fallback_abc_tier is None:
+            volume = classify_skus(db).get((sku_id, warehouse_id))
+            fallback_abc_tier = volume["abc_tier"] if volume else "C"
         safety_stock = calculate_tier_safety_stock(
             base_safety_stock=current_ss,
-            abc_tier=resolved_abc,
+            abc_tier=fallback_abc_tier,
         )
         calculated_ss = float(safety_stock)
         xyz_class = "N/A"

@@ -37,9 +37,7 @@ def build_reorder_context(
 
     classifications = classify_skus(db)
     revenue_classifications = (
-        classify_all_skus_by_revenue(db)
-        if getattr(settings, "USE_DYNAMIC_SAFETY_STOCK", False)
-        else {}
+        classify_all_skus_by_revenue(db) if settings.USE_DYNAMIC_SAFETY_STOCK else {}
     )
 
     return {
@@ -158,6 +156,7 @@ def calculate_reorder_point(
             warehouse_id=warehouse_id,
             base_safety_stock=safety_stock,
             abc_class=revenue_abc,
+            fallback_abc_tier=abc_tier,
         )
         adjusted_safety_stock = dynamic_result["safety_stock"]
     else:

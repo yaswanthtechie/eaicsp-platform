@@ -607,7 +607,8 @@ def test_service_level_safety_stock_short_history_fallback(db_session):
     assert result["method"] == "fallback"
     assert result["is_fallback"] is True
     assert "Insufficient demand history" in str(result["fallback_reason"])
-    assert result["safety_stock"] == 18
+    # Fallback = today's calculation: only SKU in the DB, so volume tier A: 18 * 1.5
+    assert result["safety_stock"] == 27
     assert result["current_safety_stock"] == 18
     assert result["xyz_class"] == "N/A"
     assert result["abc_xyz_class"] == "N/A"
@@ -709,8 +710,11 @@ def test_reorder_logic_behind_config_flag(db_session, monkeypatch):
     db_session.commit()
 
     calc_fallback = calculate_reorder_point(db=db_session, inventory=inv_fallback)
-    # Fallback must preserve the A-tier multiplier: 20 * 1.5 = 30
-    assert calc_fallback["adjusted_safety_stock"] == 30
+    monkeypatch.setattr(settings, "USE_DYNAMIC_SAFETY_STOCK", False)
+    calc_today = calculate_reorder_point(db=db_session, inventory=inv_fallback)
+    # Fallback must equal today's calculation (volume tier, here C: 20 * 1.0)
+    assert calc_fallback["adjusted_safety_stock"] == calc_today["adjusted_safety_stock"]
+    assert calc_fallback["adjusted_safety_stock"] == 20
 
 
 def test_reorder_flag_off_preserves_volume_tier_ignoring_stored_abc_class(
@@ -925,9 +929,9 @@ def test_safety_stock_api_endpoint(client, db_session):
     assert data["is_fallback"] is True
     assert "inputs_used" in data
     assert data["current_safety_stock"] == 25
-    # Tier B multiplier is 1.2: 25 * 1.2 = 30
-    assert data["safety_stock"] == 30
-    assert data["calculated_safety_stock"] == 30.0
+    # Fallback = today's calculation: no sales, so volume tier C: 25 * 1.0
+    assert data["safety_stock"] == 25
+    assert data["calculated_safety_stock"] == 25.0
 
     # Alias route: /safety-stock/{sku_id}/{warehouse_id}
     res_alias = client.get(
@@ -1111,3 +1115,94 @@ def test_safety_stock_api_permissions(db_session):
             assert res_pm.json()["sku_id"] == sku_id
     finally:
         app.dependency_overrides.clear()
+
+
+def test_flag_on_fallback_uses_volume_tier_not_revenue_tier(
+    client, db_session, monkeypatch
+):
+    """Short history with the flag on must give today's number (volume tier), even when the revenue class differs. No stored Product.abc_class."""
+    today = date.today()
+    wh_id = "WH-BLR-01"
+    cheap, dear = "SKU-000190", "SKU-000191"
+    db_session.add_all(
+        [
+            Product(
+                sku_id=cheap,
+                name="Cheap",
+                category="c",
+                unit_price=1.0,
+                unit_cost=0.5,
+            ),
+            Product(
+                sku_id=dear,
+                name="Dear",
+                category="c",
+                unit_price=1000.0,
+                unit_cost=500.0,
+            ),
+        ]
+    )
+    cheap_inv = Inventory(
+        sku_id=cheap,
+        product_name="Cheap",
+        warehouse_id=wh_id,
+        category="c",
+        quantity_on_hand=100,
+        lead_time_days=4,
+        safety_stock=20,
+        warehouse_type="local",
+    )
+    db_session.add_all(
+        [
+            cheap_inv,
+            Inventory(
+                sku_id=dear,
+                product_name="Dear",
+                warehouse_id=wh_id,
+                category="c",
+                quantity_on_hand=100,
+                lead_time_days=4,
+                safety_stock=20,
+                warehouse_type="local",
+            ),
+        ]
+    )
+    # Cheap: high volume, only 5 days (short history). Dear: low volume, high revenue.
+    for offset in range(5):
+        db_session.add(
+            SalesHistory(
+                sku_id=cheap,
+                warehouse_id=wh_id,
+                sale_date=today - timedelta(days=offset),
+                quantity_sold=100,
+            )
+        )
+    for offset in range(30):
+        db_session.add(
+            SalesHistory(
+                sku_id=dear,
+                warehouse_id=wh_id,
+                sale_date=today - timedelta(days=offset),
+                quantity_sold=1,
+            )
+        )
+    db_session.commit()
+
+    monkeypatch.setattr(settings, "USE_DYNAMIC_SAFETY_STOCK", False)
+    flag_off = calculate_reorder_point(db=db_session, inventory=cheap_inv)
+    assert flag_off["abc_tier"] == "A"
+    assert flag_off["adjusted_safety_stock"] == 30
+
+    monkeypatch.setattr(settings, "USE_DYNAMIC_SAFETY_STOCK", True)
+    flag_on = calculate_reorder_point(db=db_session, inventory=cheap_inv)
+    assert flag_on["adjusted_safety_stock"] == 30
+
+    res = client.get(
+        f"/api/v1/inventory/{cheap}/{wh_id}/safety-stock",
+        headers={"Authorization": "Bearer warehouse-token"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["is_fallback"] is True
+    assert data["abc_class"] == "C"  # revenue class is still reported
+    assert data["safety_stock"] == 30  # but the fallback number is today's
