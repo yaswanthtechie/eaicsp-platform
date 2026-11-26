@@ -1,4 +1,4 @@
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -54,10 +54,45 @@ class Settings(BaseSettings):
     CLIENT_STAGING_DIR: str | None = None
     DEFAULT_SAFETY_STOCK: int = 10
 
+    # Dynamic Service-Level Safety Stock (R16-B1)
+    USE_DYNAMIC_SAFETY_STOCK: bool = False
+    SAFETY_STOCK_DEMAND_HISTORY_WEEKS: int = 12
+    SAFETY_STOCK_MIN_DEMAND_DAYS: int = 14
+    SAFETY_STOCK_MIN_DISTINCT_SALE_DAYS: int = 2
+    SAFETY_STOCK_MIN_PO_COUNT: int = 3
+    ABC_REVENUE_A_THRESHOLD: float = 0.80
+    ABC_REVENUE_B_THRESHOLD: float = 0.95
+    XYZ_CV_X_THRESHOLD: float = 0.50
+    XYZ_CV_Y_THRESHOLD: float = 1.00
+    SAFETY_STOCK_DEFAULT_LEAD_TIME_DAYS: float = 1.0
+    SAFETY_STOCK_SERVICE_LEVELS: dict[str, float] = Field(
+        default_factory=lambda: {
+            "AX": 0.98,
+            "AY": 0.96,
+            "AZ": 0.94,
+            "BX": 0.95,
+            "BY": 0.93,
+            "BZ": 0.90,
+            "CX": 0.92,
+            "CY": 0.90,
+            "CZ": 0.90,
+        }
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",
     )
+
+    @field_validator("SAFETY_STOCK_SERVICE_LEVELS", mode="after")
+    @classmethod
+    def validate_service_levels(cls, v: dict[str, float]) -> dict[str, float]:
+        for k, sl in v.items():
+            if not (0.0 < sl < 1.0):
+                raise ValueError(
+                    f"Service level for {k} must be strictly between 0 and 1, got {sl}"
+                )
+        return v
 
     @field_validator("DATABASE_URL", "TEST_DATABASE_URL", mode="after")
     @classmethod

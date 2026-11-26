@@ -17,6 +17,7 @@ from app.core.auth import (
     require_permission,
     require_roles,
 )
+from app.core.config import settings
 from app.database import get_db
 from app.models.inventory import Inventory
 from app.schemas.inventory import (
@@ -31,6 +32,7 @@ from app.schemas.inventory import (
     MultiEchelonResponse,
     ReorderCheckResponse,
     ReorderPlanEntry,
+    SafetyStockResponse,
     SimulationResponse,
     WhatIfRequest,
     WhatIfResponse,
@@ -82,6 +84,9 @@ from app.services.reorder_service import (
     build_reorder_context,
     calculate_reorder_point,
     calculate_urgency_score,
+)
+from app.services.safety_stock_service import (
+    calculate_service_level_safety_stock,
 )
 from app.services.simulation_service import (
     simulate_demand_growth,
@@ -848,6 +853,83 @@ def simulate_route(
         raise
 
     except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+
+# =========================================================
+# SAFETY STOCK (SERVICE LEVEL)
+# Permission: inventory:read
+# =========================================================
+
+
+@router.get(
+    "/{sku_id}/{warehouse_id}/safety-stock",
+    response_model=SafetyStockResponse,
+    dependencies=[Depends(require_permission("inventory:read"))],
+    summary="Get service-level safety stock",
+    description=(
+        "Calculates safety stock from demand and lead-time variability with target "
+        "service level based on ABC-XYZ classification. Falls back to configured/current "
+        "safety stock if history is insufficient."
+    ),
+    responses={
+        200: {"description": "Service-level safety stock calculation result"},
+        400: {"description": "Invalid parameters"},
+        401: {"description": "Missing or invalid token"},
+        403: {"description": "Insufficient permissions"},
+        404: {"description": "Inventory not found"},
+    },
+)
+@router.get(
+    "/safety-stock/{sku_id}/{warehouse_id}",
+    response_model=SafetyStockResponse,
+    dependencies=[Depends(require_permission("inventory:read"))],
+    summary="Get service-level safety stock (alias)",
+    include_in_schema=False,
+)
+def get_safety_stock_route(
+    sku_id: str,
+    warehouse_id: str,
+    weeks: int | None = Query(
+        default=None,
+        ge=2,
+        le=104,
+        description="Optional demand history window in weeks (min 2, max 104 weeks)",
+    ),
+    db: Session = Depends(get_db),
+):
+    if weeks is not None and weeks * 7 < settings.SAFETY_STOCK_MIN_DEMAND_DAYS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Requested weeks={weeks} ({weeks * 7} days) is less than the "
+                f"minimum demand history days ({settings.SAFETY_STOCK_MIN_DEMAND_DAYS})"
+            ),
+        )
+
+    inventory = get_inventory(
+        db=db,
+        sku_id=sku_id,
+        warehouse_id=warehouse_id,
+    )
+
+    if inventory is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Inventory not found",
+        )
+
+    try:
+        return calculate_service_level_safety_stock(
+            db=db,
+            sku_id=sku_id,
+            warehouse_id=warehouse_id,
+            weeks=weeks,
+        )
+    except (ValueError, OverflowError) as exc:
         raise HTTPException(
             status_code=400,
             detail=str(exc),
