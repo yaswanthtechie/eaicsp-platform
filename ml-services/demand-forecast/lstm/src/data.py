@@ -99,6 +99,7 @@ def save_scaler(scaler, filepath):
         "data_max": scaler.data_max_.tolist(),
         "data_range": scaler.data_range_.tolist(),
         "n_features_in": int(scaler.n_features_in_),
+        "clip": bool(getattr(scaler, "clip", False)),
     }
 
     with open(filepath, "w", encoding="utf-8") as file:
@@ -113,7 +114,31 @@ def load_scaler(filepath):
     with open(filepath, encoding="utf-8") as file:
         scaler_data = json.load(file)
 
-    scaler = MinMaxScaler(feature_range=tuple(scaler_data["feature_range"]))
+    required = (
+        "feature_range",
+        "scale",
+        "min",
+        "data_min",
+        "data_max",
+        "data_range",
+        "n_features_in",
+    )
+    missing = [key for key in required if key not in scaler_data]
+    if missing:
+        raise ValueError(f"Scaler JSON at {filepath} is missing keys: {missing}")
+
+    n_features = int(scaler_data["n_features_in"])
+    for key in ("scale", "min", "data_min", "data_max", "data_range"):
+        if len(scaler_data[key]) != n_features:
+            raise ValueError(
+                f"Scaler JSON at {filepath}: '{key}' has {len(scaler_data[key])} "
+                f"values, expected {n_features}"
+            )
+
+    scaler = MinMaxScaler(
+        feature_range=tuple(scaler_data["feature_range"]),
+        clip=bool(scaler_data.get("clip", False)),
+    )
     scaler.scale_ = np.asarray(scaler_data["scale"], dtype=np.float64)
     scaler.min_ = np.asarray(scaler_data["min"], dtype=np.float64)
     scaler.data_min_ = np.asarray(scaler_data["data_min"], dtype=np.float64)

@@ -129,6 +129,20 @@ python -m src.onnx_export
 
 ---
 ##  R4: Plain LSTM vs. Attention Architecture
+## R15-RH4: LSTM CI Quality Gates
+
+The LSTM CI quality checks are blocking:
+- Ruff lint and format checks
+- Mypy type checking
+- Bandit security scan
+- pip-audit dependency vulnerability scan
+- Pytest coverage gate: **30% minimum**
+
+Scaler artifacts use JSON (`output/scaler.json`) instead of pickle, so loading them can never execute code.
+
+Prophet CI checks remain report-only under the existing workflow configuration.
+
+---
 
 `AttentionMultiStepLSTM` adds additive (Bahdanau-style) attention across all lookback timesteps. `src/attention_compare.py` compares both architectures across all 5 walk-forward folds under identical conditions
 
@@ -181,7 +195,7 @@ MC-Dropout Evaluation Complete -> Avg Std (Demand Units): 5.4029
 **Finding:** typical 90% CI width is ~17-20 units (e.g. Sample 0, day 1:
 [134.12, 150.93]) around a mean of ~140-144. Std per horizon day is
 consistently ~5-6. Intervals are stable across samples and don't collapse
-or blow up â€” the MC-Dropout mechanism is working as intended.
+or blow up — the MC-Dropout mechanism is working as intended.
 
 ## API Serving (BentoML)
 - EndPoint:`post/predict`
@@ -239,14 +253,14 @@ or blow up â€” the MC-Dropout mechanism is working as intended.
 }
 ```
 
-### MC-Dropout vs. Uday's quantile-regression approach (conceptual comparison â€” his code untouched)
+### MC-Dropout vs. Uday's quantile-regression approach (conceptual comparison — his code untouched)
 
 | | MC-Dropout (this path) | Quantile regression (Uday's path) |
 |---|---|---|
-| Where uncertainty is added | Inference time â€” same trained model, N stochastic passes | Training time â€” quantile/pinball loss or extra output heads |
+| Where uncertainty is added | Inference time — same trained model, N stochastic passes | Training time — quantile/pinball loss or extra output heads |
 | Retraining needed to add it | No | Yes |
 | Extra inference cost | N forward passes per request | None beyond a normal forward pass |
-| What it estimates | Approximate epistemic uncertainty â€” the model's own sensitivity to dropout perturbation (Gal & Ghahramani, 2016); an approximation, not an exact posterior | Aleatoric uncertainty â€” an estimate of the actual spread of the target distribution |
+| What it estimates | Approximate epistemic uncertainty — the model's own sensitivity to dropout perturbation (Gal & Ghahramani, 2016); an approximation, not an exact posterior | Aleatoric uncertainty — an estimate of the actual spread of the target distribution |
 | Failure mode | Interval width depends on a dropout rate tuned for regularization, not calibration | Quantile crossing (upper quantile predicted below lower) is a known issue that needs guarding |
 
 **One-line tradeoff:** MC-Dropout is cheap uncertainty bolted onto an
@@ -301,10 +315,10 @@ service.py BEFORE scaling any incoming request -- scale only after validation pa
 ---
 Run: `python -m src.diagnostics_check`
 Check 1 (Data Volume): Fold 1 trains on only 130 sequences (<180 days), which is less than half of the 365-day seasonal cycle.
-Check 2 (Baseline Sanity): Folds 2â€“5 consistently beat Naive Persistence once training data exceeds one seasonal cycle.
+Check 2 (Baseline Sanity): Folds 2–5 consistently beat Naive Persistence once training data exceeds one seasonal cycle.
 Check 3 (Loss Convergence): All folds drop loss by >80% with smooth convergence, saved directly to output/loss_curve.png.
 ---
-## ?? Stretch: ONNX Export
+## 🌟 Stretch: ONNX Export
 
 `src/onnx_export.py` exports a trained model to ONNX and `tests/test_onnx.py`
 proves ONNX Runtime reproduces PyTorch's output identically (`atol=1e-5`),
@@ -344,33 +358,6 @@ tests/test_pipeline.py::test_get_walk_forward_folds_no_leakage PASSED
 ============================= 20 passed in 10.54s =============================
 
 ---
-## R15-RH4: LSTM CI Quality Gates
-
-The LSTM CI quality checks are blocking:
-
-- Ruff lint and format checks
-- Mypy type checking
-- Bandit security scan
-- pip-audit dependency vulnerability scan
-- Pytest coverage gate: **30% minimum**
-
-Latest local validation:
-
-| Check | Result |
-|---|---|
-| Ruff lint | Passed |
-| Ruff format | Passed (51 files) |
-| Mypy | Passed (49 source files) |
-| Bandit | Passed (0 issues) |
-| pip-audit | Passed (0 known vulnerabilities) |
-| Pytest | 56 passed |
-| Coverage | 32% |
-
-Scaler artifacts use JSON (`scaler.json`) instead of unsafe pickle loading.
-
-Prophet CI checks remain report-only under the existing workflow configuration.
-
----
 ##  Demand Forecasting Service (PyTorch LSTM + MC-Dropout)
 
 Direct 7-day multi-step daily demand forecasting service using stacked LSTM architectures and Monte Carlo Dropout for uncertainty quantification.
@@ -378,7 +365,7 @@ Direct 7-day multi-step daily demand forecasting service using stacked LSTM arch
 ---
 
 
-## ?? R4: Plain LSTM vs. Attention Architecture
+## 🧠 R4: Plain LSTM vs. Attention Architecture
 
 - Sequence-attention mechanism benchmarked against the standard LSTM across walk-forward folds
 
@@ -496,14 +483,14 @@ MC-Dropout Evaluation Complete -> Avg Std (Demand Units): 6.9870
 }
 ```
 
-### MC-Dropout vs. Uday's quantile-regression approach (conceptual comparison â€” his code untouched)
+### MC-Dropout vs. Uday's quantile-regression approach (conceptual comparison — his code untouched)
 
 | | MC-Dropout (this path) | Quantile regression (Uday's path) |
 |---|---|---|
-| Where uncertainty is added | Inference time â€” same trained model, N stochastic passes | Training time â€” quantile/pinball loss or extra output heads |
+| Where uncertainty is added | Inference time — same trained model, N stochastic passes | Training time — quantile/pinball loss or extra output heads |
 | Retraining needed to add it | No | Yes |
 | Extra inference cost | N forward passes per request | None beyond a normal forward pass |
-| What it estimates | Approximate epistemic uncertainty â€” the model's own sensitivity to dropout perturbation (Gal & Ghahramani, 2016); an approximation, not an exact posterior | Aleatoric uncertainty â€” an estimate of the actual spread of the target distribution |
+| What it estimates | Approximate epistemic uncertainty — the model's own sensitivity to dropout perturbation (Gal & Ghahramani, 2016); an approximation, not an exact posterior | Aleatoric uncertainty — an estimate of the actual spread of the target distribution |
 | Failure mode | Interval width depends on a dropout rate tuned for regularization, not calibration | Quantile crossing (upper quantile predicted below lower) is a known issue that needs guarding |
 
 **One-line tradeoff:** MC-Dropout is cheap uncertainty bolted onto an
@@ -560,7 +547,7 @@ ROBUSTNESS BATTERY COMPLETE
 ---
 Run: `python -m src.diagnostics_check`
 Check 1 (Data Volume): Fold 1 trains on only 130 sequences (<180 days), which is less than half of the 365-day seasonal cycle.
-Check 2 (Baseline Sanity): Folds 2â€“5 consistently beat Naive Persistence once training data exceeds one seasonal cycle.
+Check 2 (Baseline Sanity): Folds 2–5 consistently beat Naive Persistence once training data exceeds one seasonal cycle.
 Check 3 (Loss Convergence): All folds drop loss by >80% with smooth convergence, saved directly to output/loss_curve.png.
 ---
 
@@ -620,6 +607,7 @@ tests/test_round5_coverage.py::test_invalid_sequence_length_rejection PASSED    
 
 ```
 
+---
 ##  Demand Forecasting Service (PyTorch LSTM + MC-Dropout)
 
 Direct 7-day multi-step daily demand forecasting service using stacked LSTM architectures and Monte Carlo Dropout for uncertainty quantification.
@@ -628,7 +616,7 @@ Direct 7-day multi-step daily demand forecasting service using stacked LSTM arch
 
 
 
-## ?? Getting Started
+## 🚀 Getting Started
 
 **Install dependencies**
 ```bash
@@ -697,37 +685,37 @@ curl  -X POST http://localhost:3001/predict \
 
 ```text
 ml-services/demand-forecast/lstm/
-+-- src/
-Â¦   +-- config.py              # Central pipeline hyperparameters & constants
-Â¦   +-- data.py                # Walk-forward fold generator & sequence builder
-Â¦   +-- model.py               # MultiStepLSTM with Additive Attention & MC-Dropout
-Â¦   +-- train.py               # Walk-forward training & model persistence
-Â¦   +-- train_utils.py         # Chronological inner train/val split utilities
-Â¦   +-- evaluate_all.py        # Independent 5-fold baseline evaluation
-Â¦   +-- attention_compare.py   # [Superseded] Historical Attention vs Plain benchmark
-Â¦   +-- diagnostics_check.py   # Training loss curves & convergence diagnostics
-Â¦   +-- uncertainty.py         # Monte Carlo Dropout uncertainty sampling demo
-Â¦   +-- robustness_test.py     # Adversarial & corrupted input robustness battery
-Â¦   +-- predict.py             # Inference pipeline with MC-Dropout CI bounds
-Â¦   +-- service.py             # FastAPI serving endpoint definitions
-Â¦   +-- mlflow_logger.py       # MLflow experiment lifecycle manager
-+-- tests/
-Â¦   +-- test_pipeline.py       # Sequence generation & target leakage tests
-Â¦   +-- test_edge_cases.py     # Dimension checks & scaler boundary tests
-Â¦   +-- test_onnx.py           # PyTorch vs. ONNX Runtime parity verification
-Â¦   +-- test_round5_coverage.py# Adversarial input handling & full coverage suite
-+-- output/
-Â¦   +-- best_model.pt          # Force-tracked PyTorch weights
-Â¦   +-- scaler.json             # Force-tracked fitted standard scaler
-Â¦   +-- best_model.onnx        # Force-tracked exported ONNX computation graph
-Â¦   +-- loss_curve.png         # Walk-forward fold loss curves
-+-- sweep.py                   # Systematic leak-free hyperparameter grid search
-+-- README.md
+├── src/
+│   ├── config.py              # Central pipeline hyperparameters & constants
+│   ├── data.py                # Walk-forward fold generator & sequence builder
+│   ├── model.py               # MultiStepLSTM with Additive Attention & MC-Dropout
+│   ├── train.py               # Walk-forward training & model persistence
+│   ├── train_utils.py         # Chronological inner train/val split utilities
+│   ├── evaluate_all.py        # Independent 5-fold baseline evaluation
+│   ├── attention_compare.py   # [Superseded] Historical Attention vs Plain benchmark
+│   ├── diagnostics_check.py   # Training loss curves & convergence diagnostics
+│   ├── uncertainty.py         # Monte Carlo Dropout uncertainty sampling demo
+│   ├── robustness_test.py     # Adversarial & corrupted input robustness battery
+│   ├── predict.py             # Inference pipeline with MC-Dropout CI bounds
+│   ├── service.py             # FastAPI serving endpoint definitions
+│   └── mlflow_logger.py       # MLflow experiment lifecycle manager
+├── tests/
+│   ├── test_pipeline.py       # Sequence generation & target leakage tests
+│   ├── test_edge_cases.py     # Dimension checks & scaler boundary tests
+│   ├── test_onnx.py           # PyTorch vs. ONNX Runtime parity verification
+│   └── test_round5_coverage.py# Adversarial input handling & full coverage suite
+├── output/
+│   ├── best_model.pt          # Force-tracked PyTorch weights
+│   ├── scaler.json            # Force-tracked fitted MinMaxScaler (JSON)
+│   ├── best_model.onnx        # Force-tracked exported ONNX computation graph
+│   └── loss_curve.png         # Walk-forward fold loss curves
+├── sweep.py                   # Systematic leak-free hyperparameter grid search
+└── README.md
 ```
 
 ---
 
-## ?? Challenges Faced & Engineering Solutions
+## 💡 Challenges Faced & Engineering Solutions
 
 **1. Compounding multi-step forecast errors**
 - *Challenge:* Multi-step time-series models using recursive prediction suffer from severe error accumulation over longer horizons.
@@ -750,7 +738,7 @@ ml-services/demand-forecast/lstm/
 - *Solution:* Updated `src/service.py` with dynamic directory resolution using `os.path.dirname(os.path.abspath(__file__))`.
 
 **6. Picking hyperparameters without leaking the test set (R4)**
-- *Challenge:* It's tempting â€” and a real, common mistake â€” to select the winning sweep config by whichever run scores best on the fold's test slice, silently invalidating that test number as an honest generalization estimate.
+- *Challenge:* It's tempting — and a real, common mistake — to select the winning sweep config by whichever run scores best on the fold's test slice, silently invalidating that test number as an honest generalization estimate.
 - *Solution:* `sweep.py` carves an additional chronological validation split out of each fold's *training* slice, selects the winner purely on that, and only reports test performance afterward for reference.
 
 **7. Empty-slice crash in walk-forward fold generation for large lookbacks (R4)**
@@ -813,7 +801,7 @@ Round 12-13 (Track B): status
 - M3 ONNX + INT8: Completed for both the single-series model and the global SKU model. The global model was benchmarked using 1,296 held-out test windows, including dynamic INT8 quantization.
 - Cold-start: Completed. The no-embedding global LSTM achieved the lowest MAE and RMSE among the three evaluated approaches.
 - Known limits: Synthetic data only; multi-series stacking fits one Ridge per SKU (no shared meta-learner). ONNX timing results are CPU- and environment-dependent.
-LSTM Demand Forecasting â€” Evaluation Results
+LSTM Demand Forecasting — Evaluation Results
 Milestone 1  LSTM Forecasting Pipeline
 Evaluation Results
 The LSTM forecasting pipeline was evaluated using 5-fold expanding-window walk-forward validation. The model was compared against a naive persistence baseline, which repeats the last observed demand value.
@@ -857,7 +845,7 @@ A systematic sweep evaluated 32 configurations and selected the winning configur
 - Recorded validation MAE: 3.59.
 - Recorded test MAE reference: 4.43.
 Test metrics were reported for reference and were not used to select the winning configuration.
-Global SKU LSTM â€” Training Results
+Global SKU LSTM — Training Results
 The global model was trained using data/global_sku_demand_synthetic.csv, which contains demand histories across multiple SKUs, categories, and warehouses.
 
 | Metric | Latest training run |
@@ -1071,7 +1059,7 @@ Results artifact: output/onnx_benchmark_report.json
 ---
 
 **
-Track B â€” 11C: Global SKU LSTM ONNX Runtime Benchmark
+Track B — 11C: Global SKU LSTM ONNX Runtime Benchmark
 Objective
 Export the trained global SKU LSTM checkpoint to ONNX and benchmark FP32 against dynamically quantized INT8 using actual preprocessed held-out test windows.
 

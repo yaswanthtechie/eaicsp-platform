@@ -27,7 +27,7 @@ class GlobalDemandLSTM(nn.Module):
         super().__init__()
 
         if min(num_skus, num_categories, num_warehouses) < 1:
-            raise TypeError("All category counts must be positive.")
+            raise ValueError("All category counts must be positive.")
 
         self.horizon = horizon
 
