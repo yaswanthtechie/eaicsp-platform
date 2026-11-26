@@ -1,8 +1,7 @@
-
 import numpy as np
 import pandas as pd
-import torch
 import pytest
+import torch
 
 from src.global_data import UNK, load_global_data
 
@@ -37,14 +36,10 @@ def test_scaler_fit_on_train_only(small_df, tmp_path):
     data = load_global_data(csv_path, lookback=5, horizon=2)
 
     train_end = pd.Timestamp(data.split_dates["train_end"])
-    train_vals = small_df.loc[
-        pd.to_datetime(small_df["date"]) <= train_end, "sales"
-    ]
+    train_vals = small_df.loc[pd.to_datetime(small_df["date"]) <= train_end, "sales"]
 
     assert data.scaler.mean_[0] == pytest.approx(train_vals.mean())
-    assert data.scaler.scale_[0] == pytest.approx(
-        train_vals.std(ddof=0)
-    )
+    assert data.scaler.scale_[0] == pytest.approx(train_vals.std(ddof=0))
 
 
 def test_no_window_crosses_split_boundary(small_df, tmp_path):
@@ -56,15 +51,9 @@ def test_no_window_crosses_split_boundary(small_df, tmp_path):
     train_end = pd.Timestamp(data.split_dates["train_end"])
     val_end = pd.Timestamp(data.split_dates["validation_end"])
 
-    train_dates = pd.to_datetime(
-        np.asarray(data.train_target_dates).reshape(-1)
-    )
-    val_dates = pd.to_datetime(
-        np.asarray(data.validation_target_dates).reshape(-1)
-    )
-    test_dates = pd.to_datetime(
-        np.asarray(data.test_target_dates).reshape(-1)
-    )
+    train_dates = pd.to_datetime(np.asarray(data.train_target_dates).reshape(-1))
+    val_dates = pd.to_datetime(np.asarray(data.validation_target_dates).reshape(-1))
+    test_dates = pd.to_datetime(np.asarray(data.test_target_dates).reshape(-1))
 
     assert train_dates.max() <= train_end
     assert val_dates.min() > train_end
@@ -128,6 +117,7 @@ def test_sku_without_train_windows_maps_to_unk(small_df, tmp_path):
     assert torch.all(test_categories[late_mask] == UNK)
     assert torch.all(test_warehouses[late_mask] == UNK)
 
+
 def test_explicit_fold_dates_are_used(small_df, tmp_path):
     csv_path = tmp_path / "small.csv"
     small_df.to_csv(csv_path, index=False)
@@ -155,9 +145,7 @@ def test_explicit_fold_dates_are_used(small_df, tmp_path):
 
     assert len(early.train) < len(late.train)
 
-    test_dates = pd.to_datetime(
-        np.asarray(late.test_target_dates).reshape(-1)
-    )
+    test_dates = pd.to_datetime(np.asarray(late.test_target_dates).reshape(-1))
 
     assert test_dates.max() <= pd.Timestamp("2026-02-05")
     assert late.split_dates["test_end"] == "2026-02-05"
@@ -174,4 +162,3 @@ def test_bad_sales_value_raises(small_df, tmp_path):
 
     with pytest.raises(ValueError):
         read_global_csv(csv_path)
-

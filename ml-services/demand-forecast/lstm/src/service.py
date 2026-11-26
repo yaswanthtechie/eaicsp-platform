@@ -1,4 +1,5 @@
 import os
+
 import bentoml
 import numpy as np
 import pydantic
@@ -32,7 +33,9 @@ class ForecastResponse(pydantic.BaseModel):
 class DemandForecastService:
     def __init__(self):
         if not os.path.exists(MODEL_PATH):
-            raise FileNotFoundError(f"Model checkpoint missing at {MODEL_PATH}. Untrained weights rejected.")
+            raise FileNotFoundError(
+                f"Model checkpoint missing at {MODEL_PATH}. Untrained weights rejected."
+            )
 
         if not os.path.exists(SCALER_PATH):
             raise FileNotFoundError(f"Scaler missing at {SCALER_PATH}.")
@@ -44,7 +47,9 @@ class DemandForecastService:
             num_layers=NUM_LAYERS,
             horizon=HORIZON,
         )
-        self.model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu", weights_only=True))
+        self.model.load_state_dict(
+            torch.load(MODEL_PATH, map_location="cpu", weights_only=True)
+        )
         self.model.eval()
         self.model.enable_mc_dropout()
 
@@ -57,7 +62,9 @@ class DemandForecastService:
             raise ValueError("Input contains NaN or Inf.")
 
         if len(raw_vals) != LOOKBACK:
-            raise ValueError(f"Expected {LOOKBACK} historical timesteps, got {len(raw_vals)}.")
+            raise ValueError(
+                f"Expected {LOOKBACK} historical timesteps, got {len(raw_vals)}."
+            )
 
         # Rejects raw inputs far outside training bounds
         is_valid, err_msg = validate_sequence(raw_vals, self.scaler)
@@ -65,7 +72,9 @@ class DemandForecastService:
             raise ValueError(f"Input rejected by guardrail: {err_msg}")
 
         # 2. Scale input into model space
-        scaled_input = self.scaler.transform(raw_vals.reshape(-1, 1)).reshape(1, LOOKBACK, 1)
+        scaled_input = self.scaler.transform(raw_vals.reshape(-1, 1)).reshape(
+            1, LOOKBACK, 1
+        )
         x_tensor = torch.tensor(scaled_input, dtype=torch.float32)
 
         # 3. Batched MC-Dropout passes (single batched tensor)

@@ -1,9 +1,9 @@
-
 """Global multi-SKU LSTM with categorical embeddings and UNK handling."""
 
-import torch
-import torch.nn as nn
 from pathlib import Path
+
+import torch
+from torch import nn
 
 
 class GlobalDemandLSTM(nn.Module):
@@ -27,7 +27,7 @@ class GlobalDemandLSTM(nn.Module):
         super().__init__()
 
         if min(num_skus, num_categories, num_warehouses) < 1:
-            raise ValueError("All category counts must be positive.")
+            raise TypeError("All category counts must be positive.")
 
         self.horizon = horizon
 
@@ -85,8 +85,7 @@ class GlobalDemandLSTM(nn.Module):
         # This teaches the model to handle unseen SKUs.
         if self.training:
             drop_mask = (
-                torch.rand(sku_id.shape, device=sku_id.device)
-                < self.SKU_DROPOUT_PROB
+                torch.rand(sku_id.shape, device=sku_id.device) < self.SKU_DROPOUT_PROB
             )
             sku_id = torch.where(
                 drop_mask,
@@ -113,6 +112,7 @@ class GlobalDemandLSTM(nn.Module):
 
         return self.head(combined)
 
+
 CHECKPOINT_KEYS = {
     "state_dict",
     "config",
@@ -131,8 +131,7 @@ def load_global_checkpoint(path, map_location="cpu"):
 
     if not path.exists():
         raise FileNotFoundError(
-            f"Checkpoint not found: {path}. "
-            "Run python -m src.global_train first."
+            f"Checkpoint not found: {path}. Run python -m src.global_train first."
         )
 
     checkpoint = torch.load(
@@ -142,9 +141,7 @@ def load_global_checkpoint(path, map_location="cpu"):
     )
 
     if not isinstance(checkpoint, dict):
-        raise ValueError(
-            f"Invalid checkpoint format: {path}"
-        )
+        raise TypeError(f"Invalid checkpoint format: {path}")
 
     missing = CHECKPOINT_KEYS - set(checkpoint)
 

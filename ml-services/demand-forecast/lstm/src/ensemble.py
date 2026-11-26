@@ -26,9 +26,9 @@ import mlflow
 import numpy as np
 import pandas as pd
 import torch
-import torch.nn as nn
 from prophet import Prophet
 from sklearn.preprocessing import MinMaxScaler
+from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 from xgboost import XGBRegressor
 
@@ -49,7 +49,6 @@ from src.data import create_sequences, generate_data
 from src.evaluate import calculate_metrics
 from src.model import MultiStepLSTM
 
-
 MODEL_NAMES = ("Prophet", "XGBoost", "LSTM")
 
 
@@ -62,6 +61,7 @@ def set_seeds(seed: int = RANDOM_SEED) -> None:
 # ---------------------------------------------------------------------------
 # Common chronological split
 # ---------------------------------------------------------------------------
+
 
 def create_time_split(
     df: pd.DataFrame,
@@ -118,6 +118,7 @@ def check_contiguous(
 # ---------------------------------------------------------------------------
 # Prophet
 # ---------------------------------------------------------------------------
+
 
 def fit_prophet_and_predict(
     history_df: pd.DataFrame,
@@ -258,6 +259,7 @@ def fit_xgboost_and_predict(
 # LSTM
 # ---------------------------------------------------------------------------
 
+
 def train_lstm(history_df: pd.DataFrame, seed: int = RANDOM_SEED):
     """
     Train a fresh LSTM on history_df only.
@@ -328,15 +330,19 @@ def fit_lstm_and_predict(
 
     model, scaler = train_lstm(history_df, seed=seed)
 
-    window = scaler.transform(
-        history_df["Demand"].to_numpy(dtype=np.float64).reshape(-1, 1)
-    ).ravel()[-LOOKBACK:].tolist()
+    window = (
+        scaler.transform(history_df["Demand"].to_numpy(dtype=np.float64).reshape(-1, 1))
+        .ravel()[-LOOKBACK:]
+        .tolist()
+    )
 
     n_steps = len(forecast_df)
-    scaled_predictions = []
+    scaled_predictions: list[float] = []
 
     while len(scaled_predictions) < n_steps:
-        x = torch.tensor(window[-LOOKBACK:], dtype=torch.float32).reshape(1, LOOKBACK, 1)
+        x = torch.tensor(window[-LOOKBACK:], dtype=torch.float32).reshape(
+            1, LOOKBACK, 1
+        )
 
         with torch.no_grad():
             chunk = model(x).cpu().numpy()[0].tolist()
@@ -344,14 +350,15 @@ def fit_lstm_and_predict(
         scaled_predictions.extend(chunk)
         window.extend(chunk)
 
-    scaled_predictions = np.asarray(scaled_predictions[:n_steps]).reshape(-1, 1)
+    scaled_predictions_array = np.asarray(scaled_predictions[:n_steps]).reshape(-1, 1)
 
-    return scaler.inverse_transform(scaled_predictions).ravel().astype(np.float64)
+    return scaler.inverse_transform(scaled_predictions_array).ravel().astype(np.float64)
 
 
 # ---------------------------------------------------------------------------
 # Ensemble
 # ---------------------------------------------------------------------------
+
 
 def combine(predictions: dict, weights: dict) -> np.ndarray:
     return sum(weights[name] * predictions[name] for name in MODEL_NAMES)
@@ -372,8 +379,8 @@ def find_best_ensemble_weights(
     Test data is NOT used for weight selection.
     """
 
-    units = int(round(1 / step))
-    min_units = int(round(min_weight / step))
+    units = round(1 / step)
+    min_units = round(min_weight / step)
 
     best_weights = None
     best_mae = float("inf")
@@ -421,9 +428,12 @@ def explain_predictions(
         table[f"{name}_contribution"] = weights[name] * predictions[name]
 
     table["Ensemble"] = combine(predictions, weights)
-    table["top_contributor"] = table[
-        [f"{name}_contribution" for name in MODEL_NAMES]
-    ].idxmax(axis=1).str.replace("_contribution", "", regex=False)
+    table["top_contributor"] = (
+        table[[f"{name}_contribution" for name in MODEL_NAMES]]
+        .idxmax(axis=1)
+        .astype("string")
+        .str.replace("_contribution", "", regex=False)
+    )
 
     return table
 
@@ -457,6 +467,7 @@ def evaluate_all(actual: np.ndarray, predictions: dict, title: str) -> dict:
 # Main
 # ---------------------------------------------------------------------------
 
+
 def run_ensemble():
     set_seeds()
 
@@ -464,9 +475,15 @@ def run_ensemble():
     train_df, validation_df, test_df = create_time_split(df)
     train_val_df = pd.concat([train_df, validation_df], ignore_index=True)
 
-    print(f"Train      : {train_df['Date'].iloc[0].date()} -> {train_df['Date'].iloc[-1].date()}")
-    print(f"Validation : {validation_df['Date'].iloc[0].date()} -> {validation_df['Date'].iloc[-1].date()}")
-    print(f"Test       : {test_df['Date'].iloc[0].date()} -> {test_df['Date'].iloc[-1].date()}")
+    print(
+        f"Train      : {train_df['Date'].iloc[0].date()} -> {train_df['Date'].iloc[-1].date()}"
+    )
+    print(
+        f"Validation : {validation_df['Date'].iloc[0].date()} -> {validation_df['Date'].iloc[-1].date()}"
+    )
+    print(
+        f"Test       : {test_df['Date'].iloc[0].date()} -> {test_df['Date'].iloc[-1].date()}"
+    )
 
     actual_val = validation_df["Demand"].to_numpy(dtype=np.float64)
     actual_test = test_df["Demand"].to_numpy(dtype=np.float64)
@@ -491,7 +508,9 @@ def run_ensemble():
     test_report = dict(test_preds)
     test_report["Ensemble (forced 3)"] = combine(test_preds, weights)
     test_report["Ensemble (unconstrained)"] = combine(test_preds, free_weights)
-    test_metrics = evaluate_all(actual_test, test_report, "TEST (trained on train + validation)")
+    test_metrics = evaluate_all(
+        actual_test, test_report, "TEST (trained on train + validation)"
+    )
 
     best_single = min(MODEL_NAMES, key=lambda name: test_metrics[name]["MAE"])
     ensemble_mae = test_metrics["Ensemble (forced 3)"]["MAE"]
@@ -512,19 +531,21 @@ def run_ensemble():
     mlflow.set_experiment("Demand-Forecast-Three-Model-Ensemble")
 
     with mlflow.start_run(run_name="prophet_xgboost_lstm_ensemble"):
-        mlflow.log_params({
-            "dataset_days": DATASET_DAYS,
-            "random_seed": RANDOM_SEED,
-            "train_rows": len(train_df),
-            "validation_rows": len(validation_df),
-            "test_rows": len(test_df),
-            "lookback": LOOKBACK,
-            "horizon": HORIZON,
-            "weight_step": 0.05,
-            "min_weight": 0.05,
-            **{f"weight_{k}": v for k, v in weights.items()},
-            **{f"free_weight_{k}": v for k, v in free_weights.items()},
-        })
+        mlflow.log_params(
+            {
+                "dataset_days": DATASET_DAYS,
+                "random_seed": RANDOM_SEED,
+                "train_rows": len(train_df),
+                "validation_rows": len(validation_df),
+                "test_rows": len(test_df),
+                "lookback": LOOKBACK,
+                "horizon": HORIZON,
+                "weight_step": 0.05,
+                "min_weight": 0.05,
+                **{f"weight_{k}": v for k, v in weights.items()},
+                **{f"free_weight_{k}": v for k, v in free_weights.items()},
+            }
+        )
 
         for split, metrics in (("val", val_metrics), ("test", test_metrics)):
             for name, values in metrics.items():

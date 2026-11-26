@@ -7,8 +7,7 @@ and produces a comparative summary matrix matching train.py.
 
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.optim as optim
+from torch import nn, optim
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.config import (
@@ -79,13 +78,17 @@ def run_full_comparison():
         with torch.no_grad():
             lstm_preds_scaled = model(X_test_t).numpy()
 
-        lstm_preds = scaler.inverse_transform(lstm_preds_scaled.reshape(-1, 1)).reshape(lstm_preds_scaled.shape)
+        lstm_preds = scaler.inverse_transform(lstm_preds_scaled.reshape(-1, 1)).reshape(
+            lstm_preds_scaled.shape
+        )
         y_test_orig = scaler.inverse_transform(y_te.reshape(-1, 1)).reshape(y_te.shape)
         lstm_metrics = calculate_metrics(y_test_orig, lstm_preds)
 
         # 3. Naive Baseline Inverse Transform & Metrics
         naive_preds_scaled = predict_naive_baseline(X_te, HORIZON)
-        naive_preds = scaler.inverse_transform(naive_preds_scaled.reshape(-1, 1)).reshape(naive_preds_scaled.shape)
+        naive_preds = scaler.inverse_transform(
+            naive_preds_scaled.reshape(-1, 1)
+        ).reshape(naive_preds_scaled.shape)
         naive_metrics = calculate_metrics(y_test_orig, naive_preds)
 
         lstm_fold_metrics.append(lstm_metrics)
@@ -94,11 +97,13 @@ def run_full_comparison():
     print("\n" + "=" * 65)
     print("5-FOLD WALK-FORWARD CROSS VALIDATION SUMMARY")
     print("=" * 65)
-    print(f"{'Fold':<8} {'LSTM MAE':<10} {'Naive MAE':<10} {'LSTM RMSE':<10} {'Naive RMSE':<10}")
+    print(
+        f"{'Fold':<8} {'LSTM MAE':<10} {'Naive MAE':<10} {'LSTM RMSE':<10} {'Naive RMSE':<10}"
+    )
     print("-" * 65)
     for i in range(5):
         print(
-            f"Fold {i+1:<3} "
+            f"Fold {i + 1:<3} "
             f"{lstm_fold_metrics[i]['MAE']:<10.2f} "
             f"{naive_fold_metrics[i]['MAE']:<10.2f} "
             f"{lstm_fold_metrics[i]['RMSE']:<10.2f} "
@@ -109,7 +114,9 @@ def run_full_comparison():
     avg_n_mae = np.mean([m["MAE"] for m in naive_fold_metrics])
     avg_l_rmse = np.mean([m["RMSE"] for m in lstm_fold_metrics])
     avg_n_rmse = np.mean([m["RMSE"] for m in naive_fold_metrics])
-    print(f"{'Average':<8} {avg_l_mae:<10.2f} {avg_n_mae:<10.2f} {avg_l_rmse:<10.2f} {avg_n_rmse:<10.2f}")
+    print(
+        f"{'Average':<8} {avg_l_mae:<10.2f} {avg_n_mae:<10.2f} {avg_l_rmse:<10.2f} {avg_n_rmse:<10.2f}"
+    )
     print("=" * 65 + "\n")
 
 

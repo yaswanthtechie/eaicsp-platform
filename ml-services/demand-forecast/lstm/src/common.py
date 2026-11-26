@@ -1,9 +1,8 @@
-
 """Shared reproducibility and training utilities."""
 
 import copy
 import random
-from typing import Callable
+from collections.abc import Callable
 
 import numpy as np
 import torch
@@ -85,19 +84,19 @@ def fit_with_early_stopping(
                     val_losses.append(val_loss.item())
 
         if not train_losses or not val_losses:
-            raise RuntimeError(
-                "Training or validation produced no finite losses."
-            )
+            raise RuntimeError("Training or validation produced no finite losses.")
 
         train_loss = float(np.mean(train_losses))
         val_loss = float(np.mean(val_losses))
         epochs_completed = epoch
 
-        history.append({
-            "epoch": epoch,
-            "train_loss": train_loss,
-            "val_loss": val_loss,
-        })
+        history.append(
+            {
+                "epoch": epoch,
+                "train_loss": train_loss,
+                "val_loss": val_loss,
+            }
+        )
 
         if on_epoch_end is not None:
             on_epoch_end(epoch, train_loss, val_loss)
@@ -121,9 +120,7 @@ def fit_with_early_stopping(
             break
 
     if best_state is None:
-        raise RuntimeError(
-            "No finite validation improvement; model never trained"
-        )
+        raise RuntimeError("No finite validation improvement; model never trained")
 
     model.load_state_dict(best_state)
 

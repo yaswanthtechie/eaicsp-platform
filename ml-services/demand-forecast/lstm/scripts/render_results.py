@@ -1,4 +1,4 @@
-﻿"""Print README result tables from output/*.json.
+"""Print README result tables from output/*.json.
 
 Run from the lstm folder:
 python scripts/render_results.py
@@ -26,32 +26,39 @@ def table(headers, rows):
         "| " + " | ".join(headers) + " |",
         "|" + "---|" * len(headers),
     ]
-    lines += [
-        "| " + " | ".join(str(cell) for cell in row) + " |"
-        for row in rows
-    ]
+    lines += ["| " + " | ".join(str(cell) for cell in row) + " |" for row in rows]
     return "\n".join(lines)
 
 
 wf = load("walk_forward_summary.json")
 print("### Walk-forward folds\n")
-print(table(
-    ["Fold", "Train end", "Train windows", "Global MAE", "Global MAPE",
-     "Per-SKU MAE", "Per-SKU MAPE", "Eligible SKUs"],
-    [
+print(
+    table(
         [
-            fold["fold"],
-            fold["train_end"],
-            fold["train_windows"],
-            fmt(fold["global_common_sku_metrics"]["MAE"]),
-            fmt(fold["global_common_sku_metrics"]["MAPE"]),
-            fmt(fold["per_sku_common_metrics"]["MAE"]),
-            fmt(fold["per_sku_common_metrics"]["MAPE"]),
-            fold["eligible_skus"],
-        ]
-        for fold in wf["folds"]
-    ],
-))
+            "Fold",
+            "Train end",
+            "Train windows",
+            "Global MAE",
+            "Global MAPE",
+            "Per-SKU MAE",
+            "Per-SKU MAPE",
+            "Eligible SKUs",
+        ],
+        [
+            [
+                fold["fold"],
+                fold["train_end"],
+                fold["train_windows"],
+                fmt(fold["global_common_sku_metrics"]["MAE"]),
+                fmt(fold["global_common_sku_metrics"]["MAPE"]),
+                fmt(fold["per_sku_common_metrics"]["MAE"]),
+                fmt(fold["per_sku_common_metrics"]["MAPE"]),
+                fold["eligible_skus"],
+            ]
+            for fold in wf["folds"]
+        ],
+    )
+)
 print("\nMean common-SKU metrics:")
 print(
     "Global:",
@@ -72,45 +79,51 @@ print(
 
 st = load("stacked_ensemble_metrics.json")
 print(f"\n### Stacked ensemble (data_seed={st['data_seed']})\n")
-print(table(
-    ["Model", "MAE", "RMSE", "MAPE"],
-    [
+print(
+    table(
+        ["Model", "MAE", "RMSE", "MAPE"],
         [
-            name,
-            fmt(metrics["MAE"]),
-            fmt(metrics["RMSE"]),
-            fmt(metrics["MAPE"]),
-        ]
-        for name, metrics in st["metrics"].items()
-    ],
-))
+            [
+                name,
+                fmt(metrics["MAE"]),
+                fmt(metrics["RMSE"]),
+                fmt(metrics["MAPE"]),
+            ]
+            for name, metrics in st["metrics"].items()
+        ],
+    )
+)
 
 robust = load("stacking_robustness_summary.json")
 print(f"\n### Stacking robustness ({robust['runs']} seeds)\n")
-print(table(
-    ["Model", "MAE mean ± std", "RMSE mean ± std", "MAPE mean ± std"],
-    [
+print(
+    table(
+        ["Model", "MAE mean ± std", "RMSE mean ± std", "MAPE mean ± std"],
         [
-            name,
-            f"{values['MAE']['mean']:.4f} ± {values['MAE']['std']:.4f}",
-            f"{values['RMSE']['mean']:.4f} ± {values['RMSE']['std']:.4f}",
-            f"{values['MAPE']['mean']:.4f} ± {values['MAPE']['std']:.4f}",
-        ]
-        for name, values in robust["results"].items()
-    ],
-))
+            [
+                name,
+                f"{values['MAE']['mean']:.4f} ± {values['MAE']['std']:.4f}",
+                f"{values['RMSE']['mean']:.4f} ± {values['RMSE']['std']:.4f}",
+                f"{values['MAPE']['mean']:.4f} ± {values['MAPE']['std']:.4f}",
+            ]
+            for name, values in robust["results"].items()
+        ],
+    )
+)
 
 cs = load("short_history_cold_start_summary.json")
 print("\n### Cold-start (held-out SKUs)\n")
-print(table(
-    ["Model", "MAE", "RMSE", "MAPE"],
-    [
+print(
+    table(
+        ["Model", "MAE", "RMSE", "MAPE"],
         [
-            name,
-            fmt(metrics["MAE"]),
-            fmt(metrics["RMSE"]),
-            fmt(metrics["MAPE"]),
-        ]
-        for name, metrics in cs["metrics"].items()
-    ],
-))
+            [
+                name,
+                fmt(metrics["MAE"]),
+                fmt(metrics["RMSE"]),
+                fmt(metrics["MAPE"]),
+            ]
+            for name, metrics in cs["metrics"].items()
+        ],
+    )
+)

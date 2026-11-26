@@ -1,4 +1,4 @@
-﻿"""Benchmark GlobalDemandLSTM ONNX FP32 vs dynamic INT8 on real test windows."""
+"""Benchmark GlobalDemandLSTM ONNX FP32 vs dynamic INT8 on real test windows."""
 
 import json
 import time
@@ -7,12 +7,11 @@ from pathlib import Path
 import numpy as np
 import onnx
 import onnxruntime as ort
-from onnxruntime.quantization import quantize_dynamic, QuantType
+from onnxruntime.quantization import QuantType, quantize_dynamic
 
-from src.config import GLOBAL_DATA_PATH, GLOBAL_LOOKBACK, GLOBAL_HORIZON
-from src.global_data import load_global_data
+from src.config import GLOBAL_DATA_PATH, GLOBAL_HORIZON, GLOBAL_LOOKBACK
 from src.evaluate import calculate_metrics
-
+from src.global_data import load_global_data
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "output"
@@ -45,9 +44,7 @@ def create_int8_model():
 
 def make_session(path):
     options = ort.SessionOptions()
-    options.graph_optimization_level = (
-        ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-    )
+    options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     options.intra_op_num_threads = 1
 
     return ort.InferenceSession(
@@ -81,10 +78,7 @@ def predict_all(session, tensors, batch_size):
 
 def inverse_scale(values, scaler):
     shape = values.shape
-    return scaler.inverse_transform(
-        values.reshape(-1, 1)
-    ).reshape(shape)
-
+    return scaler.inverse_transform(values.reshape(-1, 1)).reshape(shape)
 
 
 def benchmark_session(session, tensors, batch_size):
@@ -134,9 +128,7 @@ def benchmark_session(session, tensors, batch_size):
         "p50_batch_latency_ms": float(np.percentile(values, 50)),
         "p95_batch_latency_ms": float(np.percentile(values, 95)),
         "round_mean_latency_ms": round_means,
-        "throughput_samples_per_sec": float(
-            batch_size * len(values) / total_seconds
-        ),
+        "throughput_samples_per_sec": float(batch_size * len(values) / total_seconds),
     }
 
 
@@ -159,9 +151,7 @@ def graph_node_summary(path):
         "node_count": len(graph.node),
         "operator_counts": counts,
         "quantized_operator_count": sum(
-            count
-            for op, count in counts.items()
-            if op in quantized_types
+            count for op, count in counts.items() if op in quantized_types
         ),
     }
 
@@ -231,20 +221,14 @@ def main():
     int8_size = report["model_size_bytes"]["int8"]
 
     report["size_reduction_percent"] = (
-        (fp32_size - int8_size) / fp32_size * 100
-        if fp32_size
-        else None
+        (fp32_size - int8_size) / fp32_size * 100 if fp32_size else None
     )
 
     for batch_size in BATCH_SIZES:
         print(f"Benchmarking batch size {batch_size}...")
 
-        fp32_result = benchmark_session(
-            fp32_session, tensors, batch_size
-        )
-        int8_result = benchmark_session(
-            int8_session, tensors, batch_size
-        )
+        fp32_result = benchmark_session(fp32_session, tensors, batch_size)
+        int8_result = benchmark_session(int8_session, tensors, batch_size)
 
         fp32_rate = fp32_result["throughput_samples_per_sec"]
         int8_rate = int8_result["throughput_samples_per_sec"]
@@ -266,8 +250,7 @@ def main():
     print("\n=== Global ONNX FP32 vs Dynamic INT8 ===")
     print(f"Actual test windows: {len(tensors[0])}")
     print(
-        f"FP32 size: {fp32_size / 1024:.2f} KB | "
-        f"INT8 size: {int8_size / 1024:.2f} KB"
+        f"FP32 size: {fp32_size / 1024:.2f} KB | INT8 size: {int8_size / 1024:.2f} KB"
     )
     print(
         "INT8 graph quantized operators: "

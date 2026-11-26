@@ -1,4 +1,5 @@
 import os
+
 import mlflow
 import numpy as np
 import torch
@@ -46,7 +47,9 @@ def predict_with_uncertainty(
     repeated_tensor = x_tensor.repeat(n_samples, 1, 1)
 
     with torch.no_grad():
-        preds = model(repeated_tensor).cpu().numpy()  # (n_samples * batch_size, horizon)
+        preds = (
+            model(repeated_tensor).cpu().numpy()
+        )  # (n_samples * batch_size, horizon)
 
     preds = preds.reshape(n_samples, batch_size, -1)  # (n_samples, batch_size, horizon)
 
@@ -85,21 +88,25 @@ def run_uncertainty_evaluation():
     df = generate_data()
     scaled_values = scaler.transform(df["Demand"].values.reshape(-1, 1))
 
-    X, y = create_sequences(scaled_values, lookback=LOOKBACK, horizon=HORIZON)
+    X, _y = create_sequences(scaled_values, lookback=LOOKBACK, horizon=HORIZON)
     X_test = X[-5:]
 
     model = MultiStepLSTM(1, HIDDEN_SIZE, NUM_LAYERS, HORIZON)
     model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu", weights_only=True))
 
     with mlflow.start_run(run_name="MC-Dropout-Evaluation"):
-        mlflow.log_params({
-            "mc_samples": MC_SAMPLES,
-            "lookback": LOOKBACK,
-            "horizon": HORIZON,
-            "confidence_level": CONFIDENCE_LEVEL,
-        })
+        mlflow.log_params(
+            {
+                "mc_samples": MC_SAMPLES,
+                "lookback": LOOKBACK,
+                "horizon": HORIZON,
+                "confidence_level": CONFIDENCE_LEVEL,
+            }
+        )
 
-        results = predict_with_uncertainty(model, X_test, scaler, n_samples=MC_SAMPLES, conf=CONFIDENCE_LEVEL)
+        results = predict_with_uncertainty(
+            model, X_test, scaler, n_samples=MC_SAMPLES, conf=CONFIDENCE_LEVEL
+        )
         avg_std_demand = float(np.mean(results["std"]))
 
         mlflow.log_metric("avg_std_demand_units", avg_std_demand)
@@ -109,7 +116,9 @@ def run_uncertainty_evaluation():
         print(f"90% Lower Bound: {np.round(results['lower90'][-1], 2)}")
         print(f"90% Upper Bound: {np.round(results['upper90'][-1], 2)}")
         print(f"Std Uncertainty: {np.round(results['std'][-1], 2)}")
-        print(f"MC-Dropout Evaluation Complete -> Avg Std (Demand Units): {avg_std_demand:.4f}\n")
+        print(
+            f"MC-Dropout Evaluation Complete -> Avg Std (Demand Units): {avg_std_demand:.4f}\n"
+        )
 
 
 if __name__ == "__main__":

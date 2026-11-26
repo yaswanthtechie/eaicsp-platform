@@ -16,9 +16,7 @@ def test_contributions_add_up_to_stacked_prediction():
 
     result, _ = evaluate_test_predictions(frame, meta)
 
-    total = result[
-        [f"{name}_contribution" for name in BASE_COLUMNS]
-    ].sum(axis=1)
+    total = result[[f"{name}_contribution" for name in BASE_COLUMNS]].sum(axis=1)
     np.testing.assert_allclose(
         total + result["intercept"],
         result["StackedRidge"],

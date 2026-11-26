@@ -3,11 +3,12 @@
 from torch import nn
 
 from src.config import (
-    GLOBAL_HIDDEN_SIZE,
-    GLOBAL_NUM_LAYERS,
-    GLOBAL_HORIZON,
     GLOBAL_DROPOUT,
+    GLOBAL_HIDDEN_SIZE,
+    GLOBAL_HORIZON,
+    GLOBAL_NUM_LAYERS,
 )
+
 
 class PerSKUModel(nn.Module):
     """LSTM trained independently for one SKU."""

@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
 import pytest
+
 import ensemble
-from data import generate_data
 from ensemble import (
     MODEL_NAMES,
     check_contiguous,
@@ -13,6 +13,7 @@ from ensemble import (
     fit_lstm_and_predict,
     fit_xgboost_and_predict,
 )
+from src.data import generate_data
 
 
 @pytest.fixture(scope="module")
@@ -62,7 +63,9 @@ def test_lstm_never_reads_future_demand(splits, monkeypatch):
 def test_weights_sum_to_one_and_respect_min_weight():
     rng = np.random.default_rng(0)
     y_true = rng.normal(100, 5, 50)
-    predictions = {name: y_true + rng.normal(0, i + 1, 50) for i, name in enumerate(MODEL_NAMES)}
+    predictions = {
+        name: y_true + rng.normal(0, i + 1, 50) for i, name in enumerate(MODEL_NAMES)
+    }
 
     weights, _ = find_best_ensemble_weights(y_true, predictions, min_weight=0.05)
 
@@ -89,7 +92,9 @@ def test_weight_grid_does_not_skip_edge_splits():
 
 def test_explanation_contributions_sum_to_ensemble():
     dates = pd.Series(pd.date_range("2024-01-01", periods=5))
-    predictions = {name: np.arange(5, dtype=float) + i for i, name in enumerate(MODEL_NAMES)}
+    predictions = {
+        name: np.arange(5, dtype=float) + i for i, name in enumerate(MODEL_NAMES)
+    }
     weights = {"Prophet": 0.6, "XGBoost": 0.1, "LSTM": 0.3}
 
     table = explain_predictions(dates, predictions, weights)

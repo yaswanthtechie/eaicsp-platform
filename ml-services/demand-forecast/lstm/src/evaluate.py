@@ -23,12 +23,14 @@ def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
     # MAPE is defined only for non-zero actual values.
     nonzero_mask = y_true != 0
     if np.any(nonzero_mask):
-        mape = np.mean(
-            np.abs(
-                (y_true[nonzero_mask] - y_pred[nonzero_mask])
-                / y_true[nonzero_mask]
+        mape = (
+            np.mean(
+                np.abs(
+                    (y_true[nonzero_mask] - y_pred[nonzero_mask]) / y_true[nonzero_mask]
+                )
             )
-        ) * 100.0
+            * 100.0
+        )
         mape_value = float(mape)
     else:
         mape_value = None
@@ -40,9 +42,7 @@ def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
     }
 
 
-def predict_naive_baseline(
-    X_test: np.ndarray, horizon: int = 7
-) -> np.ndarray:
+def predict_naive_baseline(X_test: np.ndarray, horizon: int = 7) -> np.ndarray:
     """
     Repeat the last observed value across the forecast horizon.
 
@@ -51,9 +51,7 @@ def predict_naive_baseline(
     X_test = np.asarray(X_test)
 
     if X_test.ndim not in (2, 3):
-        raise ValueError(
-            f"Expected 2D or 3D input, got {X_test.ndim}D"
-        )
+        raise ValueError(f"Expected 2D or 3D input, got {X_test.ndim}D")
 
     if X_test.shape[1] == 0:
         raise ValueError("Lookback window cannot be empty")

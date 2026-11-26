@@ -1,4 +1,3 @@
-
 """Load the trained global LSTM and forecast demand for one SKU."""
 
 import argparse
@@ -10,7 +9,6 @@ import pandas as pd
 import torch
 
 from src.global_model import load_global_checkpoint
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CHECKPOINT = PROJECT_ROOT / "output" / "global_best_model.pt"
@@ -31,8 +29,7 @@ def make_input(history, lookback, scaler_mean, scaler_scale):
 
     if len(history) < lookback:
         raise ValueError(
-            f"Need at least {lookback} days of history; "
-            f"received {len(history)}."
+            f"Need at least {lookback} days of history; received {len(history)}."
         )
 
     dates = pd.to_datetime(history["date"])
@@ -56,9 +53,9 @@ def make_input(history, lookback, scaler_mean, scaler_scale):
 
     promotion = history["promotion"].to_numpy(dtype=np.float32)
 
-    features = np.column_stack(
-        [scaled_sales, promotion, dow_sin, dow_cos]
-    ).astype(np.float32)
+    features = np.column_stack([scaled_sales, promotion, dow_sin, dow_cos]).astype(
+        np.float32
+    )
 
     return torch.from_numpy(features).unsqueeze(0)
 
@@ -77,8 +74,12 @@ def forecast_sku(
     df["date"] = pd.to_datetime(df["date"])
 
     required = {
-        "date", "sku_id", "category", "warehouse_id",
-        "sales", "promotion",
+        "date",
+        "sku_id",
+        "category",
+        "warehouse_id",
+        "sales",
+        "promotion",
     }
     missing = required - set(df.columns)
     if missing:
@@ -87,9 +88,7 @@ def forecast_sku(
     history = df[df["sku_id"].astype(str) == str(sku_id)].copy()
 
     if warehouse_id is not None:
-        history = history[
-            history["warehouse_id"].astype(str) == str(warehouse_id)
-        ]
+        history = history[history["warehouse_id"].astype(str) == str(warehouse_id)]
 
     if category is not None:
         history = history[history["category"].astype(str) == str(category)]
@@ -103,13 +102,10 @@ def forecast_sku(
     # If multiple warehouses/categories remain, require an explicit choice.
     if history["warehouse_id"].nunique() != 1:
         raise ValueError(
-            "This SKU exists in multiple warehouses. "
-            "Pass --warehouse to select one."
+            "This SKU exists in multiple warehouses. Pass --warehouse to select one."
         )
     if history["category"].nunique() != 1:
-        raise ValueError(
-            "This SKU exists in multiple categories. Pass --category."
-        )
+        raise ValueError("This SKU exists in multiple categories. Pass --category.")
 
     selected_warehouse = str(history["warehouse_id"].iloc[0])
     selected_category = str(history["category"].iloc[0])
@@ -141,9 +137,9 @@ def forecast_sku(
     # Evaluation mode disables training-only SKU dropout.
     model.eval()
     with torch.no_grad():
-        scaled_prediction = model(
-            x, sku_tensor, category_tensor, warehouse_tensor
-        ).cpu().numpy()[0]
+        scaled_prediction = (
+            model(x, sku_tensor, category_tensor, warehouse_tensor).cpu().numpy()[0]
+        )
 
         # Convert predictions back to the original sales units.
         forecast = scaled_prediction * scaler_scale[0] + scaler_mean[0]
@@ -152,12 +148,16 @@ def forecast_sku(
         # Compare against UNK SKU embedding while holding other inputs fixed.
         # This is a model sensitivity estimate, not a causal explanation.
         if mapped_sku != 0:
-            unk_prediction = model(
-                x,
-                torch.tensor([0], dtype=torch.long),
-                category_tensor,
-                warehouse_tensor,
-            ).cpu().numpy()[0]
+            unk_prediction = (
+                model(
+                    x,
+                    torch.tensor([0], dtype=torch.long),
+                    category_tensor,
+                    warehouse_tensor,
+                )
+                .cpu()
+                .numpy()[0]
+            )
             unk_prediction = np.maximum(
                 unk_prediction * scaler_scale[0] + scaler_mean[0], 0
             )
@@ -181,12 +181,18 @@ def forecast_sku(
     )
 
     reasons = [
-        f"Recent 7-day sales change: {recent_trend:.2f} units "
-        "(last observed minus first observed).",
-        f"SKU embedding sensitivity: average {embedding_effect.mean():.2f} "
-        "units/day compared with replacing the SKU ID with UNK.",
-        "Forecast uses the recent sales sequence, promotion history, "
-        "day-of-week features, and SKU/category/warehouse embeddings.",
+        (
+            f"Recent 7-day sales change: {recent_trend:.2f} units "
+            "(last observed minus first observed)."
+        ),
+        (
+            f"SKU embedding sensitivity: average {embedding_effect.mean():.2f} "
+            "units/day compared with replacing the SKU ID with UNK."
+        ),
+        (
+            "Forecast uses the recent sales sequence, promotion history, "
+            "day-of-week features, and SKU/category/warehouse embeddings."
+        ),
     ]
 
     return {

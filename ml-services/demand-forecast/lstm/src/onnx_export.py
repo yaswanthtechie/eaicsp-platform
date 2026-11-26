@@ -4,6 +4,7 @@ ONNX Model Export and Strict Parity Verification
 
 import os
 import warnings
+
 warnings.filterwarnings("ignore")
 
 import numpy as np
@@ -50,10 +51,10 @@ def load_trained_model(
 
 
 def export_to_onnx(
-    model: torch.nn.Module = None,
-    dummy_input: torch.Tensor = None,
-    onnx_path: str = None,
-    output_path: str = None,
+    model: torch.nn.Module | None = None,
+    dummy_input: torch.Tensor | None = None,
+    onnx_path: str | None = None,
+    output_path: str | None = None,
     lookback: int = LOOKBACK,
     horizon: int = HORIZON,
     pytorch_model_path: str = MODEL_PATH,
@@ -75,7 +76,7 @@ def export_to_onnx(
         warnings.simplefilter("ignore")
         torch.onnx.export(
             model,
-            dummy_input,
+            (dummy_input,),
             target_path,
             export_params=True,
             opset_version=18,
@@ -92,7 +93,7 @@ def export_to_onnx(
 
 
 def verify_onnx_parity(
-    model: torch.nn.Module = None,
+    model: torch.nn.Module | None = None,
     onnx_path: str = ONNX_PATH,
     lookback: int = LOOKBACK,
     horizon: int = HORIZON,
@@ -106,7 +107,9 @@ def verify_onnx_parity(
 
     so = ort.SessionOptions()
     so.log_severity_level = 3
-    ort_session = ort.InferenceSession(onnx_path, sess_options=so, providers=["CPUExecutionProvider"])
+    ort_session = ort.InferenceSession(
+        onnx_path, sess_options=so, providers=["CPUExecutionProvider"]
+    )
 
     # Fixed seed for reproducibility during verification pass
     np.random.seed(42)
@@ -127,9 +130,9 @@ def verify_onnx_parity(
 
 
 def export_and_verify_onnx(
-    model: torch.nn.Module = None,
+    model: torch.nn.Module | None = None,
     onnx_path: str = ONNX_PATH,
-    output_path: str = None,
+    output_path: str | None = None,
     lookback: int = LOOKBACK,
     horizon: int = HORIZON,
     pytorch_model_path: str = MODEL_PATH,

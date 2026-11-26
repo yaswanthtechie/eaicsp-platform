@@ -1,4 +1,4 @@
-﻿"""Export the trained GlobalDemandLSTM using real held-out test inputs."""
+"""Export the trained GlobalDemandLSTM using real held-out test inputs."""
 
 from pathlib import Path
 
@@ -6,17 +6,15 @@ import numpy as np
 import onnx
 import torch
 
-from src.config import GLOBAL_DATA_PATH, GLOBAL_LOOKBACK, GLOBAL_HORIZON
+from src.config import GLOBAL_DATA_PATH, GLOBAL_HORIZON, GLOBAL_LOOKBACK
 from src.global_data import load_global_data
 from src.global_model import load_global_checkpoint
-
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "output"
 CHECKPOINT_PATH = OUTPUT / "global_best_model.pt"
 ONNX_PATH = OUTPUT / "global_best_model.onnx"
 DATA_PATH = ROOT / GLOBAL_DATA_PATH
-
 
 
 def export_model(model, sample, onnx_path):
@@ -68,18 +66,12 @@ def main():
 
     # Confirm that inference data uses the same categorical IDs as training.
     for key in ("sku_mapping", "category_mapping", "warehouse_mapping"):
-        current_mapping = {
-            str(k): int(v) for k, v in getattr(data, key).items()
-        }
-        saved_mapping = {
-            str(k): int(v) for k, v in checkpoint[key].items()
-        }
+        current_mapping = {str(k): int(v) for k, v in getattr(data, key).items()}
+        saved_mapping = {str(k): int(v) for k, v in checkpoint[key].items()}
         if current_mapping != saved_mapping:
-            raise ValueError(
-                f"{key} differs between checkpoint and current dataset."
-            )
+            raise ValueError(f"{key} differs between checkpoint and current dataset.")
 
-    x, sku, category, warehouse, target = data.test.tensors
+    x, sku, category, warehouse, _target = data.test.tensors
 
     if len(x) == 0:
         raise ValueError("Global test dataset is empty.")
@@ -93,7 +85,6 @@ def main():
     )
 
     export_model(model, sample, ONNX_PATH)
-
 
     # Verify ONNX output against PyTorch on real held-out windows.
     import onnxruntime as ort
@@ -114,12 +105,16 @@ def main():
         }
 
         with torch.no_grad():
-            pt = model(
-                x[start:end],
-                sku[start:end],
-                category[start:end],
-                warehouse[start:end],
-            ).cpu().numpy()
+            pt = (
+                model(
+                    x[start:end],
+                    sku[start:end],
+                    category[start:end],
+                    warehouse[start:end],
+                )
+                .cpu()
+                .numpy()
+            )
 
         ort_output = session.run(["forecast"], inputs)[0]
         max_diff = max(

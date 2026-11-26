@@ -1,24 +1,21 @@
-
-from pathlib import Path
 import json
 import time
+from pathlib import Path
 
 import numpy as np
 import onnxruntime as ort
-from onnxruntime.quantization import quantize_dynamic, QuantType
-import joblib
+from onnxruntime.quantization import QuantType, quantize_dynamic
 
-from src.config import LOOKBACK, HORIZON, DATASET_DAYS
-from src.data import generate_data
+from src.config import DATASET_DAYS, HORIZON, LOOKBACK
+from src.data import generate_data, load_scaler
 from src.evaluate import calculate_metrics
-
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "output"
 
 FP32_MODEL = OUTPUT / "best_model.onnx"
 INT8_MODEL = OUTPUT / "best_model_int8.onnx"
-SCALER_PATH = OUTPUT / "scaler.pkl"
+SCALER_PATH = OUTPUT / "scaler.json"
 REPORT_PATH = OUTPUT / "onnx_benchmark_report.json"
 
 BATCH_SIZES = [1, 32, 256]
@@ -29,7 +26,7 @@ BENCHMARK_RUNS = 200
 def make_test_windows():
     """Build chronological test windows using the existing scaler."""
     df = generate_data(days=DATASET_DAYS)
-    scaler = joblib.load(SCALER_PATH)
+    scaler = load_scaler(SCALER_PATH)
 
     # Keep the final 15% of timestamps for the test targets.
     values = df["Demand"].to_numpy(dtype=np.float32).reshape(-1, 1)
@@ -44,7 +41,7 @@ def make_test_windows():
             continue
 
         X.append(scaled[history_start:target_start])
-        y.append(scaled[target_start:target_start + HORIZON])
+        y.append(scaled[target_start : target_start + HORIZON])
 
     if not X:
         raise ValueError("Not enough data to create test windows.")
@@ -68,9 +65,7 @@ def create_int8_model():
 
 def make_session(path):
     options = ort.SessionOptions()
-    options.graph_optimization_level = (
-        ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-    )
+    options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     session = ort.InferenceSession(
         str(path),
         sess_options=options,
@@ -114,18 +109,13 @@ def benchmark_session(session, input_name, X, batch_size):
 
 def inverse_scale(values, scaler):
     original_shape = values.shape
-    return scaler.inverse_transform(
-        values.reshape(-1, 1)
-    ).reshape(original_shape)
-
+    return scaler.inverse_transform(values.reshape(-1, 1)).reshape(original_shape)
 
 
 def main():
     for path in [FP32_MODEL, SCALER_PATH]:
         if not path.exists():
-            raise FileNotFoundError(
-                f"Missing {path}. Train/export the model first."
-            )
+            raise FileNotFoundError(f"Missing {path}. Train/export the model first.")
 
     OUTPUT.mkdir(parents=True, exist_ok=True)
     X_test, y_test_scaled, scaler = make_test_windows()
@@ -146,7 +136,7 @@ def main():
 
     report = {
         "device": "CPUExecutionProvider",
-        "test_windows": int(len(X_test)),
+        "test_windows": len(X_test),
         "benchmark_runs_per_batch": BENCHMARK_RUNS,
         "warmup_runs": WARMUP_RUNS,
         "model_size_bytes": {
@@ -166,17 +156,11 @@ def main():
     fp32_size = report["model_size_bytes"]["fp32"]
     int8_size = report["model_size_bytes"]["int8"]
 
-    report["size_reduction_percent"] = (
-        (fp32_size - int8_size) / fp32_size * 100
-    )
+    report["size_reduction_percent"] = (fp32_size - int8_size) / fp32_size * 100
 
     for batch_size in BATCH_SIZES:
-        fp32_result = benchmark_session(
-            fp32_session, fp32_input, X_test, batch_size
-        )
-        int8_result = benchmark_session(
-            int8_session, int8_input, X_test, batch_size
-        )
+        fp32_result = benchmark_session(fp32_session, fp32_input, X_test, batch_size)
+        int8_result = benchmark_session(int8_session, int8_input, X_test, batch_size)
 
         fp32_result["speedup_vs_fp32"] = 1.0
         int8_result["speedup_vs_fp32"] = (
@@ -192,9 +176,7 @@ def main():
     fp32_mae = report["accuracy"]["fp32"]["MAE"]
     int8_mae = report["accuracy"]["int8"]["MAE"]
     report["accuracy"]["MAE_change_percent_vs_fp32"] = (
-        (int8_mae - fp32_mae) / fp32_mae * 100
-        if fp32_mae != 0
-        else None
+        (int8_mae - fp32_mae) / fp32_mae * 100 if fp32_mae != 0 else None
     )
 
     REPORT_PATH.write_text(json.dumps(report, indent=2), encoding="utf-8")
@@ -202,8 +184,7 @@ def main():
     print("\n=== ONNX FP32 vs Dynamic INT8 ===")
     print(f"Test windows: {len(X_test)}")
     print(
-        f"FP32 size: {fp32_size / 1024:.2f} KB | "
-        f"INT8 size: {int8_size / 1024:.2f} KB"
+        f"FP32 size: {fp32_size / 1024:.2f} KB | INT8 size: {int8_size / 1024:.2f} KB"
     )
     print(f"Size reduction: {report['size_reduction_percent']:.2f}%")
     print("\nBenchmark:")

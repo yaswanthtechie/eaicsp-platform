@@ -1,5 +1,6 @@
+import json
 import os
-import pickle
+
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
@@ -47,7 +48,9 @@ def create_sequences(data, lookback=45, horizon=7):
     return np.array(X, dtype=np.float32), np.array(y, dtype=np.float32)
 
 
-def get_walk_forward_folds(df, n_folds=5, lookback=45, horizon=7, save_scaler_path=None):
+def get_walk_forward_folds(
+    df, n_folds=5, lookback=45, horizon=7, save_scaler_path=None
+):
     """
     Generates walk-forward temporal cross-validation folds.
     Uses max(train_end - lookback, 0) to avoid negative slice indices.
@@ -72,8 +75,12 @@ def get_walk_forward_folds(df, n_folds=5, lookback=45, horizon=7, save_scaler_pa
         if save_scaler_path:
             save_scaler(scaler, save_scaler_path)
 
-        X_train, y_train = create_sequences(train_scaled, lookback=lookback, horizon=horizon)
-        X_test, y_test = create_sequences(test_scaled, lookback=lookback, horizon=horizon)
+        X_train, y_train = create_sequences(
+            train_scaled, lookback=lookback, horizon=horizon
+        )
+        X_test, y_test = create_sequences(
+            test_scaled, lookback=lookback, horizon=horizon
+        )
 
         folds.append((X_train, y_train, X_test, y_test, scaler))
 
@@ -81,18 +88,41 @@ def get_walk_forward_folds(df, n_folds=5, lookback=45, horizon=7, save_scaler_pa
 
 
 def save_scaler(scaler, filepath):
-    """Saves the fitted MinMaxScaler object."""
+    """Saves fitted MinMaxScaler parameters as JSON."""
     os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
-    with open(filepath, "wb") as f:
-        pickle.dump(scaler, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    scaler_data = {
+        "feature_range": list(scaler.feature_range),
+        "scale": scaler.scale_.tolist(),
+        "min": scaler.min_.tolist(),
+        "data_min": scaler.data_min_.tolist(),
+        "data_max": scaler.data_max_.tolist(),
+        "data_range": scaler.data_range_.tolist(),
+        "n_features_in": int(scaler.n_features_in_),
+    }
+
+    with open(filepath, "w", encoding="utf-8") as file:
+        json.dump(scaler_data, file, indent=2)
 
 
 def load_scaler(filepath):
-    """Loads the fitted MinMaxScaler object."""
+    """Loads fitted MinMaxScaler parameters from JSON."""
     if not os.path.exists(filepath):
-        raise FileNotFoundError(f"Scaler pickle file not found at {filepath}")
-    with open(filepath, "rb") as f:
-        return pickle.load(f)
+        raise FileNotFoundError(f"Scaler JSON file not found at {filepath}")
+
+    with open(filepath, encoding="utf-8") as file:
+        scaler_data = json.load(file)
+
+    scaler = MinMaxScaler(feature_range=tuple(scaler_data["feature_range"]))
+    scaler.scale_ = np.asarray(scaler_data["scale"], dtype=np.float64)
+    scaler.min_ = np.asarray(scaler_data["min"], dtype=np.float64)
+    scaler.data_min_ = np.asarray(scaler_data["data_min"], dtype=np.float64)
+    scaler.data_max_ = np.asarray(scaler_data["data_max"], dtype=np.float64)
+    scaler.data_range_ = np.asarray(scaler_data["data_range"], dtype=np.float64)
+    scaler.n_features_in_ = int(scaler_data["n_features_in"])
+    scaler.n_samples_seen_ = 1
+
+    return scaler
 
 
 def validate_sequence(sequence, scaler, oor_multiplier=1.0):
@@ -113,6 +143,9 @@ def validate_sequence(sequence, scaler, oor_multiplier=1.0):
     allowed_max = data_max + (oor_multiplier * data_range)
 
     if np.any(seq < allowed_min) or np.any(seq > allowed_max):
-        return False, f"Values outside allowable band [{allowed_min:.2f}, {allowed_max:.2f}]"
+        return (
+            False,
+            f"Values outside allowable band [{allowed_min:.2f}, {allowed_max:.2f}]",
+        )
 
     return True, None

@@ -3,7 +3,7 @@ import numpy as np
 
 def create_sequences(series, lookback=30, horizon=7):
     series = np.asarray(series)
-    
+
     # Ensure 2D shape (N, 1) if a 1D series is passed
     if series.ndim == 1:
         series = series.reshape(-1, 1)
