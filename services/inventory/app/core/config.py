@@ -95,6 +95,16 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    @field_validator("SAFETY_STOCK_SERVICE_LEVELS", mode="after")
+    @classmethod
+    def validate_service_levels(cls, v: dict[str, float]) -> dict[str, float]:
+        for k, sl in v.items():
+            if not (0.0 < sl < 1.0):
+                raise ValueError(
+                    f"Service level for {k} must be strictly between 0 and 1, got {sl}"
+                )
+        return v
+
     @field_validator("DATABASE_URL", "TEST_DATABASE_URL", mode="after")
     @classmethod
     def normalize_db_url(cls, v: str | None) -> str | None:
