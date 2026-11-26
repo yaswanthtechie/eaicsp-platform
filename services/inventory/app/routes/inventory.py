@@ -294,18 +294,39 @@ def reorder_plan(
     include_in_schema=False,
 )
 def transfer_recommendations_route(
-    publish_events: bool = Query(
-        default=True,
-        description="Whether to publish inventory.transfer.recommended events to outbox",
-    ),
     db: Session = Depends(get_db),
 ):
     try:
-        return generate_transfer_recommendations(
-            db=db,
-            publish_events=publish_events,
-        )
+        return generate_transfer_recommendations(db=db, publish_events=False)
     except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid transfer data: {exc}",
+        ) from exc
+
+
+@router.post(
+    "/transfer-recommendations/publish",
+    response_model=list[TransferRecommendationResponse],
+    dependencies=[Depends(require_permission("inventory:write"))],
+    summary="Publish inventory.transfer.recommended events (R16-B2)",
+    description=(
+        "Same recommendations as the GET endpoint, and records one "
+        "inventory.transfer.recommended event per transfer per day in the outbox."
+    ),
+    responses={
+        200: {"description": "Recommendations; transfer events recorded in the outbox"},
+        401: {"description": "Missing or invalid token"},
+        403: {"description": "Insufficient permissions"},
+    },
+)
+def publish_transfer_recommendations_route(
+    db: Session = Depends(get_db),
+):
+    try:
+        return generate_transfer_recommendations(db=db, publish_events=True)
+    except ValueError as exc:
+        db.rollback()
         raise HTTPException(
             status_code=400,
             detail=f"Invalid transfer data: {exc}",

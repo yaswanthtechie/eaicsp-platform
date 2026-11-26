@@ -332,6 +332,15 @@ def test_source_warehouse_protected_below_reorder_point(db_session, monkeypatch)
         >= dest_rec["numbers"]["source_reorder_point"]
     )
 
+    # The 25 units the transfer cannot cover still get a PO.
+    po_rest = next(
+        r
+        for r in recs
+        if r["destination_warehouse_id"] == wh_dest
+        and r["recommendation"] == "PURCHASE_ORDER"
+    )
+    assert po_rest["recommended_quantity"] == 25
+
 
 def test_no_lane_gives_no_transfer(db_session, monkeypatch):
     """
@@ -655,47 +664,155 @@ def test_transfer_recommendations_api_permissions(db_session):
     Test 8: Verify authentication & permissions for transfer-recommendations:
     - Missing token -> 401
     - Supplier role (lacks inventory:read) -> 403
-    - Procurement manager / Warehouse manager (has inventory:read) -> 200
+    - Procurement manager (has inventory:read, lacks inventory:write) -> 200 on GET, 403 on POST
+    - Warehouse manager (has inventory:write) -> 200 on POST
     """
     app.dependency_overrides[get_db] = override_get_db
 
-    # 1. Anonymous -> 401
-    with TestClient(app) as anon_client:
-        res = anon_client.get("/api/v1/inventory/transfer-recommendations")
-        assert res.status_code == 401
+    try:
+        # 1. Anonymous -> 401
+        with TestClient(app) as anon_client:
+            res = anon_client.get("/api/v1/inventory/transfer-recommendations")
+            assert res.status_code == 401
+            res_post = anon_client.post(
+                "/api/v1/inventory/transfer-recommendations/publish"
+            )
+            assert res_post.status_code == 401
 
-    # 2. Supplier (lacks inventory:read) -> 403
-    async def _supplier_override():
-        return {
-            "valid": True,
-            "role": "supplier",
-            "user_id": 88,
-            "permissions": ROLE_PERMISSIONS["supplier"],
-        }
+        # 2. Supplier (lacks inventory:read) -> 403
+        async def _supplier_override():
+            return {
+                "valid": True,
+                "role": "supplier",
+                "user_id": 88,
+                "permissions": ROLE_PERMISSIONS["supplier"],
+            }
 
-    app.dependency_overrides[verify_token] = _supplier_override
-    with TestClient(app) as sup_client:
-        res = sup_client.get(
-            "/api/v1/inventory/transfer-recommendations",
-            headers={"Authorization": "Bearer supplier-token"},
+        app.dependency_overrides[verify_token] = _supplier_override
+        with TestClient(app) as sup_client:
+            res = sup_client.get(
+                "/api/v1/inventory/transfer-recommendations",
+                headers={"Authorization": "Bearer supplier-token"},
+            )
+            assert res.status_code == 403
+
+        # 3. Procurement Manager (has inventory:read, lacks inventory:write)
+        # GET -> 200, POST publish -> 403
+        async def _procurement_override():
+            return {
+                "valid": True,
+                "role": "procurement_manager",
+                "user_id": 99,
+                "permissions": ROLE_PERMISSIONS["procurement_manager"],
+            }
+
+        app.dependency_overrides[verify_token] = _procurement_override
+        with TestClient(app) as pm_client:
+            res = pm_client.get(
+                "/api/v1/inventory/transfer-recommendations",
+                headers={"Authorization": "Bearer pm-token"},
+            )
+            assert res.status_code == 200
+            res_pub = pm_client.post(
+                "/api/v1/inventory/transfer-recommendations/publish",
+                headers={"Authorization": "Bearer pm-token"},
+            )
+            assert res_pub.status_code == 403
+
+        # 4. Warehouse Manager (has inventory:write) -> 200 on POST publish
+        async def _wh_manager_override():
+            return {
+                "valid": True,
+                "role": "warehouse_manager",
+                "user_id": 101,
+                "permissions": ROLE_PERMISSIONS["warehouse_manager"],
+            }
+
+        app.dependency_overrides[verify_token] = _wh_manager_override
+        with TestClient(app) as wm_client:
+            res_pub = wm_client.post(
+                "/api/v1/inventory/transfer-recommendations/publish",
+                headers={"Authorization": "Bearer wm-token"},
+            )
+            assert res_pub.status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+
+
+def _two_short_warehouses_one_source(db_session, monkeypatch):
+    monkeypatch.setattr(
+        settings,
+        "TRANSFER_LANES",
+        [
+            {
+                "from_warehouse": "WH-BOM-01",
+                "to_warehouse": "WH-BLR-01",
+                "lead_time_days": 2,
+                "cost_per_unit": 1.0,
+            },
+            {
+                "from_warehouse": "WH-BOM-01",
+                "to_warehouse": "WH-DEL-01",
+                "lead_time_days": 2,
+                "cost_per_unit": 1.0,
+            },
+        ],
+    )
+    for wh, qoh, rop in (
+        ("WH-BOM-01", 60, 20),
+        ("WH-BLR-01", 0, 40),
+        ("WH-DEL-01", 0, 40),
+    ):
+        db_session.add(
+            Inventory(
+                sku_id="SKU-000150",
+                warehouse_id=wh,
+                product_name="Shared Source Item",
+                category="Industrial",
+                quantity_on_hand=qoh,
+                lead_time_days=7,
+                safety_stock=5,
+                reorder_point=rop,
+                warehouse_type="local",
+            )
         )
-        assert res.status_code == 403
+    db_session.commit()
 
-    # 3. Procurement Manager (has inventory:read) -> 200
-    async def _procurement_override():
-        return {
-            "valid": True,
-            "role": "procurement_manager",
-            "user_id": 99,
-            "permissions": ROLE_PERMISSIONS["procurement_manager"],
-        }
 
-    app.dependency_overrides[verify_token] = _procurement_override
-    with TestClient(app) as pm_client:
-        res = pm_client.get(
-            "/api/v1/inventory/transfer-recommendations",
-            headers={"Authorization": "Bearer pm-token"},
-        )
-        assert res.status_code == 200
+def test_source_shared_by_two_destinations_is_not_overdrawn(db_session, monkeypatch):
+    _two_short_warehouses_one_source(db_session, monkeypatch)
+    recs = generate_transfer_recommendations(db=db_session, publish_events=False)
+    taken = sum(
+        r["recommended_quantity"]
+        for r in recs
+        if r["recommendation"] == "TRANSFER" and r["source_warehouse_id"] == "WH-BOM-01"
+    )
+    assert taken == 40  # 60 on hand minus reorder point 20
+    short_rest = sum(
+        r["recommended_quantity"]
+        for r in recs
+        if r["recommendation"] == "PURCHASE_ORDER"
+    )
+    assert short_rest == 40  # the other 40 of the 80 short units go to a PO
 
-    app.dependency_overrides.clear()
+
+def test_publishing_twice_records_each_transfer_once(db_session, monkeypatch):
+    _two_short_warehouses_one_source(db_session, monkeypatch)
+    generate_transfer_recommendations(db=db_session, publish_events=True)
+    generate_transfer_recommendations(db=db_session, publish_events=True)
+    events = (
+        db_session.query(Outbox)
+        .filter(Outbox.event_type == "inventory.transfer.recommended")
+        .all()
+    )
+    assert len(events) == 1
+
+
+def test_get_endpoint_does_not_write_events(client, db_session, monkeypatch):
+    _two_short_warehouses_one_source(db_session, monkeypatch)
+    res = client.get(
+        "/api/v1/inventory/transfer-recommendations",
+        headers={"Authorization": "Bearer warehouse-token"},
+    )
+    assert res.status_code == 200
+    assert db_session.query(Outbox).count() == 0

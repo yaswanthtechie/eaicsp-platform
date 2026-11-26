@@ -355,40 +355,48 @@ paths:
         lanes. Recommends transfer if it arrives before a new PO and costs less than
         the configured share of PO cost; otherwise recommends a purchase order.
       operationId: transfer_recommendations_route_api_v1_inventory_transfer_recommendations_get
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: publish_events
-        in: query
-        required: false
-        schema:
-          type: boolean
-          description: Whether to publish inventory.transfer.recommended events to
-            outbox
-          default: true
-          title: Publish Events
-        description: Whether to publish inventory.transfer.recommended events to outbox
       responses:
         '200':
           description: List of transfer / replenishment recommendations
           content:
             application/json:
               schema:
-                type: array
                 items:
                   $ref: '#/components/schemas/TransferRecommendationResponse'
+                type: array
                 title: Response Transfer Recommendations Route Api V1 Inventory Transfer
                   Recommendations Get
         '401':
           description: Missing or invalid token
         '403':
           description: Insufficient permissions
-        '422':
-          description: Validation Error
+      security:
+      - HTTPBearer: []
+  /api/v1/inventory/transfer-recommendations/publish:
+    post:
+      tags:
+      - Inventory
+      summary: Publish inventory.transfer.recommended events (R16-B2)
+      description: Same recommendations as the GET endpoint, and records one inventory.transfer.recommended
+        event per transfer per day in the outbox.
+      operationId: publish_transfer_recommendations_route_api_v1_inventory_transfer_recommendations_publish_post
+      responses:
+        '200':
+          description: Recommendations; transfer events recorded in the outbox
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+                items:
+                  $ref: '#/components/schemas/TransferRecommendationResponse'
+                type: array
+                title: Response Publish Transfer Recommendations Route Api V1 Inventory
+                  Transfer Recommendations Publish Post
+        '401':
+          description: Missing or invalid token
+        '403':
+          description: Insufficient permissions
+      security:
+      - HTTPBearer: []
   /api/v1/inventory/low-stock:
     get:
       tags:

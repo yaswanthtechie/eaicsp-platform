@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     # Inter-warehouse Transfer Recommendations (R16-B2)
     TRANSFER_EXCESS_STOCK_COVER_DAYS: int = 30
     TRANSFER_MAX_PO_COST_SHARE: float = 0.50
+    TRANSFER_DEFAULT_UNIT_COST: float = 50.0
+    TRANSFER_DEFAULT_PO_LEAD_TIME_DAYS: int = 7
     TRANSFER_LANES: list[dict[str, Any]] = Field(
         default_factory=lambda: [
             {

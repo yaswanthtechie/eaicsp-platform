@@ -1,14 +1,17 @@
 import logging
 import math
+from collections import defaultdict
+from datetime import date
 from typing import Any, Optional
-from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.inventory import Inventory
+from app.models.outbox import Outbox
 from app.models.product import Product
 from app.models.supplier import Supplier
+from app.schemas.events import InventoryTransferRecommendedPayload
 from app.services.outbox_service import record_event
 from app.services.reorder_service import (
     build_reorder_context,
@@ -49,7 +52,7 @@ def get_sku_unit_cost(db: Session, sku_id: str) -> float:
     if product and product.unit_cost is not None and product.unit_cost > 0:
         return float(product.unit_cost)
 
-    return 50.0
+    return float(settings.TRANSFER_DEFAULT_UNIT_COST)
 
 
 def calculate_stock_cover(
@@ -79,7 +82,7 @@ def calculate_stock_cover(
 
 def generate_transfer_recommendations(
     db: Session,
-    publish_events: bool = True,
+    publish_events: bool = False,
 ) -> list[dict[str, Any]]:
     """
     Evaluate all inventory items below reorder point and recommend either an
@@ -97,6 +100,11 @@ def generate_transfer_recommendations(
     """
     context = build_reorder_context(db=db)
     all_inventories = db.query(Inventory).all()
+
+    # Units already promised from each (sku, source warehouse) in this run,
+    # so two destinations cannot both take the same spare stock.
+    allocated: dict[tuple[str, str], int] = defaultdict(int)
+    pending_events: list[dict[str, Any]] = []
 
     recommendations: list[dict[str, Any]] = []
 
@@ -117,9 +125,12 @@ def generate_transfer_recommendations(
             continue
 
         # PO baseline values
-        po_lead_time_days = int(dest.lead_time_days) if dest.lead_time_days > 0 else 7
+        po_lead_time_days = (
+            int(dest.lead_time_days)
+            if dest.lead_time_days is not None
+            else settings.TRANSFER_DEFAULT_PO_LEAD_TIME_DAYS
+        )
         po_unit_cost = get_sku_unit_cost(db=db, sku_id=dest.sku_id)
-        po_total_cost = round(shortage * po_unit_cost, 2)
 
         # Find potential source warehouses for the same SKU
         other_warehouses = [
@@ -169,7 +180,11 @@ def generate_transfer_recommendations(
 
             # Protect source warehouse: never take below its own reorder point or required cover
             source_min_required = max(source_rop, cover_reserve)
-            source_excess = max(0, int(source.quantity_on_hand) - source_min_required)
+            already_allocated = allocated[(source.sku_id, source.warehouse_id)]
+            source_excess = max(
+                0,
+                int(source.quantity_on_hand) - already_allocated - source_min_required,
+            )
 
             if source_excess <= 0:
                 disqualification_reasons.append(
@@ -242,6 +257,10 @@ def generate_transfer_recommendations(
             days_saved = best["days_saved"]
             cost_savings = best["cost_savings"]
 
+            allocated[(best_source.sku_id, best_source.warehouse_id)] += best[
+                "transfer_quantity"
+            ]
+
             reason = (
                 f"Transfer from {best_source.warehouse_id} arrives {days_saved} days faster "
                 f"than PO ({best['transfer_lead_time']} vs {po_lead_time_days} days) and "
@@ -284,71 +303,140 @@ def generate_transfer_recommendations(
                 },
             }
 
-            if publish_events:
-                record_event(
-                    db=db,
-                    event_type="inventory.transfer.recommended",
-                    aggregate_type="transfer_recommendation",
-                    aggregate_id=f"TRF-{uuid4().hex[:12]}",
-                    payload={
-                        "sku_id": dest.sku_id,
-                        "source_warehouse_id": best_source.warehouse_id,
-                        "destination_warehouse_id": dest.warehouse_id,
-                        "transfer_quantity": transfer_qty,
-                        "transfer_lead_time_days": best["transfer_lead_time"],
-                        "transfer_cost": transfer_cost,
-                        "po_lead_time_days": po_lead_time_days,
-                        "po_cost": best["po_cost_for_qty"],
-                        "cost_savings": cost_savings,
-                        "reason": reason,
-                    },
-                )
-                db.commit()
+            pending_events.append(
+                {
+                    "sku_id": dest.sku_id,
+                    "source_warehouse_id": best_source.warehouse_id,
+                    "destination_warehouse_id": dest.warehouse_id,
+                    "transfer_quantity": transfer_qty,
+                    "transfer_lead_time_days": best["transfer_lead_time"],
+                    "transfer_cost": transfer_cost,
+                    "po_lead_time_days": po_lead_time_days,
+                    "po_cost": best["po_cost_for_qty"],
+                    "cost_savings": cost_savings,
+                    "reason": reason,
+                }
+            )
 
             recommendations.append(rec_entry)
+
+            remaining = shortage - transfer_qty
+            if remaining > 0:
+                recommendations.append(
+                    _purchase_order_entry(
+                        dest=dest,
+                        quantity=remaining,
+                        dest_rop=dest_rop,
+                        shortage=shortage,
+                        po_lead_time_days=po_lead_time_days,
+                        po_unit_cost=po_unit_cost,
+                        reason=(
+                            f"PO recommended for the remaining {remaining} units: "
+                            f"transfer from {best_source.warehouse_id} covers "
+                            f"{transfer_qty} of {shortage}"
+                        ),
+                    )
+                )
 
         else:
             # Fallback to PO recommendation as today
             reason_detail = (
-                disqualification_reasons[0]
+                "; ".join(disqualification_reasons)
                 if disqualification_reasons
                 else "no candidate warehouse available"
             )
-            reason = f"PO recommended: {reason_detail}"
+            recommendations.append(
+                _purchase_order_entry(
+                    dest=dest,
+                    quantity=shortage,
+                    dest_rop=dest_rop,
+                    shortage=shortage,
+                    po_lead_time_days=po_lead_time_days,
+                    po_unit_cost=po_unit_cost,
+                    reason=f"PO recommended: {reason_detail}",
+                )
+            )
 
-            rec_entry = {
-                "sku_id": dest.sku_id,
-                "product_name": dest.product_name,
-                "destination_warehouse_id": dest.warehouse_id,
-                "recommendation": "PURCHASE_ORDER",
-                "reason": reason,
-                "source_warehouse_id": None,
-                "recommended_quantity": shortage,
-                "days_saved": 0,
-                "estimated_cost_savings": 0.0,
-                "numbers": {
-                    "destination_quantity_on_hand": int(dest.quantity_on_hand),
-                    "destination_reorder_point": dest_rop,
-                    "shortage_quantity": shortage,
-                    "recommended_quantity": shortage,
-                    "po_lead_time_days": po_lead_time_days,
-                    "po_unit_cost": po_unit_cost,
-                    "po_cost": po_total_cost,
-                    "source_warehouse_id": None,
-                    "source_quantity_on_hand": None,
-                    "source_reorder_point": None,
-                    "source_stock_cover_days": None,
-                    "source_excess_quantity": None,
-                    "transfer_lead_time_days": None,
-                    "transfer_cost_per_unit": None,
-                    "transfer_cost": None,
-                    "cost_share_ratio": None,
-                    "max_allowed_cost_share": settings.TRANSFER_MAX_PO_COST_SHARE,
-                    "min_stock_cover_days": float(
-                        settings.TRANSFER_EXCESS_STOCK_COVER_DAYS
-                    ),
-                },
-            }
-            recommendations.append(rec_entry)
+    if publish_events:
+        published = _publish_transfer_events(db, pending_events)
+        logger.info(
+            "transfer recommendations: %d rows, %d new events",
+            len(recommendations),
+            published,
+        )
 
     return recommendations
+
+
+def _purchase_order_entry(
+    dest: Inventory,
+    quantity: int,
+    dest_rop: int,
+    shortage: int,
+    po_lead_time_days: int,
+    po_unit_cost: float,
+    reason: str,
+) -> dict[str, Any]:
+    return {
+        "sku_id": dest.sku_id,
+        "product_name": dest.product_name,
+        "destination_warehouse_id": dest.warehouse_id,
+        "recommendation": "PURCHASE_ORDER",
+        "reason": reason,
+        "source_warehouse_id": None,
+        "recommended_quantity": quantity,
+        "days_saved": 0,
+        "estimated_cost_savings": 0.0,
+        "numbers": {
+            "destination_quantity_on_hand": int(dest.quantity_on_hand),
+            "destination_reorder_point": dest_rop,
+            "shortage_quantity": shortage,
+            "recommended_quantity": quantity,
+            "po_lead_time_days": po_lead_time_days,
+            "po_unit_cost": po_unit_cost,
+            "po_cost": round(quantity * po_unit_cost, 2),
+            "source_warehouse_id": None,
+            "source_quantity_on_hand": None,
+            "source_reorder_point": None,
+            "source_stock_cover_days": None,
+            "source_excess_quantity": None,
+            "transfer_lead_time_days": None,
+            "transfer_cost_per_unit": None,
+            "transfer_cost": None,
+            "cost_share_ratio": None,
+            "max_allowed_cost_share": settings.TRANSFER_MAX_PO_COST_SHARE,
+            "min_stock_cover_days": float(settings.TRANSFER_EXCESS_STOCK_COVER_DAYS),
+        },
+    }
+
+
+def _publish_transfer_events(db: Session, events: list[dict[str, Any]]) -> int:
+    """Record each transfer event once per day, then commit once."""
+    published = 0
+    today = date.today().strftime("%Y%m%d")
+    for payload in events:
+        payload = InventoryTransferRecommendedPayload(**payload).model_dump()
+        aggregate_id = (
+            f"TRF-{payload['sku_id']}-{payload['source_warehouse_id']}-"
+            f"{payload['destination_warehouse_id']}-{today}"
+        )
+        already = (
+            db.query(Outbox.id)
+            .filter(
+                Outbox.event_type == "inventory.transfer.recommended",
+                Outbox.aggregate_id == aggregate_id,
+            )
+            .first()
+        )
+        if already:
+            continue
+        record_event(
+            db=db,
+            event_type="inventory.transfer.recommended",
+            aggregate_type="transfer_recommendation",
+            aggregate_id=aggregate_id,
+            payload=payload,
+        )
+        published += 1
+    db.commit()
+    return published
