@@ -104,6 +104,8 @@ x-airflow-common:
     - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
     - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
     - ${AIRFLOW_PROJ_DIR:-.}/etl:/opt/airflow/etl
+    - ${AIRFLOW_PROJ_DIR:-.}/client_ingest:/opt/airflow/client_ingest
+    - ${AIRFLOW_PROJ_DIR:-.}/../seed:/opt/seed
     - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data
     # Pipeline environment configurations
     - ${AIRFLOW_PROJ_DIR:-.}/pipeline_config.yaml:/opt/airflow/pipeline_config.yaml

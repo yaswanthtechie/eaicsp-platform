@@ -15,6 +15,20 @@ def test_bad_reference_fails_quality_check(tmp_path):
     folder = tmp_path / "client"
     shutil.copytree(SAMPLE_DIR, folder)
 
+    thresholds = yaml.safe_load(
+        (ETL_ROOT / "client_ingest" / "quality_thresholds.yaml").read_text()
+    )
+    thresholds["freshness"]["max_age_days"] = 9999
+    thresholds["freshness"]["per_file_max_age_days"] = {
+        "supplier_lead_times": 9999,
+        "supplier_incidents": 9999,
+    }
+
+    baseline = evaluate_quality(folder, thresholds)
+    baseline_invalid = baseline["checks"]["referential_integrity"][
+        "sales_history"
+    ]["invalid_rows"]
+
     sales_file = folder / "sales_history.csv"
     with sales_file.open(encoding="utf-8-sig", newline="") as stream:
         reader = csv.DictReader(stream)
@@ -28,20 +42,18 @@ def test_bad_reference_fails_quality_check(tmp_path):
         writer.writeheader()
         writer.writerows(rows)
 
-    thresholds = yaml.safe_load(
-        (ETL_ROOT / "client_ingest" / "quality_thresholds.yaml").read_text()
+    report = evaluate_quality(
+        folder,
+        thresholds,
+        rejected_rows={("sales_history.csv", 2)},
     )
-    thresholds["freshness"]["max_age_days"] = 9999
-    thresholds["freshness"]["per_file_max_age_days"] = {
-        "supplier_lead_times": 9999,
-        "supplier_incidents": 9999,
-    }
+    invalid_after = report["checks"]["referential_integrity"][
+        "sales_history"
+    ]["invalid_rows"]
 
-    report = evaluate_quality(folder, thresholds)
-
+    assert invalid_after == baseline_invalid + 1
     assert report["trusted"] is False
     assert any("unknown master references" in reason for reason in report["reasons"])
-
 
 def test_client_data_load_dag_imports_and_orders_tasks():
     import os
@@ -50,6 +62,7 @@ def test_client_data_load_dag_imports_and_orders_tasks():
     if os.name == "nt":
         pytest.skip("Airflow DAG imports require Linux; run this test in Airflow Docker")
 
+    pytest.importorskip("airflow")
     import importlib.util
 
     dag_file = ETL_ROOT / "dags" / "client_data_load_dag.py"
@@ -64,8 +77,8 @@ def test_client_data_load_dag_imports_and_orders_tasks():
         "load_client_files", "build_client_kpis", "check_client_quality"
     }
     assert dag.get_task("load_client_files").downstream_task_ids == {
-        "build_client_kpis"
-    }
-    assert dag.get_task("build_client_kpis").downstream_task_ids == {
         "check_client_quality"
+    }
+    assert dag.get_task("check_client_quality").downstream_task_ids == {
+        "build_client_kpis"
     }

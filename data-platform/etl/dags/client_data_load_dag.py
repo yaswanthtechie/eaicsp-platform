@@ -1,16 +1,10 @@
 """Manual client ingestion: load, build KPIs, then run quality checks."""
-import sys
 import uuid
 from datetime import datetime
-from pathlib import Path
 
 from airflow import DAG
 from airflow.models.param import Param
 from airflow.operators.python import PythonOperator
-
-ETL_ROOT = Path("/opt/airflow/etl")
-if str(ETL_ROOT) not in sys.path:
-    sys.path.insert(0, str(ETL_ROOT))
 
 
 def load_client_files(folder_path, **context):
@@ -49,7 +43,7 @@ with DAG(
     catchup=False,
     params={
         "folder_path": Param(
-            "/opt/airflow/etl/client_ingest/samples/client_format",
+            "/opt/airflow/client_ingest/samples/client_format",
             type="string",
             minLength=1,
         )
@@ -73,4 +67,4 @@ with DAG(
         op_kwargs={"folder_path": "{{ params.folder_path }}"},
     )
 
-    load_task >> kpi_task >> quality_task
+    load_task >> quality_task >> kpi_task

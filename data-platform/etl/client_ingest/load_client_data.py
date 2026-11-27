@@ -340,6 +340,13 @@ def main(folder=None, run_id=None):
                 known["carrier"].add(_known_value("carrier", carrier_name))
     run_id = str(run_id or uuid.uuid4())
 
+    # Clear rejection records from an earlier attempt of this same run.
+    with engine.begin() as conn:
+        conn.execute(
+            text("DELETE FROM client_ingest_rejects WHERE run_id = :run"),
+            {"run": run_id},
+        )
+
     warehouse_cities = {}
     if "warehouse_master" in paths:
         with paths["warehouse_master"].open(
@@ -380,6 +387,12 @@ def main(folder=None, run_id=None):
                          rows_rejected, top_rejection_reasons)
                         VALUES (:run, :file, :entity, :read, 0, :rejected,
                                 CAST(:reasons AS jsonb))
+                        ON CONFLICT (run_id, source_file) DO UPDATE SET
+                          entity_type = EXCLUDED.entity_type,
+                          rows_read = EXCLUDED.rows_read,
+                          rows_loaded = EXCLUDED.rows_loaded,
+                          rows_rejected = EXCLUDED.rows_rejected,
+                          top_rejection_reasons = EXCLUDED.top_rejection_reasons
                     """), {
                         "run": run_id, "file": path.name, "entity": key,
                         "read": counts["read"], "rejected": counts["rejected"],
@@ -430,6 +443,12 @@ def main(folder=None, run_id=None):
                  rows_rejected, top_rejection_reasons)
                 VALUES (:run, :file, :entity, :read, :loaded, :rejected,
                         CAST(:reasons AS jsonb))
+                ON CONFLICT (run_id, source_file) DO UPDATE SET
+                  entity_type = EXCLUDED.entity_type,
+                  rows_read = EXCLUDED.rows_read,
+                  rows_loaded = EXCLUDED.rows_loaded,
+                  rows_rejected = EXCLUDED.rows_rejected,
+                  top_rejection_reasons = EXCLUDED.top_rejection_reasons
             """), {
                 "run": run_id, "file": path.name, "entity": key,
                 "read": counts["read"], "loaded": counts["loaded"],
