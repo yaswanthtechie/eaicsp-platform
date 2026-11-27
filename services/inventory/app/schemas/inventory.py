@@ -223,3 +223,37 @@ class TransferRecommendationResponse(BaseModel):
     days_saved: int = 0
     estimated_cost_savings: float = 0.0
     numbers: TransferRecommendationNumbers
+
+
+class SafetyStockInputs(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    avg_daily_demand: float
+    sd_daily_demand: float
+    demand_cv: float
+    demand_history_days: int
+    demand_window_weeks: int
+    avg_lead_time_days: float
+    sd_lead_time_days: float
+    lead_time_po_count: int
+    lead_time_source: str
+    supplier_id: Optional[str] = None
+
+
+class SafetyStockResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    sku_id: str
+    warehouse_id: str
+    abc_class: str
+    xyz_class: str
+    abc_xyz_class: str
+    service_level: float
+    z_score: float
+    inputs_used: SafetyStockInputs
+    calculated_safety_stock: float
+    safety_stock: int
+    current_safety_stock: int
+    method: str
+    is_fallback: bool
+    fallback_reason: Optional[str] = None

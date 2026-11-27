@@ -56,6 +56,31 @@ class Settings(BaseSettings):
     CLIENT_STAGING_DIR: str | None = None
     DEFAULT_SAFETY_STOCK: int = 10
 
+    # Dynamic Service-Level Safety Stock (R16-B1)
+    USE_DYNAMIC_SAFETY_STOCK: bool = False
+    SAFETY_STOCK_DEMAND_HISTORY_WEEKS: int = 12
+    SAFETY_STOCK_MIN_DEMAND_DAYS: int = 14
+    SAFETY_STOCK_MIN_DISTINCT_SALE_DAYS: int = 2
+    SAFETY_STOCK_MIN_PO_COUNT: int = 3
+    ABC_REVENUE_A_THRESHOLD: float = 0.80
+    ABC_REVENUE_B_THRESHOLD: float = 0.95
+    XYZ_CV_X_THRESHOLD: float = 0.50
+    XYZ_CV_Y_THRESHOLD: float = 1.00
+    SAFETY_STOCK_DEFAULT_LEAD_TIME_DAYS: float = 1.0
+    SAFETY_STOCK_SERVICE_LEVELS: dict[str, float] = Field(
+        default_factory=lambda: {
+            "AX": 0.98,
+            "AY": 0.96,
+            "AZ": 0.94,
+            "BX": 0.95,
+            "BY": 0.93,
+            "BZ": 0.90,
+            "CX": 0.92,
+            "CY": 0.90,
+            "CZ": 0.90,
+        }
+    )
+
     # Inter-warehouse Transfer Recommendations (R16-B2)
     TRANSFER_EXCESS_STOCK_COVER_DAYS: int = 30
     TRANSFER_MAX_PO_COST_SHARE: float = 0.50
