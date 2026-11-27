@@ -14,6 +14,26 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 15
 
 REFRESH_TOKEN_EXPIRE_DAYS = 7
 
+
+def parse_grace_period_seconds(raw_val: str | None = None) -> int:
+    """Parse and validate REFRESH_TOKEN_GRACE_PERIOD_SECONDS.
+
+    Enforces non-negative integer values. Falls back to default 10 seconds
+    if missing, empty, invalid, or negative.
+    """
+    if raw_val is None:
+        raw_val = os.getenv("REFRESH_TOKEN_GRACE_PERIOD_SECONDS", "10")
+    try:
+        val = int(str(raw_val).strip())
+        if val < 0:
+            return 10
+        return val
+    except (ValueError, TypeError, AttributeError):
+        return 10
+
+
+REFRESH_TOKEN_GRACE_PERIOD_SECONDS = parse_grace_period_seconds()
+
 # Set to true only when the service runs behind a reverse proxy / load balancer
 # that sets X-Forwarded-For itself.
 TRUST_PROXY = os.getenv("TRUST_PROXY", "false").lower() == "true"

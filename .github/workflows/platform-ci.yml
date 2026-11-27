@@ -44,7 +44,6 @@ jobs:
       run:
         working-directory: ${{ env.SERVICE_DIR }}
     env:
-      # quality-security-unit job env
       TEST_DATABASE_URL: sqlite:////tmp/unit-ci.db
     steps:
       - name: Checkout repository
@@ -103,25 +102,37 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------
-  # PLATFORM-SPECIFIC: Redis + Kafka. Other services keep only the
-  # containers and tests they actually need.
+  # PLATFORM-SPECIFIC: Redis + Kafka.
   # ---------------------------------------------------------------
   integration:
-    name: Redis and Kafka integration tests
+    name: Redis, Kafka, and PostgreSQL integration tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
       run:
         working-directory: ${{ env.SERVICE_DIR }}
     env:
-      # integration job env (line 118)
       TEST_DATABASE_URL: sqlite:////tmp/platform-integration-ci.db
+      POSTGRES_URL: postgresql://platform_user:platform_test_password@localhost:5432/platform_integration_test
       REDIS_URL: redis://localhost:6379/0
       KAFKA_BOOTSTRAP_SERVERS: localhost:9092
-      # Integration tests must fail, not skip, if a container is missing.
       CI_REQUIRE_SERVICES: "1"
 
     services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: platform_integration_test
+          POSTGRES_USER: platform_user
+          POSTGRES_PASSWORD: platform_test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U platform_user -d platform_integration_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
       redis:
         image: redis:7-alpine
         ports:
@@ -195,7 +206,10 @@ jobs:
           for attempt in range(30):
               client = None
               try:
-                  client = KafkaAdminClient(bootstrap_servers=servers, request_timeout_ms=3000)
+                  client = KafkaAdminClient(
+                      bootstrap_servers=servers,
+                      request_timeout_ms=3000,
+                  )
                   client.list_topics()
                   print("Kafka is ready")
                   break
@@ -221,7 +235,11 @@ jobs:
           try:
               if "platform.user.locked" not in admin.list_topics():
                   admin.create_topics([
-                      NewTopic(name="platform.user.locked", num_partitions=1, replication_factor=1)
+                      NewTopic(
+                          name="platform.user.locked",
+                          num_partitions=1,
+                          replication_factor=1,
+                      )
                   ])
                   print("Created platform.user.locked")
               else:
@@ -235,15 +253,47 @@ jobs:
           python -m pytest -o addopts= -m integration -v --tb=short -ra \
             tests/test_two_instance_revocation.py
 
+      - name: Refresh token Redis restart test
+        run: |
+          python -m pytest -o addopts= -m integration -v --tb=short -ra \
+            tests/test_refresh_token_redis_integration.py
+
       - name: Kafka integration tests
         run: |
           python -m pytest -o addopts= -m integration -v --tb=short -ra \
             tests/test_event_publisher_integration.py \
             tests/test_account_lock_event_integration.py
 
+      - name: Wait for PostgreSQL
+        run: |
+          python - <<'PY'
+          import os
+          import time
+          import psycopg2
+
+          url = os.environ["POSTGRES_URL"]
+
+          for attempt in range(30):
+              try:
+                  conn = psycopg2.connect(url)
+                  conn.close()
+                  print("PostgreSQL is ready")
+                  break
+              except Exception:
+                  if attempt == 29:
+                      raise
+                  time.sleep(1)
+          PY
+
+      - name: PostgreSQL refresh token rotation and concurrency integration tests
+        env:
+          TEST_DATABASE_URL: postgresql://platform_user:platform_test_password@localhost:5432/platform_integration_test
+        run: |
+          python -m pytest -o addopts= -m integration -v --tb=short -ra \
+            tests/test_refresh_token_postgres.py
+
   # ---------------------------------------------------------------
   # PLATFORM-SPECIFIC: live HTTP tests against a seeded API.
-  # Other services change the seed command, port and test file.
   # ---------------------------------------------------------------
   http-integration:
     name: Platform HTTP integration tests
@@ -311,13 +361,21 @@ jobs:
 
           for attempt in range(30):
               try:
-                  with urllib.request.urlopen("http://127.0.0.1:8005/docs", timeout=2) as response:
+                  with urllib.request.urlopen(
+                      "http://127.0.0.1:8005/docs",
+                      timeout=2,
+                  ) as response:
                       if response.status == 200:
                           print("Platform API is ready")
                           break
               except Exception:
                   if attempt == 29:
-                      print(open("/tmp/platform-api.log", encoding="utf-8").read())
+                      print(
+                          open(
+                              "/tmp/platform-api.log",
+                              encoding="utf-8",
+                          ).read()
+                      )
                       raise
                   time.sleep(2)
           else:
@@ -352,7 +410,6 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-
 
       - name: Build image (with layer cache)
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6

@@ -1,5 +1,5 @@
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import jwt
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
@@ -9,12 +9,13 @@ from sqlalchemy.orm import Session
 from app.core.config import TRUST_PROXY
 from app.core.dependencies import get_current_user, oauth2_scheme
 from app.core.permissions import ROLE_PERMISSIONS
-from app.core.revocation_store import is_token_revoked, revoke_token
+from app.core.revocation_store import (
+    is_token_revoked,
+    revoke_token,
+)
 from app.core.security import (
-    build_access_claims,
-    create_access_token,
-    create_refresh_token,
     decode_token,
+    hash_token,
 )
 from app.core.service_auth import verify_service_api_key
 from app.core.token_cache import token_cache
@@ -36,18 +37,14 @@ from app.schemas.auth import (
     TokenResponse,
     VerifyResponse,
 )
-from app.services.audit_service import (
-    TOKEN_REVOKED,
-    create_audit_log,
-)
 from app.services.auth_service import (
     complete_mfa_login,
-    get_refresh_token,
     login_user,
+    logout_family,
     register_user,
     request_password_reset,
     reset_password,
-    save_refresh_token,
+    rotate_refresh_token,
 )
 from app.services.rate_limit_service import (
     LOGIN_BRUTE_FORCE,
@@ -117,68 +114,7 @@ def login(
 
 @router.post("/refresh", response_model=AccessTokenResponse)
 def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
-    try:
-        payload = decode_token(body.refresh_token)
-
-    except jwt.InvalidTokenError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired refresh token",
-        ) from None
-
-    if payload.get("type") != "refresh":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
-        )
-
-    refresh = get_refresh_token(db=db, token=body.refresh_token)
-
-    if refresh is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or revoked refresh token",
-        )
-
-    user = db.query(User).filter(User.id == refresh.user_id).first()
-
-    if user is None or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user"
-        )
-
-    if user.role is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user"
-        )
-    new_access_token = create_access_token(build_access_claims(user))
-
-    new_refresh_token = create_refresh_token(
-        {
-            "sub": user.email,
-            "user_id": user.id,
-        }
-    )
-
-    new_refresh_expires_at = datetime.now(UTC) + timedelta(days=7)
-
-    # Revoke the old refresh token.
-    refresh.is_revoked = True
-
-    # Save the new refresh token.
-    save_refresh_token(
-        db=db,
-        user_id=user.id,
-        token=new_refresh_token,
-        expires_at=new_refresh_expires_at,
-    )
-
-    db.commit()
-
-    return {
-        "access_token": new_access_token,
-        "refresh_token": new_refresh_token,
-        "token_type": "bearer",
-    }
+    return rotate_refresh_token(db=db, raw_token=body.refresh_token)
 
 
 # ============================================================
@@ -214,10 +150,9 @@ def logout(
     current_user=Depends(get_current_user),
     access_token: str = Depends(oauth2_scheme),
 ):
+    token_hash = hash_token(body.refresh_token)
 
-    refresh = (
-        db.query(RefreshToken).filter(RefreshToken.token == body.refresh_token).first()
-    )
+    refresh = db.query(RefreshToken).filter(RefreshToken.token == token_hash).first()
 
     if refresh is None:
         raise HTTPException(
@@ -255,16 +190,7 @@ def logout(
 
     token_cache.delete(access_token)
 
-    refresh.is_revoked = True
-
-    create_audit_log(
-        db=db,
-        event_type=TOKEN_REVOKED,
-        user_id=refresh.user_id,
-        details="Refresh token and access token revoked during logout",
-    )
-
-    db.commit()
+    logout_family(db=db, refresh=refresh)
 
     return {"message": "Logged out successfully"}
 

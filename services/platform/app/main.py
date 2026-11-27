@@ -19,6 +19,9 @@ if str(_platform_dir) not in sys.path:
     sys.path.insert(0, str(_platform_dir))
 
 from scripts.migrate_add_user_uuid import run_migration  # noqa: E402
+from scripts.migrate_refresh_tokens_family_and_hash import (  # noqa: E402
+    run_migration as run_refresh_token_migration,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +31,14 @@ configure_logging()
 def init_db(target_engine=None):
     """Initialize database schema and execute pending migrations.
 
-    Ensures all tables exist and required column migrations (such as user_uuid)
-    are applied before requests can access the database.
+    Ensures all tables exist and required column migrations (such as user_uuid
+    and refresh token family/hashing) are applied before requests can access the database.
     """
     if target_engine is None:
         target_engine = engine
     Base.metadata.create_all(bind=target_engine)
     run_migration(target_engine)
+    run_refresh_token_migration(target_engine)
 
 
 @asynccontextmanager
