@@ -1,7 +1,7 @@
-﻿import json
-import mlflow
+import json
 import os
 
+import mlflow
 import pandas as pd
 
 from src.config import OUTPUT_DIR
@@ -39,13 +39,10 @@ def main():
     raw.to_csv(raw_path, index=False)
 
     metric_columns = [
-        column for column in raw.columns
-        if column not in ("seed", "model")
+        column for column in raw.columns if column not in ("seed", "model")
     ]
 
-    summary = raw.groupby("model")[metric_columns].agg(
-        ["mean", "std", "min", "max"]
-    )
+    summary = raw.groupby("model")[metric_columns].agg(["mean", "std", "min", "max"])
     summary.to_csv(summary_path)
 
     json_summary = {}

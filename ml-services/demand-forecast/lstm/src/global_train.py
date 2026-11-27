@@ -1,4 +1,3 @@
-﻿
 """Train global multi-SKU LSTM and save a self-contained safe checkpoint."""
 
 import time
@@ -9,25 +8,48 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-from src.common import set_seed, fit_with_early_stopping
-from src.global_data import load_global_data
-from src.global_model import GlobalDemandLSTM
+from src.common import fit_with_early_stopping, set_seed
 from src.config import (
-    GLOBAL_SEED as SEED,
-    GLOBAL_DATA_PATH as DATA_PATH,
-    GLOBAL_LOOKBACK as LOOKBACK,
-    GLOBAL_HORIZON as HORIZON,
     GLOBAL_BATCH_SIZE as BATCH_SIZE,
-    GLOBAL_VALIDATION_BATCH_SIZE as VALIDATION_BATCH_SIZE,
-    GLOBAL_LEARNING_RATE as LEARNING_RATE,
-    GLOBAL_EMBEDDING_DIM as EMBEDDING_DIM,
-    GLOBAL_HIDDEN_SIZE as HIDDEN_SIZE,
-    GLOBAL_NUM_LAYERS as NUM_LAYERS,
+)
+from src.config import (
+    GLOBAL_DATA_PATH as DATA_PATH,
+)
+from src.config import (
     GLOBAL_DROPOUT as DROPOUT,
+)
+from src.config import (
+    GLOBAL_EMBEDDING_DIM as EMBEDDING_DIM,
+)
+from src.config import (
     GLOBAL_EPOCHS as EPOCHS,
+)
+from src.config import (
+    GLOBAL_HIDDEN_SIZE as HIDDEN_SIZE,
+)
+from src.config import (
+    GLOBAL_HORIZON as HORIZON,
+)
+from src.config import (
+    GLOBAL_LEARNING_RATE as LEARNING_RATE,
+)
+from src.config import (
+    GLOBAL_LOOKBACK as LOOKBACK,
+)
+from src.config import (
+    GLOBAL_NUM_LAYERS as NUM_LAYERS,
+)
+from src.config import (
     GLOBAL_PATIENCE as PATIENCE,
 )
-
+from src.config import (
+    GLOBAL_SEED as SEED,
+)
+from src.config import (
+    GLOBAL_VALIDATION_BATCH_SIZE as VALIDATION_BATCH_SIZE,
+)
+from src.global_data import load_global_data
+from src.global_model import GlobalDemandLSTM
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = PROJECT_ROOT / "output"
@@ -70,27 +92,29 @@ def run_training():
     checkpoint_path = OUTPUT_DIR / "global_best_model.pt"
 
     with mlflow.start_run(run_name="global-lstm-sku-embedding"):
-        mlflow.log_params({
-            "seed": SEED,
-            "data_path": DATA_PATH,
-            "lookback": LOOKBACK,
-            "horizon": HORIZON,
-            "batch_size": BATCH_SIZE,
-            "validation_batch_size": VALIDATION_BATCH_SIZE,
-            "learning_rate": LEARNING_RATE,
-            "embedding_dim": EMBEDDING_DIM,
-            "hidden_size": HIDDEN_SIZE,
-            "num_layers": NUM_LAYERS,
-            "dropout": DROPOUT,
-            "epochs_configured": EPOCHS,
-            "early_stopping_patience": PATIENCE,
-            "num_skus": data.num_skus,
-            "num_categories": data.num_categories,
-            "num_warehouses": data.num_warehouses,
-            "num_train_windows": len(data.train),
-            "num_validation_windows": len(data.validation),
-            "device": str(device),
-        })
+        mlflow.log_params(
+            {
+                "seed": SEED,
+                "data_path": DATA_PATH,
+                "lookback": LOOKBACK,
+                "horizon": HORIZON,
+                "batch_size": BATCH_SIZE,
+                "validation_batch_size": VALIDATION_BATCH_SIZE,
+                "learning_rate": LEARNING_RATE,
+                "embedding_dim": EMBEDDING_DIM,
+                "hidden_size": HIDDEN_SIZE,
+                "num_layers": NUM_LAYERS,
+                "dropout": DROPOUT,
+                "epochs_configured": EPOCHS,
+                "early_stopping_patience": PATIENCE,
+                "num_skus": data.num_skus,
+                "num_categories": data.num_categories,
+                "num_warehouses": data.num_warehouses,
+                "num_train_windows": len(data.train),
+                "num_validation_windows": len(data.validation),
+                "device": str(device),
+            }
+        )
 
         model = GlobalDemandLSTM(
             num_skus=data.num_skus,
@@ -171,9 +195,7 @@ def run_training():
             },
             "scaler_mean": data.scaler.mean_.tolist(),
             "scaler_scale": data.scaler.scale_.tolist(),
-            "sku_mapping": {
-                str(k): int(v) for k, v in data.sku_mapping.items()
-            },
+            "sku_mapping": {str(k): int(v) for k, v in data.sku_mapping.items()},
             "category_mapping": {
                 str(k): int(v) for k, v in data.category_mapping.items()
             },
@@ -189,12 +211,14 @@ def run_training():
 
         torch.save(checkpoint, checkpoint_path)
 
-        mlflow.log_metrics({
-            "best_validation_mse": float(best_val_loss),
-            "best_epoch": float(best_epoch),
-            "epochs_completed": float(epochs_completed),
-            "training_seconds": float(elapsed),
-        })
+        mlflow.log_metrics(
+            {
+                "best_validation_mse": float(best_val_loss),
+                "best_epoch": float(best_epoch),
+                "epochs_completed": float(epochs_completed),
+                "training_seconds": float(elapsed),
+            }
+        )
 
         mlflow.log_artifact(str(checkpoint_path))
 

@@ -12,24 +12,47 @@ from torch import nn
 from torch.utils.data import DataLoader, Subset
 
 from src.common import fit_with_early_stopping, set_seed
-from src.global_data import load_global_data
-from src.global_model import GlobalDemandLSTM, load_global_checkpoint
-from src.per_sku_model import PerSKUModel
-from src.evaluate import calculate_metrics
 from src.config import (
-    GLOBAL_SEED as SEED,
-    GLOBAL_DATA_PATH as DATA_PATH,
-    GLOBAL_LOOKBACK as LOOKBACK,
-    GLOBAL_HORIZON as HORIZON,
     GLOBAL_BATCH_SIZE as BATCH_SIZE,
-    GLOBAL_VALIDATION_BATCH_SIZE as VALIDATION_BATCH_SIZE,
-    GLOBAL_LEARNING_RATE as LEARNING_RATE,
-    GLOBAL_HIDDEN_SIZE as HIDDEN_SIZE,
-    GLOBAL_NUM_LAYERS as NUM_LAYERS,
+)
+from src.config import (
+    GLOBAL_DATA_PATH as DATA_PATH,
+)
+from src.config import (
     GLOBAL_DROPOUT as DROPOUT,
+)
+from src.config import (
     GLOBAL_EPOCHS as MAX_EPOCHS,
+)
+from src.config import (
+    GLOBAL_HIDDEN_SIZE as HIDDEN_SIZE,
+)
+from src.config import (
+    GLOBAL_HORIZON as HORIZON,
+)
+from src.config import (
+    GLOBAL_LEARNING_RATE as LEARNING_RATE,
+)
+from src.config import (
+    GLOBAL_LOOKBACK as LOOKBACK,
+)
+from src.config import (
+    GLOBAL_NUM_LAYERS as NUM_LAYERS,
+)
+from src.config import (
     GLOBAL_PATIENCE as PATIENCE,
 )
+from src.config import (
+    GLOBAL_SEED as SEED,
+)
+from src.config import (
+    GLOBAL_VALIDATION_BATCH_SIZE as VALIDATION_BATCH_SIZE,
+)
+from src.evaluate import calculate_metrics
+from src.global_data import load_global_data
+from src.global_model import load_global_checkpoint
+from src.per_sku_model import PerSKUModel
+
 # ---------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------
@@ -38,8 +61,6 @@ OUTPUT_DIR = Path("output")
 
 MLFLOW_EXPERIMENT = "Demand-Forecast-LSTM-Global-vs-Per-SKU"
 MLFLOW_RUN_NAME = "global-vs-per-sku-comparison"
-
-
 
 
 def inverse_sales(scaler, values):
@@ -64,6 +85,7 @@ def _sku_forward(model, batch, device):
     """Forward one per-SKU batch through the shared training interface."""
     x, _sku, _category, _warehouse, y = batch
     return model(x.to(device)), y.to(device)
+
 
 def train_one_sku(
     data,
@@ -186,9 +208,7 @@ def log_metrics_safely(metrics, prefix):
 
 def _run_comparison():
     """Execute comparison inside an active MLflow run."""
-    device = torch.device(
-        "cuda" if torch.cuda.is_available() else "cpu"
-    )
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print("Device:", device)
 
@@ -199,24 +219,23 @@ def _run_comparison():
     )
 
     # Log dataset and split information.
-    mlflow.log_params({
-        "dataset_path": DATA_PATH,
-        "dataset_type": "synthetic",
-        "lookback_days": data.lookback,
-        "forecast_horizon_days": data.horizon,
-        "num_skus": data.num_skus,
-        "num_categories": data.num_categories,
-        "num_warehouses": data.num_warehouses,
-        "train_windows": len(data.train),
-        "validation_windows": len(data.validation),
-        "test_windows": len(data.test),
-        "device": str(device),
-    })
-
-
-    model, checkpoint = load_global_checkpoint(
-        OUTPUT_DIR / "global_best_model.pt"
+    mlflow.log_params(
+        {
+            "dataset_path": DATA_PATH,
+            "dataset_type": "synthetic",
+            "lookback_days": data.lookback,
+            "forecast_horizon_days": data.horizon,
+            "num_skus": data.num_skus,
+            "num_categories": data.num_categories,
+            "num_warehouses": data.num_warehouses,
+            "train_windows": len(data.train),
+            "validation_windows": len(data.validation),
+            "test_windows": len(data.test),
+            "device": str(device),
+        }
     )
+
+    model, checkpoint = load_global_checkpoint(OUTPUT_DIR / "global_best_model.pt")
     model.to(device)
 
     for key, current in (
@@ -224,13 +243,8 @@ def _run_comparison():
         ("category_mapping", data.category_mapping),
         ("warehouse_mapping", data.warehouse_mapping),
     ):
-        if checkpoint[key] != {
-            str(k): int(v) for k, v in current.items()
-        }:
-            raise ValueError(
-                f"{key} in checkpoint does not match the loaded dataset."
-            )
-
+        if checkpoint[key] != {str(k): int(v) for k, v in current.items()}:
+            raise ValueError(f"{key} in checkpoint does not match the loaded dataset.")
 
     # Evaluate global model, preserving the original test-window order.
     global_scaled = []
@@ -300,12 +314,8 @@ def _run_comparison():
             "train_windows": result["train_windows"],
             "validation_windows": result["validation_windows"],
             "test_windows": result["test_windows"],
-            "training_seconds": round(
-                result["training_seconds"], 2
-            ),
-            "best_validation_mse": round(
-                result["best_validation_mse"], 6
-            ),
+            "training_seconds": round(result["training_seconds"], 2),
+            "best_validation_mse": round(result["best_validation_mse"], 6),
             "best_epoch": result["best_epoch"],
         }
 
@@ -321,9 +331,7 @@ def _run_comparison():
     eligible = np.isfinite(per_sku_predictions[:, 0])
 
     if not eligible.any():
-        raise RuntimeError(
-            "No eligible test windows for a fair comparison."
-        )
+        raise RuntimeError("No eligible test windows for a fair comparison.")
 
     common_actual = global_actual[eligible]
     global_common = global_predictions[eligible]
@@ -334,9 +342,7 @@ def _run_comparison():
         per_sku_actual[eligible],
         atol=1e-5,
     ):
-        raise RuntimeError(
-            "Actual test targets are not aligned between models."
-        )
+        raise RuntimeError("Actual test targets are not aligned between models.")
 
     global_metrics = calculate_metrics(common_actual, global_common)
     per_sku_metrics = calculate_metrics(common_actual, per_sku_common)
@@ -345,14 +351,12 @@ def _run_comparison():
 
     summary = {
         "dataset_type": "synthetic",
-        "evaluation": (
-            "chronological sliding-window test; common eligible windows"
-        ),
+        "evaluation": ("chronological sliding-window test; common eligible windows"),
         "lookback_days": data.lookback,
         "forecast_horizon_days": data.horizon,
         "train_end": data.split_dates["train_end"],
         "validation_end": data.split_dates["validation_end"],
-        "total_test_windows": int(len(global_actual)),
+        "total_test_windows": len(global_actual),
         "common_test_windows": int(eligible.sum()),
         "eligible_skus": len(per_sku_results),
         "skipped_skus": skipped,
@@ -361,15 +365,9 @@ def _run_comparison():
         "global_checkpoint_training_seconds": round(
             float(checkpoint["training_seconds"]), 2
         ),
-        "per_sku_total_training_seconds": round(
-            total_sku_training_seconds, 2
-        ),
-        "per_sku_wall_clock_seconds": round(
-            per_sku_wall_clock_seconds, 2
-        ),
-        "note": (
-            "Compare model metrics only on common eligible test windows."
-        ),
+        "per_sku_total_training_seconds": round(total_sku_training_seconds, 2),
+        "per_sku_wall_clock_seconds": round(per_sku_wall_clock_seconds, 2),
+        "note": ("Compare model metrics only on common eligible test windows."),
     }
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -394,18 +392,16 @@ def _run_comparison():
     log_metrics_safely(global_metrics, "global_lstm")
     log_metrics_safely(per_sku_metrics, "per_sku_lstm")
 
-    mlflow.log_metrics({
-        "total_test_windows": float(len(global_actual)),
-        "common_test_windows": float(eligible.sum()),
-        "eligible_skus": float(len(per_sku_results)),
-        "skipped_skus": float(len(skipped)),
-        "per_sku_total_training_seconds": float(
-            total_sku_training_seconds
-        ),
-        "per_sku_wall_clock_seconds": float(
-            per_sku_wall_clock_seconds
-        ),
-    })
+    mlflow.log_metrics(
+        {
+            "total_test_windows": float(len(global_actual)),
+            "common_test_windows": float(eligible.sum()),
+            "eligible_skus": float(len(per_sku_results)),
+            "skipped_skus": float(len(skipped)),
+            "per_sku_total_training_seconds": float(total_sku_training_seconds),
+            "per_sku_wall_clock_seconds": float(per_sku_wall_clock_seconds),
+        }
+    )
 
     # Record each SKU's metrics and training information.
     for result in per_sku_results:
@@ -446,21 +442,23 @@ def run_comparison():
     mlflow.set_experiment(MLFLOW_EXPERIMENT)
 
     with mlflow.start_run(run_name=MLFLOW_RUN_NAME):
-        mlflow.log_params({
-            "seed": SEED,
-            "lookback_days": LOOKBACK,
-            "forecast_horizon_days": HORIZON,
-            "batch_size": BATCH_SIZE,
-            "validation_batch_size": VALIDATION_BATCH_SIZE,
-            "learning_rate": LEARNING_RATE,
-            "hidden_size": HIDDEN_SIZE,
-            "num_layers": NUM_LAYERS,
-            "dropout": DROPOUT,
-            "max_epochs": MAX_EPOCHS,
-            "early_stopping_patience": PATIENCE,
-            "per_sku_minimum_train_windows": 20,
-            "comparison": "global_lstm_vs_independent_per_sku_lstm",
-        })
+        mlflow.log_params(
+            {
+                "seed": SEED,
+                "lookback_days": LOOKBACK,
+                "forecast_horizon_days": HORIZON,
+                "batch_size": BATCH_SIZE,
+                "validation_batch_size": VALIDATION_BATCH_SIZE,
+                "learning_rate": LEARNING_RATE,
+                "hidden_size": HIDDEN_SIZE,
+                "num_layers": NUM_LAYERS,
+                "dropout": DROPOUT,
+                "max_epochs": MAX_EPOCHS,
+                "early_stopping_patience": PATIENCE,
+                "per_sku_minimum_train_windows": 20,
+                "comparison": "global_lstm_vs_independent_per_sku_lstm",
+            }
+        )
 
         _run_comparison()
 

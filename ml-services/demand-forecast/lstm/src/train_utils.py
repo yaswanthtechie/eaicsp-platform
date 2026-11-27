@@ -6,12 +6,11 @@ implementation for the headline walk-forward comparison. The reusable
 training/evaluation primitives live here instead of being copy-pasted.
 """
 
-from typing import Dict, Type
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.optim as optim
+from torch import nn, optim
 from torch.utils.data import DataLoader, TensorDataset
+
 from src.evaluate import calculate_metrics
 
 
@@ -58,7 +57,9 @@ def train_model(
     return model
 
 
-def evaluate_scaled(model: nn.Module, X: np.ndarray, y: np.ndarray, scaler) -> Dict[str, float]:
+def evaluate_scaled(
+    model: nn.Module, X: np.ndarray, y: np.ndarray, scaler
+) -> dict[str, float]:
     """
     Runs `model` on scaled X, inverse-transforms both prediction and target back
     to the original demand units via `scaler`, and returns MAE/RMSE/MAPE.
@@ -78,7 +79,9 @@ def evaluate_scaled(model: nn.Module, X: np.ndarray, y: np.ndarray, scaler) -> D
     return calculate_metrics(y_orig, preds)
 
 
-def chronological_train_val_split(X: np.ndarray, y: np.ndarray, val_fraction: float = 0.2):
+def chronological_train_val_split(
+    X: np.ndarray, y: np.ndarray, val_fraction: float = 0.2
+):
     """
     Splits already-windowed (X, y) sequences into a train/validation split that
     respects time order: validation is always the LATEST slice, train is
@@ -91,12 +94,12 @@ def chronological_train_val_split(X: np.ndarray, y: np.ndarray, val_fraction: fl
 
 
 def build_model(
-    model_cls: Type[nn.Module],
+    model_cls: type[nn.Module],
     hidden_size: int,
     num_layers: int,
     horizon: int = 7,
     dropout: float = 0.2,
-    dropout_rate: float = None,
+    dropout_rate: float | None = None,
 ):
     """Builds a model instance accepting either dropout or dropout_rate."""
     drop_val = dropout_rate if dropout_rate is not None else dropout

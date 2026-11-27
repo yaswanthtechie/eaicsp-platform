@@ -4,26 +4,23 @@ R4 item 5 -- Real test coverage for sequence-windowing and scaler edge cases.
 Run with: python -m pytest tests/test_edge_cases.py -v
 (from the lstm/ root, same as your existing tests/test_pipeline.py)
 """
-import os
+
 import sys
-from  pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 from sklearn.preprocessing import MinMaxScaler
 
-
-from data import create_sequences, get_walk_forward_folds
-from model import AttentionMultiStepLSTM, MultiStepLSTM 
-
+from model import AttentionMultiStepLSTM, MultiStepLSTM
+from src.data import create_sequences, get_walk_forward_folds
 
 # ---------------------------------------------------------------------------
 # Sequence-windowing edge cases
 # ---------------------------------------------------------------------------
 
-class TestSequenceWindowingEdgeCases:
 
+class TestSequenceWindowingEdgeCases:
     def test_lookback_longer_than_available_data_returns_empty(self):
         """If lookback + horizon exceeds the available series length, there are
         zero valid windows -- create_sequences must return empty arrays, not
@@ -40,8 +37,6 @@ class TestSequenceWindowingEdgeCases:
         assert y.shape == (1, 7)
         np.testing.assert_array_equal(X[0, :, 0], data[:30])
         np.testing.assert_array_equal(y[0], data[30:])
-        
-        
 
     def test_horizon_of_1_produces_single_step_targets(self):
         data = np.arange(50, dtype=float)
@@ -72,7 +67,9 @@ class TestSequenceWindowingEdgeCases:
         assert X.shape[0] == 0
         assert y.shape[0] == 0
 
-    def test_walk_forward_folds_lookback_larger_than_first_fold_train_slice(self, tmp_path):
+    def test_walk_forward_folds_lookback_larger_than_first_fold_train_slice(
+        self, tmp_path
+    ):
         """
         Verify that when lookback > train_end on early folds, get_walk_forward_folds
         clips the start index to 0 and completes without crashing on empty slices.
@@ -87,10 +84,12 @@ class TestSequenceWindowingEdgeCases:
         assert len(folds) == 5
 
         # Last fold has sufficient history (60 >= 50 + 7) to generate test sequences
-        _, _, X_te_last, y_te_last, _ = folds[-1]
+        _, _, X_te_last, _y_te_last, _ = folds[-1]
         assert len(X_te_last) > 0
 
-    def test_walk_forward_folds_lookback_equal_to_first_fold_size_succeeds(self, tmp_path):
+    def test_walk_forward_folds_lookback_equal_to_first_fold_size_succeeds(
+        self, tmp_path
+    ):
         """Sanity check on the boundary: once lookback no longer exceeds the
         first fold's accumulated training history, fold generation succeeds
         normally end to end."""
@@ -99,10 +98,13 @@ class TestSequenceWindowingEdgeCases:
         dates = pd.date_range(start="2024-01-01", periods=days, freq="D")
         df = pd.DataFrame({"Day": t, "date": dates, "Demand": 100 + t * 0.1})
 
-        fold_size = days // 6  # matches get_walk_forward_folds internal math (n_folds=5 -> //6)
-        scaler_path = str(tmp_path / "scaler.pkl")
-        folds = get_walk_forward_folds(df, n_folds=5, lookback=fold_size, horizon=3,
-                                        save_scaler_path=scaler_path)
+        fold_size = (
+            days // 6
+        )  # matches get_walk_forward_folds internal math (n_folds=5 -> //6)
+        scaler_path = str(tmp_path / "scaler.json")
+        folds = get_walk_forward_folds(
+            df, n_folds=5, lookback=fold_size, horizon=3, save_scaler_path=scaler_path
+        )
         assert len(folds) == 5
         for X_tr, y_tr, X_te, y_te, scaler in folds:
             assert isinstance(scaler, MinMaxScaler)
@@ -116,11 +118,10 @@ class TestSequenceWindowingEdgeCases:
 # runnable standalone even without torch).
 # ---------------------------------------------------------------------------
 
-class TestModelHorizonShapes:
 
+class TestModelHorizonShapes:
     def test_horizon_1_output_shape(self):
         torch = pytest.importorskip("torch")
-        from model import MultiStepLSTM
 
         model = MultiStepLSTM(input_size=1, hidden_size=16, num_layers=1, horizon=1)
         x = torch.randn(2, 10, 1)
@@ -129,7 +130,6 @@ class TestModelHorizonShapes:
 
     def test_horizon_7_output_shape(self):
         torch = pytest.importorskip("torch")
-        from model import MultiStepLSTM
 
         model = MultiStepLSTM(input_size=1, hidden_size=16, num_layers=1, horizon=7)
         x = torch.randn(2, 10, 1)
@@ -137,14 +137,15 @@ class TestModelHorizonShapes:
         assert out.shape == (2, 7)
 
     def test_attention_variant_matches_plain_output_shape(self):
-        """AttentionMultiStepLSTM must produce the same output shape contract        
+        """AttentionMultiStepLSTM must produce the same output shape contract
         on this to swap models transparently."""
         torch = pytest.importorskip("torch")
-        from model import MultiStepLSTM, AttentionMultiStepLSTM
 
         x = torch.randn(3, 30, 1)
         plain = MultiStepLSTM(input_size=1, hidden_size=16, num_layers=1, horizon=7)
-        attn = AttentionMultiStepLSTM(input_size=1, hidden_size=16, num_layers=1, horizon=7)
+        attn = AttentionMultiStepLSTM(
+            input_size=1, hidden_size=16, num_layers=1, horizon=7
+        )
         assert plain(x).shape == attn(x).shape == (3, 7)
 
 
@@ -152,8 +153,8 @@ class TestModelHorizonShapes:
 # Scaler edge cases
 # ---------------------------------------------------------------------------
 
-class TestScalerEdgeCases:
 
+class TestScalerEdgeCases:
     def test_constant_series_scaler_does_not_crash(self):
         """A constant series has zero variance; MinMaxScaler's (x - min)/(max - min)
         divides by zero. sklearn handles this internally (treats the range as 1),
@@ -198,8 +199,9 @@ class TestScalerEdgeCases:
         dates = pd.date_range(start="2024-01-01", periods=days, freq="D")
         df = pd.DataFrame({"Day": t, "date": dates, "Demand": np.full(days, 55.0)})
 
-        folds = get_walk_forward_folds(df, n_folds=5, lookback=30, horizon=7,
-                                        save_scaler_path=None)
+        folds = get_walk_forward_folds(
+            df, n_folds=5, lookback=30, horizon=7, save_scaler_path=None
+        )
         for X_tr, y_tr, X_te, y_te, scaler in folds:
             if X_tr.shape[0] > 0:
                 assert not np.isnan(X_tr).any()

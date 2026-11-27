@@ -1,4 +1,3 @@
-﻿
 from __future__ import annotations
 
 import json
@@ -12,10 +11,10 @@ import torch
 from sklearn.preprocessing import StandardScaler
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
-from src.global_data import read_global_csv
+
 from src.common import set_seed
 from src.evaluate import calculate_metrics
-
+from src.global_data import read_global_csv
 
 # ---------------------------------------------------------
 # Configuration
@@ -49,20 +48,17 @@ EXPERIMENT_NAME = "Demand-Forecast-Cold-Start"
 # Data preparation
 # ---------------------------------------------------------
 
+
 def load_and_prepare_data() -> dict:
     if not DATA_PATH.exists():
-        raise FileNotFoundError(
-            f"Dataset not found: {DATA_PATH.resolve()}"
-        )
+        raise FileNotFoundError(f"Dataset not found: {DATA_PATH.resolve()}")
 
     df = read_global_csv(DATA_PATH)
     df = df.sort_values(["date", "sku_id"]).reset_index(drop=True)
 
     cold_skus = sorted(COLD_SKUS.intersection(set(df["sku_id"])))
     if not cold_skus:
-        raise ValueError(
-            f"None of the configured cold SKUs were found: {COLD_SKUS}"
-        )
+        raise ValueError(f"None of the configured cold SKUs were found: {COLD_SKUS}")
 
     known_df = df[~df["sku_id"].isin(COLD_SKUS)].copy()
     cold_df = df[df["sku_id"].isin(COLD_SKUS)].copy()
@@ -77,59 +73,44 @@ def load_and_prepare_data() -> dict:
 
     # Fit scaler ONLY on known SKU sales within the training period.
     scaler = StandardScaler()
-    scaler.fit(
-        known_df.loc[known_df["date"] <= train_end, ["sales"]]
-    )
+    scaler.fit(known_df.loc[known_df["date"] <= train_end, ["sales"]])
 
     # Metadata vocabulary comes only from known SKUs.
     category_values = sorted(known_df["category"].astype(str).unique())
-    warehouse_values = sorted(
-        known_df["warehouse_id"].astype(str).unique()
-    )
+    warehouse_values = sorted(known_df["warehouse_id"].astype(str).unique())
     known_sku_values = sorted(known_df["sku_id"].unique())
 
     # Index 0 is reserved for unknown values.
-    category_mapping = {
-        value: index + 1
-        for index, value in enumerate(category_values)
-    }
+    category_mapping = {value: index + 1 for index, value in enumerate(category_values)}
     warehouse_mapping = {
-        value: index + 1
-        for index, value in enumerate(warehouse_values)
+        value: index + 1 for index, value in enumerate(warehouse_values)
     }
-    sku_mapping = {
-        value: index + 1
-        for index, value in enumerate(known_sku_values)
-    }
+    sku_mapping = {value: index + 1 for index, value in enumerate(known_sku_values)}
 
     def transform_frame(frame: pd.DataFrame) -> pd.DataFrame:
         result = frame.copy()
 
-        result["scaled_sales"] = scaler.transform(
-            result[["sales"]]
-        ).reshape(-1)
+        result["scaled_sales"] = scaler.transform(result[["sales"]]).reshape(-1)
 
         dow = result["day_of_week"].astype(float)
         result["dow_sin"] = np.sin(2 * np.pi * dow / 7.0)
         result["dow_cos"] = np.cos(2 * np.pi * dow / 7.0)
 
         result["category_idx"] = (
-            result["category"].astype(str)
+            result["category"]
+            .astype(str)
             .map(category_mapping)
             .fillna(0)
             .astype("int64")
         )
         result["warehouse_idx"] = (
-            result["warehouse_id"].astype(str)
+            result["warehouse_id"]
+            .astype(str)
             .map(warehouse_mapping)
             .fillna(0)
             .astype("int64")
         )
-        result["sku_idx"] = (
-            result["sku_id"].map(sku_mapping)
-            .fillna(0)
-            .astype("int64")
-        )
+        result["sku_idx"] = result["sku_id"].map(sku_mapping).fillna(0).astype("int64")
 
         return result
 
@@ -155,9 +136,7 @@ def load_and_prepare_data() -> dict:
             if len(group) < LOOKBACK + HORIZON:
                 continue
 
-            features = group[feature_columns].to_numpy(
-                dtype=np.float32
-            )
+            features = group[feature_columns].to_numpy(dtype=np.float32)
             sales = group["scaled_sales"].to_numpy(dtype=np.float32)
             dates = group["date"].to_numpy()
 
@@ -166,7 +145,6 @@ def load_and_prepare_data() -> dict:
             warehouse_idx = int(group["warehouse_idx"].iloc[0])
 
             for start in range(
-                0,
                 len(group) - LOOKBACK - HORIZON + 1,
             ):
                 input_end = start + LOOKBACK
@@ -181,14 +159,10 @@ def load_and_prepare_data() -> dict:
                     if target_end_date > train_end:
                         continue
                 elif mode == "validation":
-                    if (
-                        target_start_date <= train_end
-                        or target_end_date > val_end
-                    ):
+                    if target_start_date <= train_end or target_end_date > val_end:
                         continue
-                elif mode == "cold_test":
-                    if target_start_date <= val_end:
-                        continue
+                elif mode == "cold_test" and target_start_date <= val_end:
+                    continue
 
                 samples.append(
                     {
@@ -210,9 +184,7 @@ def load_and_prepare_data() -> dict:
     if not train_samples:
         raise ValueError("No training windows generated.")
     if not val_samples:
-        raise ValueError(
-            "No validation windows generated. Check dataset date ranges."
-        )
+        raise ValueError("No validation windows generated. Check dataset date ranges.")
     if not cold_samples:
         counts = cold_df.groupby("sku_id").size().to_dict()
         raise ValueError(
@@ -240,6 +212,7 @@ def load_and_prepare_data() -> dict:
 # ---------------------------------------------------------
 # Models
 # ---------------------------------------------------------
+
 
 class GlobalLSTM(nn.Module):
     """Global model without SKU/category/warehouse embeddings."""
@@ -297,12 +270,8 @@ class GlobalLSTMWithEmbeddings(nn.Module):
         super().__init__()
 
         self.sku_embedding = nn.Embedding(num_skus, embedding_dim)
-        self.category_embedding = nn.Embedding(
-            num_categories, embedding_dim
-        )
-        self.warehouse_embedding = nn.Embedding(
-            num_warehouses, embedding_dim
-        )
+        self.category_embedding = nn.Embedding(num_categories, embedding_dim)
+        self.warehouse_embedding = nn.Embedding(num_warehouses, embedding_dim)
 
         self.lstm = nn.LSTM(
             input_size=input_size,
@@ -351,6 +320,7 @@ class GlobalLSTMWithEmbeddings(nn.Module):
 # Tensor conversion and training
 # ---------------------------------------------------------
 
+
 def samples_to_tensors(
     samples: list[dict],
     device: torch.device,
@@ -393,9 +363,7 @@ def predict_model(
     model.eval()
     predictions = []
 
-    X, _, sku, category, warehouse = samples_to_tensors(
-        samples, device
-    )
+    X, _, sku, category, warehouse = samples_to_tensors(samples, device)
 
     with torch.no_grad():
         for start in range(0, len(samples), 128):
@@ -423,13 +391,11 @@ def train_model(
     with_embeddings: bool,
     mask_unknown_metadata: bool = False,
 ) -> tuple[nn.Module, float]:
-    X_train, y_train, sku_train, cat_train, wh_train = (
-        samples_to_tensors(train_samples, device)
+    X_train, y_train, sku_train, cat_train, wh_train = samples_to_tensors(
+        train_samples, device
     )
 
-    X_val, y_val, sku_val, cat_val, wh_val = (
-        samples_to_tensors(val_samples, device)
-    )
+    X_val, y_val, sku_val, cat_val, wh_val = samples_to_tensors(val_samples, device)
 
     train_loader = DataLoader(
         TensorDataset(
@@ -465,9 +431,7 @@ def train_model(
             # UNK SKU embedding learns a meaningful representation.
             if with_embeddings:
                 sb = sb.clone()
-                unknown_mask = (
-                    torch.rand(sb.shape, device=device) < 0.20
-                )
+                unknown_mask = torch.rand(sb.shape, device=device) < 0.20
                 sb[unknown_mask] = 0
 
                 # Unknown category/warehouse indices also need
@@ -477,12 +441,8 @@ def train_model(
                     cb = cb.clone()
                     wb = wb.clone()
 
-                    cat_mask = (
-                        torch.rand(cb.shape, device=device) < 0.10
-                    )
-                    wh_mask = (
-                        torch.rand(wb.shape, device=device) < 0.10
-                    )
+                    cat_mask = torch.rand(cb.shape, device=device) < 0.10
+                    wh_mask = torch.rand(wb.shape, device=device) < 0.10
                     cb[cat_mask] = 0
                     wb[wh_mask] = 0
 
@@ -494,9 +454,7 @@ def train_model(
 
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(
-                model.parameters(), max_norm=1.0
-            )
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
             total_train_loss += loss.item() * len(Xb)
@@ -505,9 +463,7 @@ def train_model(
         model.eval()
         with torch.no_grad():
             if with_embeddings:
-                val_prediction = model(
-                    X_val, sku_val, cat_val, wh_val
-                )
+                val_prediction = model(X_val, sku_val, cat_val, wh_val)
             else:
                 val_prediction = model(X_val)
 
@@ -546,6 +502,7 @@ def train_model(
 # Baseline
 # ---------------------------------------------------------
 
+
 def last_value_predictions(
     samples: list[dict],
 ) -> np.ndarray:
@@ -555,9 +512,7 @@ def last_value_predictions(
         # The last observed sales value in the input sequence.
         # scaled_sales is feature 0, so invert it using the scaler
         # outside this function; this function is replaced below.
-        predictions.append(
-            np.repeat(sample["last_sales"], HORIZON)
-        )
+        predictions.append(np.repeat(sample["last_sales"], HORIZON))
 
     return np.stack(predictions)
 
@@ -565,6 +520,7 @@ def last_value_predictions(
 # ---------------------------------------------------------
 # Main evaluation
 # ---------------------------------------------------------
+
 
 def main() -> None:
     set_seed()
@@ -576,9 +532,7 @@ def main() -> None:
     val_samples = data["val_samples"]
     cold_samples = data["cold_samples"]
 
-    device = torch.device(
-        "cuda" if torch.cuda.is_available() else "cpu"
-    )
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print(f"Device: {device}")
     print(f"Train windows: {len(train_samples)}")
@@ -595,16 +549,14 @@ def main() -> None:
     for sample in cold_samples:
         last_scaled_sales = sample["X"][-1, 0]
         sample["last_sales"] = float(
-            scaler.inverse_transform(
-                np.array([[last_scaled_sales]])
-            )[0, 0]
+            scaler.inverse_transform(np.array([[last_scaled_sales]]))[0, 0]
         )
 
     actual_scaled = np.stack([sample["y"] for sample in cold_samples])
 
-    actual = scaler.inverse_transform(
-        actual_scaled.reshape(-1, 1)
-    ).reshape(actual_scaled.shape)
+    actual = scaler.inverse_transform(actual_scaled.reshape(-1, 1)).reshape(
+        actual_scaled.shape
+    )
 
     # Same exact cold test windows for all three methods.
     mlflow.set_tracking_uri("sqlite:///mlflow.db")
@@ -618,6 +570,7 @@ def main() -> None:
 
     for model_name, with_embeddings, mask_metadata in model_configs:
         set_seed()
+        model: torch.nn.Module
 
         if with_embeddings:
             model = GlobalLSTMWithEmbeddings(
@@ -641,9 +594,7 @@ def main() -> None:
                     "validation_cutoff": data["val_end"],
                     "embedding_dim": 8 if with_embeddings else 0,
                     "unknown_sku_dropout": 0.20 if with_embeddings else 0.0,
-                    "unknown_metadata_dropout": (
-                        0.10 if mask_metadata else 0.0
-                    ),
+                    "unknown_metadata_dropout": (0.10 if mask_metadata else 0.0),
                 }
             )
 
@@ -684,11 +635,13 @@ def main() -> None:
                 "test_mape": metrics["MAPE"],
                 "training_seconds": training_seconds,
             }
-            mlflow.log_metrics({
-                key: float(value)
-                for key, value in model_mlflow_metrics.items()
-                if value is not None and np.isfinite(float(value))
-            })
+            mlflow.log_metrics(
+                {
+                    key: float(value)
+                    for key, value in model_mlflow_metrics.items()
+                    if value is not None and np.isfinite(float(value))
+                }
+            )
 
             model_path = OUTPUT_DIR / f"{model_name}.pt"
             torch.save(model.state_dict(), model_path)
@@ -700,10 +653,7 @@ def main() -> None:
     # Last-value baseline: repeat the last observed sales value
     # for all seven forecast days.
     baseline_predictions = np.stack(
-        [
-            np.repeat(sample["last_sales"], HORIZON)
-            for sample in cold_samples
-        ]
+        [np.repeat(sample["last_sales"], HORIZON) for sample in cold_samples]
     )
     shared_baseline_metrics = calculate_metrics(actual, baseline_predictions)
     baseline_metrics = {
@@ -729,11 +679,13 @@ def main() -> None:
             "test_mape": baseline_metrics["MAPE"],
             "training_seconds": 0.0,
         }
-        mlflow.log_metrics({
-            key: float(value)
-            for key, value in baseline_mlflow_metrics.items()
-            if value is not None and np.isfinite(float(value))
-        })
+        mlflow.log_metrics(
+            {
+                key: float(value)
+                for key, value in baseline_mlflow_metrics.items()
+                if value is not None and np.isfinite(float(value))
+            }
+        )
 
     summary = {
         "experiment": EXPERIMENT_NAME,
@@ -767,16 +719,10 @@ def main() -> None:
         )
 
     results_path = OUTPUT_DIR / "short_history_cold_start_metrics.csv"
-    pd.DataFrame(rows).sort_values("MAE").to_csv(
-        results_path, index=False
-    )
+    pd.DataFrame(rows).sort_values("MAE").to_csv(results_path, index=False)
 
     print("\nFinal results sorted by MAE:")
-    print(
-        pd.DataFrame(rows)
-        .sort_values("MAE")
-        .to_string(index=False)
-    )
+    print(pd.DataFrame(rows).sort_values("MAE").to_string(index=False))
 
     print(f"\nSaved summary: {summary_path}")
     print(f"Saved metrics: {results_path}")

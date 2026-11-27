@@ -1,11 +1,21 @@
 import os
+
 import matplotlib.pyplot as plt
 import mlflow
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.optim as optim
-from src.config import EPOCHS, HIDDEN_SIZE, HORIZON, LOOKBACK, LOSS_CURVE_PATH, NUM_LAYERS, OUTPUT_DIR, RANDOM_SEED
+from torch import nn, optim
+
+from src.config import (
+    EPOCHS,
+    HIDDEN_SIZE,
+    HORIZON,
+    LOOKBACK,
+    LOSS_CURVE_PATH,
+    NUM_LAYERS,
+    OUTPUT_DIR,
+    RANDOM_SEED,
+)
 from src.data import generate_data, get_walk_forward_folds
 from src.model import MultiStepLSTM
 
@@ -42,16 +52,20 @@ def run_diagnostics():
 
     n_folds = 5
     with mlflow.start_run(run_name="Diagnostics-5Fold-Sanity"):
-        mlflow.log_params({
-            "lookback": LOOKBACK,
-            "horizon": HORIZON,
-            "epochs": EPOCHS,
-            "n_folds": n_folds,
-            "seed": RANDOM_SEED,
-        })
+        mlflow.log_params(
+            {
+                "lookback": LOOKBACK,
+                "horizon": HORIZON,
+                "epochs": EPOCHS,
+                "n_folds": n_folds,
+                "seed": RANDOM_SEED,
+            }
+        )
 
         df = generate_data()
-        folds = get_walk_forward_folds(df, n_folds=n_folds, lookback=LOOKBACK, horizon=HORIZON)
+        folds = get_walk_forward_folds(
+            df, n_folds=n_folds, lookback=LOOKBACK, horizon=HORIZON
+        )
 
         lstm_maes, lstm_rmses = [], []
         naive_maes, naive_rmses = [], []

@@ -3,8 +3,8 @@ Multi-Step LSTM Architectures: Plain & Temporal Self-Attention
 """
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 
 class TemporalAttention(nn.Module):
@@ -31,7 +31,7 @@ class MultiStepLSTM(nn.Module):
         num_layers: int = 2,
         horizon: int = 7,
         dropout: float = 0.2,
-        dropout_rate: float = None,
+        dropout_rate: float | None = None,
         use_attention: bool = False,
         **kwargs,
     ):
@@ -61,8 +61,8 @@ class MultiStepLSTM(nn.Module):
     def enable_mc_dropout(self):
         """
         Enables Monte Carlo Dropout during inference.
-        
-        Explicitly activates standard nn.Dropout layers and enables the internal 
+
+        Explicitly activates standard nn.Dropout layers and enables the internal
         recurrent layer dropout inside nn.LSTM (active when num_layers > 1).
         """
         self.eval()
@@ -96,7 +96,7 @@ class AttentionMultiStepLSTM(MultiStepLSTM):
         num_layers: int = 2,
         horizon: int = 7,
         dropout: float = 0.2,
-        dropout_rate: float = None,
+        dropout_rate: float | None = None,
         **kwargs,
     ):
         super().__init__(

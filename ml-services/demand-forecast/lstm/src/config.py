@@ -1,14 +1,14 @@
 import os
 
 # Base directory
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__),".."))
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # File Paths
 MODEL_PATH = os.path.join(OUTPUT_DIR, "best_model.pt")
-SCALER_PATH = os.path.join(OUTPUT_DIR, "scaler.pkl")
+SCALER_PATH = os.path.join(OUTPUT_DIR, "scaler.json")
 ONNX_PATH = os.path.join(OUTPUT_DIR, "best_model.onnx")
 LOSS_CURVE_PATH = os.path.join(OUTPUT_DIR, "loss_curve.png")
 

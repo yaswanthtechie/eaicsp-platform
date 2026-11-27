@@ -5,12 +5,12 @@ Strictly selects winner on validation MAE (no test data leakage).
 
 import itertools
 import os
-from typing import Dict, List
+
 import mlflow
 import numpy as np
-from sklearn.metrics import mean_absolute_error, mean_squared_error
 import torch
-import torch.nn as nn
+from sklearn.metrics import mean_absolute_error, mean_squared_error
+from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.config import (
@@ -37,9 +37,11 @@ def run_systematic_sweep():
     return run_sweep()
 
 
-def run_sweep() -> List[Dict]:
+def run_sweep() -> list[dict]:
     df = generate_data(days=1000)
-    folds = get_walk_forward_folds(df, n_folds=N_FOLDS, lookback=LOOKBACK, horizon=HORIZON)
+    folds = get_walk_forward_folds(
+        df, n_folds=N_FOLDS, lookback=LOOKBACK, horizon=HORIZON
+    )
 
     # Search Space includes Attention alongside core architectures
     grid = {
@@ -54,7 +56,9 @@ def run_sweep() -> List[Dict]:
     configurations = [dict(zip(keys, v)) for v in itertools.product(*values)]
 
     print("=" * 95)
-    print(f"STARTING SYSTEMATIC HYPERPARAMETER SWEEP ({len(configurations)} Configurations)")
+    print(
+        f"STARTING SYSTEMATIC HYPERPARAMETER SWEEP ({len(configurations)} Configurations)"
+    )
     print("=" * 95)
 
     results = []
@@ -67,15 +71,17 @@ def run_sweep() -> List[Dict]:
         run_name = f"cfg_{idx:02d}_{attn_label}_h{config['hidden_size']}_l{config['num_layers']}_lr{config['lr']}"
 
         with mlflow.start_run(run_name=run_name):
-            mlflow.log_params({
-                **config,
-                "epochs": EPOCHS,
-                "batch_size": BATCH_SIZE,
-                "n_folds": N_FOLDS,
-                "lookback": LOOKBACK,
-                "horizon": HORIZON,
-                "seed": RANDOM_SEED,
-            })
+            mlflow.log_params(
+                {
+                    **config,
+                    "epochs": EPOCHS,
+                    "batch_size": BATCH_SIZE,
+                    "n_folds": N_FOLDS,
+                    "lookback": LOOKBACK,
+                    "horizon": HORIZON,
+                    "seed": RANDOM_SEED,
+                }
+            )
 
             for fold_idx, (X_tr, y_tr, X_te, y_te, scaler) in enumerate(folds, 1):
                 # Chronological train/val split to prevent test leakage
@@ -131,11 +137,19 @@ def run_sweep() -> List[Dict]:
                     test_preds_scaled = model(X_test_t).numpy()
 
                 # Invert scaling
-                val_preds = scaler.inverse_transform(val_preds_scaled.reshape(-1, 1)).reshape(val_preds_scaled.shape)
-                y_val_true = scaler.inverse_transform(y_val.reshape(-1, 1)).reshape(y_val.shape)
+                val_preds = scaler.inverse_transform(
+                    val_preds_scaled.reshape(-1, 1)
+                ).reshape(val_preds_scaled.shape)
+                y_val_true = scaler.inverse_transform(y_val.reshape(-1, 1)).reshape(
+                    y_val.shape
+                )
 
-                test_preds = scaler.inverse_transform(test_preds_scaled.reshape(-1, 1)).reshape(test_preds_scaled.shape)
-                y_test_true = scaler.inverse_transform(y_te.reshape(-1, 1)).reshape(y_te.shape)
+                test_preds = scaler.inverse_transform(
+                    test_preds_scaled.reshape(-1, 1)
+                ).reshape(test_preds_scaled.shape)
+                y_test_true = scaler.inverse_transform(y_te.reshape(-1, 1)).reshape(
+                    y_te.shape
+                )
 
                 # Compute fold metrics
                 val_maes.append(mean_absolute_error(y_val_true, val_preds))
@@ -149,12 +163,14 @@ def run_sweep() -> List[Dict]:
             avg_test_mae = float(np.mean(test_maes))
             avg_test_rmse = float(np.mean(test_rmses))
 
-            mlflow.log_metrics({
-                "avg_val_mae": avg_val_mae,
-                "avg_val_rmse": avg_val_rmse,
-                "avg_test_mae_reference_only": avg_test_mae,
-                "avg_test_rmse_reference_only": avg_test_rmse,
-            })
+            mlflow.log_metrics(
+                {
+                    "avg_val_mae": avg_val_mae,
+                    "avg_val_rmse": avg_val_rmse,
+                    "avg_test_mae_reference_only": avg_test_mae,
+                    "avg_test_rmse_reference_only": avg_test_rmse,
+                }
+            )
 
             res_entry = {
                 **config,
@@ -167,23 +183,33 @@ def run_sweep() -> List[Dict]:
             results.append(res_entry)
 
             attn_str = "ATTENTION" if config["use_attention"] else "PLAIN"
-            print(f"[{idx:02d}/{len(configurations):02d}] {attn_str:<9} | Hidden: {config['hidden_size']:2d} | Layers: {config['num_layers']} | LR: {config['lr']} | Val MAE: {avg_val_mae:.2f} | (Test MAE Ref: {avg_test_mae:.2f})")
+            print(
+                f"[{idx:02d}/{len(configurations):02d}] {attn_str:<9} | Hidden: {config['hidden_size']:2d} | Layers: {config['num_layers']} | LR: {config['lr']} | Val MAE: {avg_val_mae:.2f} | (Test MAE Ref: {avg_test_mae:.2f})"
+            )
 
     # Winner is strictly selected on validation MAE
     results.sort(key=lambda x: x["avg_val_mae"])
     winner = results[0]
 
     print("\n" + "=" * 95)
-    print("SWEEP RESULTS (Ranked by Validation MAE -- Test MAE shown for reference only)")
+    print(
+        "SWEEP RESULTS (Ranked by Validation MAE -- Test MAE shown for reference only)"
+    )
     print("=" * 95)
-    print(f"{'Rank':<5} {'Architecture':<12} {'Hidden':<8} {'Layers':<8} {'Dropout':<9} {'LR':<8} {'Val MAE':<10} {'Test MAE(Ref)':<14}")
+    print(
+        f"{'Rank':<5} {'Architecture':<12} {'Hidden':<8} {'Layers':<8} {'Dropout':<9} {'LR':<8} {'Val MAE':<10} {'Test MAE(Ref)':<14}"
+    )
     print("-" * 95)
     for r, c in enumerate(results[:5], 1):
         arch = "Attention" if c["use_attention"] else "Plain"
         marker = " <-- WINNER" if r == 1 else ""
-        print(f"{r:<5} {arch:<12} {c['hidden_size']:<8} {c['num_layers']:<8} {c['dropout']:<9} {c['lr']:<8} {c['avg_val_mae']:<10.2f} {c['avg_test_mae']:<14.2f}{marker}")
+        print(
+            f"{r:<5} {arch:<12} {c['hidden_size']:<8} {c['num_layers']:<8} {c['dropout']:<9} {c['lr']:<8} {c['avg_val_mae']:<10.2f} {c['avg_test_mae']:<14.2f}{marker}"
+        )
     print("=" * 95)
-    print(f"\nWinner selected on validation split: {winner['run_name']} (Val MAE: {winner['avg_val_mae']:.2f})\n")
+    print(
+        f"\nWinner selected on validation split: {winner['run_name']} (Val MAE: {winner['avg_val_mae']:.2f})\n"
+    )
     return results
 
 

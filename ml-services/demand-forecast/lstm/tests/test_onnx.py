@@ -14,19 +14,22 @@ import sys
 import warnings
 
 # Ensure src/ directory is importable when executed directly
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
+sys.path.insert(
+    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
+)
 
 import numpy as np
 import pytest
 import torch
 
-from config import HORIZON, LOOKBACK
 import model as model_module
+from config import HORIZON, LOOKBACK
 from model import MultiStepLSTM
 from onnx_export import export_to_onnx
 
 try:
     import onnxruntime as ort
+
     ONNXRUNTIME_AVAILABLE = True
 except ImportError:
     ONNXRUNTIME_AVAILABLE = False
@@ -53,8 +56,10 @@ def _assert_onnx_matches_pytorch(model: torch.nn.Module, tmp_path, filename: str
 
     so = ort.SessionOptions()
     so.log_severity_level = 3
-    ort_session = ort.InferenceSession(onnx_file, sess_options=so, providers=["CPUExecutionProvider"])
-    
+    ort_session = ort.InferenceSession(
+        onnx_file, sess_options=so, providers=["CPUExecutionProvider"]
+    )
+
     ort_inputs = {ort_session.get_inputs()[0].name: dummy_input.numpy()}
     ort_out = ort_session.run(None, ort_inputs)[0]
 
@@ -82,7 +87,7 @@ def test_onnx_identity_prediction_attention_lstm(tmp_path):
     """Attention LSTM: ONNX export must handle attention layers (bmm/softmax)
     correctly and match PyTorch output within numerical tolerance."""
     torch.manual_seed(42)
-    
+
     # Support both unified MultiStepLSTM(use_attention=True) and legacy AttentionMultiStepLSTM
     if hasattr(model_module, "AttentionMultiStepLSTM"):
         model = model_module.AttentionMultiStepLSTM(
@@ -97,7 +102,7 @@ def test_onnx_identity_prediction_attention_lstm(tmp_path):
             dropout=0.0,
             use_attention=True,
         )
-        
+
     _assert_onnx_matches_pytorch(model, tmp_path, "attention_model.onnx")
 
 

@@ -1,4 +1,4 @@
-﻿##  LSTM Demand Forecasting Service (LSTM + Ensemble & Temporal Attention)
+##  LSTM Demand Forecasting Service (LSTM + Ensemble & Temporal Attention)
 
 - A production-grade multi-step demand forecasting "microservice built with PyTorch, ONNX Runtime, and BentoML. Evaluated across 5-fold expanding walk-forward cross-validation", tracked using MLflow, and served with monte carlo dropout (MC_Dropout) for empirical uncertainty quantification.
 
@@ -129,6 +129,20 @@ python -m src.onnx_export
 
 ---
 ##  R4: Plain LSTM vs. Attention Architecture
+## R15-RH4: LSTM CI Quality Gates
+
+The LSTM CI quality checks are blocking:
+- Ruff lint and format checks
+- Mypy type checking
+- Bandit security scan
+- pip-audit dependency vulnerability scan
+- Pytest coverage gate: **30% minimum**
+
+Scaler artifacts use JSON (`output/scaler.json`) instead of pickle, so loading them can never execute code.
+
+Prophet CI checks remain report-only under the existing workflow configuration.
+
+---
 
 `AttentionMultiStepLSTM` adds additive (Bahdanau-style) attention across all lookback timesteps. `src/attention_compare.py` compares both architectures across all 5 walk-forward folds under identical conditions
 
@@ -692,7 +706,7 @@ ml-services/demand-forecast/lstm/
 │   └── test_round5_coverage.py# Adversarial input handling & full coverage suite
 ├── output/
 │   ├── best_model.pt          # Force-tracked PyTorch weights
-│   ├── scaler.pkl             # Force-tracked fitted standard scaler
+│   ├── scaler.json            # Force-tracked fitted MinMaxScaler (JSON)
 │   ├── best_model.onnx        # Force-tracked exported ONNX computation graph
 │   └── loss_curve.png         # Walk-forward fold loss curves
 ├── sweep.py                   # Systematic leak-free hyperparameter grid search

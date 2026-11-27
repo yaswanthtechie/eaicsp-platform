@@ -1,4 +1,3 @@
-
 """Leakage-aware dataset preparation for the global SKU LSTM."""
 
 from dataclasses import dataclass
@@ -8,7 +7,6 @@ import pandas as pd
 import torch
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import TensorDataset
-
 
 REQUIRED_COLUMNS = {
     "date",
@@ -88,8 +86,7 @@ def read_global_csv(csv_path) -> pd.DataFrame:
         if len(full_dates) != len(group):
             missing_days = len(full_dates) - len(group)
             raise ValueError(
-                f"{sku}: {missing_days} missing days; "
-                "reindex/impute before windowing"
+                f"{sku}: {missing_days} missing days; reindex/impute before windowing"
             )
 
     return df
@@ -115,61 +112,38 @@ def load_global_data(
 
     # Restrict to the fold's horizon so no test target falls after test_end.
     if test_end is not None:
-        df = df[
-            df["date"] <= pd.Timestamp(test_end)
-        ].reset_index(drop=True)
+        df = df[df["date"] <= pd.Timestamp(test_end)].reset_index(drop=True)
 
     unique_dates = np.sort(df["date"].unique())
 
     if len(unique_dates) < lookback + horizon + 2:
-        raise ValueError(
-            "Not enough unique dates for requested windows."
-        )
+        raise ValueError("Not enough unique dates for requested windows.")
 
     if train_end is None and validation_end is None:
-        train_cut = unique_dates[
-            int(len(unique_dates) * 0.70) - 1
-        ]
-        val_cut = unique_dates[
-            int(len(unique_dates) * 0.85) - 1
-        ]
+        train_cut = unique_dates[int(len(unique_dates) * 0.70) - 1]
+        val_cut = unique_dates[int(len(unique_dates) * 0.85) - 1]
 
     elif train_end is not None and validation_end is not None:
-        train_cut = np.datetime64(
-            pd.Timestamp(train_end), "ns"
-        )
-        val_cut = np.datetime64(
-            pd.Timestamp(validation_end), "ns"
-        )
+        train_cut = np.datetime64(pd.Timestamp(train_end), "ns")
+        val_cut = np.datetime64(pd.Timestamp(validation_end), "ns")
 
     else:
-        raise ValueError(
-            "Pass both train_end and validation_end, or neither."
-        )
+        raise ValueError("Pass both train_end and validation_end, or neither.")
 
     if not train_cut < val_cut:
-        raise ValueError(
-            "train_end must be before validation_end."
-        )
+        raise ValueError("train_end must be before validation_end.")
 
     if test_end is not None and not (
         val_cut < np.datetime64(pd.Timestamp(test_end), "ns")
     ):
-        raise ValueError(
-            "validation_end must be before test_end."
-        )
-
+        raise ValueError("validation_end must be before test_end.")
 
     # Fit scaler only on rows within the training period.
     scaler = StandardScaler()
-    train_sales = df.loc[
-        df["date"] <= train_cut, ["sales"]
-    ]
+    train_sales = df.loc[df["date"] <= train_cut, ["sales"]]
     scaler.fit(train_sales)
 
-    df["scaled_sales"] = scaler.transform(
-        df[["sales"]]
-    ).ravel()
+    df["scaled_sales"] = scaler.transform(df[["sales"]]).ravel()
 
     dow = df["day_of_week"].astype(float)
     df["dow_sin"] = np.sin(2 * np.pi * dow / 7.0)
@@ -214,9 +188,7 @@ def load_global_data(
 
     category_mapping = {
         value: idx + 1
-        for idx, value in enumerate(
-            sorted(train_rows["category"].astype(str).unique())
-        )
+        for idx, value in enumerate(sorted(train_rows["category"].astype(str).unique()))
     }
 
     warehouse_mapping = {
@@ -227,11 +199,7 @@ def load_global_data(
     }
 
     df["category_idx"] = (
-        df["category"]
-        .astype(str)
-        .map(category_mapping)
-        .fillna(UNK)
-        .astype("int64")
+        df["category"].astype(str).map(category_mapping).fillna(UNK).astype("int64")
     )
 
     df["warehouse_idx"] = (
@@ -243,50 +211,34 @@ def load_global_data(
     )
 
     too_short = sorted(
-        sku
-        for sku, group in df.groupby("sku_id")
-        if len(group) < lookback + horizon
+        sku for sku, group in df.groupby("sku_id") if len(group) < lookback + horizon
     )
 
     for sku, group in df.groupby("sku_id", sort=False):
-        group = (
-            group.sort_values("date")
-            .reset_index(drop=True)
-        )
+        group = group.sort_values("date").reset_index(drop=True)
 
         if len(group) < lookback + horizon:
             continue
 
-        features = group[feature_columns].to_numpy(
-            dtype=np.float32
-        )
-        sales = group["scaled_sales"].to_numpy(
-            dtype=np.float32
-        )
+        features = group[feature_columns].to_numpy(dtype=np.float32)
+        sales = group["scaled_sales"].to_numpy(dtype=np.float32)
         dates = group["date"].to_numpy()
 
-        category_idx = int(
-            group["category_idx"].iloc[0]
-        )
-        warehouse_idx = int(
-            group["warehouse_idx"].iloc[0]
-        )
+        category_idx = int(group["category_idx"].iloc[0])
+        warehouse_idx = int(group["warehouse_idx"].iloc[0])
 
         for end in range(
             lookback,
             len(group) - horizon + 1,
         ):
-            target_dates = dates[end:end + horizon]
+            target_dates = dates[end : end + horizon]
 
             # Assign a window only if all target dates belong
             # to one split. Windows straddling a boundary are skipped.
             if target_dates[-1] <= train_cut:
                 split = "train"
 
-            elif (
-                target_dates[0] > train_cut
-                and target_dates[-1] <= val_cut
-            ):
+            elif target_dates[0] > train_cut and target_dates[-1] <= val_cut:
                 split = "validation"
 
             elif target_dates[0] > val_cut:
@@ -295,8 +247,8 @@ def load_global_data(
             else:
                 continue
 
-            x = features[end - lookback:end]
-            y = sales[end:end + horizon]
+            x = features[end - lookback : end]
+            y = sales[end : end + horizon]
 
             buckets[split].append(
                 (
@@ -308,31 +260,22 @@ def load_global_data(
                 )
             )
 
-            target_date_buckets[split].append(
-                pd.to_datetime(target_dates).tolist()
-            )
+            target_date_buckets[split].append(pd.to_datetime(target_dates).tolist())
 
             sku_window_counts[str(sku)][split] += 1
 
     trained = sorted(
-        sku
-        for sku, counts in sku_window_counts.items()
-        if counts["train"] > 0
+        sku for sku, counts in sku_window_counts.items() if counts["train"] > 0
     )
 
     all_skus = set(df["sku_id"].unique())
 
     # SKUs too short for any complete window are skipped.
     # Other SKUs without training windows map to UNK.
-    untrained = sorted(
-        all_skus - set(trained) - set(too_short)
-    )
+    untrained = sorted(all_skus - set(trained) - set(too_short))
 
     # Index 0 is reserved for unknown/untrained SKUs.
-    sku_mapping = {
-        sku: idx + 1
-        for idx, sku in enumerate(trained)
-    }
+    sku_mapping = {sku: idx + 1 for idx, sku in enumerate(trained)}
 
     print(
         f"SKUs with train windows: {len(trained)}; "
@@ -343,62 +286,42 @@ def load_global_data(
     def make_dataset(rows):
         if not rows:
             raise ValueError(
-                "A dataset split is empty. "
-                "Check date coverage and lookback."
+                "A dataset split is empty. Check date coverage and lookback."
             )
 
         x, y, sku, category, warehouse = zip(*rows)
 
-        sku_indices = [
-            sku_mapping.get(str(value), UNK)
-            for value in sku
-        ]
+        sku_indices = [sku_mapping.get(str(value), UNK) for value in sku]
 
         return TensorDataset(
-            torch.tensor(
-                np.asarray(x), dtype=torch.float32
-            ),
-            torch.tensor(
-                np.asarray(sku_indices), dtype=torch.long
-            ),
-            torch.tensor(
-                np.asarray(category), dtype=torch.long
-            ),
-            torch.tensor(
-                np.asarray(warehouse), dtype=torch.long
-            ),
-            torch.tensor(
-                np.asarray(y), dtype=torch.float32
-            ),
+            torch.tensor(np.asarray(x), dtype=torch.float32),
+            torch.tensor(np.asarray(sku_indices), dtype=torch.long),
+            torch.tensor(np.asarray(category), dtype=torch.long),
+            torch.tensor(np.asarray(warehouse), dtype=torch.long),
+            torch.tensor(np.asarray(y), dtype=torch.float32),
         )
 
     return GlobalData(
         train=make_dataset(buckets["train"]),
         validation=make_dataset(buckets["validation"]),
         test=make_dataset(buckets["test"]),
-
         num_skus=len(sku_mapping) + 1,
         num_categories=len(category_mapping) + 1,
         num_warehouses=len(warehouse_mapping) + 1,
-
         scaler=scaler,
         sku_mapping=sku_mapping,
         category_mapping=category_mapping,
         warehouse_mapping=warehouse_mapping,
-
         lookback=lookback,
         horizon=horizon,
-
         split_dates={
             "train_end": str(pd.Timestamp(train_cut).date()),
             "validation_end": str(pd.Timestamp(val_cut).date()),
             "test_end": str(pd.Timestamp(unique_dates[-1]).date()),
         },
-
         train_target_dates=target_date_buckets["train"],
         validation_target_dates=target_date_buckets["validation"],
         test_target_dates=target_date_buckets["test"],
-
         skus_with_train_windows=trained,
         skus_mapped_to_unk=untrained,
         too_short_skipped=too_short,

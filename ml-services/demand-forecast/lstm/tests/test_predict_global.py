@@ -20,12 +20,10 @@ def test_forecast_sku_runs_on_saved_checkpoint():
     assert all(value >= 0 for value in values)
 
     history = pd.read_csv(DEFAULT_DATA)
-    last_date = pd.to_datetime(
-        history.loc[history["sku_id"] == "SKU001", "date"]
-    ).max()
-    assert result["forecast"][0]["date"] == (
-        last_date + pd.Timedelta(days=1)
-    ).strftime("%Y-%m-%d")
+    last_date = pd.to_datetime(history.loc[history["sku_id"] == "SKU001", "date"]).max()
+    assert result["forecast"][0]["date"] == (last_date + pd.Timedelta(days=1)).strftime(
+        "%Y-%m-%d"
+    )
     assert result["metadata"]["sku_embedding_used"] is True
 
 
@@ -52,9 +50,7 @@ def test_embedding_effect_uses_clipped_unk_forecast():
             category,
             warehouse,
         ).numpy()[0]
-        unk = model(
-            x, torch.tensor([0]), category, warehouse
-        ).numpy()[0]
+        unk = model(x, torch.tensor([0]), category, warehouse).numpy()[0]
 
     forecast = np.maximum(sku * scale[0] + mean[0], 0)
     unk = np.maximum(unk * scale[0] + mean[0], 0)
@@ -66,11 +62,13 @@ def test_embedding_effect_uses_clipped_unk_forecast():
 
 
 def test_make_input_rejects_gaps_in_history():
-    history = pd.DataFrame({
-        "date": pd.date_range("2026-01-01", periods=50, freq="D"),
-        "sales": np.arange(50, dtype=float),
-        "promotion": 0,
-    }).drop(index=30)
+    history = pd.DataFrame(
+        {
+            "date": pd.date_range("2026-01-01", periods=50, freq="D"),
+            "sales": np.arange(50, dtype=float),
+            "promotion": 0,
+        }
+    ).drop(index=30)
 
     with pytest.raises(ValueError, match="continuous"):
         make_input(history, 45, np.array([0.0]), np.array([1.0]))

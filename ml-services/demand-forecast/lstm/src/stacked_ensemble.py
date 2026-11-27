@@ -1,14 +1,14 @@
-﻿"""Leakage-free, time-ordered stacking for Prophet, XGBoost and LSTM."""
+"""Leakage-free, time-ordered stacking for Prophet, XGBoost and LSTM."""
 
 import json
-import mlflow
 import os
 from pathlib import Path
 
-
+import mlflow
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import Ridge
+
 ROOT = Path(__file__).resolve().parent.parent
 from src.config import DATASET_DAYS, GLOBAL_DATA_PATH, OUTPUT_DIR, RANDOM_SEED
 from src.data import generate_data
@@ -22,7 +22,6 @@ from src.ensemble import (
 )
 from src.evaluate import calculate_metrics
 
-
 BASE_COLUMNS = list(MODEL_NAMES)
 DEFAULT_BLOCK_SIZE = 28
 META_ALPHA = 1.0
@@ -33,9 +32,9 @@ def _predict_base_models(history_df, forecast_df, seed=RANDOM_SEED):
     check_contiguous(history_df, forecast_df)
 
     predictions = {
-        "Prophet": np.asarray(
-            fit_prophet_and_predict(history_df, forecast_df)
-        ).reshape(-1),
+        "Prophet": np.asarray(fit_prophet_and_predict(history_df, forecast_df)).reshape(
+            -1
+        ),
         "XGBoost": np.asarray(
             fit_xgboost_and_predict(history_df, forecast_df, seed=seed)
         ).reshape(-1),
@@ -48,8 +47,7 @@ def _predict_base_models(history_df, forecast_df, seed=RANDOM_SEED):
     for name, values in predictions.items():
         if len(values) != expected:
             raise ValueError(
-                f"{name} returned {len(values)} predictions; "
-                f"expected {expected}."
+                f"{name} returned {len(values)} predictions; expected {expected}."
             )
         if not np.isfinite(values).all():
             raise ValueError(f"{name} returned non-finite predictions.")
@@ -88,11 +86,13 @@ def generate_oof_predictions(
 
         predictions = _predict_base_models(history_df, forecast_df, seed=seed)
 
-        block = pd.DataFrame({
-            "Date": forecast_df["Date"].to_numpy(),
-            "Actual": forecast_df["Demand"].to_numpy(),
-            **predictions,
-        })
+        block = pd.DataFrame(
+            {
+                "Date": forecast_df["Date"].to_numpy(),
+                "Actual": forecast_df["Demand"].to_numpy(),
+                **predictions,
+            }
+        )
         records.append(block)
 
     result = pd.concat(records, ignore_index=True)
@@ -140,7 +140,9 @@ def evaluate_test_predictions(test_predictions, meta_model):
     result["intercept"] = float(meta_model.intercept_)
     contribution_columns = [f"{name}_contribution" for name in BASE_COLUMNS]
     result["top_contributor"] = (
-        result[contribution_columns].abs().idxmax(axis=1)
+        result[contribution_columns]
+        .abs()
+        .idxmax(axis=1)
         .str.replace("_contribution", "", regex=False)
     )
 
@@ -155,7 +157,12 @@ def evaluate_test_predictions(test_predictions, meta_model):
     return result, metrics
 
 
-def run_stacked_ensemble(block_size=DEFAULT_BLOCK_SIZE, data_seed=42, model_seed=RANDOM_SEED, write_outputs=True):
+def run_stacked_ensemble(
+    block_size=DEFAULT_BLOCK_SIZE,
+    data_seed=42,
+    model_seed=RANDOM_SEED,
+    write_outputs=True,
+):
     """
     Use the existing single-series synthetic dataset.
 
@@ -196,9 +203,7 @@ def run_stacked_ensemble(block_size=DEFAULT_BLOCK_SIZE, data_seed=42, model_seed
         df, test_start, n_rows, block_size, seed=model_seed
     )
 
-    test_results, metrics = evaluate_test_predictions(
-        test_predictions, meta_model
-    )
+    test_results, metrics = evaluate_test_predictions(test_predictions, meta_model)
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -227,8 +232,7 @@ def run_stacked_ensemble(block_size=DEFAULT_BLOCK_SIZE, data_seed=42, model_seed
         "test_end_date": str(test_results["Date"].max().date()),
         "metrics": metrics,
         "ridge_coefficients": {
-            name: float(value)
-            for name, value in zip(BASE_COLUMNS, meta_model.coef_)
+            name: float(value) for name, value in zip(BASE_COLUMNS, meta_model.coef_)
         },
         "ridge_intercept": float(meta_model.intercept_),
         "artifacts": {
@@ -244,28 +248,30 @@ def run_stacked_ensemble(block_size=DEFAULT_BLOCK_SIZE, data_seed=42, model_seed
         mlflow.set_tracking_uri("sqlite:///mlflow.db")
         mlflow.set_experiment("Demand-Forecast-Stacked-Ensemble")
         with mlflow.start_run(run_name=f"stacked-ridge-seed-{data_seed}"):
-            mlflow.log_params({
-                "data_seed": data_seed,
-                "model_seed": model_seed,
-                "block_size_days": block_size,
-                "meta_alpha": META_ALPHA,
-            })
+            mlflow.log_params(
+                {
+                    "data_seed": data_seed,
+                    "model_seed": model_seed,
+                    "block_size_days": block_size,
+                    "meta_alpha": META_ALPHA,
+                }
+            )
             for model_name, values in metrics.items():
-                mlflow.log_metrics({
-                    f"{model_name}_{key}": float(value)
-                    for key, value in values.items()
-                    if value is not None
-                })
+                mlflow.log_metrics(
+                    {
+                        f"{model_name}_{key}": float(value)
+                        for key, value in values.items()
+                        if value is not None
+                    }
+                )
             mlflow.log_artifact(metrics_path)
 
     print("\n=== Leakage-Free Stacked Ensemble ===")
     print(f"Dataset rows: {n_rows}")
     print(f"OOF rows: {len(oof_predictions)}")
     print(f"Final test rows: {len(test_results)}")
-    print(f"OOF date range: {report['oof_start_date']} to "
-          f"{report['oof_end_date']}")
-    print(f"Test date range: {report['test_start_date']} to "
-          f"{report['test_end_date']}")
+    print(f"OOF date range: {report['oof_start_date']} to {report['oof_end_date']}")
+    print(f"Test date range: {report['test_start_date']} to {report['test_end_date']}")
     print("\nFinal test metrics:")
     print(pd.DataFrame(metrics).T.round(4).to_string())
     print("\nRidge coefficients:")
@@ -273,8 +279,6 @@ def run_stacked_ensemble(block_size=DEFAULT_BLOCK_SIZE, data_seed=42, model_seed
     print(f"\nSaved report: {metrics_path}")
 
     return report
-
-
 
 
 def run_multi_series_stacked_ensemble(
@@ -305,9 +309,7 @@ def run_multi_series_stacked_ensemble(
     set_seeds(model_seed)
 
     source_path = (
-        Path(csv_path)
-        if csv_path is not None
-        else Path(ROOT) / GLOBAL_DATA_PATH
+        Path(csv_path) if csv_path is not None else Path(ROOT) / GLOBAL_DATA_PATH
     )
 
     if not source_path.exists():
@@ -316,13 +318,13 @@ def run_multi_series_stacked_ensemble(
     raw = pd.read_csv(source_path)
 
     required_columns = {
-        "date", "sku_id", "sales",
+        "date",
+        "sku_id",
+        "sales",
     }
     missing = required_columns.difference(raw.columns)
     if missing:
-        raise ValueError(
-            f"Multi-series CSV is missing columns: {sorted(missing)}"
-        )
+        raise ValueError(f"Multi-series CSV is missing columns: {sorted(missing)}")
 
     raw["date"] = pd.to_datetime(raw["date"], errors="raise")
 
@@ -339,9 +341,9 @@ def run_multi_series_stacked_ensemble(
         group = group.sort_values("date").reset_index(drop=True)
 
         # Base models expect Date and Demand columns.
-        series = group.rename(
-            columns={"date": "Date", "sales": "Demand"}
-        )[["Date", "Demand"]].copy()
+        series = group.rename(columns={"date": "Date", "sales": "Demand"})[
+            ["Date", "Demand"]
+        ].copy()
 
         if not np.isfinite(series["Demand"].to_numpy(dtype=float)).all():
             exclusions[str(sku_id)] = "Demand contains non-finite values."
@@ -350,9 +352,7 @@ def run_multi_series_stacked_ensemble(
         # These models expect a continuous daily time series.
         date_diffs = series["Date"].diff().dropna()
         if not date_diffs.eq(pd.Timedelta(days=1)).all():
-            exclusions[str(sku_id)] = (
-                "Dates are not continuous daily observations."
-            )
+            exclusions[str(sku_id)] = "Dates are not continuous daily observations."
             continue
 
         n_rows = len(series)
@@ -394,9 +394,7 @@ def run_multi_series_stacked_ensemble(
             seed=model_seed,
         )
 
-        test_results, sku_metrics = evaluate_test_predictions(
-            test, meta_model
-        )
+        test_results, sku_metrics = evaluate_test_predictions(test, meta_model)
 
         oof.insert(0, "sku_id", str(sku_id))
         test_results.insert(0, "sku_id", str(sku_id))
@@ -405,9 +403,7 @@ def run_multi_series_stacked_ensemble(
         test_frames.append(test_results)
         per_sku_metrics[str(sku_id)] = {
             method: {
-                metric: (
-                    None if value is None else float(value)
-                )
+                metric: (None if value is None else float(value))
                 for metric, value in values.items()
             }
             for method, values in sku_metrics.items()
@@ -419,9 +415,7 @@ def run_multi_series_stacked_ensemble(
             "oof_rows": len(oof),
             "test_rows": len(test_results),
             "initial_history_start": str(series["Date"].iloc[0].date()),
-            "initial_history_end": str(
-                series["Date"].iloc[oof_start - 1].date()
-            ),
+            "initial_history_end": str(series["Date"].iloc[oof_start - 1].date()),
             "oof_start": str(oof["Date"].min().date()),
             "oof_end": str(oof["Date"].max().date()),
             "test_start": str(test_results["Date"].min().date()),
@@ -456,21 +450,13 @@ def run_multi_series_stacked_ensemble(
                 if sku_values[method][metric] is not None
                 and np.isfinite(sku_values[method][metric])
             ]
-            macro_metrics[method][metric] = (
-                float(np.mean(values)) if values else None
-            )
+            macro_metrics[method][metric] = float(np.mean(values)) if values else None
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    oof_path = os.path.join(
-        OUTPUT_DIR, "multi_series_stacked_oof_predictions.csv"
-    )
-    test_path = os.path.join(
-        OUTPUT_DIR, "multi_series_stacked_test_predictions.csv"
-    )
-    metrics_path = os.path.join(
-        OUTPUT_DIR, "multi_series_stacked_metrics.json"
-    )
+    oof_path = os.path.join(OUTPUT_DIR, "multi_series_stacked_oof_predictions.csv")
+    test_path = os.path.join(OUTPUT_DIR, "multi_series_stacked_test_predictions.csv")
+    metrics_path = os.path.join(OUTPUT_DIR, "multi_series_stacked_metrics.json")
 
     report = {
         "dataset": os.path.relpath(source_path, ROOT),
@@ -509,19 +495,23 @@ def run_multi_series_stacked_ensemble(
         mlflow.set_tracking_uri("sqlite:///mlflow.db")
         mlflow.set_experiment("Demand-Forecast-Stacked-Ensemble")
         with mlflow.start_run(run_name="multi-series-stacked-ridge"):
-            mlflow.log_params({
-                "model_seed": model_seed,
-                "block_size_days": block_size,
-                "meta_alpha": META_ALPHA,
-                "min_initial_history": min_initial_history,
-                "series_count": len(per_sku_metrics),
-            })
+            mlflow.log_params(
+                {
+                    "model_seed": model_seed,
+                    "block_size_days": block_size,
+                    "meta_alpha": META_ALPHA,
+                    "min_initial_history": min_initial_history,
+                    "series_count": len(per_sku_metrics),
+                }
+            )
             for model_name, values in macro_metrics.items():
-                mlflow.log_metrics({
-                    f"macro_{model_name}_{key}": float(value)
-                    for key, value in values.items()
-                    if value is not None
-                })
+                mlflow.log_metrics(
+                    {
+                        f"macro_{model_name}_{key}": float(value)
+                        for key, value in values.items()
+                        if value is not None
+                    }
+                )
             mlflow.log_artifact(metrics_path)
             mlflow.log_artifact(test_path)
 
@@ -545,4 +535,3 @@ def run_multi_series_stacked_ensemble(
 if __name__ == "__main__":
     run_stacked_ensemble()
     run_multi_series_stacked_ensemble()
-

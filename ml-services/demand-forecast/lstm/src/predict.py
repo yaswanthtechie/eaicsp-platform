@@ -3,7 +3,7 @@ Inference Pipeline with ONNX/PyTorch Backend, MC-Dropout Bounds & Robustness San
 """
 
 import os
-import pickle
+
 import numpy as np
 import onnxruntime as ort
 import torch
@@ -19,6 +19,7 @@ from src.config import (
     RANDOM_SEED,
     SCALER_PATH,
 )
+from src.data import load_scaler
 from src.model import MultiStepLSTM
 
 
@@ -29,7 +30,9 @@ def sanitize_input_sequence(
 ) -> np.ndarray:
     """Sanitizes adversarial inputs (handles NaNs, infs, negative demand, and extreme outlier spikes)."""
     if len(sequence) != expected_len:
-        raise ValueError(f"Expected sequence length {expected_len}, got {len(sequence)}")
+        raise ValueError(
+            f"Expected sequence length {expected_len}, got {len(sequence)}"
+        )
 
     arr = np.array(sequence, dtype=np.float32)
 
@@ -56,7 +59,7 @@ def sanitize_input_sequence(
         cap_threshold = training_max + (10.0 * training_span)
     else:
         # Fallback for standalone use when no scaler is available.
-        median_val = np.median(arr[arr > 0]) if np.any(arr > 0) else 0.0
+        median_val = float(np.median(arr[arr > 0])) if np.any(arr > 0) else 0.0
         cap_threshold = max(median_val * 10.0, 1.0)
 
     arr = np.clip(arr, a_min=0.0, a_max=cap_threshold)
@@ -71,8 +74,9 @@ def compute_mc_dropout_bounds(
     n_iterations: int = 50,
 ) -> tuple:
     """Computes empirical 90% confidence intervals via Monte Carlo Dropout."""
-    if hasattr(model, "enable_mc_dropout"):
-        model.enable_mc_dropout()
+    enable_mc_dropout = getattr(model, "enable_mc_dropout", None)
+    if callable(enable_mc_dropout):
+        enable_mc_dropout()
     else:
         model.train()
 
@@ -82,26 +86,36 @@ def compute_mc_dropout_bounds(
     with torch.no_grad():
         for _ in range(n_iterations):
             pred_scaled = model(x_tensor).numpy()
-            pred_inv = scaler.inverse_transform(pred_scaled.reshape(-1, 1)).reshape(pred_scaled.shape)
+            pred_inv = scaler.inverse_transform(pred_scaled.reshape(-1, 1)).reshape(
+                pred_scaled.shape
+            )
             stochastic_preds.append(pred_inv.flatten())
 
-    stochastic_preds = np.array(stochastic_preds)  # shape: (n_iterations, horizon)
-    lower_90 = np.percentile(stochastic_preds, 5, axis=0)
-    upper_90 = np.percentile(stochastic_preds, 95, axis=0)
+    stochastic_preds_array = np.asarray(
+        stochastic_preds
+    )  # shape: (n_iterations, horizon)
+    lower_90 = np.percentile(stochastic_preds_array, 5, axis=0)
+    upper_90 = np.percentile(stochastic_preds_array, 95, axis=0)
 
     lower_bound = [max(0.0, round(float(val), 2)) for val in lower_90]
     upper_bound = [max(0.0, round(float(val), 2)) for val in upper_90]
     return lower_bound, upper_bound
 
 
-def forecast_demand(historical_demand: list, use_onnx: bool = True, mc_iterations: int = 50) -> dict:
+def forecast_demand(
+    historical_demand: list, use_onnx: bool = True, mc_iterations: int = 50
+) -> dict:
     """Runs demand forecast with calibrated empirical confidence bounds."""
 
-    if not os.path.exists(SCALER_PATH):
-        raise FileNotFoundError(f"Scaler not found at '{SCALER_PATH}'. Run src/train.py first.")
+    # Validate sequence length before checking model artifacts.
+    sanitize_input_sequence(historical_demand, expected_len=LOOKBACK)
 
-    with open(SCALER_PATH, "rb") as f:
-        scaler = pickle.load(f)
+    if not os.path.exists(SCALER_PATH):
+        raise FileNotFoundError(
+            f"Scaler not found at '{SCALER_PATH}'. Run src/train.py first."
+        )
+
+    scaler = load_scaler(SCALER_PATH)
 
     clean_seq = sanitize_input_sequence(
         historical_demand,
@@ -118,12 +132,16 @@ def forecast_demand(historical_demand: list, use_onnx: bool = True, mc_iteration
     if use_onnx and os.path.exists(ONNX_PATH):
         so = ort.SessionOptions()
         so.log_severity_level = 3
-        session = ort.InferenceSession(ONNX_PATH, sess_options=so, providers=["CPUExecutionProvider"])
+        session = ort.InferenceSession(
+            ONNX_PATH, sess_options=so, providers=["CPUExecutionProvider"]
+        )
         inputs = {session.get_inputs()[0].name: scaled_seq}
         scaled_pred = session.run(None, inputs)[0]
     else:
         if not os.path.exists(MODEL_PATH):
-            raise FileNotFoundError(f"Model checkpoint not found at '{MODEL_PATH}'. Run src/train.py first.")
+            raise FileNotFoundError(
+                f"Model checkpoint not found at '{MODEL_PATH}'. Run src/train.py first."
+            )
         model = MultiStepLSTM(
             input_size=1,
             hidden_size=HIDDEN_SIZE,
@@ -132,7 +150,9 @@ def forecast_demand(historical_demand: list, use_onnx: bool = True, mc_iteration
             dropout=DROPOUT,
             use_attention=False,
         )
-        model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu", weights_only=True))
+        model.load_state_dict(
+            torch.load(MODEL_PATH, map_location="cpu", weights_only=True)
+        )
         model.eval()
         with torch.no_grad():
             scaled_pred = model(torch.tensor(scaled_seq)).numpy()
@@ -142,7 +162,9 @@ def forecast_demand(historical_demand: list, use_onnx: bool = True, mc_iteration
 
     # 2. Empirical 90% confidence intervals via Monte Carlo Dropout
     if not os.path.exists(MODEL_PATH):
-        raise FileNotFoundError(f"Model checkpoint not found at '{MODEL_PATH}'. Run src/train.py first.")
+        raise FileNotFoundError(
+            f"Model checkpoint not found at '{MODEL_PATH}'. Run src/train.py first."
+        )
 
     pt_model = MultiStepLSTM(
         input_size=1,
@@ -152,7 +174,9 @@ def forecast_demand(historical_demand: list, use_onnx: bool = True, mc_iteration
         dropout=DROPOUT,
         use_attention=False,
     )
-    pt_model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu", weights_only=True))
+    pt_model.load_state_dict(
+        torch.load(MODEL_PATH, map_location="cpu", weights_only=True)
+    )
     torch.manual_seed(RANDOM_SEED)
 
     lower_bound, upper_bound = compute_mc_dropout_bounds(
@@ -173,7 +197,7 @@ if __name__ == "__main__":
 
     # Generate sample lookback sequence (45 days)
     sample_demand = [100.0 + i * 0.8 for i in range(LOOKBACK)]
-    
+
     result = forecast_demand(sample_demand, use_onnx=True)
 
     print(f"Input Sequence Length : {len(sample_demand)} days")

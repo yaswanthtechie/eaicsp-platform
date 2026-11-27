@@ -1,4 +1,3 @@
-﻿
 """Evaluate global multi-SKU LSTM using a safe, self-contained checkpoint."""
 
 import json
@@ -8,27 +7,29 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from src.global_data import load_global_data
-from src.global_model import load_global_checkpoint
-from src.evaluate import calculate_metrics
 from src.config import (
     GLOBAL_DATA_PATH as DATA_PATH,
-    GLOBAL_LOOKBACK as LOOKBACK,
+)
+from src.config import (
     GLOBAL_HORIZON as HORIZON,
+)
+from src.config import (
+    GLOBAL_LOOKBACK as LOOKBACK,
+)
+from src.config import (
     GLOBAL_VALIDATION_BATCH_SIZE as BATCH_SIZE,
 )
-
+from src.evaluate import calculate_metrics
+from src.global_data import load_global_data
+from src.global_model import load_global_checkpoint
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CHECKPOINT_PATH = PROJECT_ROOT / "output" / "global_best_model.pt"
 SUMMARY_PATH = PROJECT_ROOT / "output" / "global_vs_per_sku_summary.json"
 
 
-
-
 def inverse_sales(values, scaler_mean, scaler_scale):
     return values * float(scaler_scale) + float(scaler_mean)
-
 
 
 def run_evaluation():
@@ -85,9 +86,7 @@ def run_evaluation():
     )
     for key, current_mapping in expected_mappings:
         saved_mapping = checkpoint[key]
-        normalized_current = {
-            str(k): int(v) for k, v in current_mapping.items()
-        }
+        normalized_current = {str(k): int(v) for k, v in current_mapping.items()}
         if saved_mapping != normalized_current:
             raise ValueError(
                 f"{key} in checkpoint does not match the current dataset. "
@@ -131,9 +130,7 @@ def run_evaluation():
     scaled_last_values = np.concatenate(all_last_values, axis=0)
 
     actual = inverse_sales(scaled_actual, scaler_mean[0], scaler_scale[0])
-    predictions = inverse_sales(
-        scaled_predictions, scaler_mean[0], scaler_scale[0]
-    )
+    predictions = inverse_sales(scaled_predictions, scaler_mean[0], scaler_scale[0])
 
     # Repeat the last observed value across the 7-day horizon.
     baseline_scaled = np.repeat(
@@ -171,27 +168,27 @@ def run_evaluation():
         summary = {}
 
     # Keep the existing common-window global-vs-per-SKU comparison intact.
-    summary.update({
-        "dataset_type": "synthetic",
-        "lookback_days": data.lookback,
-        "forecast_horizon_days": data.horizon,
-        "train_end": data.split_dates["train_end"],
-        "validation_end": data.split_dates["validation_end"],
-        "total_test_windows": int(len(actual)),
-        "global_lstm_full_test_metrics": global_metrics,
-        "last_value_full_test_metrics": baseline_metrics,
-        "sku_coverage": coverage,
-        "global_checkpoint_training_seconds": float(
-            checkpoint["training_seconds"]
-        ),
-        "best_epoch": int(checkpoint["best_epoch"]),
-        "best_validation_mse": float(checkpoint["best_validation_mse"]),
-        "note": (
-            "Full-test metrics use all test windows. Any global-vs-per-SKU "
-            "comparison must use the same common eligible test windows. "
-            "The test set was not used for checkpoint selection."
-        ),
-    })
+    summary.update(
+        {
+            "dataset_type": "synthetic",
+            "lookback_days": data.lookback,
+            "forecast_horizon_days": data.horizon,
+            "train_end": data.split_dates["train_end"],
+            "validation_end": data.split_dates["validation_end"],
+            "total_test_windows": len(actual),
+            "global_lstm_full_test_metrics": global_metrics,
+            "last_value_full_test_metrics": baseline_metrics,
+            "sku_coverage": coverage,
+            "global_checkpoint_training_seconds": float(checkpoint["training_seconds"]),
+            "best_epoch": int(checkpoint["best_epoch"]),
+            "best_validation_mse": float(checkpoint["best_validation_mse"]),
+            "note": (
+                "Full-test metrics use all test windows. Any global-vs-per-SKU "
+                "comparison must use the same common eligible test windows. "
+                "The test set was not used for checkpoint selection."
+            ),
+        }
+    )
 
     with SUMMARY_PATH.open("w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)

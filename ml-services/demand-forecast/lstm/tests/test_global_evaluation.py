@@ -1,4 +1,4 @@
-﻿import json
+import json
 import math
 
 import numpy as np
@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 
 import src.global_evaluation as evaluation
 from src.global_data import load_global_data
-from src.global_model import GlobalDemandLSTM, CHECKPOINT_KEYS
+from src.global_model import CHECKPOINT_KEYS, GlobalDemandLSTM
 
 
 @pytest.fixture
@@ -19,15 +19,17 @@ def small_df():
 
     for sku_index in range(3):
         for i, date in enumerate(dates):
-            rows.append({
-                "date": date,
-                "sku_id": f"SKU{sku_index + 1}",
-                "category": f"Category{sku_index % 2}",
-                "warehouse_id": f"WH{sku_index % 2}",
-                "sales": float(20 + sku_index * 5 + i * 0.2 + np.sin(i / 5)),
-                "promotion": float(i % 7 == 0),
-                "day_of_week": date.dayofweek,
-            })
+            rows.append(
+                {
+                    "date": date,
+                    "sku_id": f"SKU{sku_index + 1}",
+                    "category": f"Category{sku_index % 2}",
+                    "warehouse_id": f"WH{sku_index % 2}",
+                    "sales": float(20 + sku_index * 5 + i * 0.2 + np.sin(i / 5)),
+                    "promotion": float(i % 7 == 0),
+                    "day_of_week": date.dayofweek,
+                }
+            )
 
     return pd.DataFrame(rows)
 

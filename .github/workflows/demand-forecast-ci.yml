@@ -38,7 +38,7 @@ jobs:
       matrix:
         include:
           - model: lstm
-            cov_floor: 29
+            cov_floor: 30
           - model: prophet
             cov_floor: 54
     defaults:
@@ -65,29 +65,29 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install ruff==0.17.4 mypy==1.14.0 bandit==1.9.4 pip-audit==2.7.3 pytest-cov==6.0.0
 
-      # Report-only until the owner issue linked in the PR is closed.
-      - name: Ruff lint (report-only)
-        continue-on-error: true
+      # LSTM quality checks are blocking; Prophet remains report-only pending its owner issue.
+      - name: Ruff lint (LSTM blocking)
+        continue-on-error: ${{ matrix.model != 'lstm' }}
         run: python -m ruff check --output-format=github .
 
-      - name: Ruff format check (report-only)
-        continue-on-error: true
+      - name: Ruff format check (LSTM blocking)
+        continue-on-error: ${{ matrix.model != 'lstm' }}
         run: python -m ruff format --check .
 
-      - name: Mypy (report-only)
-        continue-on-error: true
+      - name: Mypy (LSTM blocking)
+        continue-on-error: ${{ matrix.model != 'lstm' }}
         run: python -m mypy src --ignore-missing-imports
 
       - name: Python syntax check
         run: python -m compileall -q src
 
-      # Report-only until the LSTM and Prophet owner issues are closed (B301 pickle.load).
-      - name: Bandit (report-only)
-        continue-on-error: true
+      # LSTM scaler artifacts use JSON; Prophet remains report-only pending its security cleanup.
+      - name: Bandit (LSTM blocking)
+        continue-on-error: ${{ matrix.model != 'lstm' }}
         run: python -m bandit -r src -ll
 
-      - name: pip-audit (report-only)
-        continue-on-error: true
+      - name: pip-audit (LSTM blocking)
+        continue-on-error: ${{ matrix.model != 'lstm' }}
         run: python -m pip_audit -r requirements.txt --desc
 
       - name: Unit tests with coverage
