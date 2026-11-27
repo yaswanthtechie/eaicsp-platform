@@ -3,6 +3,7 @@ import logging
 from fastapi import (
     APIRouter,
     Depends,
+    Header,
     HTTPException,
     Query,
     status,
@@ -24,6 +25,9 @@ from app.services.compliance_client import (
     ComplianceServiceError,
     ComplianceServiceUnavailableError,
 )
+from app.services.idempotency_service import (
+    execute_idempotent,
+)
 from app.services.purchase_order_service import (
     approve_purchase_order,
     create_automatic_draft_po,
@@ -44,17 +48,39 @@ router = APIRouter(
     "/draft",
     response_model=PurchaseOrderResponse,
     status_code=status.HTTP_201_CREATED,
+    responses={
+        409: {
+            "description": "Compliance blocked or Idempotency-Key conflict with different request body"
+        },
+    },
 )
 def create_purchase_order(
     data: PurchaseOrderRequest,
+    idempotency_key: str | None = Header(
+        default=None,
+        alias="Idempotency-Key",
+        description="Optional idempotency key for safe request retries.",
+    ),
     db: Session = Depends(get_db),
     auth=Depends(require_permission("purchase_order:create")),
 ):
     try:
-        return create_automatic_draft_po(
+        return execute_idempotent(
             db=db,
-            data=data,
+            idempotency_key=idempotency_key,
+            scope="POST:/api/v1/inventory/purchase-orders/draft",
+            request_payload=data,
+            success_status_code=status.HTTP_201_CREATED,
+            action=lambda: create_automatic_draft_po(
+                db=db,
+                data=data,
+                commit=False,
+            ),
+            serialize=lambda po: PurchaseOrderResponse.model_validate(po),
         )
+
+    except HTTPException:
+        raise
 
     except ComplianceBlockedError as exc:
         raise HTTPException(

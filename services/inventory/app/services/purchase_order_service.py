@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -26,6 +27,12 @@ from app.services.reorder_service import (
 
 def generate_po_id(db: Session) -> str:
     """Canonical PO ID per blueprint section 2: PO-<year>-<6 digits>, e.g. PO-2026-000123."""
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(
+            text(
+                "SELECT pg_advisory_xact_lock(hashtext('inventory.purchase_order_id'))"
+            )
+        )
     prefix = f"PO-{datetime.now(UTC).year}-"
     last = (
         db.query(PurchaseOrder.po_id)
@@ -286,6 +293,7 @@ def create_draft_po_for_inventory(
 def create_automatic_draft_po(
     db: Session,
     data: PurchaseOrderRequest,
+    commit: bool = True,
 ):
     """
     Existing request-driven PO endpoint.
@@ -363,8 +371,11 @@ def create_automatic_draft_po(
     )
 
     try:
-        db.commit()
-        db.refresh(purchase_order)
+        if commit:
+            db.commit()
+            db.refresh(purchase_order)
+        else:
+            db.flush()
 
     except Exception:
         db.rollback()

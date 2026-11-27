@@ -416,6 +416,18 @@ def update_inventory(
 
     quantity_delta = new_quantity - old_quantity
 
+    if quantity_delta < 0:
+        from app.services.reservation_service import (
+            expire_stale_reservations_for_inventory,
+        )
+
+        expire_stale_reservations_for_inventory(db=db, inventory=item)
+        if new_quantity < int(item.reserved_quantity):
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot reduce quantity below reserved_quantity",
+            )
+
     # -----------------------------------------------------
     # Apply normal field updates.
     # -----------------------------------------------------
@@ -733,6 +745,19 @@ def bulk_update_inventory(
                     f"{update.sku_id}/"
                     f"{update.warehouse_id}"
                 )
+
+            if update.quantity_delta < 0:
+                from app.services.reservation_service import (
+                    expire_stale_reservations_for_inventory,
+                )
+
+                expire_stale_reservations_for_inventory(db=db, inventory=item)
+                if new_quantity < int(item.reserved_quantity):
+                    raise ValueError(
+                        "Insufficient available stock for "
+                        f"{update.sku_id}/"
+                        f"{update.warehouse_id}"
+                    )
 
             # -------------------------------------------------
             # MILESTONE 3:

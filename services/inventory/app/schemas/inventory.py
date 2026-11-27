@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal, Optional
 
 from pydantic import (
@@ -257,3 +258,25 @@ class SafetyStockResponse(BaseModel):
     method: str
     is_fallback: bool
     fallback_reason: Optional[str] = None
+
+
+class ReservationCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sku_id: str = Field(min_length=1)
+    warehouse_id: str = Field(min_length=1)
+    quantity: int = Field(gt=0)
+    ttl_seconds: Optional[int] = Field(default=None, gt=0)
+
+
+class ReservationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    reservation_id: str
+    sku_id: str
+    warehouse_id: str
+    quantity: int
+    status: str
+    expires_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime

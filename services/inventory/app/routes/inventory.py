@@ -5,6 +5,7 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
+    Header,
     HTTPException,
     Query,
     UploadFile,
@@ -32,6 +33,8 @@ from app.schemas.inventory import (
     MultiEchelonResponse,
     ReorderCheckResponse,
     ReorderPlanEntry,
+    ReservationCreateRequest,
+    ReservationResponse,
     SafetyStockResponse,
     SimulationResponse,
     TransferRecommendationResponse,
@@ -54,6 +57,9 @@ from app.services.cache_service import (
     invalidate_inventory_cache,
     set_cached_all_inventory,
     set_cached_inventory,
+)
+from app.services.idempotency_service import (
+    execute_idempotent,
 )
 from app.services.inventory_service import (
     bulk_update_inventory,
@@ -85,6 +91,16 @@ from app.services.reorder_service import (
     build_reorder_context,
     calculate_reorder_point,
     calculate_urgency_score,
+)
+from app.services.reservation_service import (
+    InsufficientAvailableStockError,
+    ReservationExpiredError,
+    ReservationNotFoundError,
+    ReservationStateError,
+    confirm_reservation,
+    expire_stale_reservations_for_inventory,
+    release_reservation,
+    reserve_stock,
 )
 from app.services.safety_stock_service import (
     calculate_service_level_safety_stock,
@@ -746,10 +762,12 @@ def decrement_inventory_route(
                 detail="Inventory not found",
             )
 
-        if item.quantity_on_hand < quantity:
+        expire_stale_reservations_for_inventory(db=db, inventory=item)
+
+        if item.available_quantity < quantity:
             raise HTTPException(
                 status_code=409,
-                detail="Insufficient stock",
+                detail="Insufficient available stock",
             )
 
         # Consume FIFO cost layers before changing
@@ -1006,6 +1024,158 @@ def get_safety_stock_route(
     except (ValueError, OverflowError) as exc:
         raise HTTPException(
             status_code=400,
+            detail=str(exc),
+        ) from exc
+
+
+# =========================================================
+# STOCK RESERVATIONS (R16-B3)
+# Permission: inventory:write
+# =========================================================
+
+
+@router.post(
+    "/reservations",
+    response_model=ReservationResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("inventory:write"))],
+    summary="Create a stock reservation (R16-B3)",
+    description=(
+        "Reserves available inventory for a SKU and warehouse. Supports optional "
+        "Idempotency-Key header for safe retries."
+    ),
+    responses={
+        201: {"description": "Stock reservation created"},
+        400: {"description": "Invalid reservation request"},
+        401: {"description": "Missing or invalid token"},
+        403: {"description": "Insufficient permissions"},
+        404: {"description": "Inventory not found"},
+        409: {
+            "description": "Insufficient available stock or Idempotency-Key conflict with different request body"
+        },
+    },
+)
+def create_reservation_route(
+    data: ReservationCreateRequest,
+    idempotency_key: str | None = Header(
+        default=None,
+        alias="Idempotency-Key",
+        description="Optional idempotency key for safe request retries.",
+    ),
+    db: Session = Depends(get_db),
+):
+    try:
+        return execute_idempotent(
+            db=db,
+            idempotency_key=idempotency_key,
+            scope="POST:/api/v1/inventory/reservations",
+            request_payload=data,
+            success_status_code=status.HTTP_201_CREATED,
+            action=lambda: reserve_stock(
+                db=db,
+                sku_id=data.sku_id,
+                warehouse_id=data.warehouse_id,
+                quantity=data.quantity,
+                ttl_seconds=data.ttl_seconds,
+                commit=False,
+            ),
+            serialize=lambda res: ReservationResponse.model_validate(res),
+        )
+    except ReservationNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except InsufficientAvailableStockError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post(
+    "/reservations/{reservation_id}/release",
+    response_model=ReservationResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_permission("inventory:write"))],
+    summary="Release an active stock reservation (R16-B3)",
+    responses={
+        200: {"description": "Stock reservation released"},
+        400: {"description": "Invalid reservation ID"},
+        401: {"description": "Missing or invalid token"},
+        403: {"description": "Insufficient permissions"},
+        404: {"description": "Reservation or inventory not found"},
+        409: {"description": "Reservation is not active and cannot be released"},
+    },
+)
+def release_reservation_route(
+    reservation_id: str,
+    db: Session = Depends(get_db),
+):
+    try:
+        return release_reservation(db=db, reservation_id=reservation_id)
+    except ReservationNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except ReservationStateError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post(
+    "/reservations/{reservation_id}/confirm",
+    response_model=ReservationResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_permission("inventory:write"))],
+    summary="Confirm an active stock reservation (R16-B3)",
+    responses={
+        200: {"description": "Stock reservation confirmed and inventory deducted"},
+        400: {"description": "Invalid reservation ID"},
+        401: {"description": "Missing or invalid token"},
+        403: {"description": "Insufficient permissions"},
+        404: {"description": "Reservation or inventory not found"},
+        409: {
+            "description": "Reservation expired, invalid state, or insufficient stock"
+        },
+    },
+)
+def confirm_reservation_route(
+    reservation_id: str,
+    db: Session = Depends(get_db),
+):
+    try:
+        return confirm_reservation(db=db, reservation_id=reservation_id)
+    except ReservationNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except (
+        ReservationExpiredError,
+        ReservationStateError,
+        InsufficientAvailableStockError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
 

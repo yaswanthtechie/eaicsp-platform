@@ -61,6 +61,33 @@ Inventory records track an integer `version` column. Concurrent updates validate
 
 ---
 
+## 4b. Stock Reservations & Idempotency (R16-B3)
+
+### Stock Reservation Lifecycle
+- **Statuses:** `ACTIVE` → `COMMITTED` (confirmed and deducted from stock & FIFO layers), `RELEASED` (cancelled, releasing `reserved_quantity`), or `EXPIRED` (past `expires_at`).
+- **Available Stock:** Calculated as `available_quantity = quantity_on_hand - reserved_quantity`. Active reservations cannot be consumed by `/decrement`, `/bulk-update`, `PUT /{sku_id}/{warehouse_id}`, or multi-echelon transfers.
+- **Row-Level Concurrency Protection:** All reservation mutations acquire PostgreSQL row locks via `.with_for_update()` in consistent **`Inventory` → `StockReservation` → `InventoryCostLayer`** order to prevent overselling, double release/confirm, and deadlocks.
+- **Reservation Expiration & Lazy Cleanup:** Configured via `RESERVATION_EXPIRATION_SECONDS` (default `900` seconds / 15 minutes). No Redis TTL or external scheduler is required—expired `ACTIVE` holds are released lazily under row lock during `reserve_stock()`, `confirm_reservation()`, and stock deductions, ensuring `reserved_quantity` is decremented at most once.
+
+### API Idempotency (`Idempotency-Key`)
+- **Supported Endpoints:** `POST /api/v1/inventory/reservations`, `POST /api/v1/inventory/purchase-orders/draft`, and `POST /api/v1/inventory/goods-receipts`.
+- **Behavior:** Optional `Idempotency-Key` header (omitting it preserves existing behavior). Stored in `idempotency_records` with `(idempotency_key, scope)` uniqueness, canonical request-body SHA-256 hash (no tokens/secrets stored), HTTP status, JSON response, and `expires_at`.
+  - **Same key + same scope + same body:** Replays the original response without re-executing the operation.
+  - **Same key + same scope + different body (or in-progress race):** Returns `409 Conflict`.
+  - **Retention:** Configured via `IDEMPOTENCY_RETENTION_SECONDS` (default `86400` seconds / 24 hours); expired keys are purged lazily on reuse.
+
+### Running Reservation & Idempotency Tests
+```powershell
+# Unit, route, and migration tests (SQLite)
+python -m pytest tests/test_stock_reservation_models.py tests/test_reservation_service.py tests/test_reservation_idempotency_api.py -v
+
+# PostgreSQL concurrency integration tests (requires live PostgreSQL *_test DB)
+$env:INTEGRATION_TEST = "1"
+python -m pytest -o addopts= -m integration tests/test_reservation_service.py tests/test_reservation_idempotency_api.py -v
+```
+
+---
+
 ## 5. Authentication & Permissions
 
 Integrates with Platform Auth Service (`http://localhost:8005`) for role-based access control:

@@ -1,17 +1,20 @@
 from app.models.compliance_event import ProcessedEvent, SupplierComplianceState
 from app.models.goods_receipt import GoodsReceipt, GoodsReceiptItem
+from app.models.idempotency import IdempotencyRecord
 from app.models.inventory import Inventory
 from app.models.inventory_cost_layer import InventoryCostLayer
 from app.models.outbox import Outbox
 from app.models.product import Product
 from app.models.purchase_order import PurchaseOrder
 from app.models.sales_history import SalesHistory
+from app.models.stock_reservation import StockReservation
 from app.models.supplier import Supplier, SupplierLeadTime
 from app.models.warehouse import Warehouse
 
 __all__ = [
     "GoodsReceipt",
     "GoodsReceiptItem",
+    "IdempotencyRecord",
     "Inventory",
     "InventoryCostLayer",
     "Outbox",
@@ -19,6 +22,7 @@ __all__ = [
     "Product",
     "PurchaseOrder",
     "SalesHistory",
+    "StockReservation",
     "Supplier",
     "SupplierComplianceState",
     "SupplierLeadTime",

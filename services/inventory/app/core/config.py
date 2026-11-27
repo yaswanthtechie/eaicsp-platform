@@ -81,6 +81,12 @@ class Settings(BaseSettings):
         }
     )
 
+    # Stock Reservations (R16-B3)
+    RESERVATION_EXPIRATION_SECONDS: int = Field(default=900, gt=0)
+
+    # Idempotency Retention (R16-B3)
+    IDEMPOTENCY_RETENTION_SECONDS: int = Field(default=86400, gt=0)
+
     # Inter-warehouse Transfer Recommendations (R16-B2)
     TRANSFER_EXCESS_STOCK_COVER_DAYS: int = 30
     TRANSFER_MAX_PO_COST_SHARE: float = 0.50

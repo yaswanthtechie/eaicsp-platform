@@ -87,9 +87,15 @@ def transfer_stock(
             f"Destination inventory not found: {sku_id}/{destination_warehouse_id}"
         )
 
-    if source.quantity_on_hand < quantity:
+    from app.services.reservation_service import (
+        expire_stale_reservations_for_inventory,
+    )
+
+    expire_stale_reservations_for_inventory(db=db, inventory=source)
+
+    if source.available_quantity < quantity:
         raise ValueError(
-            f"Insufficient stock in source warehouse: {source_warehouse_id}"
+            f"Insufficient available stock in source warehouse: {source_warehouse_id}"
         )
 
     # -----------------------------------------------------

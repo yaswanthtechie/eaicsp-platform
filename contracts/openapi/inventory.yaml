@@ -24,12 +24,25 @@ paths:
       - Purchase Orders
       summary: Create Purchase Order
       operationId: create_purchase_order_api_v1_inventory_purchase_orders_draft_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Optional idempotency key for safe request retries.
+          title: Idempotency-Key
+        description: Optional idempotency key for safe request retries.
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/PurchaseOrderRequest'
-        required: true
       responses:
         '201':
           description: Successful Response
@@ -37,14 +50,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PurchaseOrderResponse'
+        '409':
+          description: Compliance blocked or Idempotency-Key conflict with different
+            request body
         '422':
           description: Validation Error
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
   /api/v1/inventory/purchase-orders/{po_id}/approve:
     post:
       tags:
@@ -258,12 +272,25 @@ paths:
         Increments on-hand stock in inventory_ledger, marks goods receipt, and emits
         event inventory.goods.received to Kafka for 3-way match in Supplier Portal.'
       operationId: create_goods_receipt_api_v1_inventory_goods_receipts_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Optional idempotency key for safe request retries.
+          title: Idempotency-Key
+        description: Optional idempotency key for safe request retries.
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/GoodsReceiptCreate'
-        required: true
       responses:
         '201':
           description: Successful Response
@@ -275,14 +302,14 @@ paths:
           description: Missing or invalid token
         '403':
           description: Insufficient permissions
+        '409':
+          description: Idempotency-Key conflict with different request body
         '422':
           description: Validation Error
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
   /api/v1/inventory:
     get:
       tags:
@@ -893,6 +920,133 @@ paths:
           description: Insufficient permissions
         '404':
           description: Inventory not found
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inventory/reservations:
+    post:
+      tags:
+      - Inventory
+      summary: Create a stock reservation (R16-B3)
+      description: Reserves available inventory for a SKU and warehouse. Supports
+        optional Idempotency-Key header for safe retries.
+      operationId: create_reservation_route_api_v1_inventory_reservations_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Optional idempotency key for safe request retries.
+          title: Idempotency-Key
+        description: Optional idempotency key for safe request retries.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReservationCreateRequest'
+      responses:
+        '201':
+          description: Stock reservation created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationResponse'
+        '400':
+          description: Invalid reservation request
+        '401':
+          description: Missing or invalid token
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: Inventory not found
+        '409':
+          description: Insufficient available stock or Idempotency-Key conflict with
+            different request body
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inventory/reservations/{reservation_id}/release:
+    post:
+      tags:
+      - Inventory
+      summary: Release an active stock reservation (R16-B3)
+      operationId: release_reservation_route_api_v1_inventory_reservations__reservation_id__release_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: reservation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Reservation Id
+      responses:
+        '200':
+          description: Stock reservation released
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationResponse'
+        '400':
+          description: Invalid reservation ID
+        '401':
+          description: Missing or invalid token
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: Reservation or inventory not found
+        '409':
+          description: Reservation is not active and cannot be released
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inventory/reservations/{reservation_id}/confirm:
+    post:
+      tags:
+      - Inventory
+      summary: Confirm an active stock reservation (R16-B3)
+      operationId: confirm_reservation_route_api_v1_inventory_reservations__reservation_id__confirm_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: reservation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Reservation Id
+      responses:
+        '200':
+          description: Stock reservation confirmed and inventory deducted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationResponse'
+        '400':
+          description: Invalid reservation ID
+        '401':
+          description: Missing or invalid token
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: Reservation or inventory not found
+        '409':
+          description: Reservation expired, invalid state, or insufficient stock
         '422':
           description: Validation Error
           content:
@@ -1841,6 +1995,74 @@ components:
       - abc_tier
       - adjusted_safety_stock
       title: ReorderPlanEntry
+    ReservationCreateRequest:
+      properties:
+        sku_id:
+          type: string
+          minLength: 1
+          title: Sku Id
+        warehouse_id:
+          type: string
+          minLength: 1
+          title: Warehouse Id
+        quantity:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Quantity
+        ttl_seconds:
+          anyOf:
+          - type: integer
+            exclusiveMinimum: 0.0
+          - type: 'null'
+          title: Ttl Seconds
+      additionalProperties: false
+      type: object
+      required:
+      - sku_id
+      - warehouse_id
+      - quantity
+      title: ReservationCreateRequest
+    ReservationResponse:
+      properties:
+        reservation_id:
+          type: string
+          title: Reservation Id
+        sku_id:
+          type: string
+          title: Sku Id
+        warehouse_id:
+          type: string
+          title: Warehouse Id
+        quantity:
+          type: integer
+          title: Quantity
+        status:
+          type: string
+          title: Status
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expires At
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+      type: object
+      required:
+      - reservation_id
+      - sku_id
+      - warehouse_id
+      - quantity
+      - status
+      - created_at
+      - updated_at
+      title: ReservationResponse
     SafetyStockInputs:
       properties:
         avg_daily_demand:

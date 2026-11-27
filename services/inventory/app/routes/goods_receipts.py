@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.auth import require_permission, require_roles
@@ -10,6 +10,7 @@ from app.services.goods_receipt_service import (
     invalidate_receipt_cache,
     record_goods_receipt,
 )
+from app.services.idempotency_service import execute_idempotent
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ router = APIRouter(
     responses={
         401: {"description": "Missing or invalid token"},
         403: {"description": "Insufficient permissions"},
+        409: {"description": "Idempotency-Key conflict with different request body"},
     },
     dependencies=[
         Depends(require_permission("inventory:write")),
@@ -39,6 +41,11 @@ router = APIRouter(
 )
 def create_goods_receipt(
     data: GoodsReceiptCreate,
+    idempotency_key: str | None = Header(
+        default=None,
+        alias="Idempotency-Key",
+        description="Optional idempotency key for safe request retries.",
+    ),
     db: Session = Depends(get_db),
     auth: dict = Depends(require_roles("warehouse_manager")),
 ):
@@ -55,30 +62,32 @@ def create_goods_receipt(
     received_by = str(user_id)
 
     try:
-        receipt = record_goods_receipt(
+        return execute_idempotent(
             db=db,
-            data=data,
-            received_by=received_by,
+            idempotency_key=idempotency_key,
+            scope="POST:/api/v1/inventory/goods-receipts",
+            request_payload=data,
+            success_status_code=status.HTTP_201_CREATED,
+            action=lambda: record_goods_receipt(
+                db=db,
+                data=data,
+                received_by=received_by,
+            ),
+            serialize=lambda receipt: GoodsReceiptResponse.model_validate(receipt),
+            after_commit=lambda receipt: invalidate_receipt_cache(db, receipt),
         )
-        db.commit()
-        db.refresh(receipt)
-        invalidate_receipt_cache(db, receipt)
-        return receipt
+
+    except HTTPException:
+        raise
 
     except LookupError as exc:
-        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         ) from exc
 
     except ValueError as exc:
-        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
-
-    except Exception:
-        db.rollback()
-        raise
