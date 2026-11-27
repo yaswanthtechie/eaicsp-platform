@@ -1,0 +1,10 @@
+﻿apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: eaicsp
+resources:
+  - namespace.yaml
+  - fastapi-services.yaml
+  - core-stores.yaml
+  - extended-stores.yaml
+  - service-config.yaml
+  - workers.yaml

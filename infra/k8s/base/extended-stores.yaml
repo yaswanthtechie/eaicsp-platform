@@ -1,0 +1,378 @@
+﻿apiVersion: v1
+kind: Service
+metadata:
+  name: clickhouse
+  namespace: eaicsp
+spec:
+  selector:
+    app: clickhouse
+  ports:
+    - name: http
+      port: 8123
+      targetPort: http
+    - name: native
+      port: 9000
+      targetPort: native
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: clickhouse
+  namespace: eaicsp
+spec:
+  serviceName: clickhouse
+  replicas: 1
+  selector:
+    matchLabels:
+      app: clickhouse
+  template:
+    metadata:
+      labels:
+        app: clickhouse
+    spec:
+      containers:
+        - name: clickhouse
+          image: clickhouse/clickhouse-server:24.8
+          ports:
+            - name: http
+              containerPort: 8123
+            - name: native
+              containerPort: 9000
+          env:
+            - name: CLICKHOUSE_DB
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: CLICKHOUSE_DB
+            - name: CLICKHOUSE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: CLICKHOUSE_USER
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: CLICKHOUSE_PASSWORD
+            - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
+              value: "1"
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - clickhouse-client --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD" --query 'SELECT 1'
+            periodSeconds: 10
+            failureThreshold: 36
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - clickhouse-client --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD" --query 'SELECT 1'
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - clickhouse-client --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD" --query 'SELECT 1'
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: clickhouse-data
+              mountPath: /var/lib/clickhouse
+  volumeClaimTemplates:
+    - metadata:
+        name: clickhouse-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: eaicsp
+spec:
+  selector:
+    app: minio
+  ports:
+    - name: api
+      port: 9000
+      targetPort: api
+    - name: console
+      port: 9001
+      targetPort: console
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio
+  namespace: eaicsp
+spec:
+  serviceName: minio
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+        - name: minio
+          image: eaicsp/minio-with-client:local
+          imagePullPolicy: IfNotPresent
+          args:
+            - server
+            - /data
+            - --console-address
+            - ":9001"
+          ports:
+            - name: api
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: MINIO_ROOT_PASSWORD
+            - name: MC_HOST_local
+              value: "http://$(MINIO_ROOT_USER):$(MINIO_ROOT_PASSWORD)@127.0.0.1:9000"
+          startupProbe:
+            exec:
+              command: ["/usr/bin/mc", "ready", "local"]
+            periodSeconds: 10
+            failureThreshold: 36
+          readinessProbe:
+            exec:
+              command: ["/usr/bin/mc", "ready", "local"]
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["/usr/bin/mc", "ready", "local"]
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: minio-data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: minio-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: influxdb
+  namespace: eaicsp
+spec:
+  selector:
+    app: influxdb
+  ports:
+    - name: http
+      port: 8086
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: influxdb
+  namespace: eaicsp
+spec:
+  serviceName: influxdb
+  replicas: 1
+  selector:
+    matchLabels:
+      app: influxdb
+  template:
+    metadata:
+      labels:
+        app: influxdb
+    spec:
+      containers:
+        - name: influxdb
+          image: influxdb:2.7
+          ports:
+            - name: http
+              containerPort: 8086
+          env:
+            - name: DOCKER_INFLUXDB_INIT_MODE
+              value: setup
+            - name: DOCKER_INFLUXDB_INIT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: INFLUXDB_USERNAME
+            - name: DOCKER_INFLUXDB_INIT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: INFLUXDB_PASSWORD
+            - name: DOCKER_INFLUXDB_INIT_ORG
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: INFLUXDB_ORG
+            - name: DOCKER_INFLUXDB_INIT_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: INFLUXDB_BUCKET
+            - name: DOCKER_INFLUXDB_INIT_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: INFLUXDB_ADMIN_TOKEN
+          startupProbe:
+            exec:
+              command: ["influx", "ping"]
+            periodSeconds: 10
+            failureThreshold: 36
+          readinessProbe:
+            exec:
+              command: ["influx", "ping"]
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["influx", "ping"]
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: influxdb-data
+              mountPath: /var/lib/influxdb2
+  volumeClaimTemplates:
+    - metadata:
+        name: influxdb-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow
+  namespace: eaicsp
+spec:
+  selector:
+    app: mlflow
+  ports:
+    - name: http
+      port: 5000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mlflow
+  namespace: eaicsp
+spec:
+  serviceName: mlflow
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mlflow
+  template:
+    metadata:
+      labels:
+        app: mlflow
+    spec:
+      containers:
+        - name: mlflow
+          image: python:3.12-slim
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              pip install --no-cache-dir "SQLAlchemy>=2.0.0,<2.1.0" mlflow==3.4.0 psycopg2-binary boto3
+              exec mlflow server \
+                --host 0.0.0.0 \
+                --port 5000 \
+                --backend-store-uri "postgresql://mlflow_user:${MLFLOW_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}?options=-csearch_path%3Dmlflow" \
+                --default-artifact-root s3://ml-models
+          ports:
+            - name: http
+              containerPort: 5000
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: POSTGRES_DB
+            - name: MLFLOW_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: MLFLOW_DB_PASSWORD
+            - name: MLFLOW_S3_ENDPOINT_URL
+              value: http://minio:9000
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: MINIO_ROOT_USER
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: eaicsp-secrets
+                  key: MINIO_ROOT_PASSWORD
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
