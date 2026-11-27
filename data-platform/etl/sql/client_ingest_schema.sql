@@ -41,3 +41,14 @@ CREATE TABLE IF NOT EXISTS client_ingest_reports (
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     UNIQUE (run_id, source_file)
 );
+
+
+-- Quality status is stored per ingestion run for Gateway consumption.
+ALTER TABLE client_ingest_reports
+    ADD COLUMN IF NOT EXISTS trusted BOOLEAN;
+
+ALTER TABLE client_ingest_reports
+    ADD COLUMN IF NOT EXISTS untrusted_reason TEXT;
+
+ALTER TABLE client_ingest_reports
+    ADD COLUMN IF NOT EXISTS quality_results JSONB NOT NULL DEFAULT '{}'::jsonb;
