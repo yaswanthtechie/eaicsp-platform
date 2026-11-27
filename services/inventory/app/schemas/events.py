@@ -160,3 +160,32 @@ class InventoryGoodsReceivedEvent(BaseModel):
     producer: Literal["inventory-service"] = "inventory-service"
     trace_id: Optional[str] = None
     payload: GoodsReceivedPayload
+
+
+class InventoryTransferRecommendedPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    sku_id: str = Field(pattern=r"^SKU-\d{6}$")
+    source_warehouse_id: str = Field(pattern=r"^WH-[A-Z]{3}-\d{2}$")
+    destination_warehouse_id: str = Field(pattern=r"^WH-[A-Z]{3}-\d{2}$")
+    transfer_quantity: int = Field(ge=1)
+    transfer_lead_time_days: int = Field(ge=0)
+    transfer_cost: float = Field(ge=0)
+    po_lead_time_days: int = Field(ge=0)
+    po_cost: float = Field(ge=0)
+    cost_savings: Optional[float] = None
+    reason: str
+
+
+class InventoryTransferRecommendedEvent(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    event_id: uuid.UUID
+    event_type: Literal["inventory.transfer.recommended"] = (
+        "inventory.transfer.recommended"
+    )
+    event_version: Literal[1] = 1
+    occurred_at: datetime
+    producer: Literal["inventory-service"] = "inventory-service"
+    trace_id: Optional[str] = None
+    payload: InventoryTransferRecommendedPayload

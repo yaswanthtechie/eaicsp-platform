@@ -187,6 +187,44 @@ class MultiEchelonResponse(BaseModel):
     supplier_po: Optional[dict] = None
 
 
+class TransferRecommendationNumbers(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    destination_quantity_on_hand: int
+    destination_reorder_point: int
+    shortage_quantity: int
+    recommended_quantity: int
+    po_lead_time_days: int
+    po_unit_cost: float
+    po_cost: float
+    source_warehouse_id: Optional[str] = None
+    source_quantity_on_hand: Optional[int] = None
+    source_reorder_point: Optional[int] = None
+    source_stock_cover_days: Optional[float] = None
+    source_excess_quantity: Optional[int] = None
+    transfer_lead_time_days: Optional[int] = None
+    transfer_cost_per_unit: Optional[float] = None
+    transfer_cost: Optional[float] = None
+    cost_share_ratio: Optional[float] = None
+    max_allowed_cost_share: float
+    min_stock_cover_days: float
+
+
+class TransferRecommendationResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    sku_id: str
+    product_name: str
+    destination_warehouse_id: str
+    recommendation: str
+    reason: str
+    source_warehouse_id: Optional[str] = None
+    recommended_quantity: int
+    days_saved: int = 0
+    estimated_cost_savings: float = 0.0
+    numbers: TransferRecommendationNumbers
+
+
 class SafetyStockInputs(BaseModel):
     model_config = ConfigDict(extra="ignore")
 

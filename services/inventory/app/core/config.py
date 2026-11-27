@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -77,6 +79,40 @@ class Settings(BaseSettings):
             "CY": 0.90,
             "CZ": 0.90,
         }
+    )
+
+    # Inter-warehouse Transfer Recommendations (R16-B2)
+    TRANSFER_EXCESS_STOCK_COVER_DAYS: int = 30
+    TRANSFER_MAX_PO_COST_SHARE: float = 0.50
+    TRANSFER_DEFAULT_UNIT_COST: float = 50.0
+    TRANSFER_DEFAULT_PO_LEAD_TIME_DAYS: int = 7
+    TRANSFER_LANES: list[dict[str, Any]] = Field(
+        default_factory=lambda: [
+            {
+                "from_warehouse": "WH-BLR-01",
+                "to_warehouse": "WH-BOM-01",
+                "lead_time_days": 2,
+                "cost_per_unit": 5.0,
+            },
+            {
+                "from_warehouse": "WH-BOM-01",
+                "to_warehouse": "WH-BLR-01",
+                "lead_time_days": 2,
+                "cost_per_unit": 5.0,
+            },
+            {
+                "from_warehouse": "WH-DEL-01",
+                "to_warehouse": "WH-BLR-01",
+                "lead_time_days": 3,
+                "cost_per_unit": 8.0,
+            },
+            {
+                "from_warehouse": "WH-BLR-01",
+                "to_warehouse": "WH-DEL-01",
+                "lead_time_days": 3,
+                "cost_per_unit": 8.0,
+            },
+        ]
     )
 
     model_config = SettingsConfigDict(

@@ -345,6 +345,58 @@ paths:
                 title: Response Reorder Plan Api V1 Inventory Reorder Plan Get
       security:
       - HTTPBearer: []
+  /api/v1/inventory/transfer-recommendations:
+    get:
+      tags:
+      - Inventory
+      summary: Get inter-warehouse transfer recommendations (R16-B2)
+      description: Evaluates SKUs below reorder point and recommends inter-warehouse
+        transfers when available from warehouses with excess stock cover via configured
+        lanes. Recommends transfer if it arrives before a new PO and costs less than
+        the configured share of PO cost; otherwise recommends a purchase order.
+      operationId: transfer_recommendations_route_api_v1_inventory_transfer_recommendations_get
+      responses:
+        '200':
+          description: List of transfer / replenishment recommendations
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/TransferRecommendationResponse'
+                type: array
+                title: Response Transfer Recommendations Route Api V1 Inventory Transfer
+                  Recommendations Get
+        '401':
+          description: Missing or invalid token
+        '403':
+          description: Insufficient permissions
+      security:
+      - HTTPBearer: []
+  /api/v1/inventory/transfer-recommendations/publish:
+    post:
+      tags:
+      - Inventory
+      summary: Publish inventory.transfer.recommended events (R16-B2)
+      description: Same recommendations as the GET endpoint, and records one inventory.transfer.recommended
+        event per transfer per day in the outbox.
+      operationId: publish_transfer_recommendations_route_api_v1_inventory_transfer_recommendations_publish_post
+      responses:
+        '200':
+          description: Recommendations; transfer events recorded in the outbox
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/TransferRecommendationResponse'
+                type: array
+                title: Response Publish Transfer Recommendations Route Api V1 Inventory
+                  Transfer Recommendations Publish Post
+        '401':
+          description: Missing or invalid token
+        '403':
+          description: Insufficient permissions
+      security:
+      - HTTPBearer: []
   /api/v1/inventory/low-stock:
     get:
       tags:
@@ -1977,6 +2029,137 @@ components:
       - received_po_count
       - on_time_po_count
       title: SupplierPerformanceResponse
+    TransferRecommendationNumbers:
+      properties:
+        destination_quantity_on_hand:
+          type: integer
+          title: Destination Quantity On Hand
+        destination_reorder_point:
+          type: integer
+          title: Destination Reorder Point
+        shortage_quantity:
+          type: integer
+          title: Shortage Quantity
+        recommended_quantity:
+          type: integer
+          title: Recommended Quantity
+        po_lead_time_days:
+          type: integer
+          title: Po Lead Time Days
+        po_unit_cost:
+          type: number
+          title: Po Unit Cost
+        po_cost:
+          type: number
+          title: Po Cost
+        source_warehouse_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Warehouse Id
+        source_quantity_on_hand:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Source Quantity On Hand
+        source_reorder_point:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Source Reorder Point
+        source_stock_cover_days:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Source Stock Cover Days
+        source_excess_quantity:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Source Excess Quantity
+        transfer_lead_time_days:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Transfer Lead Time Days
+        transfer_cost_per_unit:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Transfer Cost Per Unit
+        transfer_cost:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Transfer Cost
+        cost_share_ratio:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Cost Share Ratio
+        max_allowed_cost_share:
+          type: number
+          title: Max Allowed Cost Share
+        min_stock_cover_days:
+          type: number
+          title: Min Stock Cover Days
+      type: object
+      required:
+      - destination_quantity_on_hand
+      - destination_reorder_point
+      - shortage_quantity
+      - recommended_quantity
+      - po_lead_time_days
+      - po_unit_cost
+      - po_cost
+      - max_allowed_cost_share
+      - min_stock_cover_days
+      title: TransferRecommendationNumbers
+    TransferRecommendationResponse:
+      properties:
+        sku_id:
+          type: string
+          title: Sku Id
+        product_name:
+          type: string
+          title: Product Name
+        destination_warehouse_id:
+          type: string
+          title: Destination Warehouse Id
+        recommendation:
+          type: string
+          title: Recommendation
+        reason:
+          type: string
+          title: Reason
+        source_warehouse_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Warehouse Id
+        recommended_quantity:
+          type: integer
+          title: Recommended Quantity
+        days_saved:
+          type: integer
+          title: Days Saved
+          default: 0
+        estimated_cost_savings:
+          type: number
+          title: Estimated Cost Savings
+          default: 0.0
+        numbers:
+          $ref: '#/components/schemas/TransferRecommendationNumbers'
+      type: object
+      required:
+      - sku_id
+      - product_name
+      - destination_warehouse_id
+      - recommendation
+      - reason
+      - recommended_quantity
+      - numbers
+      title: TransferRecommendationResponse
     TransferSuggestion:
       properties:
         sku_id:

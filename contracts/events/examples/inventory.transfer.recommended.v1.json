@@ -1,0 +1,20 @@
+{
+  "event_id": "b5c7d9e1-f3a5-4b7c-9d1e-2f4a6b8c0d2e",
+  "event_type": "inventory.transfer.recommended",
+  "event_version": 1,
+  "occurred_at": "2026-11-24T12:00:00Z",
+  "producer": "inventory-service",
+  "trace_id": "trace-b5c7d9e1-f3a5-4b7c-9d1e-2f4a6b8c0d2e",
+  "payload": {
+    "sku_id": "SKU-000123",
+    "source_warehouse_id": "WH-BOM-01",
+    "destination_warehouse_id": "WH-BLR-01",
+    "transfer_quantity": 50,
+    "transfer_lead_time_days": 2,
+    "transfer_cost": 250.0,
+    "po_lead_time_days": 7,
+    "po_cost": 1000.0,
+    "cost_savings": 750.0,
+    "reason": "Transfer arrives 5 days faster than PO (2 vs 7 days) and costs 250.0 (25.0% of PO cost 1000.0)"
+  }
+}

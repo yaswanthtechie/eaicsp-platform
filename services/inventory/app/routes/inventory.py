@@ -34,6 +34,7 @@ from app.schemas.inventory import (
     ReorderPlanEntry,
     SafetyStockResponse,
     SimulationResponse,
+    TransferRecommendationResponse,
     WhatIfRequest,
     WhatIfResponse,
 )
@@ -94,6 +95,9 @@ from app.services.simulation_service import (
 from app.services.supplier_performance_service import (
     calculate_all_suppliers_performance,
     get_supplier_performance,
+)
+from app.services.transfer_recommendation_service import (
+    generate_transfer_recommendations,
 )
 from app.services.transfer_service import (
     find_transfer_suggestion,
@@ -261,6 +265,76 @@ def reorder_plan(
         raise HTTPException(
             status_code=400,
             detail=f"Invalid inventory data: {exc}",
+        ) from exc
+
+
+# =========================================================
+# TRANSFER RECOMMENDATIONS
+# Permission: inventory:read
+# =========================================================
+
+
+@router.get(
+    "/transfer-recommendations",
+    response_model=list[TransferRecommendationResponse],
+    dependencies=[Depends(require_permission("inventory:read"))],
+    summary="Get inter-warehouse transfer recommendations (R16-B2)",
+    description=(
+        "Evaluates SKUs below reorder point and recommends inter-warehouse transfers "
+        "when available from warehouses with excess stock cover via configured lanes. "
+        "Recommends transfer if it arrives before a new PO and costs less than the "
+        "configured share of PO cost; otherwise recommends a purchase order."
+    ),
+    responses={
+        200: {"description": "List of transfer / replenishment recommendations"},
+        401: {"description": "Missing or invalid token"},
+        403: {"description": "Insufficient permissions"},
+    },
+)
+@router.get(
+    "/transfers/recommendations",
+    response_model=list[TransferRecommendationResponse],
+    dependencies=[Depends(require_permission("inventory:read"))],
+    summary="Get inter-warehouse transfer recommendations (alias)",
+    include_in_schema=False,
+)
+def transfer_recommendations_route(
+    db: Session = Depends(get_db),
+):
+    try:
+        return generate_transfer_recommendations(db=db, publish_events=False)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid transfer data: {exc}",
+        ) from exc
+
+
+@router.post(
+    "/transfer-recommendations/publish",
+    response_model=list[TransferRecommendationResponse],
+    dependencies=[Depends(require_permission("inventory:write"))],
+    summary="Publish inventory.transfer.recommended events (R16-B2)",
+    description=(
+        "Same recommendations as the GET endpoint, and records one "
+        "inventory.transfer.recommended event per transfer per day in the outbox."
+    ),
+    responses={
+        200: {"description": "Recommendations; transfer events recorded in the outbox"},
+        401: {"description": "Missing or invalid token"},
+        403: {"description": "Insufficient permissions"},
+    },
+)
+def publish_transfer_recommendations_route(
+    db: Session = Depends(get_db),
+):
+    try:
+        return generate_transfer_recommendations(db=db, publish_events=True)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid transfer data: {exc}",
         ) from exc
 
 
